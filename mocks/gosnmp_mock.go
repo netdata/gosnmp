@@ -351,21 +351,6 @@ func (mr *MockHandlerMockRecorder) SecurityParameters() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SecurityParameters", reflect.TypeOf((*MockHandler)(nil).SecurityParameters))
 }
 
-// SendTrap mocks base method.
-func (m *MockHandler) SendTrap(trap gosnmp.SnmpTrap) (*gosnmp.SnmpPacket, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SendTrap", trap)
-	ret0, _ := ret[0].(*gosnmp.SnmpPacket)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// SendTrap indicates an expected call of SendTrap.
-func (mr *MockHandlerMockRecorder) SendTrap(trap any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SendTrap", reflect.TypeOf((*MockHandler)(nil).SendTrap), trap)
-}
-
 // Set mocks base method.
 func (m *MockHandler) Set(pdus []gosnmp.SnmpPDU) (*gosnmp.SnmpPacket, error) {
 	m.ctrl.T.Helper()

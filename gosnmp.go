@@ -390,8 +390,6 @@ func (x *GoSNMP) validateParameters() error {
 	}
 
 	if x.Version == Version3 {
-		// TODO: setting the Reportable flag violates rfc3412#6.4 if PDU is of type SNMPv2Trap.
-		// See if we can do this smarter and remove bitclear fix from trap.go:57
 		x.MsgFlags |= Reportable // tell the snmp server that a report PDU MUST be sent
 
 		err := x.validateParametersV3()
@@ -450,7 +448,7 @@ func (x *GoSNMP) Get(oids []string) (result *SnmpPacket, err error) {
 	}
 	// build up SnmpPacket
 	packetOut := x.mkSnmpPacket(GetRequest, pdus, 0, 0)
-	return x.send(packetOut, true)
+	return x.send(packetOut)
 }
 
 // Set sends an SNMP SET request
@@ -463,7 +461,7 @@ func (x *GoSNMP) Set(pdus []SnmpPDU) (result *SnmpPacket, err error) {
 	default:
 		return nil, fmt.Errorf("ERR:gosnmp currently only supports SNMP SETs for Integer, OctetString, Gauge32, IPAddress, ObjectIdentifier, Counter32, Counter64, Null, TimeTicks, Uinteger32, OpaqueFloat, and OpaqueDouble. Not %s", pdus[0].Type)
 	}
-	return x.send(packetOut, true)
+	return x.send(packetOut)
 }
 
 // GetNext sends an SNMP GETNEXT request
@@ -483,7 +481,7 @@ func (x *GoSNMP) GetNext(oids []string) (result *SnmpPacket, err error) {
 	// Marshal and send the packet
 	packetOut := x.mkSnmpPacket(GetNextRequest, pdus, 0, 0)
 
-	return x.send(packetOut, true)
+	return x.send(packetOut)
 }
 
 // GetBulk sends an SNMP GETBULK request
@@ -507,7 +505,7 @@ func (x *GoSNMP) GetBulk(oids []string, nonRepeaters uint8, maxRepetitions uint3
 
 	// Marshal and send the packet
 	packetOut := x.mkSnmpPacket(GetBulkRequest, pdus, nonRepeaters, maxRepetitions)
-	return x.send(packetOut, true)
+	return x.send(packetOut)
 }
 
 // SnmpEncodePacket exposes SNMP packet generation to external callers.

@@ -56,13 +56,13 @@ type SnmpPacket struct {
 	Variables          []SnmpPDU
 	Logger             Logger
 
-	// v1 traps have a very different format from v2c and v3 traps.
-	//
-	// These fields are set via the SnmpTrap parameter to SendTrap().
+	// v1 traps have a very different format from v2c and v3 traps. SnmpTrap
+	// holds the v1 trap header and the inform flag.
 	SnmpTrap
 }
 
-// SnmpTrap is used to define a SNMP trap, and is passed into SendTrap
+// SnmpTrap holds what only traps and informs carry: the v1 trap header and
+// whether the packet is an InformRequest.
 type SnmpTrap struct {
 	Variables []SnmpPDU
 
@@ -183,7 +183,7 @@ func (packet *SnmpPacket) SafeString() string {
 
 // GoSNMP
 // send/receive one snmp request
-func (x *GoSNMP) sendOneRequest(packetOut *SnmpPacket, wait bool) (result *SnmpPacket, err error) {
+func (x *GoSNMP) sendOneRequest(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 	allReqIDs := make([]uint32, 0, x.Retries+1)
 	// allMsgIDs := make([]uint32, 0, x.Retries+1) // unused
 
@@ -280,11 +280,6 @@ sendRetry:
 		}
 		if x.OnSent != nil {
 			x.OnSent(x)
-		}
-
-		// all sends wait for the return packet, except for SNMPv2Trap
-		if !wait {
-			return &SnmpPacket{}, nil
 		}
 
 	waitingResponse:
@@ -428,9 +423,7 @@ sendRetry:
 }
 
 // generic "sender" that negotiate any version of snmp request
-//
-// all sends wait for the return packet, except for SNMPv2Trap
-func (x *GoSNMP) send(packetOut *SnmpPacket, wait bool) (result *SnmpPacket, err error) {
+func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 	defer func() {
 		if e := recover(); e != nil {
 			buf := make([]byte, 8192)
@@ -457,7 +450,7 @@ func (x *GoSNMP) send(packetOut *SnmpPacket, wait bool) (result *SnmpPacket, err
 	}
 
 	// perform request
-	result, err = x.sendOneRequest(packetOut, wait)
+	result, err = x.sendOneRequest(packetOut)
 	if err != nil {
 		x.Logger.Printf("SEND Error on the first Request Error: %s", err)
 		return result, err
@@ -476,7 +469,7 @@ func (x *GoSNMP) send(packetOut *SnmpPacket, wait bool) (result *SnmpPacket, err
 					return nil, err
 				}
 				// retransmit with updated auth engine params
-				result, err = x.sendOneRequest(packetOut, wait)
+				result, err = x.sendOneRequest(packetOut)
 				if err != nil {
 					x.Logger.Printf("ERROR out-of-time-window retransmit error: %s", err)
 					return result, ErrNotInTimeWindow
@@ -489,7 +482,7 @@ func (x *GoSNMP) send(packetOut *SnmpPacket, wait bool) (result *SnmpPacket, err
 					return nil, err
 				}
 				// retransmit with updated engine id
-				result, err = x.sendOneRequest(packetOut, wait)
+				result, err = x.sendOneRequest(packetOut)
 				if err != nil {
 					x.Logger.Printf("ERROR unknown engine id retransmit error: %s", err)
 					return result, ErrUnknownEngineID

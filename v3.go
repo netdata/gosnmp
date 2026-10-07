@@ -160,7 +160,7 @@ func (x *GoSNMP) negotiateInitialSecurityParameters(packetOut *SnmpPacket) error
 
 	if discoveryPacket := packetOut.SecurityParameters.discoveryRequired(); discoveryPacket != nil {
 		discoveryPacket.ContextName = x.ContextName
-		result, err := x.sendOneRequest(discoveryPacket, true)
+		result, err := x.sendOneRequest(discoveryPacket)
 		if err != nil {
 			// Some devices (e.g. Dell EMC switches) respond to discovery probes with
 			// usmStatsUnknownUserNames instead of usmStatsUnknownEngineIDs, yet still

@@ -11,10 +11,10 @@ gosnmp
 [![PkgGoDev](https://pkg.go.dev/badge/github.com/netdata/gosnmp)](https://pkg.go.dev/github.com/netdata/gosnmp)
 
 GoSNMP is an SNMP client library fully written in Go. It provides Get,
-GetNext, GetBulk, Walk, BulkWalk, Set and Traps. It supports IPv4 and
-IPv6, using __SNMPv1__, __SNMPv2c__ or __SNMPv3__. Tests run on Linux (amd64
-and 386), macOS and Windows, and CI builds for every platform the Netdata
-Agent ships its Go plugins on.
+GetNext, GetBulk, Walk, BulkWalk and Set, and decodes received traps and
+informs. It supports IPv4 and IPv6, using __SNMPv1__, __SNMPv2c__ or
+__SNMPv3__. Tests run on Linux (amd64 and 386), macOS and Windows, and CI
+builds for every platform the Netdata Agent ships its Go plugins on.
 
 # About
 
@@ -37,8 +37,7 @@ GoSNMP has the following SNMP functions:
   SNMPv3 only).
 * **BulkWalkAll** - similar to BulkWalk but returns a filled array of all values rather than using a callback function to stream results.
 * **Set** - supports Integers and OctetStrings.
-* **SendTrap** - send SNMP TRAPs.
-* **Listen** - act as an NMS for receiving TRAPs.
+* **UnmarshalTrap** - decode received SNMP traps and informs.
 
 GoSNMP has the following **helper** functions:
 
@@ -141,7 +140,6 @@ Running this example gives the following output (from my printer):
   custom `&GoSNMP` rather than `g.Default`
 * `examples/walkexample.go` demonstrates using `BulkWalk`
 * `examples/example3.go` demonstrates `SNMPv3`
-* `examples/trapserver.go` demonstrates writing an SNMP v2c trap server
 
 # MIB Parser
 

@@ -63,18 +63,6 @@ type Handler interface {
 	// rather than using a callback function to stream results.
 	BulkWalkAll(rootOid string) (results []SnmpPDU, err error)
 
-	// SendTrap sends a SNMP Trap (v2c/v3 only)
-	//
-	// pdus[0] can a pdu of Type TimeTicks (with the desired uint32 epoch
-	// time).  Otherwise a TimeTicks pdu will be prepended, with time set to
-	// now. This mirrors the behaviour of the Net-SNMP command-line tools.
-	//
-	// SendTrap doesn't wait for a return packet from the NMS (Network
-	// Management Station).
-	//
-	// See also Listen() and examples for creating an NMS.
-	SendTrap(trap SnmpTrap) (result *SnmpPacket, err error)
-
 	// UnmarshalTrap unpacks the SNMP Trap.
 	UnmarshalTrap(trap []byte, useResponseSecurityParameters bool) (result *SnmpPacket, err error)
 

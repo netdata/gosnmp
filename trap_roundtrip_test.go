@@ -75,7 +75,8 @@ func (c rtCredentials) usm(engineID string) *UsmSecurityParameters {
 
 // rtEncodeV3 makes an SNMPv3 SNMPv2-Trap or InformRequest. The sender is the
 // authoritative engine: its keys are localized to its own engine ID, and
-// InitPacket sets the privacy salt. As in SendTrap, only informs are reportable.
+// InitPacket sets the privacy salt. Only informs are reportable (RFC 3412
+// section 6.4).
 func rtEncodeV3(t *testing.T, sender rtCredentials, pduType PDUType) []byte {
 	t.Helper()
 
@@ -110,8 +111,8 @@ func rtEncodeV3(t *testing.T, sender rtCredentials, pduType PDUType) []byte {
 // rtReceiver builds the GoSNMP that calls UnmarshalTrap for the given credentials.
 type rtReceiver func(t *testing.T, creds ...rtCredentials) *GoSNMP
 
-// rtSingleUser configures one user and its security level, as TrapListener
-// expects its Params to be configured.
+// rtSingleUser configures one user and the security level it requires on the
+// receiving GoSNMP itself, without a credentials table.
 func rtSingleUser(t *testing.T, creds ...rtCredentials) *GoSNMP {
 	t.Helper()
 	require.Len(t, creds, 1)
