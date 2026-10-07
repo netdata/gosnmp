@@ -206,7 +206,7 @@ const (
 	AsnExtensionTag = (AsnContext | AsnExtensionID) // 0x9F
 )
 
-//go:generate stringer -type Asn1BER
+//go:generate go tool -modfile=tools/go.mod stringer -type Asn1BER
 
 // Asn1BER is the type of the SNMP PDU
 type Asn1BER byte
@@ -237,7 +237,7 @@ const (
 	EndOfMibView      Asn1BER = 0x82
 )
 
-//go:generate stringer -type SNMPError
+//go:generate go tool -modfile=tools/go.mod stringer -type SNMPError
 
 // SNMPError is the type for standard SNMP errors.
 type SNMPError uint8

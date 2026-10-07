@@ -4,6 +4,7 @@ updates:
     directories:
       - /
       - /netsnmp
+      - /tools
     schedule:
       interval: "monthly"
   - package-ecosystem: "github-actions"

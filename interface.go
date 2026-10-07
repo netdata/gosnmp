@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-//go:generate mockgen --destination gosnmp_mock.go --package=gosnmp --source interface.go
+//go:generate go tool -modfile=tools/go.mod mockgen -source=interface.go -destination=mocks/gosnmp_mock.go -package=mocks
 
 // Handler is a GoSNMP interface
 //

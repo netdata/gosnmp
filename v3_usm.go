@@ -45,7 +45,7 @@ const (
 	SHA512 SnmpV3AuthProtocol = 7
 )
 
-//go:generate stringer -type=SnmpV3AuthProtocol
+//go:generate go tool -modfile=tools/go.mod stringer -type=SnmpV3AuthProtocol
 
 // HashType maps the AuthProtocol's hash type to an actual crypto.Hash object.
 func (authProtocol SnmpV3AuthProtocol) HashType() crypto.Hash {
@@ -140,7 +140,7 @@ const (
 	AES256C SnmpV3PrivProtocol = 7 // Reeder-AES256
 )
 
-//go:generate stringer -type=SnmpV3PrivProtocol
+//go:generate go tool -modfile=tools/go.mod stringer -type=SnmpV3PrivProtocol
 
 // UsmSecurityParameters is an implementation of SnmpV3SecurityParameters for the UserSecurityModel
 type UsmSecurityParameters struct {

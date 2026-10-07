@@ -101,7 +101,7 @@ const (
 	Report         PDUType = 0xa8 // v3
 )
 
-//go:generate stringer -type=PDUType
+//go:generate go tool -modfile=tools/go.mod stringer -type=PDUType
 
 // SNMPv3: User-based Security Model Report PDUs and
 // error types as per https://tools.ietf.org/html/rfc3414
