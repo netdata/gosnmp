@@ -9,8 +9,8 @@
 
 package gosnmp
 
-func (l *Logger) Print(v ...any) {
+func (l *Logger) Print(_ ...any) {
 }
 
-func (l *Logger) Printf(format string, v ...any) {
+func (l *Logger) Printf(_ string, _ ...any) {
 }

@@ -15,7 +15,7 @@ lint: check_license
 check_license:
 	@echo ">> checking license header"
 	@licRes=$$(for file in $$(find . -type f -iname '*.go' ! -path './vendor/*') ; do \
-               awk 'NR<=3' $$file | grep -Eq "(Copyright [0-9]+ The GoSNMP Authors|generated|GENERATED)" || echo $$file; \
+               awk 'NR<=3' $$file | grep -Eq "(Copyright [0-9]+ (The GoSNMP Authors|Netdata Inc\.)|generated|GENERATED)" || echo $$file; \
        done); \
        if [ -n "$${licRes}" ]; then \
                echo "license header checking failed:"; echo "$${licRes}"; \

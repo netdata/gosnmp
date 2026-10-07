@@ -12,8 +12,9 @@ gosnmp
 
 GoSNMP is an SNMP client library fully written in Go. It provides Get,
 GetNext, GetBulk, Walk, BulkWalk, Set and Traps. It supports IPv4 and
-IPv6, using __SNMPv1__, __SNMPv2c__ or __SNMPv3__. Builds are tested against
-linux/amd64 and linux/386.
+IPv6, using __SNMPv1__, __SNMPv2c__ or __SNMPv3__. Tests run on Linux (amd64
+and 386), macOS and Windows, and CI builds for every platform the Netdata
+Agent ships its Go plugins on.
 
 # About
 
@@ -162,6 +163,10 @@ If you've never contributed to a Go project before, here is an example workflow.
 1. `git checkout -b development`
 1. `git push -u origin development` (setup where you push to, check it works)
 
+Before opening a pull request, run `make test` and `make lint` (which needs
+[golangci-lint](https://golangci-lint.run/)). If you change an enum or
+`interface.go`, run `make generate` and commit the regenerated files.
+
 # Packet Captures
 
 Create your packet captures in the following way:
@@ -220,13 +225,15 @@ The following BER types have been implemented:
 
 # Running the Tests
 
-Local testing in Docker
+`make test` runs the unit tests of both modules.
+
+The end-to-end tests need an SNMP agent. To run them against net-snmp in Docker:
 ```shell
 docker build -t netdata/gosnmp:latest .
 docker run -it netdata/gosnmp:latest
 ```
 
-or
+or, against another agent:
 
 ```shell
 export GOSNMP_TARGET=1.2.3.4

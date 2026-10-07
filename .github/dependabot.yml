@@ -7,11 +7,15 @@ updates:
       - /tools
     schedule:
       interval: "monthly"
+    groups:
+      go-modules:
+        patterns:
+          - "*"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "monthly"
     groups:
-      codeql:
+      github-actions:
         patterns:
-          - "github/codeql-action*"
+          - "*"

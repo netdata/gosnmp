@@ -29,7 +29,7 @@ USER gosnmp
 WORKDIR /go/src/github.com/netdata/gosnmp
 COPY --chown=gosnmp . .
 
-RUN make lint
+RUN make check_license
 
 ENV GOSNMP_TARGET=127.0.0.1
 ENV GOSNMP_PORT=1024

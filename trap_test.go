@@ -1049,7 +1049,10 @@ func TestSendV3TrapAuthNoPrivFailsWithNoAuthNoPriv(t *testing.T) {
 		t.Fatal("received trap where we shouldn't")
 	case <-found:
 	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for trap to be received")
+		if debugLogging {
+			t.Fatal("timed out waiting for the authentication failure to be logged")
+		}
+		// gosnmp_nodebug compiles logging out, so the rejection shows only as a trap that never arrives.
 	}
 }
 
