@@ -23,7 +23,7 @@ func TestEncodeCharacterization(t *testing.T) {
 	for _, c := range cases {
 		results = append(results, goldenCase{name: c.name, dump: dumpEncode(c.encode)})
 	}
-	checkGolden(t, "encode", results)
+	codecGolden.check(t, "encode", results)
 }
 
 // TestEncodeValueTypesCharacterization pins, for every value tag, the value
@@ -177,7 +177,7 @@ func TestEncodeValueTypesCharacterization(t *testing.T) {
 		}
 		results = append(results, goldenCase{name: fmt.Sprintf("0x%02x %s", byte(tag), tag), dump: d.String()})
 	}
-	checkGolden(t, "encode-value-types", results)
+	codecGolden.check(t, "encode-value-types", results)
 }
 
 type encodeCase struct {

@@ -33,7 +33,7 @@ func TestDecodeCharacterization(t *testing.T) {
 	for _, c := range cases {
 		results = append(results, goldenCase{name: c.name, dump: dumpDecode(c)})
 	}
-	checkGolden(t, "decode", results)
+	codecGolden.check(t, "decode", results)
 }
 
 // decodeCase is one SnmpDecodePacket input and the decoder configuration.
