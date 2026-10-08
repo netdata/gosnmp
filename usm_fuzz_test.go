@@ -215,17 +215,19 @@ func v3DecodeKnownPanic(receiver string, p usmFuzzPair, data []byte, v any, stac
 		}
 
 	// DES decryption indexes the privacy parameters as 8 octets and the
-	// privacy key as 16 (key and pre-IV) without checking their lengths.
-	// The key is shorter when it was never derived (SnmpDecodePacket derives
-	// keys only for a new engine ID) or derived from an empty passphrase
-	// (hMAC drops the error). TestUSMTrapUnauthenticated pins the paths that
-	// decrypt without checking a digest.
+	// privacy key as 16 (key and pre-IV) without checking their lengths, so
+	// it fails at the first missing octet (index equal to the length) or
+	// slicing the pre-IV off a key shorter than 8 octets. The key is shorter
+	// when it was never derived (SnmpDecodePacket derives keys only for a new
+	// engine ID) or derived from an empty passphrase (hMAC drops the error).
+	// TestUSMTrapUnauthenticated pins the paths that decrypt without checking
+	// a digest.
 	case "(*UsmSecurityParameters).decryptPacket":
 		if p.priv != DES {
 			break
 		}
 		var i, n int
-		if _, err := fmt.Sscanf(msg, "runtime error: index out of range [%d] with length %d", &i, &n); err == nil && n < 8 {
+		if _, err := fmt.Sscanf(msg, "runtime error: index out of range [%d] with length %d", &i, &n); err == nil && i == n && n < 8 {
 			return "DES decryption of short privacy parameters or a short key"
 		}
 		if _, err := fmt.Sscanf(msg, "runtime error: slice bounds out of range [8:%d]", &n); err == nil && n < 8 {
