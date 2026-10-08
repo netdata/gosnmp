@@ -256,6 +256,18 @@ func marshalTLV(buf *bytes.Buffer, tag byte, value []byte) error {
 	return nil
 }
 
+// marshalOctetString writes s to buf as an OCTET STRING TLV.
+func marshalOctetString(buf *bytes.Buffer, s string) error {
+	length, err := marshalLength(len(s))
+	if err != nil {
+		return err
+	}
+	buf.WriteByte(byte(OctetString))
+	buf.Write(length)
+	buf.WriteString(s)
+	return nil
+}
+
 func marshalObjectIdentifier(oid string) ([]byte, error) {
 	oidLength := len(oid)
 

@@ -327,20 +327,14 @@ func (packet *SnmpPacket) prepareV3ScopedPDU() ([]byte, error) {
 	var buf bytes.Buffer
 
 	// ContextEngineID
-	idlen, err := marshalLength(len(packet.ContextEngineID))
-	if err != nil {
+	if err := marshalOctetString(&buf, packet.ContextEngineID); err != nil {
 		return nil, err
 	}
-	buf.Write(append([]byte{byte(OctetString)}, idlen...))
-	buf.WriteString(packet.ContextEngineID)
 
 	// ContextName
-	namelen, err := marshalLength(len(packet.ContextName))
-	if err != nil {
+	if err := marshalOctetString(&buf, packet.ContextName); err != nil {
 		return nil, err
 	}
-	buf.Write(append([]byte{byte(OctetString)}, namelen...))
-	buf.WriteString(packet.ContextName)
 
 	data, err := packet.marshalPDU()
 	if err != nil {

@@ -937,8 +937,9 @@ func (sp *UsmSecurityParameters) marshal(flags SnmpV3MsgFlags) ([]byte, error) {
 	var err error
 
 	// msgAuthoritativeEngineID
-	buf.Write([]byte{byte(OctetString), byte(len(sp.AuthoritativeEngineID))}) //nolint:gosec
-	buf.WriteString(sp.AuthoritativeEngineID)
+	if err = marshalOctetString(&buf, sp.AuthoritativeEngineID); err != nil {
+		return nil, err
+	}
 
 	// msgAuthoritativeEngineBoots
 	msgAuthoritativeEngineBoots, err := marshalUint32(sp.AuthoritativeEngineBoots)
@@ -957,8 +958,9 @@ func (sp *UsmSecurityParameters) marshal(flags SnmpV3MsgFlags) ([]byte, error) {
 	buf.Write(msgAuthoritativeEngineTime)
 
 	// msgUserName
-	buf.Write([]byte{byte(OctetString), byte(len(sp.UserName))}) //nolint:gosec
-	buf.WriteString(sp.UserName)
+	if err = marshalOctetString(&buf, sp.UserName); err != nil {
+		return nil, err
+	}
 
 	// msgAuthenticationParameters
 	if flags&AuthNoPriv > 0 {

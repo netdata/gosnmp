@@ -22,7 +22,9 @@ import (
 // decode verdict (errors by the exported sentinels they match), panics and
 // stdout writes, changes to the input, the exported packet fields with their
 // Go types, MarshalMsg on the decoded packet, and the UnmarshalTrap verdict.
-// Error text and partial results on error are not compared.
+// Error text and partial results on error are not compared, nor is MarshalMsg
+// on packets hitting an encoder bug fixed after the copy was frozen
+// (diffReencodeFixed).
 
 // TestDecodeDifferential decodes every decode golden input with every decoder
 // configuration the golden uses and compares the results with the frozen copy.
@@ -296,17 +298,44 @@ func diffDump(impl diffImpl, d *diffDecoder, data []byte) string {
 		}
 		w.line("packet: " + dumpExported(reflect.ValueOf(p)))
 
-		var out []byte
-		panicked, wroteStdout = observe(func() { out, err = impl.reencode(p) })
-		verdict("reencode", panicked, wroteStdout, err)
-		if !panicked && err == nil {
-			w.line("reencoded: " + dumpBytes(out))
+		if fixed := diffReencodeFixed(p); fixed != "" {
+			w.line("reencode: not compared, fixed encoder bug: " + fixed)
+		} else {
+			var out []byte
+			panicked, wroteStdout = observe(func() { out, err = impl.reencode(p) })
+			verdict("reencode", panicked, wroteStdout, err)
+			if !panicked && err == nil {
+				w.line("reencoded: " + dumpBytes(out))
+			}
 		}
 	}
 
 	panicked, wroteStdout = observe(func() { err = impl.unmarshalTrap(impl.decoder(d), bytes.Clone(data)) })
 	verdict("unmarshal-trap", panicked, wroteStdout, err)
 	return w.String()
+}
+
+// diffReencodeFixed names the encoder bug fixed after the copy was frozen
+// that MarshalMsg hits on a decoded packet of either copy, or returns "": the
+// frozen copy keeps the bug, so these re-encodings differ on purpose. The
+// codec goldens pin the fixed bytes.
+func diffReencodeFixed(packet any) string {
+	p := reflect.ValueOf(packet).Elem()
+	if p.FieldByName("Version").Uint() != uint64(Version3) {
+		if p.FieldByName("Community").Len() > 127 {
+			return "community longer than 127 bytes"
+		}
+		return ""
+	}
+	sp := p.FieldByName("SecurityParameters")
+	if sp.IsNil() || sp.Elem().Kind() != reflect.Pointer || sp.Elem().IsNil() {
+		return ""
+	}
+	usm := sp.Elem().Elem()
+	if usm.FieldByName("AuthoritativeEngineID").Len() > 127 || usm.FieldByName("UserName").Len() > 127 {
+		return "USM engine ID or user name longer than 127 bytes"
+	}
+	return ""
 }
 
 // dumpExported prints the exported fields reachable from v with their Go

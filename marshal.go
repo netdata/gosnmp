@@ -505,8 +505,9 @@ func (packet *SnmpPacket) marshalMsg() ([]byte, error) {
 		}
 	} else {
 		// community
-		buf.Write([]byte{4, uint8(len(packet.Community))}) //nolint:gosec
-		buf.WriteString(packet.Community)
+		if err = marshalOctetString(buf, packet.Community); err != nil {
+			return nil, err
+		}
 		// pdu
 		pdu, err2 := packet.marshalPDU()
 		if err2 != nil {

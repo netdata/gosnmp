@@ -29,6 +29,59 @@ func TestEncodeCharacterization(t *testing.T) {
 // TestEncodeValueTypesCharacterization pins, for every value tag, the value
 // TLV that MarshalMsg writes for each Go value type, or whether it fails or
 // panics. It records which Go types the encoder accepts.
+// TestMarshalLongOctetStringFields encodes communities, USM engine IDs and
+// user names longer than 127 bytes and decodes them back.
+func TestMarshalLongOctetStringFields(t *testing.T) {
+	type fields struct {
+		community, engineID, userName string
+	}
+	long := func(n int) string { return strings.Repeat("x", n) }
+	tests := map[string]fields{
+		"community 128 bytes": {community: long(128)},
+		"community 256 bytes": {community: long(256)},
+		"community 300 bytes": {community: long(300)},
+		"engine ID 128 bytes": {engineID: long(128), userName: "user"},
+		"engine ID 300 bytes": {engineID: long(300), userName: "user"},
+		"user name 128 bytes": {engineID: "\x80\x00\x1f\x88\x04engine", userName: long(128)},
+		"user name 256 bytes": {engineID: "\x80\x00\x1f\x88\x04engine", userName: long(256)},
+	}
+
+	for name, want := range tests {
+		t.Run(name, func(t *testing.T) {
+			packet := &SnmpPacket{
+				Version:   Version2c,
+				Community: want.community,
+				PDUType:   GetRequest,
+				RequestID: 1,
+				Variables: []SnmpPDU{{Name: ".1.3.6.1.2.1.1.1.0", Type: Null}},
+			}
+			if want.community == "" {
+				packet.Version = Version3
+				packet.MsgFlags = NoAuthNoPriv
+				packet.SecurityModel = UserSecurityModel
+				packet.MsgID = 1
+				packet.SecurityParameters = &UsmSecurityParameters{AuthoritativeEngineID: want.engineID, UserName: want.userName}
+			}
+			msg, err := packet.MarshalMsg()
+			if err != nil {
+				t.Fatalf("MarshalMsg: %v", err)
+			}
+
+			decoded, err := (&GoSNMP{}).SnmpDecodePacket(msg)
+			if err != nil {
+				t.Fatalf("decoding the encoded message: %v\nmessage: %x", err, msg)
+			}
+			got := fields{community: decoded.Community}
+			if usm, ok := decoded.SecurityParameters.(*UsmSecurityParameters); ok {
+				got.engineID, got.userName = usm.AuthoritativeEngineID, usm.UserName
+			}
+			if got != want {
+				t.Errorf("decoded %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
 func TestEncodeValueTypesCharacterization(t *testing.T) {
 	tags := []Asn1BER{
 		UnknownType, Boolean, Integer, BitString, OctetString, Null, ObjectIdentifier, ObjectDescription, IPAddress,
@@ -366,6 +419,12 @@ func encodeCases(t *testing.T) []encodeCase {
 		}))},
 		{"v3/no-auth-no-priv/get-request", marshal(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)))},
 		{"v3/no-auth-no-priv/msg-id-2^31", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) { p.MsgID = 1 << 31 }))},
+		{"v3/no-auth-no-priv/engine-id-200", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) {
+			p.SecurityParameters.(*UsmSecurityParameters).AuthoritativeEngineID = strings.Repeat("e", 200)
+		}))},
+		{"v3/no-auth-no-priv/user-name-200", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) {
+			p.SecurityParameters.(*UsmSecurityParameters).UserName = strings.Repeat("u", 200)
+		}))},
 		{"v3/no-auth-no-priv/max-size-1500", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) { p.MsgMaxSize = 1500 }))},
 		{"v3/no-auth-no-priv/report", marshal(v3(NoAuthNoPriv, Report, codecUSM(t, NoAuth, NoPriv)))},
 		{"v3/no-auth-no-priv/nil-security-parameters", marshal(v3(NoAuthNoPriv, GetRequest, nil))},

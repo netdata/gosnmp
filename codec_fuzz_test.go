@@ -81,24 +81,15 @@ func FuzzDecodeReencode(f *testing.F) {
 }
 
 // reencodeKnownBug reports packets that hit known codec bugs breaking the
-// FuzzDecodeReencode properties: MarshalMsg writes the community and the USM
-// engine ID and user name with a one-byte length, so values longer than 127
-// bytes come out malformed; a v1 trap whose agent address is not an IP
-// address makes MarshalMsg panic; and on 32-bit platforms a Uinteger32 above
+// FuzzDecodeReencode properties: a v1 trap whose agent address is not an IP
+// address makes MarshalMsg panic, and on 32-bit platforms a Uinteger32 above
 // MaxInt32 re-encodes to five octets, which the decoder, reading Uinteger32
 // as a signed int, rejects. Fixing these bugs removes the cases.
 func reencodeKnownBug(p *SnmpPacket) bool {
-	if p.Version != Version3 && len(p.Community) > 127 {
-		return true
-	}
 	if strconv.IntSize == 32 && slices.ContainsFunc(p.Variables, func(v SnmpPDU) bool {
 		u, ok := v.Value.(uint32)
 		return ok && v.Type == Uinteger32 && u > math.MaxInt32
 	}) {
-		return true
-	}
-	if sp, ok := p.SecurityParameters.(*UsmSecurityParameters); ok && p.Version == Version3 &&
-		(len(sp.AuthoritativeEngineID) > 127 || len(sp.UserName) > 127) {
 		return true
 	}
 	return p.PDUType == Trap && net.ParseIP(p.AgentAddress) == nil
