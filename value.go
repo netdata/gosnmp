@@ -175,10 +175,11 @@ func appendValue(dst []byte, tag Asn1BER, value any) ([]byte, error) {
 		if !ok {
 			return nil, errors.New("unable to marshal PDU Integer; not int")
 		}
-		if v < math.MinInt32 || v > math.MaxInt32 {
-			return nil, fmt.Errorf("unable to marshal PDU Integer: %d overflows int32", v)
+		out, err := appendInt32(dst, Integer, v)
+		if err != nil {
+			return nil, fmt.Errorf("unable to marshal PDU Integer: %w", err)
 		}
-		return appendInt(dst, Integer, int64(v)), nil
+		return out, nil
 	case Counter32, Gauge32, TimeTicks, Uinteger32:
 		var v uint32
 		switch value := value.(type) {
@@ -199,9 +200,9 @@ func appendValue(dst []byte, tag Asn1BER, value any) ([]byte, error) {
 	case OctetString, BitString, Opaque:
 		switch value := value.(type) {
 		case []byte:
-			return append(ber.AppendHeader(dst, byte(tag), len(value)), value...), nil
+			return appendOctets(dst, tag, value), nil
 		case string:
-			return append(ber.AppendHeader(dst, byte(tag), len(value)), value...), nil
+			return appendOctets(dst, tag, value), nil
 		default:
 			return nil, fmt.Errorf("unable to marshal PDU OctetString; not []byte or string")
 		}
@@ -214,13 +215,13 @@ func appendValue(dst []byte, tag Asn1BER, value any) ([]byte, error) {
 	case IPAddress:
 		switch value := value.(type) {
 		case []byte:
-			return append(ber.AppendHeader(dst, byte(IPAddress), len(value)), value...), nil
+			return appendOctets(dst, IPAddress, value), nil
 		case string:
 			ip, err := marshalIPAddress(value)
 			if err != nil {
 				return nil, fmt.Errorf("unable to marshal PDU IPAddress: %w", err)
 			}
-			return append(ber.AppendHeader(dst, byte(IPAddress), len(ip)), ip[:]...), nil
+			return appendOctets(dst, IPAddress, ip[:]), nil
 		default:
 			return nil, fmt.Errorf("unable to marshal PDU IPAddress; not []byte or string")
 		}
@@ -229,6 +230,20 @@ func appendValue(dst []byte, tag Asn1BER, value any) ([]byte, error) {
 	default:
 		return nil, fmt.Errorf("unable to marshal PDU: unknown BER type %q", tag)
 	}
+}
+
+// appendOctets appends a TLV whose content is v as is.
+func appendOctets[T string | []byte](dst []byte, tag Asn1BER, v T) []byte {
+	return append(ber.AppendHeader(dst, byte(tag), len(v)), v...)
+}
+
+// appendInt32 appends a TLV holding v as an INTEGER; v must be within the
+// int32 range, as SNMP Integer32 values are.
+func appendInt32(dst []byte, tag Asn1BER, v int) ([]byte, error) {
+	if v < math.MinInt32 || v > math.MaxInt32 {
+		return nil, fmt.Errorf("%d overflows int32", v)
+	}
+	return appendInt(dst, tag, int64(v)), nil
 }
 
 // appendInt appends a TLV holding v as an INTEGER.
@@ -262,6 +277,17 @@ func appendOpaqueFloat(dst []byte, tag Asn1BER, value any) ([]byte, error) {
 		return ber.End(ber.AppendFloat64(ber.AppendHeader(dst, byte(OpaqueDouble), 8), v), start), nil
 	}
 	return nil, fmt.Errorf("unable to marshal PDU %v; got %T", tag, value)
+}
+
+// marshalIPAddress returns the four octets of an IpAddress given as a string:
+// the last four bytes of the parsed address, so an IPv6 address loses its
+// first twelve. It returns an array so the parsed address stays on the stack.
+func marshalIPAddress(s string) ([4]byte, error) {
+	ip := net.ParseIP(s)
+	if ip == nil {
+		return [4]byte{}, fmt.Errorf("%q is not an IP address", s)
+	}
+	return [4]byte(ip[12:]), nil
 }
 
 // appendObjectIdentifier appends an OBJECT IDENTIFIER TLV for the dotted OID

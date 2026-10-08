@@ -828,8 +828,6 @@ func (sp *UsmSecurityParameters) isAuthentic(packetBytes []byte, packet *SnmpPac
 }
 
 func (sp *UsmSecurityParameters) encryptPacket(scopedPdu []byte) ([]byte, error) {
-	var b []byte
-
 	switch sp.PrivacyProtocol {
 	case AES, AES192, AES256, AES192C, AES256C:
 		var iv [16]byte
@@ -845,12 +843,7 @@ func (sp *UsmSecurityParameters) encryptPacket(scopedPdu []byte) ([]byte, error)
 		stream := cipher.NewCFBEncrypter(block, iv[:])
 		ciphertext := make([]byte, len(scopedPdu))
 		stream.XORKeyStream(ciphertext, scopedPdu)
-		pduLen, err := marshalLength(len(ciphertext))
-		if err != nil {
-			return nil, err
-		}
-		b = append([]byte{byte(OctetString)}, pduLen...)
-		scopedPdu = append(b, ciphertext...) //nolint:gocritic
+		scopedPdu = appendOctets(nil, OctetString, ciphertext)
 	case DES:
 		preiv := sp.PrivacyKey[8:]
 		var iv [8]byte
@@ -868,12 +861,7 @@ func (sp *UsmSecurityParameters) encryptPacket(scopedPdu []byte) ([]byte, error)
 
 		ciphertext := make([]byte, len(scopedPdu))
 		mode.CryptBlocks(ciphertext, scopedPdu)
-		pduLen, err := marshalLength(len(ciphertext))
-		if err != nil {
-			return nil, err
-		}
-		b = append([]byte{byte(OctetString)}, pduLen...)
-		scopedPdu = append(b, ciphertext...) //nolint:gocritic
+		scopedPdu = appendOctets(nil, OctetString, ciphertext)
 	}
 
 	return scopedPdu, nil
@@ -931,65 +919,27 @@ func (sp *UsmSecurityParameters) decryptPacket(packet []byte, cursor int) ([]byt
 	return packet, nil
 }
 
-// marshal a snmp version 3 security parameters field for the User Security Model
-func (sp *UsmSecurityParameters) marshal(flags SnmpV3MsgFlags) ([]byte, error) {
-	var buf bytes.Buffer
-	var err error
-
-	// msgAuthoritativeEngineID
-	if err = marshalOctetString(&buf, sp.AuthoritativeEngineID); err != nil {
-		return nil, err
-	}
-
-	// msgAuthoritativeEngineBoots
-	msgAuthoritativeEngineBoots, err := marshalUint32(sp.AuthoritativeEngineBoots)
-	if err != nil {
-		return nil, err
-	}
-	buf.Write([]byte{byte(Integer), byte(len(msgAuthoritativeEngineBoots))}) //nolint:gosec
-	buf.Write(msgAuthoritativeEngineBoots)
-
-	// msgAuthoritativeEngineTime
-	msgAuthoritativeEngineTime, err := marshalUint32(sp.AuthoritativeEngineTime)
-	if err != nil {
-		return nil, err
-	}
-	buf.Write([]byte{byte(Integer), byte(len(msgAuthoritativeEngineTime))}) //nolint:gosec
-	buf.Write(msgAuthoritativeEngineTime)
-
-	// msgUserName
-	if err = marshalOctetString(&buf, sp.UserName); err != nil {
-		return nil, err
-	}
-
-	// msgAuthenticationParameters
+// marshal appends the User Security Model parameters: a SEQUENCE of the
+// authoritative engine ID, boots and time, the user name, the authentication
+// parameters (the zero placeholder authenticate fills in, or empty) and the
+// privacy parameters (the salt, or empty).
+func (sp *UsmSecurityParameters) marshal(dst []byte, flags SnmpV3MsgFlags) []byte {
+	dst, start := ber.Begin(dst, byte(Sequence))
+	dst = appendOctets(dst, OctetString, sp.AuthoritativeEngineID)
+	dst = appendUint(dst, Integer, uint64(sp.AuthoritativeEngineBoots))
+	dst = appendUint(dst, Integer, uint64(sp.AuthoritativeEngineTime))
+	dst = appendOctets(dst, OctetString, sp.UserName)
 	if flags&AuthNoPriv > 0 {
-		buf.Write(macVarbinds[sp.AuthenticationProtocol])
+		dst = append(dst, macVarbinds[sp.AuthenticationProtocol]...)
 	} else {
-		buf.Write([]byte{byte(OctetString), 0})
+		dst = append(dst, byte(OctetString), 0)
 	}
-	// msgPrivacyParameters
 	if flags&AuthPriv > AuthNoPriv {
-		privlen, err2 := marshalLength(len(sp.PrivacyParameters))
-		if err2 != nil {
-			return nil, err2
-		}
-		buf.Write([]byte{byte(OctetString)})
-		buf.Write(privlen)
-		buf.Write(sp.PrivacyParameters)
+		dst = appendOctets(dst, OctetString, sp.PrivacyParameters)
 	} else {
-		buf.Write([]byte{byte(OctetString), 0})
+		dst = append(dst, byte(OctetString), 0)
 	}
-
-	// wrap security parameters in a sequence
-	paramLen, err := marshalLength(buf.Len())
-	if err != nil {
-		return nil, err
-	}
-	tmpseq := append([]byte{byte(Sequence)}, paramLen...)
-	tmpseq = append(tmpseq, buf.Bytes()...)
-
-	return tmpseq, nil
+	return ber.End(dst, start)
 }
 
 // unmarshal reads the USM security parameters from r, which is positioned at
