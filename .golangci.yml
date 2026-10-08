@@ -40,9 +40,6 @@ linters:
       - common-false-positives
       - legacy
       - std-error-handling
-    # Frozen copy of the library for the differential codec tests; never edited.
-    paths:
-      - internal/codecref
     rules:
       # Table-driven tests repeat structure, and test fixtures convert sizes freely.
       - linters:
@@ -73,6 +70,3 @@ formatters:
     goimports:
       local-prefixes:
         - github.com/netdata/gosnmp
-  exclusions:
-    paths:
-      - internal/codecref
