@@ -9,7 +9,6 @@
 package gosnmp
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -54,7 +53,7 @@ type SnmpV3SecurityParameters interface {
 	discoveryRequired() *SnmpPacket
 	getDefaultContextEngineID() string
 	setSecurityParameters(in SnmpV3SecurityParameters) error
-	marshal(flags SnmpV3MsgFlags) ([]byte, error)
+	marshal(dst []byte, flags SnmpV3MsgFlags) []byte
 	unmarshal(flags SnmpV3MsgFlags, r *ber.Reader) error
 	authenticate(packet []byte) error
 	isAuthentic(packetBytes []byte, packet *SnmpPacket) (bool, error)
@@ -234,114 +233,54 @@ func (x *GoSNMP) updatePktSecurityParameters(packetOut *SnmpPacket) error {
 	return nil
 }
 
-func (packet *SnmpPacket) marshalV3(buf *bytes.Buffer) (*bytes.Buffer, error) {
-	emptyBuffer := new(bytes.Buffer) // used when returning errors
-
-	header, err := packet.marshalV3Header()
-	if err != nil {
-		return emptyBuffer, err
-	}
-	buf.Write([]byte{byte(Sequence), byte(len(header))}) //nolint:gosec
-	buf.Write(header)
-
-	var securityParameters []byte
-	securityParameters, err = packet.SecurityParameters.marshal(packet.MsgFlags)
-	if err != nil {
-		return emptyBuffer, err
-	}
-
-	buf.Write([]byte{byte(OctetString)})
-	secParamLen, err := marshalLength(len(securityParameters))
-	if err != nil {
-		return emptyBuffer, err
-	}
-	buf.Write(secParamLen)
-	buf.Write(securityParameters)
-
-	scopedPdu, err := packet.marshalV3ScopedPDU()
-	if err != nil {
-		return emptyBuffer, err
-	}
-	buf.Write(scopedPdu)
-	return buf, nil
+// appendV3 appends the SNMPv3 part of a message after the version: the header
+// (msgGlobalData), the security parameters in an OCTET STRING and the scoped
+// PDU.
+func (packet *SnmpPacket) appendV3(dst []byte) ([]byte, error) {
+	dst = packet.appendV3Header(dst)
+	dst, start := ber.Begin(dst, byte(OctetString))
+	dst = ber.End(packet.SecurityParameters.marshal(dst, packet.MsgFlags), start)
+	return packet.appendV3ScopedPDU(dst)
 }
 
-// marshal a snmp version 3 packet header
-func (packet *SnmpPacket) marshalV3Header() ([]byte, error) {
-	buf := new(bytes.Buffer)
-
-	// msg id
-	buf.Write([]byte{byte(Integer), 4})
-	err := binary.Write(buf, binary.BigEndian, packet.MsgID)
-	if err != nil {
-		return nil, err
-	}
-
-	// maximum response msg size
-	var maxBufSize uint32 = rxBufSize
+// appendV3Header appends msgGlobalData: the message ID, which always takes
+// four octets (so IDs of 2^31 and up read as negative), the maximum message
+// size (rxBufSize unless set), the flags and the security model, each of the
+// last two in one octet.
+func (packet *SnmpPacket) appendV3Header(dst []byte) []byte {
+	dst, start := ber.Begin(dst, byte(Sequence))
+	dst = binary.BigEndian.AppendUint32(append(dst, byte(Integer), 4), packet.MsgID)
+	maxSize := uint32(rxBufSize)
 	if packet.MsgMaxSize != 0 {
-		maxBufSize = packet.MsgMaxSize
+		maxSize = packet.MsgMaxSize
 	}
-	maxmsgsize, err := marshalUint32(maxBufSize)
-	if err != nil {
-		return nil, err
-	}
-	buf.Write([]byte{byte(Integer), byte(len(maxmsgsize))}) //nolint:gosec
-	buf.Write(maxmsgsize)
-
-	// msg flags
-	buf.Write([]byte{byte(OctetString), 1, byte(packet.MsgFlags)})
-
-	// msg security model
-	buf.Write([]byte{byte(Integer), 1, byte(packet.SecurityModel)})
-
-	return buf.Bytes(), nil
+	dst = appendUint(dst, Integer, uint64(maxSize))
+	dst = append(dst, byte(OctetString), 1, byte(packet.MsgFlags))
+	dst = append(dst, byte(Integer), 1, byte(packet.SecurityModel))
+	return ber.End(dst, start)
 }
 
-// marshal and encrypt (if necessary) a snmp version 3 Scoped PDU
-func (packet *SnmpPacket) marshalV3ScopedPDU() ([]byte, error) {
-	var b []byte
-
-	scopedPdu, err := packet.prepareV3ScopedPDU()
+// appendV3ScopedPDU appends the scoped PDU: a SEQUENCE of the context engine
+// ID, the context name and the PDU, encrypted into an OCTET STRING when the
+// flags ask for privacy.
+func (packet *SnmpPacket) appendV3ScopedPDU(dst []byte) ([]byte, error) {
+	scoped := len(dst)
+	dst, start := ber.Begin(dst, byte(Sequence))
+	dst = appendOctets(dst, OctetString, packet.ContextEngineID)
+	dst = appendOctets(dst, OctetString, packet.ContextName)
+	dst, err := packet.appendPDU(dst)
 	if err != nil {
 		return nil, err
 	}
-	pduLen, err := marshalLength(len(scopedPdu))
-	if err != nil {
-		return nil, err
-	}
-	b = append([]byte{byte(Sequence)}, pduLen...)
-	scopedPdu = append(b, scopedPdu...)
+	dst = ber.End(dst, start)
 	if packet.MsgFlags&AuthPriv > AuthNoPriv {
-		scopedPdu, err = packet.SecurityParameters.encryptPacket(scopedPdu)
+		encrypted, err := packet.SecurityParameters.encryptPacket(dst[scoped:])
 		if err != nil {
 			return nil, err
 		}
+		dst = append(dst[:scoped], encrypted...)
 	}
-
-	return scopedPdu, nil
-}
-
-// prepare the plain text of a snmp version 3 Scoped PDU
-func (packet *SnmpPacket) prepareV3ScopedPDU() ([]byte, error) {
-	var buf bytes.Buffer
-
-	// ContextEngineID
-	if err := marshalOctetString(&buf, packet.ContextEngineID); err != nil {
-		return nil, err
-	}
-
-	// ContextName
-	if err := marshalOctetString(&buf, packet.ContextName); err != nil {
-		return nil, err
-	}
-
-	data, err := packet.marshalPDU()
-	if err != nil {
-		return nil, err
-	}
-	buf.Write(data)
-	return buf.Bytes(), nil
+	return dst, nil
 }
 
 // unmarshalV3Header reads the SNMPv3 header at packet[cursor:]: msgGlobalData

@@ -9,12 +9,8 @@
 package gosnmp
 
 import (
-	"bytes"
 	"errors"
-	"fmt"
 	"log"
-	"math"
-	"net"
 	"os"
 
 	"github.com/netdata/gosnmp/internal/ber"
@@ -56,85 +52,6 @@ func Check(err error) {
 	if err != nil {
 		log.Fatalf("Check: %v\n", err)
 	}
-}
-
-// marshalInt32 encodes the content octets of an INTEGER within the int32
-// range, which SNMP Integer32 fields use.
-func marshalInt32(value int) ([]byte, error) {
-	if value < math.MinInt32 || value > math.MaxInt32 {
-		return nil, fmt.Errorf("unable to marshal: %d overflows int32", value)
-	}
-	return ber.AppendInt64(nil, int64(value)), nil
-}
-
-// marshalUint32 encodes the content octets of an unsigned 32-bit field
-// (Counter32, Gauge32, TimeTicks, Unsigned32, SNMPError) from the Go types
-// those fields hold; a uint is truncated to 32 bits.
-func marshalUint32(v any) ([]byte, error) {
-	var source uint32
-	switch val := v.(type) {
-	case uint32:
-		source = val
-	case uint:
-		source = uint32(val) //nolint:gosec
-	case uint8:
-		source = uint32(val)
-	case SNMPError:
-		source = uint32(val)
-	default:
-		return nil, fmt.Errorf("unable to marshal %T to uint32", v)
-	}
-	return ber.AppendUint64(nil, uint64(source)), nil
-}
-
-// marshalLength encodes a TLV length (see ber.AppendLength).
-func marshalLength(length int) ([]byte, error) {
-	if length < 0 {
-		return nil, fmt.Errorf("length must be >= 0")
-	}
-	return ber.AppendLength(nil, length), nil
-}
-
-// marshalTLV writes a BER TLV (type-length-value) to buf using proper length
-// encoding. Handles values of any size, including those exceeding 127 bytes.
-func marshalTLV(buf *bytes.Buffer, tag byte, value []byte) error {
-	length, err := marshalLength(len(value))
-	if err != nil {
-		return err
-	}
-	buf.WriteByte(tag)
-	buf.Write(length)
-	buf.Write(value)
-	return nil
-}
-
-// marshalOctetString writes s to buf as an OCTET STRING TLV.
-func marshalOctetString(buf *bytes.Buffer, s string) error {
-	length, err := marshalLength(len(s))
-	if err != nil {
-		return err
-	}
-	buf.WriteByte(byte(OctetString))
-	buf.Write(length)
-	buf.WriteString(s)
-	return nil
-}
-
-// marshalObjectIdentifier encodes the content octets of an OBJECT IDENTIFIER
-// (see ber.AppendOID).
-func marshalObjectIdentifier(oid string) ([]byte, error) {
-	return ber.AppendOID(nil, oid)
-}
-
-// marshalIPAddress returns the four octets of an IpAddress given as a string:
-// the last four bytes of the parsed address, so an IPv6 address loses its
-// first twelve. It returns an array so the parsed address stays on the stack.
-func marshalIPAddress(s string) ([4]byte, error) {
-	ip := net.ParseIP(s)
-	if ip == nil {
-		return [4]byte{}, fmt.Errorf("%q is not an IP address", s)
-	}
-	return [4]byte(ip[12:]), nil
 }
 
 // -- Bit String ---------------------------------------------------------------

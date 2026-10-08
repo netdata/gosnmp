@@ -18,9 +18,13 @@ func TestAppendLength(t *testing.T) {
 		want []byte
 	}{
 		"zero":             {n: 0, want: []byte{0x00}},
+		"one":              {n: 1, want: []byte{0x01}},
 		"short form limit": {n: 127, want: []byte{0x7f}},
 		"one long octet":   {n: 128, want: []byte{0x81, 0x80}},
+		"129":              {n: 129, want: []byte{0x81, 0x81}},
 		"255":              {n: 255, want: []byte{0x81, 0xff}},
+		"272":              {n: 272, want: []byte{0x82, 0x01, 0x10}},
+		"435":              {n: 435, want: []byte{0x82, 0x01, 0xb3}},
 		"256":              {n: 256, want: []byte{0x82, 0x01, 0x00}},
 		"65535":            {n: 65535, want: []byte{0x82, 0xff, 0xff}},
 		"65536":            {n: 65536, want: []byte{0x83, 0x01, 0x00, 0x00}},

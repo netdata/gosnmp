@@ -362,6 +362,7 @@ func encodeCases(t *testing.T) []encodeCase {
 	v2c := func(pduType PDUType, vars []SnmpPDU) *SnmpPacket {
 		return &SnmpPacket{Version: Version2c, Community: "public", PDUType: pduType, RequestID: 1, Variables: vars}
 	}
+	beyondInt32 := int64(math.MaxInt32) + 1
 	v1Trap := func(edit func(*SnmpTrap)) *SnmpPacket {
 		tr := trap
 		edit(&tr)
@@ -408,6 +409,8 @@ func encodeCases(t *testing.T) []encodeCase {
 		{"v2c/getbulk-request", marshal(edit(v2c(GetBulkRequest, slices.Concat(nullVar, nullVar)), func(p *SnmpPacket) { p.NonRepeaters, p.MaxRepetitions = 1, 10 }))},
 		{"v2c/getbulk-request/max-repetitions-2^31", marshal(edit(v2c(GetBulkRequest, nullVar), func(p *SnmpPacket) { p.MaxRepetitions = 1 << 31 }))},
 		{"v2c/getbulk-request/max-repetitions-max-uint32", marshal(edit(v2c(GetBulkRequest, nullVar), func(p *SnmpPacket) { p.MaxRepetitions = math.MaxUint32 }))},
+		{"v2c/getbulk-request/non-repeaters-200", marshal(edit(v2c(GetBulkRequest, nullVar), func(p *SnmpPacket) { p.NonRepeaters = 200 }))},
+		{"v2c/getbulk-request/request-id-2^31", marshal(edit(v2c(GetBulkRequest, nullVar), func(p *SnmpPacket) { p.RequestID = 1 << 31 }))},
 		{"v2c/set-request/mixed-types", marshal(v2c(SetRequest, mixedVars))},
 		{"v2c/get-response/error", marshal(edit(v2c(GetResponse, nullVar), func(p *SnmpPacket) { p.Error, p.ErrorIndex = GenErr, 2 }))},
 		{"v2c/get-response/error-index-255", marshal(edit(v2c(GetResponse, nullVar), func(p *SnmpPacket) { p.Error, p.ErrorIndex = TooBig, 255 }))},
@@ -463,6 +466,9 @@ func encodeCases(t *testing.T) []encodeCase {
 		{"v1-trap/enterprise-empty", marshal(v1Trap(func(tr *SnmpTrap) { tr.Enterprise = "" }))},
 		{"v1-trap/generic-negative", marshal(v1Trap(func(tr *SnmpTrap) { tr.GenericTrap = -1 }))},
 		{"v1-trap/specific-max-int32", marshal(v1Trap(func(tr *SnmpTrap) { tr.SpecificTrap = math.MaxInt32 }))},
+		// Beyond int32 on 64-bit platforms; wraps to MinInt32 where int has 32 bits.
+		{"v1-trap/generic-2^31", marshal(v1Trap(func(tr *SnmpTrap) { tr.GenericTrap = int(beyondInt32) }))},
+		{"v1-trap/specific-2^31", marshal(v1Trap(func(tr *SnmpTrap) { tr.SpecificTrap = int(beyondInt32) }))},
 		{"v1-trap/timestamp-max-uint32", marshal(v1Trap(func(tr *SnmpTrap) { tr.Timestamp = math.MaxUint32 }))},
 		{"v1-trap/in-v2c-message", marshal(edit(v1Trap(func(*SnmpTrap) {}), func(p *SnmpPacket) { p.Version = Version2c }))},
 
@@ -479,6 +485,12 @@ func encodeCases(t *testing.T) []encodeCase {
 			p.SecurityParameters.(*UsmSecurityParameters).UserName = strings.Repeat("u", 200)
 		}))},
 		{"v3/no-auth-no-priv/max-size-1500", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) { p.MsgMaxSize = 1500 }))},
+		{"v3/no-auth-no-priv/max-size-2^31", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) { p.MsgMaxSize = 1 << 31 }))},
+		{"v3/no-auth-no-priv/security-model-200", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) { p.SecurityModel = 200 }))},
+		{"v3/no-auth-no-priv/engine-boots-and-time-2^31", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) {
+			sp := p.SecurityParameters.(*UsmSecurityParameters)
+			sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = 1<<31, 1<<31+1
+		}))},
 		{"v3/no-auth-no-priv/report", marshal(v3(NoAuthNoPriv, Report, codecUSM(t, NoAuth, NoPriv)))},
 		{"v3/no-auth-no-priv/nil-security-parameters", marshal(v3(NoAuthNoPriv, GetRequest, nil))},
 		{"v3/auth-no-priv/md5", marshal(v3(AuthNoPriv, GetRequest, codecUSM(t, MD5, NoPriv)))},

@@ -389,6 +389,97 @@ func unmarshalVBL(packet []byte, response *SnmpPacket) error {
 	return nil
 }
 
+// marshalMsg encodes the message: a SEQUENCE of the version, then the
+// community and the PDU, or for SNMPv3 the header, the security parameters and
+// the scoped PDU; an SNMPv3 message is then authenticated when its flags ask
+// for it. The version always takes one octet.
+func (packet *SnmpPacket) marshalMsg() ([]byte, error) {
+	dst, start := ber.Begin(make([]byte, 0, packet.sizeHint()), byte(Sequence))
+	dst = append(dst, byte(Integer), 1, byte(packet.Version))
+	var err error
+	if packet.Version == Version3 {
+		dst, err = packet.appendV3(dst)
+	} else {
+		dst, err = packet.appendPDU(appendOctets(dst, OctetString, packet.Community))
+	}
+	if err != nil {
+		return nil, err
+	}
+	return packet.authenticate(ber.End(dst, start))
+}
+
+// sizeHint estimates the encoded size of the message so that marshalMsg
+// usually allocates once: room for the headers and the security parameters,
+// the text fields, and per varbind its name in dotted form (no shorter than
+// its encoding), its headers and an OCTET STRING or Opaque value.
+func (packet *SnmpPacket) sizeHint() int {
+	n := 64 + len(packet.Community) + len(packet.ContextEngineID) + len(packet.ContextName)
+	if packet.Version == Version3 {
+		n += 128
+	}
+	for i := range packet.Variables {
+		n += 16 + len(packet.Variables[i].Name)
+		switch v := packet.Variables[i].Value.(type) {
+		case []byte:
+			n += len(v)
+		case string:
+			n += len(v)
+		}
+	}
+	return n
+}
+
+// appendPDU appends the PDU: the request ID with the non-repeaters and
+// max-repetitions of a GetBulkRequest or the error status and index of other
+// PDUs, or the header of an SNMPv1 trap, then the varbind list. The request ID
+// goes through the platform's int, so on 32-bit platforms IDs of 2^31 and up
+// encode as negative INTEGERs.
+func (packet *SnmpPacket) appendPDU(dst []byte) ([]byte, error) {
+	dst, start := ber.Begin(dst, byte(packet.PDUType))
+	switch packet.PDUType {
+	case GetBulkRequest:
+		dst = appendInt(dst, Integer, int64(int(packet.RequestID)))
+		dst = appendUint(dst, Integer, uint64(packet.NonRepeaters))
+		dst = appendUint(dst, Integer, uint64(packet.MaxRepetitions))
+	case Trap:
+		var err error
+		if dst, err = packet.appendTrapV1Header(dst); err != nil {
+			return nil, err
+		}
+	default:
+		dst = appendInt(dst, Integer, int64(int(packet.RequestID)))
+		dst = appendUint(dst, Integer, uint64(packet.Error))
+		dst = appendUint(dst, Integer, uint64(packet.ErrorIndex))
+	}
+	dst, err := packet.appendVBL(dst)
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal varbind list: %w", err)
+	}
+	return ber.End(dst, start), nil
+}
+
+// appendTrapV1Header appends the SNMPv1 trap fields before the varbind list:
+// enterprise, agent address (see marshalIPAddress), generic and specific trap
+// within the int32 range, and the timestamp truncated to 32 bits.
+func (packet *SnmpPacket) appendTrapV1Header(dst []byte) ([]byte, error) {
+	dst, err := appendObjectIdentifier(dst, packet.Enterprise)
+	if err != nil {
+		return nil, err
+	}
+	agentAddress, err := marshalIPAddress(packet.AgentAddress)
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal SNMPv1 AgentAddress: %w", err)
+	}
+	dst = appendOctets(dst, IPAddress, agentAddress[:])
+	if dst, err = appendInt32(dst, Integer, packet.GenericTrap); err != nil {
+		return nil, fmt.Errorf("unable to marshal SNMPv1 GenericTrap: %w", err)
+	}
+	if dst, err = appendInt32(dst, Integer, packet.SpecificTrap); err != nil {
+		return nil, fmt.Errorf("unable to marshal SNMPv1 SpecificTrap: %w", err)
+	}
+	return appendUint(dst, TimeTicks, uint64(uint32(packet.Timestamp))), nil //nolint:gosec
+}
+
 // appendVBL appends the varbind list: a SEQUENCE of varbinds, each a SEQUENCE
 // of the name's OBJECT IDENTIFIER and the value (see appendValue).
 func (packet *SnmpPacket) appendVBL(dst []byte) ([]byte, error) {

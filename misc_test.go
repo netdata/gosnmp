@@ -11,40 +11,12 @@ import (
 	_ "crypto/sha1"
 	"math"
 	"math/big"
-	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
 // -----------------------------------------------------------------------------
-
-var testsMarshalLength = []struct {
-	length   int
-	expected []byte
-}{
-	{0, []byte{0x00}},
-	{1, []byte{0x01}},
-	{127, []byte{0x7f}},
-	{128, []byte{0x81, 0x80}},
-	{129, []byte{0x81, 0x81}},
-	{256, []byte{0x82, 0x01, 0x00}},
-	{272, []byte{0x82, 0x01, 0x10}},
-	{435, []byte{0x82, 0x01, 0xb3}},
-}
-
-func TestMarshalLength(t *testing.T) {
-	for i, test := range testsMarshalLength {
-		testBytes, err := marshalLength(test.length)
-		if err != nil {
-			t.Errorf("%d: length %d got err %v", i, test.length, err)
-		}
-		if !reflect.DeepEqual(testBytes, test.expected) {
-			t.Errorf("%d: length %d got |%x| expected |%x|",
-				i, test.length, testBytes, test.expected)
-		}
-	}
-}
 
 // -----------------------------------------------------------------------------
 

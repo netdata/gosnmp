@@ -301,9 +301,9 @@ func TestEnmarshalPDU(t *testing.T) {
 			Variables: vbPosPdus(test),
 		}
 
-		testBytes, err := x.marshalPDU()
+		testBytes, err := x.appendPDU(nil)
 		if err != nil {
-			t.Errorf("#%s: marshalPDU() err returned: %v", test.funcName, err)
+			t.Errorf("#%s: appendPDU() err returned: %v", test.funcName, err)
 		}
 
 		checkByteEquality(t, test, testBytes, test.pduStart, test.finish)
@@ -2030,64 +2030,6 @@ func TestMarshalVarbindRoundTrip(t *testing.T) {
 
 			if typ != tt.pdu.Type {
 				t.Errorf("Type mismatch: got %v, want %v", typ, tt.pdu.Type)
-			}
-		})
-	}
-}
-
-// TestMarshalTLV verifies BER TLV encoding for various length values.
-func TestMarshalTLV(t *testing.T) {
-	tests := []struct {
-		name         string
-		tag          byte
-		valueLen     int
-		wantLenBytes []byte // expected BER length encoding
-	}{
-		// Short form: lengths 0-127 encoded in single byte
-		{"length 10", byte(ObjectIdentifier), 10, []byte{0x0a}},
-		{"length 127", byte(ObjectIdentifier), 127, []byte{0x7f}},
-
-		// Long form: lengths >= 128 use 0x8n prefix where n = number of length bytes
-		{"length 128", byte(ObjectIdentifier), 128, []byte{0x81, 0x80}},
-		{"length 255", byte(ObjectIdentifier), 255, []byte{0x81, 0xff}},
-		{"length 256", byte(ObjectIdentifier), 256, []byte{0x82, 0x01, 0x00}},
-
-		// Different tags
-		{"Sequence length 100", byte(Sequence), 100, []byte{0x64}},
-		{"Sequence length 200", byte(Sequence), 200, []byte{0x81, 0xc8}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			buf := new(bytes.Buffer)
-			value := make([]byte, tt.valueLen)
-
-			err := marshalTLV(buf, tt.tag, value)
-			if err != nil {
-				t.Fatalf("marshalTLV() error = %v", err)
-			}
-
-			result := buf.Bytes()
-
-			// Check tag
-			if result[0] != tt.tag {
-				t.Errorf("tag = 0x%02x, want 0x%02x", result[0], tt.tag)
-			}
-
-			// Check length encoding exactly
-			gotLenBytes := result[1 : 1+len(tt.wantLenBytes)]
-			for i, b := range tt.wantLenBytes {
-				if gotLenBytes[i] != b {
-					t.Errorf("length byte[%d] = 0x%02x, want 0x%02x (full: got %x, want %x)",
-						i, gotLenBytes[i], b, gotLenBytes, tt.wantLenBytes)
-					break
-				}
-			}
-
-			// Check total size
-			expectedTotal := 1 + len(tt.wantLenBytes) + tt.valueLen
-			if len(result) != expectedTotal {
-				t.Errorf("total length = %d, want %d", len(result), expectedTotal)
 			}
 		})
 	}
