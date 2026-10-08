@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/netdata/gosnmp/internal/ber"
 )
 
 // Tests in alphabetical order of function being tested
@@ -908,7 +910,7 @@ func panicUnmarshalV3HeaderFlagLen() []byte {
 
 /*
 panicUnmarshalParseFloat32() tests a boundary condition that results in a panic
-in parseFloat32 when handling malformed data.
+in ber.Float32 when handling malformed data.
 */
 func panicUnmarshalParseFloat32() []byte {
 	return []byte{
@@ -921,7 +923,7 @@ func panicUnmarshalParseFloat32() []byte {
 
 /*
 panicUnmarshalParseFloat64() tests a boundary condition that results in a panic
-in parseFloat64 when handling malformed data.
+in ber.Float64 when handling malformed data.
 */
 func panicUnmarshalParseFloat64() []byte {
 	return []byte{
@@ -934,7 +936,7 @@ func panicUnmarshalParseFloat64() []byte {
 
 /*
 panicUnmarshalParseRawFieldTimeTicks() tests a boundary condition that results in a panic
-in parseRawField TimeTicks type when parseLength overflows the length value returning a value
+in parseRawField TimeTicks type when ber.Length overflows the length value returning a value
 for cursor that is higher than length.
 */
 func panicUnmarshalParseRawFieldTimeTicks() []byte {
@@ -2000,9 +2002,9 @@ func TestMarshalVarbindRoundTrip(t *testing.T) {
 			}
 
 			// Parse length and get cursor position
-			_, cursor, err := parseLength(result)
+			_, cursor, err := ber.Length(result)
 			if err != nil {
-				t.Fatalf("parseLength() error = %v", err)
+				t.Fatalf("ber.Length() error = %v", err)
 			}
 
 			// Parse OID

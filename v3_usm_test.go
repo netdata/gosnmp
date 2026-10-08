@@ -274,7 +274,7 @@ func TestIsAuthenticSHA512(t *testing.T) {
 //
 // The bounds check at v3_usm.go:991 originally compared cursorTmp (the BER
 // length-header size, a small relative increment) against len(packet) rather
-// than cursor (the updated absolute position). Because parseLength guarantees
+// than cursor (the updated absolute position). Because ber.Length guarantees
 // cursorTmp <= len(packet[cursor:]), cursor after incrementing is at most
 // len(packet) and the check never fires either way. The fix uses the correct
 // variable so the check reflects its intended purpose.

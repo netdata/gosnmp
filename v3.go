@@ -14,6 +14,8 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+
+	"github.com/netdata/gosnmp/internal/ber"
 )
 
 // SnmpV3MsgFlags contains various message flags to describe Authentication, Privacy, and whether a report PDU must be sent.
@@ -356,7 +358,7 @@ func (x *GoSNMP) unmarshalV3Header(packet []byte,
 		return 0, fmt.Errorf("invalid SNMPV3 Header")
 	}
 
-	_, cursorTmp, err := parseLength(packet[cursor:])
+	_, cursorTmp, err := ber.Length(packet[cursor:])
 	if err != nil {
 		return 0, err
 	}
@@ -420,7 +422,7 @@ func (x *GoSNMP) unmarshalV3Header(packet []byte,
 	if PDUType(packet[cursor]) != PDUType(OctetString) {
 		return 0, errors.New("invalid SNMPV3 Security Parameters")
 	}
-	_, cursorTmp, err = parseLength(packet[cursor:])
+	_, cursorTmp, err = ber.Length(packet[cursor:])
 	if err != nil {
 		return 0, err
 	}
@@ -459,7 +461,7 @@ func (x *GoSNMP) decryptPacket(packet []byte, cursor int, response *SnmpPacket) 
 		fallthrough
 	case Sequence:
 		// pdu is plaintext or has been decrypted
-		tlength, cursorTmp, err := parseLength(packet[cursor:])
+		tlength, cursorTmp, err := ber.Length(packet[cursor:])
 		if err != nil {
 			return nil, 0, err
 		}

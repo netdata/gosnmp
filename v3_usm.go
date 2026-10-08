@@ -29,6 +29,8 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"github.com/netdata/gosnmp/internal/ber"
 )
 
 // SnmpV3AuthProtocol describes the authentication protocol in use by an authenticated SnmpV3 connection.
@@ -878,7 +880,7 @@ func (sp *UsmSecurityParameters) encryptPacket(scopedPdu []byte) ([]byte, error)
 }
 
 func (sp *UsmSecurityParameters) decryptPacket(packet []byte, cursor int) ([]byte, error) {
-	_, cursorTmp, err := parseLength(packet[cursor:])
+	_, cursorTmp, err := ber.Length(packet[cursor:])
 	if err != nil {
 		return nil, err
 	}
@@ -998,7 +1000,7 @@ func (sp *UsmSecurityParameters) unmarshal(flags SnmpV3MsgFlags, packet []byte, 
 	if PDUType(packet[cursor]) != Sequence {
 		return 0, errors.New("error parsing SNMPV3 User Security Model parameters")
 	}
-	_, cursorTmp, err := parseLength(packet[cursor:])
+	_, cursorTmp, err := ber.Length(packet[cursor:])
 	if err != nil {
 		return 0, err
 	}

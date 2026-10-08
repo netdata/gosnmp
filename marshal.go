@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/netdata/gosnmp/internal/ber"
 )
 
 //
@@ -935,7 +937,7 @@ func (x *GoSNMP) unmarshalVersionFromHeader(packet []byte, response *SnmpPacket)
 		return 0, 0, fmt.Errorf("invalid packet header")
 	}
 
-	length, cursor, err := parseLength(packet)
+	length, cursor, err := ber.Length(packet)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -1026,7 +1028,7 @@ func (x *GoSNMP) unmarshalPayload(packet []byte, cursor int, response *SnmpPacke
 func (x *GoSNMP) unmarshalResponse(packet []byte, response *SnmpPacket) error {
 	cursor := 0
 
-	getResponseLength, cursor, err := parseLength(packet)
+	getResponseLength, cursor, err := ber.Length(packet)
 	if err != nil {
 		return err
 	}
@@ -1112,7 +1114,7 @@ func (x *GoSNMP) unmarshalResponse(packet []byte, response *SnmpPacket) error {
 func (x *GoSNMP) unmarshalTrapV1(packet []byte, response *SnmpPacket) error {
 	cursor := 0
 
-	getResponseLength, cursor, err := parseLength(packet)
+	getResponseLength, cursor, err := ber.Length(packet)
 	if err != nil {
 		return err
 	}
@@ -1207,7 +1209,7 @@ func (x *GoSNMP) unmarshalVBL(packet []byte, response *SnmpPacket) error {
 		return fmt.Errorf("expected a sequence when unmarshalling a VBL, got %x", packet[cursor])
 	}
 
-	vblLength, cursor, err := parseLength(packet)
+	vblLength, cursor, err := ber.Length(packet)
 	if err != nil {
 		return err
 	}
@@ -1230,7 +1232,7 @@ func (x *GoSNMP) unmarshalVBL(packet []byte, response *SnmpPacket) error {
 			return fmt.Errorf("expected a sequence when unmarshalling a VB, got %x", packet[cursor])
 		}
 
-		vbLength, cursorInc, err := parseLength(packet[cursor:])
+		vbLength, cursorInc, err := ber.Length(packet[cursor:])
 		if err != nil {
 			return err
 		}
@@ -1253,7 +1255,7 @@ func (x *GoSNMP) unmarshalVBL(packet []byte, response *SnmpPacket) error {
 		}
 
 		valueSlice := packet[cursor:vbEnd]
-		valueLength, valueCursor, err := parseLength(valueSlice)
+		valueLength, valueCursor, err := ber.Length(valueSlice)
 		if err != nil {
 			return fmt.Errorf("error parsing value TLV in varbind: %w", err)
 		}
