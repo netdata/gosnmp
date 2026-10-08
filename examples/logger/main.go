@@ -2,8 +2,7 @@
 // source code is governed by a BSD-style license that can be found in the
 // LICENSE file.
 
-// building this code with the gosnmp_nodebug tag will completely disable compiler-level logging.
-// If you however want to enable or disable logging at runtime you could choose to do so as folow:
+// This example enables and disables logging at runtime.
 package main
 
 import (
@@ -33,11 +32,3 @@ func main() {
 	_ = params.Connect() // logging is disabled
 	params.Conn.Close()
 }
-
-// on v1.31 with logging enabled, and Logger variable is not set
-// go test -v -bench=. -benchmem -benchtime=100000x -tags all
-// BenchmarkSendOneRequest-24        100000             70542 ns/op            3088 B/op         84 allocs/op
-
-// on v1.31 with logging enabled, and Logger variable is set to NewLogger(nil)
-// go test -v -bench=. -benchmem -benchtime=100000x -tags all
-// BenchmarkSendOneRequest-24        100000             70377 ns/op            3088 B/op         84 allocs/op

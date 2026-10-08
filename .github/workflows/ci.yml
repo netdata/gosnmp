@@ -28,9 +28,6 @@ jobs:
           - name: gosnmp
             dir: .
             args: --build-tags=end2end
-          - name: gosnmp_nodebug
-            dir: .
-            args: --build-tags=end2end,gosnmp_nodebug
           - name: gosnmp_nopwdcache
             dir: .
             args: --build-tags=gosnmp_nopwdcache
@@ -153,9 +150,6 @@ jobs:
       - name: netsnmp tests (playback)
         working-directory: netsnmp
         run: go test -v ./...
-      - name: Unit tests (gosnmp_nodebug)
-        if: matrix.name == 'linux/amd64'
-        run: go test -tags gosnmp_nodebug ./...
       - name: Unit tests (gosnmp_nopwdcache)
         if: matrix.name == 'linux/amd64'
         run: go test -tags gosnmp_nopwdcache ./...

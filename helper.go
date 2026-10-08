@@ -72,7 +72,6 @@ func (x *GoSNMP) decodeValue(data []byte, retVal *variable) error {
 	switch Asn1BER(data[0]) {
 	case Integer, Uinteger32:
 		// 0x02. signed
-		x.Logger.Printf("decodeValue: type is %s", Asn1BER(data[0]).String())
 		length, cursor, err := parseLength(data)
 		if err != nil {
 			return err
@@ -84,7 +83,6 @@ func (x *GoSNMP) decodeValue(data []byte, retVal *variable) error {
 
 		var ret int
 		if ret, err = parseInt(data[cursor:length]); err != nil {
-			x.Logger.Printf("%v:", err)
 			return fmt.Errorf("bytes: % x err: %w", data, err)
 		}
 		retVal.Type = Asn1BER(data[0])
@@ -97,7 +95,6 @@ func (x *GoSNMP) decodeValue(data []byte, retVal *variable) error {
 
 	case OctetString:
 		// 0x04
-		x.Logger.Print("decodeValue: type is OctetString")
 		length, cursor, err := parseLength(data)
 		if err != nil {
 			return err
@@ -111,13 +108,11 @@ func (x *GoSNMP) decodeValue(data []byte, retVal *variable) error {
 		retVal.Value = data[cursor:length]
 	case Null:
 		// 0x05
-		x.Logger.Print("decodeValue: type is Null")
 		retVal.Type = Null
 		retVal.Value = nil
 	case ObjectIdentifier:
 		// 0x06
-		x.Logger.Print("decodeValue: type is ObjectIdentifier")
-		rawOid, _, err := parseRawField(x.Logger, data, "OID")
+		rawOid, _, err := parseRawField(data)
 		if err != nil {
 			return fmt.Errorf("error parsing OID Value: %w", err)
 		}
@@ -129,7 +124,6 @@ func (x *GoSNMP) decodeValue(data []byte, retVal *variable) error {
 		retVal.Value = oid
 	case IPAddress:
 		// 0x40
-		x.Logger.Print("decodeValue: type is IPAddress")
 		retVal.Type = IPAddress
 		length, cursor, err := parseLength(data)
 		if err != nil {
@@ -158,7 +152,6 @@ func (x *GoSNMP) decodeValue(data []byte, retVal *variable) error {
 		}
 	case Counter32:
 		// 0x41. unsigned
-		x.Logger.Print("decodeValue: type is Counter32")
 		length, cursor, err := parseLength(data)
 		if err != nil {
 			return err
@@ -169,14 +162,12 @@ func (x *GoSNMP) decodeValue(data []byte, retVal *variable) error {
 
 		ret, err := parseUint(data[cursor:length])
 		if err != nil {
-			x.Logger.Printf("decodeValue: err is %v", err)
 			break
 		}
 		retVal.Type = Counter32
 		retVal.Value = ret
 	case Gauge32:
 		// 0x42. unsigned
-		x.Logger.Print("decodeValue: type is Gauge32")
 		length, cursor, err := parseLength(data)
 		if err != nil {
 			return err
@@ -187,14 +178,12 @@ func (x *GoSNMP) decodeValue(data []byte, retVal *variable) error {
 
 		ret, err := parseUint(data[cursor:length])
 		if err != nil {
-			x.Logger.Printf("decodeValue: err is %v", err)
 			break
 		}
 		retVal.Type = Gauge32
 		retVal.Value = ret
 	case TimeTicks:
 		// 0x43
-		x.Logger.Print("decodeValue: type is TimeTicks")
 		length, cursor, err := parseLength(data)
 		if err != nil {
 			return err
@@ -205,14 +194,12 @@ func (x *GoSNMP) decodeValue(data []byte, retVal *variable) error {
 
 		ret, err := parseUint32(data[cursor:length])
 		if err != nil {
-			x.Logger.Printf("decodeValue: err is %v", err)
 			break
 		}
 		retVal.Type = TimeTicks
 		retVal.Value = ret
 	case Opaque:
 		// 0x44
-		x.Logger.Print("decodeValue: type is Opaque")
 		length, cursor, err := parseLength(data)
 		if err != nil {
 			return err
@@ -220,10 +207,9 @@ func (x *GoSNMP) decodeValue(data []byte, retVal *variable) error {
 		if length > len(data) {
 			return fmt.Errorf("not enough data for Opaque %x (data %d length %d)", data, len(data), length)
 		}
-		return parseOpaque(x.Logger, data[cursor:length], retVal)
+		return parseOpaque(data[cursor:length], retVal)
 	case Counter64:
 		// 0x46
-		x.Logger.Print("decodeValue: type is Counter64")
 		length, cursor, err := parseLength(data)
 		if err != nil {
 			return err
@@ -233,32 +219,26 @@ func (x *GoSNMP) decodeValue(data []byte, retVal *variable) error {
 		}
 		ret, err := parseUint64(data[cursor:length])
 		if err != nil {
-			x.Logger.Printf("decodeValue: err is %v", err)
 			break
 		}
 		retVal.Type = Counter64
 		retVal.Value = ret
 	case NoSuchObject:
 		// 0x80
-		x.Logger.Print("decodeValue: type is NoSuchObject")
 		retVal.Type = NoSuchObject
 		retVal.Value = nil
 	case NoSuchInstance:
 		// 0x81
-		x.Logger.Print("decodeValue: type is NoSuchInstance")
 		retVal.Type = NoSuchInstance
 		retVal.Value = nil
 	case EndOfMibView:
 		// 0x82
-		x.Logger.Print("decodeValue: type is EndOfMibView")
 		retVal.Type = EndOfMibView
 		retVal.Value = nil
 	default:
-		x.Logger.Printf("decodeValue: type %x isn't implemented", data[0])
 		retVal.Type = UnknownType
 		retVal.Value = nil
 	}
-	x.Logger.Printf("decodeValue: value is %#v", retVal.Value)
 	return nil
 }
 
@@ -525,7 +505,7 @@ func ipv4toBytes(ip net.IP) []byte {
 // Known data-types is OpaqueDouble and OpaqueFloat
 // Other data decoded as binary Opaque data
 // TODO: add OpaqueCounter64 (0x76), OpaqueInteger64 (0x80), OpaqueUinteger64 (0x81)
-func parseOpaque(logger Logger, data []byte, retVal *variable) error {
+func parseOpaque(data []byte, retVal *variable) error {
 	if len(data) == 0 {
 		return ErrZeroByteBuffer
 	}
@@ -534,7 +514,6 @@ func parseOpaque(logger Logger, data []byte, retVal *variable) error {
 		case OpaqueDouble:
 			// 0x79
 			data = data[1:]
-			logger.Print("decodeValue: type is OpaqueDouble")
 			length, cursor, err := parseLength(data)
 			if err != nil {
 				return err
@@ -550,7 +529,6 @@ func parseOpaque(logger Logger, data []byte, retVal *variable) error {
 		case OpaqueFloat:
 			// 0x78
 			data = data[1:]
-			logger.Print("decodeValue: type is OpaqueFloat")
 			length, cursor, err := parseLength(data)
 			if err != nil {
 				return err
@@ -567,12 +545,10 @@ func parseOpaque(logger Logger, data []byte, retVal *variable) error {
 				return err
 			}
 		default:
-			logger.Print("decodeValue: type is Opaque")
 			retVal.Type = Opaque
 			retVal.Value = data[0:]
 		}
 	} else {
-		logger.Print("decodeValue: type is Opaque")
 		retVal.Type = Opaque
 		retVal.Value = data[0:]
 	}
@@ -727,11 +703,10 @@ func parseObjectIdentifier(src []byte) (string, error) {
 	return string(out), nil
 }
 
-func parseRawField(logger Logger, data []byte, msg string) (any, int, error) {
+func parseRawField(data []byte) (any, int, error) {
 	if len(data) == 0 {
 		return nil, 0, fmt.Errorf("empty data passed to parseRawField")
 	}
-	logger.Printf("parseRawField: %s", msg)
 	switch Asn1BER(data[0]) {
 	case Integer:
 		length, cursor, err := parseLength(data)

@@ -2,15 +2,47 @@
 // source code is governed by a BSD-style license that can be found in the
 // LICENSE file.
 
-//go:build gosnmp_nodebug
-
-// When building, specify the gosnmp_nodebug tag and logging will be completely disabled
-// for example: go build -tags gosnmp_nodebug
-
 package gosnmp
 
-func (l *Logger) Print(_ ...any) {
+// LoggerInterface is where a Logger writes debug output. Its methods match
+// Print and Printf of the standard library's *log.Logger.
+type LoggerInterface interface {
+	Print(v ...any)
+	Printf(format string, v ...any)
 }
 
-func (l *Logger) Printf(_ string, _ ...any) {
+// Logger writes debug output to a LoggerInterface. The zero Logger discards
+// everything. For verbose logging to stdout:
+//
+//	x.Logger = NewLogger(log.New(os.Stdout, "", 0))
+type Logger struct {
+	logger LoggerInterface
+}
+
+// NewLogger returns a Logger writing to logger; a nil logger disables logging.
+func NewLogger(logger LoggerInterface) Logger {
+	return Logger{
+		logger: logger,
+	}
+}
+
+// Print writes to the logger, if one is set.
+func (l *Logger) Print(v ...any) {
+	if l.logger != nil {
+		l.logger.Print(v...)
+	}
+}
+
+// Printf writes to the logger, if one is set.
+func (l *Logger) Printf(format string, v ...any) {
+	if l.logger != nil {
+		l.logger.Printf(format, v...)
+	}
+}
+
+// enabled reports whether a logger is set. Print and Printf arguments are
+// evaluated and boxed even when it is not, so per-request call sites check
+// enabled first.
+func (l *Logger) enabled() bool {
+	return l.logger != nil
 }

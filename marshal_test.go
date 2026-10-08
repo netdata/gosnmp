@@ -2006,7 +2006,7 @@ func TestMarshalVarbindRoundTrip(t *testing.T) {
 			}
 
 			// Parse OID
-			rawOid, oidLength, err := parseRawField(logger, result[cursor:], "OID")
+			rawOid, oidLength, err := parseRawField(result[cursor:])
 			if err != nil {
 				t.Fatalf("parseRawField(OID) error = %v", err)
 			}

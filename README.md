@@ -74,11 +74,8 @@ g := &gosnmp.GoSNMP{
 }
 
 ```
-You can completely remove the logging code from your application using the golang build tag "gosnmp_nodebug", for example:
-```
-go build -tags gosnmp_nodebug
-```
-This will completely disable the logging of the gosnmp library, even if the logger interface is specified in the code. This provides a small performance improvement.
+Without a logger (the default) logging is disabled: the encoder and decoder do not log, and the request path does not
+format log messages.
 
 # Installation
 

@@ -73,10 +73,9 @@ type GoSNMP struct {
 	// Double timeout in each retry.
 	ExponentialTimeout bool
 
-	// Logger is the GoSNMP.Logger to use for debugging.
-	// For verbose logging to stdout:
+	// Logger is the GoSNMP.Logger to use for debugging; the zero Logger
+	// disables logging. For verbose logging to stdout:
 	// x.Logger = NewLogger(log.New(os.Stdout, "", 0))
-	// For Release builds, you can turn off logging entirely by using the go build tag "gosnmp_nodebug" even if the logger was installed.
 	Logger Logger
 
 	// Message hook methods allow passing in a functions at various points in the packet handling.

@@ -250,7 +250,9 @@ func (sp *UsmSecurityParameters) SafeString() string {
 func (sp *UsmSecurityParameters) Log() {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
-	sp.Logger.Printf("SECURITY PARAMETERS:%s", sp.SafeString())
+	if sp.Logger.enabled() {
+		sp.Logger.Printf("SECURITY PARAMETERS:%s", sp.SafeString())
+	}
 }
 
 // Copy method for UsmSecurityParameters used to copy a SnmpV3SecurityParameters without knowing it's implementation
@@ -1005,7 +1007,7 @@ func (sp *UsmSecurityParameters) unmarshal(flags SnmpV3MsgFlags, packet []byte, 
 		return 0, errors.New("error parsing SNMPV3 User Security Model parameters: truncated packet")
 	}
 
-	rawMsgAuthoritativeEngineID, count, err := parseRawField(sp.Logger, packet[cursor:], "msgAuthoritativeEngineID")
+	rawMsgAuthoritativeEngineID, count, err := parseRawField(packet[cursor:])
 	if err != nil {
 		return 0, fmt.Errorf("error parsing SNMPV3 User Security Model msgAuthoritativeEngineID: %w", err)
 	}
@@ -1016,7 +1018,6 @@ func (sp *UsmSecurityParameters) unmarshal(flags SnmpV3MsgFlags, packet []byte, 
 			sp.SecretKey = nil
 			sp.PrivacyKey = nil
 
-			sp.Logger.Printf("Parsed authoritativeEngineID %0x", []byte(AuthoritativeEngineID))
 			err = sp.initSecurityKeysNoLock()
 			if err != nil {
 				return 0, err
@@ -1024,43 +1025,39 @@ func (sp *UsmSecurityParameters) unmarshal(flags SnmpV3MsgFlags, packet []byte, 
 		}
 	}
 
-	rawMsgAuthoritativeEngineBoots, count, err := parseRawField(sp.Logger, packet[cursor:], "msgAuthoritativeEngineBoots")
+	rawMsgAuthoritativeEngineBoots, count, err := parseRawField(packet[cursor:])
 	if err != nil {
 		return 0, fmt.Errorf("error parsing SNMPV3 User Security Model msgAuthoritativeEngineBoots: %w", err)
 	}
 	cursor += count
 	if AuthoritativeEngineBoots, ok := rawMsgAuthoritativeEngineBoots.(int); ok {
 		sp.AuthoritativeEngineBoots = uint32(AuthoritativeEngineBoots) //nolint:gosec
-		sp.Logger.Printf("Parsed authoritativeEngineBoots %d", AuthoritativeEngineBoots)
 	}
 
-	rawMsgAuthoritativeEngineTime, count, err := parseRawField(sp.Logger, packet[cursor:], "msgAuthoritativeEngineTime")
+	rawMsgAuthoritativeEngineTime, count, err := parseRawField(packet[cursor:])
 	if err != nil {
 		return 0, fmt.Errorf("error parsing SNMPV3 User Security Model msgAuthoritativeEngineTime: %w", err)
 	}
 	cursor += count
 	if AuthoritativeEngineTime, ok := rawMsgAuthoritativeEngineTime.(int); ok {
 		sp.AuthoritativeEngineTime = uint32(AuthoritativeEngineTime) //nolint:gosec
-		sp.Logger.Printf("Parsed authoritativeEngineTime %d", AuthoritativeEngineTime)
 	}
 
-	rawMsgUserName, count, err := parseRawField(sp.Logger, packet[cursor:], "msgUserName")
+	rawMsgUserName, count, err := parseRawField(packet[cursor:])
 	if err != nil {
 		return 0, fmt.Errorf("error parsing SNMPV3 User Security Model msgUserName: %w", err)
 	}
 	cursor += count
 	if msgUserName, ok := rawMsgUserName.(string); ok {
 		sp.UserName = msgUserName
-		sp.Logger.Printf("Parsed userName %s", msgUserName)
 	}
 
-	rawMsgAuthParameters, count, err := parseRawField(sp.Logger, packet[cursor:], "msgAuthenticationParameters")
+	rawMsgAuthParameters, count, err := parseRawField(packet[cursor:])
 	if err != nil {
 		return 0, fmt.Errorf("error parsing SNMPV3 User Security Model msgAuthenticationParameters: %w", err)
 	}
 	if msgAuthenticationParameters, ok := rawMsgAuthParameters.(string); ok {
 		sp.AuthenticationParameters = msgAuthenticationParameters
-		sp.Logger.Printf("Parsed authenticationParameters %s", msgAuthenticationParameters)
 	}
 	// blank msgAuthenticationParameters to prepare for authentication check later
 	if flags&AuthNoPriv > 0 {
@@ -1073,14 +1070,13 @@ func (sp *UsmSecurityParameters) unmarshal(flags SnmpV3MsgFlags, packet []byte, 
 	}
 	cursor += count
 
-	rawMsgPrivacyParameters, count, err := parseRawField(sp.Logger, packet[cursor:], "msgPrivacyParameters")
+	rawMsgPrivacyParameters, count, err := parseRawField(packet[cursor:])
 	if err != nil {
 		return 0, fmt.Errorf("error parsing SNMPV3 User Security Model msgPrivacyParameters: %w", err)
 	}
 	cursor += count
 	if msgPrivacyParameters, ok := rawMsgPrivacyParameters.(string); ok {
 		sp.PrivacyParameters = []byte(msgPrivacyParameters)
-		sp.Logger.Printf("Parsed privacyParameters %s", msgPrivacyParameters)
 		if flags&AuthPriv >= AuthPriv {
 			if sp.PrivacyProtocol <= NoPriv {
 				return 0, errors.New("error parsing SNMPv3 User Security Model: privacy parameters are not configured to parse incoming encrypted message")

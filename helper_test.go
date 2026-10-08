@@ -7,8 +7,6 @@ package gosnmp
 import (
 	"bytes"
 	"encoding/base64"
-	"io"
-	"log"
 	"reflect"
 	"strings"
 	"testing"
@@ -832,10 +830,9 @@ func TestIPAddressParseRawField(t *testing.T) {
 		},
 	}
 
-	logger := NewLogger(log.New(io.Discard, "", 0))
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			val, length, err := parseRawField(logger, tt.data, "test")
+			val, length, err := parseRawField(tt.data)
 
 			if tt.wantErr {
 				if err == nil {

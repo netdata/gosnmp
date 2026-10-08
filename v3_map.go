@@ -37,7 +37,9 @@ func (spm *SnmpV3SecurityParametersTable) Add(key string, sp SnmpV3SecurityParam
 	}
 
 	spm.table[key] = append(spm.table[key], sp)
-	spm.Logger.Printf("Added security parameters %s for key: %s", sp.SafeString(), key)
+	if spm.Logger.enabled() {
+		spm.Logger.Printf("Added security parameters %s for key: %s", sp.SafeString(), key)
+	}
 
 	return nil
 }
