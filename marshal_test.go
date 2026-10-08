@@ -2019,14 +2019,17 @@ func TestMarshalVarbindRoundTrip(t *testing.T) {
 			}
 
 			// Parse value
-			cursor = len(result) - r.Len()
-			var decodedVal variable
-			if err = decodeValue(result[cursor:], &decodedVal); err != nil {
+			tag, content, err := r.Next()
+			if err != nil {
+				t.Fatalf("reading the value TLV: %v", err)
+			}
+			typ, _, err := decodeValue(Asn1BER(tag), content)
+			if err != nil {
 				t.Fatalf("decodeValue() error = %v", err)
 			}
 
-			if decodedVal.Type != tt.pdu.Type {
-				t.Errorf("Type mismatch: got %v, want %v", decodedVal.Type, tt.pdu.Type)
+			if typ != tt.pdu.Type {
+				t.Errorf("Type mismatch: got %v, want %v", typ, tt.pdu.Type)
 			}
 		})
 	}

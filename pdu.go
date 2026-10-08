@@ -363,29 +363,28 @@ func unmarshalVBL(packet []byte, response *SnmpPacket) error {
 			return errors.New("varbind name is not an OBJECT IDENTIFIER or text")
 		}
 
+		// The value TLV must span the rest of the varbind.
 		value := r.Rest()
-		valueLength, valueCursor, err := ber.Length(value)
+		if len(value) == 0 {
+			return fmt.Errorf("error decoding value: %w", ErrZeroByteBuffer)
+		}
+		length, header, err := ber.Length(value)
 		if err != nil {
 			return fmt.Errorf("error parsing value TLV in varbind: %w", err)
 		}
-
-		var decodedVal variable
-		switch {
-		case valueLength == len(value):
-			if err = decodeValue(value, &decodedVal); err != nil {
-				return fmt.Errorf("error decoding value: %w", err)
-			}
-		case len(value) > 0 &&
-			valueLength == len(value)+1 &&
-			Asn1BER(value[0]) == OctetString:
-			// Some MikroTik responses overdeclare OctetString lengths by one byte.
-			// The enclosing varbind provides the content boundary for this case.
-			decodedVal = variable{Type: OctetString, Value: value[valueCursor:]}
-		default:
-			return fmt.Errorf("value TLV length mismatch in varbind (TLV %d, remaining %d)", valueLength, len(value))
+		tag := Asn1BER(value[0])
+		// Some MikroTik responses overdeclare OctetString lengths by one byte.
+		// The enclosing varbind provides the content boundary for this case.
+		overdeclared := tag == OctetString && length == len(value)+1
+		if length != len(value) && !overdeclared {
+			return fmt.Errorf("value TLV length mismatch in varbind (TLV %d, remaining %d)", length, len(value))
+		}
+		typ, val, err := decodeValue(tag, value[header:])
+		if err != nil {
+			return fmt.Errorf("error decoding value: %w", err)
 		}
 
-		response.Variables = append(response.Variables, SnmpPDU{Name: name, Type: decodedVal.Type, Value: decodedVal.Value})
+		response.Variables = append(response.Variables, SnmpPDU{Name: name, Type: typ, Value: val})
 	}
 	return nil
 }

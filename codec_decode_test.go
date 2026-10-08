@@ -547,6 +547,7 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/value/integer/max-int64", in: craftedValue(intTLV(math.MaxInt64))},
 		{name: "crafted/value/integer/min-int64", in: craftedValue(intTLV(math.MinInt64))},
 		{name: "crafted/value/integer/9-octets", in: craftedValue(tlv(byte(Integer), []byte{1, 0, 0, 0, 0, 0, 0, 0, 0}))},
+		{name: "crafted/value/integer/over-declared-by-1", in: craftedValue([]byte{byte(Integer), 0x02, 0x05})},
 
 		// Unsigned values.
 		{name: "crafted/value/counter32/empty", in: craftedValue(tlv(byte(Counter32)))},
@@ -563,6 +564,8 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/value/timeticks/2^32", in: craftedValue(tlv(byte(TimeTicks), []byte{0x01, 0x00, 0x00, 0x00, 0x00}))},
 		{name: "crafted/value/uinteger32/1", in: craftedValue(tlv(byte(Uinteger32), []byte{0x01}))},
 		{name: "crafted/value/uinteger32/2^32", in: craftedValue(tlv(byte(Uinteger32), []byte{0x01, 0x00, 0x00, 0x00, 0x00}))},
+		{name: "crafted/value/uinteger32/0xff", in: craftedValue(tlv(byte(Uinteger32), []byte{0xff}))},
+		{name: "crafted/value/uinteger32/empty", in: craftedValue(tlv(byte(Uinteger32)))},
 		{name: "crafted/value/counter64/empty", in: craftedValue(tlv(byte(Counter64)))},
 		{name: "crafted/value/counter64/0", in: craftedValue(tlv(byte(Counter64), []byte{0x00}))},
 		{name: "crafted/value/counter64/max-uint64", in: craftedValue(tlv(byte(Counter64), cat([]byte{0x00}, bytes.Repeat([]byte{0xff}, 8))))},
@@ -601,6 +604,7 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/value/opaque/inner-counter64", in: craftedValue(tlv(byte(Opaque), []byte{0x9f, 0x76, 0x01, 0x05}))},
 		{name: "crafted/value/opaque/inner-int64", in: craftedValue(tlv(byte(Opaque), []byte{0x9f, 0x7a, 0x01, 0x05}))},
 		{name: "crafted/value/opaque/inner-tag-only", in: craftedValue(tlv(byte(Opaque), []byte{0x9f}))},
+		{name: "crafted/value/opaque/extension-two-octets", in: craftedValue(tlv(byte(Opaque), []byte{0x9f, 0x78}))},
 		{name: "crafted/value/nsap-address", in: craftedValue(tlv(byte(NsapAddress), []byte{0x01, 0x02}))},
 		{name: "crafted/value/boolean", in: craftedValue(tlv(byte(Boolean), []byte{0xff}))},
 		{name: "crafted/value/bit-string", in: craftedValue(tlv(byte(BitString), []byte{0x00, 0xff}))},
@@ -609,6 +613,8 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/value/no-such-instance", in: craftedValue(tlv(byte(NoSuchInstance)))},
 		{name: "crafted/value/end-of-mib-view", in: craftedValue(tlv(byte(EndOfMibView)))},
 		{name: "crafted/value/no-such-object-with-content", in: craftedValue(tlv(byte(NoSuchObject), []byte{0x00}))},
+		{name: "crafted/value/no-such-instance-with-content", in: craftedValue(tlv(byte(NoSuchInstance), []byte{0x00}))},
+		{name: "crafted/value/end-of-mib-view-with-content", in: craftedValue(tlv(byte(EndOfMibView), []byte{0x00}))},
 		{name: "crafted/value/context-tag-3", in: craftedValue(tlv(0x83))},
 		{name: "crafted/value/tag-0", in: craftedValue(tlv(0x00))},
 		{name: "crafted/value/high-tag-number", in: craftedValue(cat([]byte{0x1f, 0x22, 0x00}))},
