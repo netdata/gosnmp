@@ -732,6 +732,24 @@ varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
 reencode: identical
 
+== crafted/community/oid
+decode: ok
+version: 1 (2c)
+community: ".1.3.6.1.2.1.1.5.0"
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
+reencode: 303202010104122e312e332e362e312e322e312e312e352e30a219020101020100020100300e300c06082b060102010105000500
+
+== crafted/community/ipaddress
+decode: ok
+version: 1 (2c)
+community: "192.0.2.1"
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
+reencode: 302902010104093139322e302e322e31a219020101020100020100300e300c06082b060102010105000500
+
 == crafted/community/missing-pdu
 decode: error
 
@@ -1064,6 +1082,21 @@ pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeate
 varbinds: 1
 vb[0]: abc 0x05 (Null) <nil>
 reencode: error
+
+== crafted/vb/name-ipaddress
+decode: ok
+version: 1 (2c)
+community: "public"
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: 192.0.2.1 0x05 (Null) <nil>
+reencode: error
+
+== crafted/vb/name-ipaddress-empty
+decode: error
+
+== crafted/vb/name-integer
+decode: error
 
 == crafted/vb/missing-value
 decode: error (ErrZeroByteBuffer)

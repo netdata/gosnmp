@@ -478,6 +478,8 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/community/integer", in: tlv(0x30, intTLV(1), intTLV(5), craftedPDU(GetResponse, craftedVBL(nullVB)))},
 		{name: "crafted/community/long-200", in: tlv(0x30, intTLV(1), octets(long200), craftedPDU(GetResponse, craftedVBL(nullVB)))},
 		{name: "crafted/community/binary", in: tlv(0x30, intTLV(1), octets("\xff\x00\x80"), craftedPDU(GetResponse, craftedVBL(nullVB)))},
+		{name: "crafted/community/oid", in: tlv(0x30, intTLV(1), craftedOID, craftedPDU(GetResponse, craftedVBL(nullVB)))},
+		{name: "crafted/community/ipaddress", in: tlv(0x30, intTLV(1), tlv(byte(IPAddress), []byte{192, 0, 2, 1}), craftedPDU(GetResponse, craftedVBL(nullVB)))},
 		{name: "crafted/community/missing-pdu", in: tlv(0x30, intTLV(1), octets("public"))},
 
 		// PDU types and header fields.
@@ -516,6 +518,9 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/vb/not-sequence", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x31, craftedOID, tlv(byte(Null))))))},
 		{name: "crafted/vb/empty-sequence", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30))))},
 		{name: "crafted/vb/name-octet-string", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, octets("abc"), tlv(byte(Null))))))},
+		{name: "crafted/vb/name-ipaddress", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, tlv(byte(IPAddress), []byte{192, 0, 2, 1}), tlv(byte(Null))))))},
+		{name: "crafted/vb/name-ipaddress-empty", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, tlv(byte(IPAddress)), tlv(byte(Null))))))},
+		{name: "crafted/vb/name-integer", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, intTLV(5), tlv(byte(Null))))))},
 		{name: "crafted/vb/missing-value", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, craftedOID))))},
 		{name: "crafted/vb/two-values", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, craftedOID, intTLV(1), intTLV(2)))))},
 		{name: "crafted/vb/length-exceeds-vbl", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(cat([]byte{0x30, byte(len(craftedOID) + 3)}, craftedOID, tlv(byte(Null))))))},
