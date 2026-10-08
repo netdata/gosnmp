@@ -262,7 +262,7 @@ func TestEnmarshalVarbind(t *testing.T) {
 	for _, test := range testsEnmarshal {
 		for j, test2 := range test.vbPositions {
 			snmppdu := &SnmpPDU{Name: test2.oid, Type: test2.pduType, Value: test2.pduValue}
-			testBytes, err := marshalVarbind(snmppdu)
+			testBytes, err := appendVarbind(nil, snmppdu)
 			if err != nil {
 				t.Errorf("#%s:%d:%s err returned: %v",
 					test.funcName, j, test2.oid, err)
@@ -282,9 +282,9 @@ func TestEnmarshalVBL(t *testing.T) {
 			Variables: vbPosPdus(test),
 		}
 
-		testBytes, err := x.marshalVBL()
+		testBytes, err := x.appendVBL(nil)
 		if err != nil {
-			t.Errorf("#%s: marshalVBL() err returned: %v", test.funcName, err)
+			t.Errorf("#%s: appendVBL() err returned: %v", test.funcName, err)
 		}
 
 		checkByteEquality(t, test, testBytes, test.vblStart, test.finish)
@@ -1989,9 +1989,9 @@ func TestMarshalVarbindRoundTrip(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := marshalVarbind(&tt.pdu)
+			result, err := appendVarbind(nil, &tt.pdu)
 			if err != nil {
-				t.Fatalf("marshalVarbind() error = %v", err)
+				t.Fatalf("appendVarbind() error = %v", err)
 			}
 
 			// Verify SEQUENCE tag

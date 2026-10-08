@@ -5,7 +5,9 @@
 package gosnmp
 
 import (
+	"errors"
 	"fmt"
+	"math"
 	"net"
 
 	"github.com/netdata/gosnmp/internal/ber"
@@ -146,4 +148,129 @@ func parseUint(content []byte) (uint, error) {
 		return 0, ErrIntegerTooLarge
 	}
 	return uint(ret64), nil
+}
+
+// appendValue appends the TLV of a varbind value with the given tag. The Go
+// types it accepts per tag:
+//
+//   - Integer: int within the int32 range
+//   - Counter32, Gauge32, TimeTicks, Uinteger32: uint32, or uint truncated to
+//     32 bits
+//   - Counter64: uint64
+//   - OctetString, BitString, Opaque: []byte or string, written as is (a
+//     BitString without its unused-bits octet)
+//   - ObjectIdentifier: dotted string
+//   - IPAddress: []byte written as is, or a string whose parsed address
+//     contributes its last four bytes (so IPv6 loses its first twelve)
+//   - OpaqueFloat: float32; OpaqueDouble: float64 (see appendOpaqueFloat)
+//   - Null, NoSuchObject, NoSuchInstance, EndOfMibView: any, ignored
+//
+// Other tags and types are errors.
+func appendValue(dst []byte, tag Asn1BER, value any) ([]byte, error) {
+	switch tag {
+	case Null, NoSuchObject, NoSuchInstance, EndOfMibView:
+		return append(dst, byte(tag), 0), nil
+	case Integer:
+		v, ok := value.(int)
+		if !ok {
+			return nil, errors.New("unable to marshal PDU Integer; not int")
+		}
+		if v < math.MinInt32 || v > math.MaxInt32 {
+			return nil, fmt.Errorf("unable to marshal PDU Integer: %d overflows int32", v)
+		}
+		return appendInt(dst, Integer, int64(v)), nil
+	case Counter32, Gauge32, TimeTicks, Uinteger32:
+		var v uint32
+		switch value := value.(type) {
+		case uint32:
+			v = value
+		case uint:
+			v = uint32(value) //nolint:gosec
+		default:
+			return nil, fmt.Errorf("unable to marshal pdu.Type %v; unknown pdu.Value %v[type=%T]", tag, value, value)
+		}
+		return appendUint(dst, tag, uint64(v)), nil
+	case Counter64:
+		v, ok := value.(uint64)
+		if !ok {
+			return nil, fmt.Errorf("unable to marshal PDU Counter64; not uint64")
+		}
+		return appendUint(dst, Counter64, v), nil
+	case OctetString, BitString, Opaque:
+		switch value := value.(type) {
+		case []byte:
+			return append(ber.AppendHeader(dst, byte(tag), len(value)), value...), nil
+		case string:
+			return append(ber.AppendHeader(dst, byte(tag), len(value)), value...), nil
+		default:
+			return nil, fmt.Errorf("unable to marshal PDU OctetString; not []byte or string")
+		}
+	case ObjectIdentifier:
+		v, ok := value.(string)
+		if !ok {
+			return nil, errors.New("unable to marshal PDU ObjectIdentifier; not string")
+		}
+		return appendObjectIdentifier(dst, v)
+	case IPAddress:
+		switch value := value.(type) {
+		case []byte:
+			return append(ber.AppendHeader(dst, byte(IPAddress), len(value)), value...), nil
+		case string:
+			ip, err := marshalIPAddress(value)
+			if err != nil {
+				return nil, fmt.Errorf("unable to marshal PDU IPAddress: %w", err)
+			}
+			return append(ber.AppendHeader(dst, byte(IPAddress), len(ip)), ip[:]...), nil
+		default:
+			return nil, fmt.Errorf("unable to marshal PDU IPAddress; not []byte or string")
+		}
+	case OpaqueFloat, OpaqueDouble:
+		return appendOpaqueFloat(dst, tag, value)
+	default:
+		return nil, fmt.Errorf("unable to marshal PDU: unknown BER type %q", tag)
+	}
+}
+
+// appendInt appends a TLV holding v as an INTEGER.
+func appendInt(dst []byte, tag Asn1BER, v int64) []byte {
+	dst, start := ber.Begin(dst, byte(tag))
+	return ber.End(ber.AppendInt64(dst, v), start)
+}
+
+// appendUint appends a TLV holding the unsigned v as a non-negative INTEGER.
+func appendUint(dst []byte, tag Asn1BER, v uint64) []byte {
+	dst, start := ber.Begin(dst, byte(tag))
+	return ber.End(ber.AppendUint64(dst, v), start)
+}
+
+// appendOpaqueFloat appends a float or double the way net-snmp wraps it in an
+// Opaque: an Opaque TLV holding a TLV whose identifier is the extension octet
+// 0x9f followed by the OpaqueFloat or OpaqueDouble tag (see decodeOpaque).
+func appendOpaqueFloat(dst []byte, tag Asn1BER, value any) ([]byte, error) {
+	dst, start := ber.Begin(dst, byte(Opaque))
+	dst = append(dst, AsnExtensionTag)
+	switch v := value.(type) {
+	case float32:
+		if tag != OpaqueFloat {
+			break
+		}
+		return ber.End(ber.AppendFloat32(ber.AppendHeader(dst, byte(OpaqueFloat), 4), v), start), nil
+	case float64:
+		if tag != OpaqueDouble {
+			break
+		}
+		return ber.End(ber.AppendFloat64(ber.AppendHeader(dst, byte(OpaqueDouble), 8), v), start), nil
+	}
+	return nil, fmt.Errorf("unable to marshal PDU %v; got %T", tag, value)
+}
+
+// appendObjectIdentifier appends an OBJECT IDENTIFIER TLV for the dotted OID
+// string (see ber.AppendOID).
+func appendObjectIdentifier(dst []byte, oid string) ([]byte, error) {
+	dst, start := ber.Begin(dst, byte(ObjectIdentifier))
+	dst, err := ber.AppendOID(dst, oid)
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal OID %q: %w", oid, err)
+	}
+	return ber.End(dst, start), nil
 }

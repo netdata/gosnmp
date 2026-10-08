@@ -10,7 +10,6 @@ package gosnmp
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"log"
@@ -59,100 +58,18 @@ func Check(err error) {
 	}
 }
 
-// appendBase128Int appends a base-128 encoded integer to the given slice.
-// Returns the extended slice.
-func appendBase128Int(dst []byte, n int64) []byte {
-	if n == 0 {
-		return append(dst, 0)
-	}
-
-	// Count number of 7-bit groups needed
-	l := 0
-	for i := n; i > 0; i >>= 7 {
-		l++
-	}
-
-	// Encode from most significant to least significant 7-bit group
-	for i := l - 1; i >= 0; i-- {
-		o := byte(n>>uint(i*7)) & 0x7f //nolint:gosec
-		if i != 0 {
-			o |= 0x80
-		}
-		dst = append(dst, o)
-	}
-
-	return dst
-}
-
-/*
-	snmp Integer32 and INTEGER:
-	-2^31 and 2^31-1 inclusive (-2147483648 to 2147483647 decimal)
-	(FYI https://groups.google.com/forum/#!topic/comp.protocols.snmp/1xaAMzCe_hE)
-
-	versus:
-
-	snmp Counter32, Gauge32, TimeTicks, Unsigned32: (below)
-	non-negative integer, maximum value of 2^32-1 (4294967295 decimal)
-*/
-
-// marshalInt32 builds a byte representation of a signed 32 bit int in BigEndian form
-// ie -2^31 and 2^31-1 inclusive (-2147483648 to 2147483647 decimal)
+// marshalInt32 encodes the content octets of an INTEGER within the int32
+// range, which SNMP Integer32 fields use.
 func marshalInt32(value int) ([]byte, error) {
 	if value < math.MinInt32 || value > math.MaxInt32 {
 		return nil, fmt.Errorf("unable to marshal: %d overflows int32", value)
 	}
-	const mask1 uint32 = 0xFFFFFF80
-	const mask2 uint32 = 0xFFFF8000
-	const mask3 uint32 = 0xFF800000
-	// const mask4 uint32 = 0x80000000
-	// ITU-T Rec. X.690 (2002) 8.3.2
-	// If the contents octets of an integer value encoding consist of more than
-	// one octet, then the bits of the first octet and bit 8 of the second octet:
-	//  a) shall not all be ones; and
-	//  b) shall not all be zero
-	// These rules ensure that an integer value is always encoded in the smallest
-	// possible number of octets.
-	val := uint32(value) //nolint:gosec
-	switch {
-	case val&mask1 == 0 || val&mask1 == mask1:
-		return []byte{byte(val)}, nil
-	case val&mask2 == 0 || val&mask2 == mask2:
-		return []byte{byte(val >> 8), byte(val)}, nil
-	case val&mask3 == 0 || val&mask3 == mask3:
-		return []byte{byte(val >> 16), byte(val >> 8), byte(val)}, nil
-	default:
-		return []byte{byte(val >> 24), byte(val >> 16), byte(val >> 8), byte(val)}, nil
-	}
+	return ber.AppendInt64(nil, int64(value)), nil
 }
 
-// marshalUint64 encodes a uint64 into BER-compliant bytes for SNMP Counter64.
-// It trims leading zero bytes and prepends one if MSB is set (per X.690 §8.3.2)
-func marshalUint64(v any) ([]byte, error) {
-	// gracefully handle type assertion to uint64
-	source, ok := v.(uint64)
-	if !ok {
-		return nil, fmt.Errorf("marshalUint64: input is not a uint64")
-	}
-	// Step 1: Encode uint64 in big-endian (8 bytes)
-	bs := make([]byte, 8)
-	binary.BigEndian.PutUint64(bs, source)
-
-	// Step 2: Trim leading 0x00 bytes (X.690 §8.3.2: use minimal number of octets)
-	trimmed := bytes.TrimLeft(bs, "\x00")
-
-	// Step 3: Ensure at least one byte remains
-	if len(trimmed) == 0 {
-		return []byte{0}, nil
-	}
-
-	// Step 4: If the MSB of the first byte is set, prepend 0x00 to indicate positive value
-	if trimmed[0]&0x80 > 0 {
-		trimmed = append([]byte{0}, trimmed...)
-	}
-	return trimmed, nil
-}
-
-// Counter32, Gauge32, TimeTicks, Unsigned32, SNMPError
+// marshalUint32 encodes the content octets of an unsigned 32-bit field
+// (Counter32, Gauge32, TimeTicks, Unsigned32, SNMPError) from the Go types
+// those fields hold; a uint is truncated to 32 bits.
 func marshalUint32(v any) ([]byte, error) {
 	var source uint32
 	switch val := v.(type) {
@@ -164,83 +81,18 @@ func marshalUint32(v any) ([]byte, error) {
 		source = uint32(val)
 	case SNMPError:
 		source = uint32(val)
-	// We could do others here, but coercing from anything else is dangerous.
-	// Even uint could be 64 bits, though in practice nothing we work with is.
 	default:
 		return nil, fmt.Errorf("unable to marshal %T to uint32", v)
 	}
-	buf := make([]byte, 4)
-	binary.BigEndian.PutUint32(buf, source)
-	var i int
-	for i = 0; i < 3; i++ {
-		if buf[i] != 0 {
-			break
-		}
-	}
-	buf = buf[i:]
-	// if the highest bit in buf is set and x is not negative - prepend a byte to make it positive
-	if len(buf) > 0 && buf[0]&0x80 > 0 {
-		buf = append([]byte{0}, buf...)
-	}
-	return buf, nil
+	return ber.AppendUint64(nil, uint64(source)), nil
 }
 
-func marshalFloat32(v any) ([]byte, error) {
-	source, ok := v.(float32)
-	if !ok {
-		return nil, fmt.Errorf("marshalFloat32: expected float32, got %T", v)
-	}
-	buf := make([]byte, 4)
-	binary.BigEndian.PutUint32(buf, math.Float32bits(source))
-	return buf, nil
-}
-
-func marshalFloat64(v any) ([]byte, error) {
-	source, ok := v.(float64)
-	if !ok {
-		return nil, fmt.Errorf("marshalFloat64: expected float64, got %T", v)
-	}
-	buf := make([]byte, 8)
-	binary.BigEndian.PutUint64(buf, math.Float64bits(source))
-	return buf, nil
-}
-
-// marshalLength builds a byte representation of length
-//
-// http://luca.ntop.org/Teaching/Appunti/asn1.html
-//
-// Length octets. There are two forms: short (for lengths between 0 and 127),
-// and long definite (for lengths between 0 and 2^1008 -1).
-//
-//   - Short form. One octet. Bit 8 has value "0" and bits 7-1 give the length.
-//   - Long form. Two to 127 octets. Bit 8 of first octet has value "1" and bits
-//     7-1 give the number of additional length octets. Second and following
-//     octets give the length, base 256, most significant digit first.
+// marshalLength encodes a TLV length (see ber.AppendLength).
 func marshalLength(length int) ([]byte, error) {
-	// more convenient to pass length as int than uint64. Therefore check < 0
 	if length < 0 {
 		return nil, fmt.Errorf("length must be >= 0")
 	}
-	if length <= 127 {
-		return []byte{byte(length)}, nil
-	}
-
-	// Encode length as big-endian uint64 and find first non-zero byte
-	var buf [8]byte
-	binary.BigEndian.PutUint64(buf[:], uint64(length))
-
-	// Find first non-zero byte to trim leading zeros
-	start := 0
-	for start < 8 && buf[start] == 0 {
-		start++
-	}
-
-	// Build result: header byte + length bytes
-	numBytes := 8 - start
-	result := make([]byte, 1+numBytes)
-	result[0] = byte(128 | numBytes) //nolint:gosec
-	copy(result[1:], buf[start:])
-	return result, nil
+	return ber.AppendLength(nil, length), nil
 }
 
 // marshalTLV writes a BER TLV (type-length-value) to buf using proper length
@@ -268,61 +120,10 @@ func marshalOctetString(buf *bytes.Buffer, s string) error {
 	return nil
 }
 
+// marshalObjectIdentifier encodes the content octets of an OBJECT IDENTIFIER
+// (see ber.AppendOID).
 func marshalObjectIdentifier(oid string) ([]byte, error) {
-	oidLength := len(oid)
-
-	// Worst-case: 2 chars per output byte (e.g., ".128" = 4 chars → 2 bytes)
-	// This ratio holds at base-128 boundaries; smaller values use more chars per byte
-	out := make([]byte, 0, oidLength/2)
-
-	var firstArc int64
-	i := 0
-	for j := 0; j < oidLength; {
-		if oid[j] == '.' {
-			j++
-			continue
-		}
-		var val int64
-		for j < oidLength && oid[j] != '.' {
-			ch := int64(oid[j] - '0')
-			if ch > 9 {
-				return nil, fmt.Errorf("unable to marshal OID: Invalid object identifier")
-			}
-			val *= 10
-			val += ch
-			// Bounding each sub-identifier here also keeps the int64
-			// accumulator from wrapping on absurdly long digit runs
-			if val > MaxObjectSubIdentifierValue {
-				return nil, fmt.Errorf("unable to marshal OID: Value out of range")
-			}
-			j++
-		}
-		switch i {
-		case 0:
-			if val > 2 {
-				return nil, fmt.Errorf("unable to marshal OID: Invalid object identifier")
-			}
-			firstArc = val
-		case 1:
-			// First sub-identifier encodes arc1 and arc2 as (arc1*40 + arc2)
-			// in base 128; arc2 <= 39 when arc1 < 2 (X.690 8.19)
-			if firstArc < 2 && val >= 40 {
-				return nil, fmt.Errorf("unable to marshal OID: Invalid object identifier")
-			}
-			if val > MaxObjectSubIdentifierValue-80 {
-				return nil, fmt.Errorf("unable to marshal OID: Value out of range")
-			}
-			out = appendBase128Int(out, firstArc*40+val)
-		default:
-			out = appendBase128Int(out, val)
-		}
-		i++
-	}
-	if i < 2 || i > 128 {
-		return nil, fmt.Errorf("unable to marshal OID: Invalid object identifier")
-	}
-
-	return out, nil
+	return ber.AppendOID(nil, oid)
 }
 
 // marshalIPAddress returns the four octets of an IpAddress given as a string:

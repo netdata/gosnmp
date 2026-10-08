@@ -388,3 +388,29 @@ func unmarshalVBL(packet []byte, response *SnmpPacket) error {
 	}
 	return nil
 }
+
+// appendVBL appends the varbind list: a SEQUENCE of varbinds, each a SEQUENCE
+// of the name's OBJECT IDENTIFIER and the value (see appendValue).
+func (packet *SnmpPacket) appendVBL(dst []byte) ([]byte, error) {
+	dst, start := ber.Begin(dst, byte(Sequence))
+	for i := range packet.Variables {
+		var err error
+		if dst, err = appendVarbind(dst, &packet.Variables[i]); err != nil {
+			return nil, err
+		}
+	}
+	return ber.End(dst, start), nil
+}
+
+// appendVarbind appends one varbind.
+func appendVarbind(dst []byte, pdu *SnmpPDU) ([]byte, error) {
+	dst, start := ber.Begin(dst, byte(Sequence))
+	dst, err := appendObjectIdentifier(dst, pdu.Name)
+	if err != nil {
+		return nil, err
+	}
+	if dst, err = appendValue(dst, pdu.Type, pdu.Value); err != nil {
+		return nil, err
+	}
+	return ber.End(dst, start), nil
+}

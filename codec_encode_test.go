@@ -427,6 +427,8 @@ func encodeCases(t *testing.T) []encodeCase {
 		{"v2c/community-128", marshal(edit(v2c(GetRequest, nullVar), func(p *SnmpPacket) { p.Community = strings.Repeat("c", 128) }))},
 		{"v2c/community-256", marshal(edit(v2c(GetRequest, nullVar), func(p *SnmpPacket) { p.Community = strings.Repeat("c", 256) }))},
 		{"v2c/octet-string-127", marshal(v2c(SetRequest, []SnmpPDU{{Name: ".1.3.6.1.2.1.1.5.0", Type: OctetString, Value: []byte(strings.Repeat("o", 127))}}))},
+		// 116 value octets make the varbind content exactly 128 bytes, the first long-form length.
+		{"v2c/varbind-content-128", marshal(v2c(SetRequest, []SnmpPDU{{Name: ".1.3.6.1.2.1.1.5.0", Type: OctetString, Value: []byte(strings.Repeat("o", 116))}}))},
 		{"v2c/octet-string-200", marshal(v2c(SetRequest, []SnmpPDU{{Name: ".1.3.6.1.2.1.1.5.0", Type: OctetString, Value: []byte(strings.Repeat("o", 200))}}))},
 		{"v2c/octet-string-300", marshal(v2c(SetRequest, []SnmpPDU{{Name: ".1.3.6.1.2.1.1.5.0", Type: OctetString, Value: []byte(strings.Repeat("o", 300))}}))},
 		{"v2c/octet-string-70000", marshal(v2c(SetRequest, []SnmpPDU{{Name: ".1.3.6.1.2.1.1.5.0", Type: OctetString, Value: []byte(strings.Repeat("o", 70000))}}))},
@@ -447,6 +449,11 @@ func encodeCases(t *testing.T) []encodeCase {
 		{"oid/letters", marshal(oidName(".1.3.abc"))},
 		{"oid/negative-arc", marshal(oidName(".1.3.-6"))},
 		{"oid/130-arcs", marshal(oidName(".1.3" + strings.Repeat(".129", 128)))},
+		{"oid/128-arcs", marshal(oidName(".1.3" + strings.Repeat(".1", 126)))},
+		{"oid/129-arcs", marshal(oidName(".1.3" + strings.Repeat(".1", 127)))},
+		{"oid/content-128", marshal(oidName(".1.3" + strings.Repeat(".129", 63) + ".1"))},
+		{"oid/second-arc-max-under-2", marshal(oidName(".2.4294967215"))},
+		{"oid/second-arc-over-max-under-2", marshal(oidName(".2.4294967216"))},
 
 		// v1 Trap.
 		{"v1-trap/basic", marshal(v1Trap(func(*SnmpTrap) {}))},
