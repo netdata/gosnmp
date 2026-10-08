@@ -214,21 +214,22 @@ func v3DecodeKnownPanic(receiver string, p usmFuzzPair, data []byte, v any, stac
 			return "USM unmarshal zeroes the digest past the end of the input"
 		}
 
-	// DES builds its IV from the first 8 octets of the privacy parameters
-	// without checking their length, and from octets 8 to 16 of the privacy
-	// key, which is empty when derived from an empty passphrase (hMAC drops
-	// the error). TestUSMTrapUnauthenticated pins the paths that decrypt
-	// without checking a digest.
+	// DES decryption indexes the privacy parameters as 8 octets and the
+	// privacy key as 16 (key and pre-IV) without checking their lengths.
+	// The key is shorter when it was never derived (SnmpDecodePacket derives
+	// keys only for a new engine ID) or derived from an empty passphrase
+	// (hMAC drops the error). TestUSMTrapUnauthenticated pins the paths that
+	// decrypt without checking a digest.
 	case "(*UsmSecurityParameters).decryptPacket":
 		if p.priv != DES {
 			break
 		}
 		var i, n int
 		if _, err := fmt.Sscanf(msg, "runtime error: index out of range [%d] with length %d", &i, &n); err == nil && n < 8 {
-			return "DES decryption with privacy parameters shorter than 8 octets"
+			return "DES decryption of short privacy parameters or a short key"
 		}
-		if receiver == fuzzTableKeysOnly && msg == "runtime error: slice bounds out of range [8:0]" {
-			return "DES decryption with the empty key of an empty passphrase"
+		if _, err := fmt.Sscanf(msg, "runtime error: slice bounds out of range [8:%d]", &n); err == nil && n < 8 {
+			return "DES decryption of short privacy parameters or a short key"
 		}
 	}
 	return ""

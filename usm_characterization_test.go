@@ -268,7 +268,9 @@ func (m v3Message) bytes() []byte {
 // changed (an OCTET STRING scoped PDU is decrypted whatever the flags say),
 // or whose receiver has other privacy settings or keys localized to another
 // engine ID (a message from a new engine ID replaces the keys with ones
-// derived from the passphrases before the digest is checked).
+// derived from the passphrases before the digest is checked). SnmpDecodePacket
+// derives keys only for a new engine ID, so a message with the receiver's
+// (empty) engine ID is decrypted with keys never derived.
 func TestUSMDecryptCharacterization(t *testing.T) {
 	var results []goldenCase
 	for _, priv := range usmPrivProtocols[1:] {
@@ -317,6 +319,7 @@ func TestUSMDecryptCharacterization(t *testing.T) {
 			{name: name + "/flags-no-auth-no-priv", in: with(func(m *v3Message) { *m = m.withFlags(t, NoAuthNoPriv) }), decoder: decoder},
 			{name: name + "/flags-auth-no-priv", in: with(func(m *v3Message) { *m = m.withFlags(t, AuthNoPriv) }), decoder: decoder},
 			{name: name + "/flags-privacy-only", in: with(func(m *v3Message) { *m = m.withFlags(t, usmPrivacyFlag) }), decoder: decoder},
+			{name: name + "/engine-id-empty", in: with(func(m *v3Message) { m.usm[0] = nil }), decoder: decoder},
 			{name: name + "/receiver-" + strings.ToLower(other.String()), in: data, decoder: usmDecoder(SHA, "codec-auth-pass", other, "codec-priv-pass")},
 			{name: name + "/receiver-priv-pass-empty", in: data, decoder: usmDecoder(SHA, "codec-auth-pass", priv, "")},
 			{name: name + "/receiver-keys-other-engine", in: data, decoder: localized(usmOtherEngineID, true)},
