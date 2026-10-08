@@ -28,7 +28,9 @@ import (
 // comes from gosnmp. The test then requires that gosnmp derives the same keys,
 // that MarshalMsg produces exactly the net-snmp-secured message, and that
 // UnmarshalTrap authenticates and decrypts it. Without `-tags netsnmp` the
-// net-snmp results come from testdata/TestUSM; `-rec` rewrites them.
+// net-snmp results come from testdata/TestUSM; `-rec` rewrites them. The
+// recordings also pin gosnmp's framing, so re-record only for an intended
+// change of the wire format.
 func TestUSM(t *testing.T) {
 	recdir := filepath.Join("testdata", t.Name())
 	if *rec {

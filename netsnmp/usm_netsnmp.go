@@ -73,13 +73,17 @@ static int priv_key(int auth, int priv, const u_char *pass, size_t passlen,
 
 	int need = sc_get_proper_priv_length(privoid, privlen);
 	rc = netsnmp_extend_kul(need, hash, hashlen, type, eid, eidlen, &key, keylen, USM_LENGTH_KU_HASHBLOCK);
+	if (rc != SNMPERR_SUCCESS)
+		return rc;
 	// Keep only what the cipher uses; DES also uses the pre-IV in the
-	// 8 octets after its key (RFC 3414 section 8.1.1.1).
+	// 8 octets after its key (RFC 3414 section 8.1.1.1). netsnmp_extend_kul
+	// succeeds without extending a type it cannot extend.
 	if (type == USM_CREATE_USER_PRIV_DES)
 		need = 16;
-	if (rc == SNMPERR_SUCCESS && *keylen > (size_t)need)
-		*keylen = need;
-	return rc;
+	if (*keylen < (size_t)need)
+		return SNMPERR_GENERR;
+	*keylen = need;
+	return SNMPERR_SUCCESS;
 }
 
 static int auth_key(int auth, const u_char *pass, size_t passlen,
@@ -101,7 +105,7 @@ static int keyed_hash(int auth, const u_char *key, u_int keylen,
 	return sc_generate_keyed_hash(hash, hashlen, key, keylen, msg, msglen, mac, maclen);
 }
 
-static int encrypt(int priv, u_char *key, u_int keylen, u_char *iv, u_int ivlen,
+static int usm_encrypt(int priv, u_char *key, u_int keylen, u_char *iv, u_int ivlen,
 		u_char *pt, size_t ptlen, u_char *ct, size_t *ctlen) {
 	u_int privlen;
 	int type;
@@ -180,7 +184,7 @@ func netSnmpEncrypt(priv gosnmp.SnmpV3PrivProtocol, key, iv, plaintext []byte) (
 	ct := C.malloc(C.size_t(ctcap))
 	defer C.free(ct)
 	ctlen := C.size_t(ctcap)
-	if rc := C.encrypt(C.int(priv), (*C.u_char)(k), C.u_int(len(key)), (*C.u_char)(v), C.u_int(len(iv)),
+	if rc := C.usm_encrypt(C.int(priv), (*C.u_char)(k), C.u_int(len(key)), (*C.u_char)(v), C.u_int(len(iv)),
 		(*C.u_char)(p), C.size_t(len(plaintext)), (*C.u_char)(ct), &ctlen); rc != C.SNMPERR_SUCCESS {
 		return nil, fmt.Errorf("net-snmp: %v encryption: error %d", priv, rc)
 	}

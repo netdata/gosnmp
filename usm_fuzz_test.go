@@ -15,9 +15,10 @@ import (
 
 // The FuzzDecodeV3 receivers.
 const (
-	fuzzDecode = "SnmpDecodePacket"
-	fuzzSingle = "UnmarshalTrap single user"
-	fuzzTable  = "UnmarshalTrap table"
+	fuzzDecode        = "SnmpDecodePacket"
+	fuzzSingle        = "UnmarshalTrap single user"
+	fuzzTable         = "UnmarshalTrap table"
+	fuzzTableKeysOnly = "UnmarshalTrap table, keys only"
 )
 
 // usmFuzzPair is the credentials of one FuzzDecodeV3 receiver.
@@ -56,8 +57,9 @@ func usmFuzzPairs() []usmFuzzPair {
 // FuzzDecodeV3 decodes input with the SNMPv3 credentials of the pair the
 // first argument selects: SnmpDecodePacket, which decrypts without checking
 // the digest, and UnmarshalTrap for a single user and through a credentials
-// table. Each must return within a second and must not panic, except for the
-// known bugs v3DecodeKnownPanic names. Seeds are a secured trap for every
+// table, the latter also with keys localized to another engine ID and no
+// passphrases. Each must return within a second and must not panic, except
+// for the known bugs v3DecodeKnownPanic names. Seeds are a secured trap for every
 // pair and malformed variants of it.
 func FuzzDecodeV3(f *testing.F) {
 	pairs := usmFuzzPairs()
@@ -124,6 +126,14 @@ func FuzzDecodeV3(f *testing.F) {
 				_, err := (&GoSNMP{Version: Version3, TrapSecurityParametersTable: table}).UnmarshalTrap(data, false)
 				return err
 			}},
+			{fuzzTableKeysOnly, func(data []byte) error {
+				table := NewSnmpV3SecurityParametersTable(Logger{})
+				if err := table.Add("codec-user", usmKeysOnly(p.usm(), usmOtherEngineID)); err != nil {
+					return err
+				}
+				_, err := (&GoSNMP{Version: Version3, TrapSecurityParametersTable: table}).UnmarshalTrap(data, false)
+				return err
+			}},
 		}
 
 		for _, r := range receivers {
@@ -154,35 +164,71 @@ func recoverPanic(fn func()) (v any, stack string) {
 	return nil, ""
 }
 
-// v3DecodeKnownPanic names the known bug behind a FuzzDecodeV3 panic, by the
-// function that panicked and the input that makes it panic there, or returns
-// "" for an unknown panic. Fixing a bug removes its case; each is also pinned
-// by TestUSMDecryptCharacterization or TestUSMTrapUnauthenticated.
-func v3DecodeKnownPanic(receiver string, p usmFuzzPair, data []byte, v any, stack string) string {
-	panickedIn := func(fn string) bool { return strings.Contains(stack, "github.com/netdata/gosnmp."+fn+"(") }
+// panicSite returns the function that panicked, from a goroutine stack: the
+// first frame below the panic call outside the runtime.
+func panicSite(stack string) string {
+	lines := strings.Split(stack, "\n")
+	for i, l := range lines {
+		if !strings.HasPrefix(l, "panic(") {
+			continue
+		}
+		for _, frame := range lines[i+1:] {
+			if frame == "" || strings.HasPrefix(frame, "\t") || strings.HasPrefix(frame, "runtime.") {
+				continue
+			}
+			if j := strings.LastIndex(frame, "("); j > 0 {
+				return frame[:j]
+			}
+			return frame
+		}
+	}
+	return ""
+}
 
-	switch {
-	// UnmarshalTrap's table path reads the user name from the security
-	// parameters of a header that failed to decode before they were set.
-	case receiver == fuzzTable && panickedIn("(*GoSNMP).getTrapIdentifier"):
-		return "getTrapIdentifier on a nil SecurityParameters"
+// v3DecodeKnownPanic names the known bug behind a FuzzDecodeV3 panic, by the
+// function that panicked, the runtime error and the input that leads there,
+// or returns "" for an unknown panic. Fixing a bug removes its case; each is
+// also pinned by TestUSMDecryptCharacterization, TestUSMTrapUnauthenticated
+// or TestUSMAuthFieldZeroing.
+func v3DecodeKnownPanic(receiver string, p usmFuzzPair, data []byte, v any, stack string) string {
+	msg := fmt.Sprint(v)
+
+	switch strings.TrimPrefix(panicSite(stack), "github.com/netdata/gosnmp.") {
+	// The table path reads the user name from the security parameters of a
+	// header that failed to decode before they were set.
+	case "(*GoSNMP).getTrapIdentifier":
+		id := new(SnmpPacket)
+		_, err := (&GoSNMP{}).unmarshalHeader(bytes.Clone(data), id)
+		if (receiver == fuzzTable || receiver == fuzzTableKeysOnly) && strings.Contains(msg, "nil pointer dereference") &&
+			id.Version == Version3 && err != nil && id.SecurityParameters == nil {
+			return "getTrapIdentifier on a nil SecurityParameters"
+		}
 
 	// Before any digest check, USM unmarshal zeroes the expected digest
 	// length after the authentication parameters' first two octets, whatever
-	// the field's length, so it slices past the end of a short packet.
-	case panickedIn("(*UsmSecurityParameters).unmarshal") && strings.Contains(fmt.Sprint(v), "slice bounds out of range"):
-		return "USM unmarshal zeroes the digest past the end of the packet"
+	// the field's length, so it slices past the end of a short input.
+	case "(*UsmSecurityParameters).unmarshal":
+		var n, c int
+		if _, err := fmt.Sscanf(msg, "runtime error: slice bounds out of range [:%d] with capacity %d", &n, &c); err == nil &&
+			n == len(macVarbinds[p.auth]) && c < n {
+			return "USM unmarshal zeroes the digest past the end of the input"
+		}
 
 	// DES builds its IV from the first 8 octets of the privacy parameters
-	// without checking their length. The paths that decrypt without checking
-	// a digest are pinned by TestUSMTrapUnauthenticated.
-	case panickedIn("(*UsmSecurityParameters).decryptPacket") && p.priv == DES:
-		hdr := &SnmpPacket{SecurityParameters: p.usm()}
-		if v, _ := recoverPanic(func() { _, _ = (&GoSNMP{}).unmarshalHeader(bytes.Clone(data), hdr) }); v != nil {
-			return ""
+	// without checking their length, and from octets 8 to 16 of the privacy
+	// key, which is empty when derived from an empty passphrase (hMAC drops
+	// the error). TestUSMTrapUnauthenticated pins the paths that decrypt
+	// without checking a digest.
+	case "(*UsmSecurityParameters).decryptPacket":
+		if p.priv != DES {
+			break
 		}
-		if usm := hdr.SecurityParameters.(*UsmSecurityParameters); len(usm.PrivacyParameters) < 8 {
+		var i, n int
+		if _, err := fmt.Sscanf(msg, "runtime error: index out of range [%d] with length %d", &i, &n); err == nil && n < 8 {
 			return "DES decryption with privacy parameters shorter than 8 octets"
+		}
+		if receiver == fuzzTableKeysOnly && msg == "runtime error: slice bounds out of range [8:0]" {
+			return "DES decryption with the empty key of an empty passphrase"
 		}
 	}
 	return ""

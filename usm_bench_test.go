@@ -20,8 +20,7 @@ func BenchmarkUSMKeys(b *testing.B) {
 			b.Run(name, func(b *testing.B) {
 				PasswordCaching(cached)
 				b.Cleanup(func() { PasswordCaching(true) })
-				b.ReportAllocs()
-				for b.Loop() {
+				initKeys := func() {
 					sp := &UsmSecurityParameters{
 						AuthenticationProtocol:   auth,
 						AuthenticationPassphrase: "codec-auth-pass",
@@ -32,6 +31,11 @@ func BenchmarkUSMKeys(b *testing.B) {
 					if err := sp.InitSecurityKeys(); err != nil {
 						b.Fatal(err)
 					}
+				}
+				initKeys() // fills the cache when it is enabled
+				b.ReportAllocs()
+				for b.Loop() {
+					initKeys()
 				}
 			})
 		}

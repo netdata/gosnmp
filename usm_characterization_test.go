@@ -30,7 +30,22 @@ var (
 	usmPrivProtocols = []SnmpV3PrivProtocol{NoPriv, DES, AES, AES192, AES256, AES192C, AES256C}
 )
 
-const usmCharEngineID = "\x80\x00\x1f\x88\x04codec-engine"
+const (
+	usmCharEngineID  = "\x80\x00\x1f\x88\x04codec-engine"
+	usmOtherEngineID = "\x80\x00\x1f\x88\x04other-engine"
+)
+
+// usmKeysOnly localizes the keys of sp to engineID and drops the passphrases
+// they were derived from, as a user configured with keys instead of
+// passphrases.
+func usmKeysOnly(sp *UsmSecurityParameters, engineID string) *UsmSecurityParameters {
+	sp.AuthoritativeEngineID = engineID
+	if err := sp.InitSecurityKeys(); err != nil {
+		panic(err)
+	}
+	sp.AuthenticationPassphrase, sp.PrivacyPassphrase = "", ""
+	return sp
+}
 
 // usmKeyCase is one set of credentials whose localized keys are pinned.
 type usmKeyCase struct {
@@ -279,17 +294,17 @@ func TestUSMDecryptCharacterization(t *testing.T) {
 			return func() *GoSNMP {
 				x := decoder()
 				sp := x.SecurityParameters.(*UsmSecurityParameters)
+				if !keepPassphrases {
+					usmKeysOnly(sp, engineID)
+					return x
+				}
 				sp.AuthoritativeEngineID = engineID
 				if err := sp.InitSecurityKeys(); err != nil {
 					panic(err)
 				}
-				if !keepPassphrases {
-					sp.AuthenticationPassphrase, sp.PrivacyPassphrase = "", ""
-				}
 				return x
 			}
 		}
-		const otherEngineID = "\x80\x00\x1f\x88\x04other-engine"
 
 		cases := []decodeCase{
 			{name: name + "/ok", in: data, decoder: decoder},
@@ -304,9 +319,9 @@ func TestUSMDecryptCharacterization(t *testing.T) {
 			{name: name + "/flags-privacy-only", in: with(func(m *v3Message) { *m = m.withFlags(t, usmPrivacyFlag) }), decoder: decoder},
 			{name: name + "/receiver-" + strings.ToLower(other.String()), in: data, decoder: usmDecoder(SHA, "codec-auth-pass", other, "codec-priv-pass")},
 			{name: name + "/receiver-priv-pass-empty", in: data, decoder: usmDecoder(SHA, "codec-auth-pass", priv, "")},
-			{name: name + "/receiver-keys-other-engine", in: data, decoder: localized(otherEngineID, true)},
+			{name: name + "/receiver-keys-other-engine", in: data, decoder: localized(usmOtherEngineID, true)},
 			{name: name + "/receiver-keys-only", in: data, decoder: localized(usmCharEngineID, false)},
-			{name: name + "/receiver-keys-only-other-engine", in: data, decoder: localized(otherEngineID, false)},
+			{name: name + "/receiver-keys-only-other-engine", in: data, decoder: localized(usmOtherEngineID, false)},
 		}
 		for _, c := range cases {
 			results = append(results, goldenCase{name: c.name, dump: dumpDecode(c)})
@@ -351,14 +366,21 @@ var usmMalformedV3Header = tlv(0x30, intTLV(3), tlv(0x31, intTLV(1)))
 
 // TestUSMTrapUnauthenticated pins what UnmarshalTrap does, for a single user
 // requiring authPriv and through a credentials table, with messages it
-// decodes without checking a digest: the table path takes the security level
-// from the message (TestTrapSecurityOutcomes); both paths check the digest
-// only for the User-based Security Model, and skip it for an empty user name
-// and engine ID (the engine discovery exception of RFC 3414 section 4, which
-// applies to traps too). Decryption follows the scoped PDU's tag (an OCTET
-// STRING is decrypted) whatever the flags say. Cases with a knownBug note
-// record wrong behavior that the bug-fix phase changes.
+// decodes without checking a digest:
+//
+//   - the table path takes the security level from the message
+//     (TestTrapSecurityOutcomes);
+//   - both paths check the digest only for the User-based Security Model;
+//   - testAuthentication skips it for any message with an empty user name and
+//     engine ID: of the conditions of its engine discovery exception (RFC 3414
+//     section 4), the flags test always holds (NoAuthNoPriv is 0) and the
+//     varbind list is always empty there, since the payload is decoded later.
+//
+// Decryption follows the scoped PDU's tag (an OCTET STRING is decrypted)
+// whatever the flags say. Cases with a knownBug note record wrong behavior
+// that the bug-fix phase changes.
 func TestUSMTrapUnauthenticated(t *testing.T) {
+	plainVars := []SnmpPDU{{Name: ".1.3.6.1.2.1.1.5.0", Type: Integer, Value: 5}}
 	plainTrap := func(model int64, engineID, user string) []byte {
 		usm := craftedUSM(octets(engineID), intTLV(0), intTLV(0), octets(user), octets(""), octets(""))
 		scoped := tlv(0x30, octets(""), octets(""), craftedPDU(SNMPv2Trap, craftedVBL(craftedVB(intTLV(5)))))
@@ -370,10 +392,19 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 		return m.bytes()
 	}
 
-	receiver := func(priv SnmpV3PrivProtocol, table bool) *GoSNMP {
-		sp := usmDecoder(SHA, "codec-auth-pass", priv, "codec-priv-pass")().SecurityParameters
-		if !table {
+	type receiverKind int
+	const (
+		single receiverKind = iota
+		table
+		tableKeysOnly // keys localized to another engine ID, no passphrases
+	)
+	receiver := func(priv SnmpV3PrivProtocol, kind receiverKind) *GoSNMP {
+		sp := usmDecoder(SHA, "codec-auth-pass", priv, "codec-priv-pass")().SecurityParameters.(*UsmSecurityParameters)
+		if kind == single {
 			return &GoSNMP{Version: Version3, MsgFlags: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp}
+		}
+		if kind == tableKeysOnly {
+			usmKeysOnly(sp, usmOtherEngineID)
 		}
 		tb := NewSnmpV3SecurityParametersTable(Logger{})
 		require.NoError(t, tb.Add("codec-user", sp))
@@ -383,24 +414,25 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 	tests := map[string]struct {
 		in       func() []byte
 		priv     SnmpV3PrivProtocol
-		table    bool
-		want     string // accepted, rejected or panic
+		receiver receiverKind
+		want     string    // accepted, rejected or panic
+		vars     []SnmpPDU // of an accepted trap
 		knownBug string
 	}{
 		"privacy-only DES, single user": {
 			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 8) }, priv: DES, want: "rejected",
 		},
 		"privacy-only DES, table": {
-			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 8) }, priv: DES, table: true, want: "accepted",
-			knownBug: "decrypted and accepted without checking the digest",
+			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 8) }, priv: DES, receiver: table,
+			want: "accepted", vars: usmCharVarbinds, knownBug: "decrypted and accepted without checking the digest",
 		},
 		"privacy-only AES, table": {
-			in: func() []byte { return usmFlagsTrap(t, AES, usmPrivacyFlag, 8) }, priv: AES, table: true, want: "accepted",
-			knownBug: "decrypted and accepted without checking the digest",
+			in: func() []byte { return usmFlagsTrap(t, AES, usmPrivacyFlag, 8) }, priv: AES, receiver: table,
+			want: "accepted", vars: usmCharVarbinds, knownBug: "decrypted and accepted without checking the digest",
 		},
 		"noAuthNoPriv flags, encrypted AES, table": {
-			in: func() []byte { return usmFlagsTrap(t, AES, NoAuthNoPriv, 8) }, priv: AES, table: true, want: "accepted",
-			knownBug: "decrypted and accepted without checking the digest",
+			in: func() []byte { return usmFlagsTrap(t, AES, NoAuthNoPriv, 8) }, priv: AES, receiver: table,
+			want: "accepted", vars: usmCharVarbinds, knownBug: "decrypted and accepted without checking the digest",
 		},
 		"noAuthNoPriv flags, encrypted AES, single user": {
 			in: func() []byte { return usmFlagsTrap(t, AES, NoAuthNoPriv, 8) }, priv: AES, want: "rejected",
@@ -409,31 +441,35 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 7) }, priv: DES, want: "rejected",
 		},
 		"privacy-only DES with a 7-octet salt, table": {
-			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 7) }, priv: DES, table: true, want: "panic",
-			knownBug: "DES builds its IV from 8 octets of a shorter salt",
+			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 7) }, priv: DES, receiver: table,
+			want: "panic", knownBug: "DES builds its IV from 8 octets of a shorter salt",
 		},
 		"noAuthNoPriv flags, encrypted DES with a 7-octet salt, table": {
-			in: func() []byte { return usmFlagsTrap(t, DES, NoAuthNoPriv, 7) }, priv: DES, table: true, want: "panic",
-			knownBug: "DES builds its IV from 8 octets of a shorter salt",
+			in: func() []byte { return usmFlagsTrap(t, DES, NoAuthNoPriv, 7) }, priv: DES, receiver: table,
+			want: "panic", knownBug: "DES builds its IV from 8 octets of a shorter salt",
 		},
 		"privacy-only AES with a 7-octet salt, table": {
-			in: func() []byte { return usmFlagsTrap(t, AES, usmPrivacyFlag, 7) }, priv: AES, table: true, want: "rejected",
+			in: func() []byte { return usmFlagsTrap(t, AES, usmPrivacyFlag, 7) }, priv: AES, receiver: table, want: "rejected",
+		},
+		"privacy-only DES, table with keys only": {
+			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 8) }, priv: DES, receiver: tableKeysOnly,
+			want: "panic", knownBug: "a new engine ID replaces the keys with the empty keys of the empty passphrases",
 		},
 		"security model 2, plaintext, single user": {
-			in: func() []byte { return plainTrap(2, usmCharEngineID, "codec-user") }, priv: AES, want: "accepted",
-			knownBug: "the digest is checked only for the User-based Security Model",
+			in: func() []byte { return plainTrap(2, usmCharEngineID, "codec-user") }, priv: AES,
+			want: "accepted", vars: plainVars, knownBug: "the digest is checked only for the User-based Security Model",
 		},
-		"security model 2, plaintext, table": {
-			in: func() []byte { return plainTrap(2, usmCharEngineID, "codec-user") }, priv: AES, table: true, want: "accepted",
-			knownBug: "the digest is checked only for the User-based Security Model",
+		"security model 2, authPriv flags, table": {
+			in: func() []byte { return encryptedWithModel(AES, 2, 8) }, priv: AES, receiver: table,
+			want: "accepted", vars: usmCharVarbinds, knownBug: "the digest is checked only for the User-based Security Model",
 		},
 		"security model 2, encrypted DES with a 7-octet salt, single user": {
-			in: func() []byte { return encryptedWithModel(DES, 2, 7) }, priv: DES, want: "panic",
-			knownBug: "DES builds its IV from 8 octets of a shorter salt",
+			in: func() []byte { return encryptedWithModel(DES, 2, 7) }, priv: DES,
+			want: "panic", knownBug: "DES builds its IV from 8 octets of a shorter salt",
 		},
 		"empty user name and engine ID, single user": {
-			in: func() []byte { return plainTrap(3, "", "") }, priv: AES, want: "accepted",
-			knownBug: "the engine discovery exception skips the digest for traps",
+			in: func() []byte { return plainTrap(3, "", "") }, priv: AES,
+			want: "accepted", vars: plainVars, knownBug: "the engine discovery exception skips the digest for any message",
 		},
 		"empty user name, engine ID set, single user": {
 			in: func() []byte { return plainTrap(3, usmCharEngineID, "") }, priv: AES, want: "rejected",
@@ -442,14 +478,14 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 			in: func() []byte { return usmMalformedV3Header }, priv: AES, want: "rejected",
 		},
 		"malformed header, table": {
-			in: func() []byte { return usmMalformedV3Header }, priv: AES, table: true, want: "panic",
-			knownBug: "getTrapIdentifier reads the user name from nil SecurityParameters",
+			in: func() []byte { return usmMalformedV3Header }, priv: AES, receiver: table,
+			want: "panic", knownBug: "getTrapIdentifier reads the user name from nil SecurityParameters",
 		},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			x := receiver(tc.priv, tc.table)
+			x := receiver(tc.priv, tc.receiver)
 			var res *SnmpPacket
 			var err error
 			got := "accepted"
@@ -461,7 +497,7 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 			}
 			require.Equal(t, tc.want, got, "known bug: %q", tc.knownBug)
 			if got == "accepted" {
-				assert.NotEmpty(t, res.Variables)
+				assert.Equal(t, tc.vars, res.Variables)
 			}
 		})
 	}
@@ -539,32 +575,43 @@ func TestUSMSalts(t *testing.T) {
 		return out
 	}
 
-	t.Run("aes counter", func(t *testing.T) {
-		sp := &UsmSecurityParameters{PrivacyProtocol: AES256, AuthoritativeEngineBoots: 5}
-		got := salts(t, sp, AuthPriv, AuthNoPriv, AuthPriv, NoAuthNoPriv, AuthPriv)
-		assert.Equal(t, []string{"0000000000000001", "nil", "0000000000000003", "nil", "0000000000000005"}, got)
-		assert.Nil(t, sp.PrivacyParameters, "the counter's own parameters")
-	})
-	t.Run("des counter and boots of the packet", func(t *testing.T) {
-		sp := &UsmSecurityParameters{PrivacyProtocol: DES, AuthoritativeEngineBoots: 5}
-		got := salts(t, sp, AuthPriv, AuthNoPriv, AuthPriv)
-		assert.Equal(t, []string{"0000000900000001", "nil", "0000000900000003"}, got)
-	})
-	t.Run("aes wraps", func(t *testing.T) {
-		sp := &UsmSecurityParameters{PrivacyProtocol: AES, localAESSalt: math.MaxUint64 - 1}
-		got := salts(t, sp, AuthPriv, AuthPriv)
-		assert.Equal(t, []string{"ffffffffffffffff", "0000000000000000"}, got)
-	})
-	t.Run("des wraps", func(t *testing.T) {
-		sp := &UsmSecurityParameters{PrivacyProtocol: DES, localDESSalt: math.MaxUint32 - 1}
-		got := salts(t, sp, AuthPriv, AuthPriv)
-		assert.Equal(t, []string{"00000009ffffffff", "0000000900000000"}, got)
-	})
-	t.Run("no privacy protocol uses the DES layout", func(t *testing.T) {
-		sp := &UsmSecurityParameters{PrivacyProtocol: NoPriv}
-		got := salts(t, sp, AuthPriv)
-		assert.Equal(t, []string{"0000000900000001"}, got)
-	})
+	tests := map[string]struct {
+		sp    *UsmSecurityParameters
+		flags []SnmpV3MsgFlags
+		want  []string
+	}{
+		"aes counter": {
+			sp:    &UsmSecurityParameters{PrivacyProtocol: AES256, AuthoritativeEngineBoots: 5},
+			flags: []SnmpV3MsgFlags{AuthPriv, AuthNoPriv, AuthPriv, NoAuthNoPriv, AuthPriv},
+			want:  []string{"0000000000000001", "nil", "0000000000000003", "nil", "0000000000000005"},
+		},
+		"des counter and boots of the packet": {
+			sp:    &UsmSecurityParameters{PrivacyProtocol: DES, AuthoritativeEngineBoots: 5},
+			flags: []SnmpV3MsgFlags{AuthPriv, AuthNoPriv, AuthPriv},
+			want:  []string{"0000000900000001", "nil", "0000000900000003"},
+		},
+		"aes wraps": {
+			sp:    &UsmSecurityParameters{PrivacyProtocol: AES, localAESSalt: math.MaxUint64 - 1},
+			flags: []SnmpV3MsgFlags{AuthPriv, AuthPriv},
+			want:  []string{"ffffffffffffffff", "0000000000000000"},
+		},
+		"des wraps": {
+			sp:    &UsmSecurityParameters{PrivacyProtocol: DES, localDESSalt: math.MaxUint32 - 1},
+			flags: []SnmpV3MsgFlags{AuthPriv, AuthPriv},
+			want:  []string{"00000009ffffffff", "0000000900000000"},
+		},
+		"no privacy protocol uses the DES layout": {
+			sp:    &UsmSecurityParameters{PrivacyProtocol: NoPriv},
+			flags: []SnmpV3MsgFlags{AuthPriv},
+			want:  []string{"0000000900000001"},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tc.want, salts(t, tc.sp, tc.flags...))
+			assert.Nil(t, tc.sp.PrivacyParameters, "the counter's own parameters")
+		})
+	}
 	t.Run("GoSNMP starts the counter at a random value", func(t *testing.T) {
 		encode := func() string {
 			x := &GoSNMP{
