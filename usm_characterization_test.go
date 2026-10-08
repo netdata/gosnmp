@@ -210,7 +210,7 @@ type v3Message struct {
 	scoped          []byte // scoped PDU content, the ciphertext when encrypted
 }
 
-func splitV3Message(t *testing.T, data []byte) v3Message {
+func splitV3Message(t testing.TB, data []byte) v3Message {
 	t.Helper()
 
 	next := func(r *ber.Reader) (byte, []byte) {
@@ -249,7 +249,8 @@ func (m v3Message) bytes() []byte {
 
 // TestUSMDecryptCharacterization pins what SnmpDecodePacket (which decrypts
 // without checking the digest) and UnmarshalTrap (which checks it first) make
-// of an authPriv trap whose privacy parameters or ciphertext are malformed,
+// of an authPriv trap whose privacy parameters, ciphertext or msgFlags are
+// changed (an OCTET STRING scoped PDU is decrypted whatever the flags say),
 // or whose receiver has other privacy settings or keys localized to another
 // engine ID (a message from a new engine ID replaces the keys with ones
 // derived from the passphrases before the digest is checked).
@@ -298,6 +299,9 @@ func TestUSMDecryptCharacterization(t *testing.T) {
 			{name: name + "/ciphertext-empty", in: with(func(m *v3Message) { m.scoped = nil }), decoder: decoder},
 			{name: name + "/ciphertext-minus-1", in: with(func(m *v3Message) { m.scoped = m.scoped[:len(m.scoped)-1] }), decoder: decoder},
 			{name: name + "/ciphertext-minus-8", in: with(func(m *v3Message) { m.scoped = m.scoped[:len(m.scoped)-8] }), decoder: decoder},
+			{name: name + "/flags-no-auth-no-priv", in: with(func(m *v3Message) { *m = m.withFlags(t, NoAuthNoPriv) }), decoder: decoder},
+			{name: name + "/flags-auth-no-priv", in: with(func(m *v3Message) { *m = m.withFlags(t, AuthNoPriv) }), decoder: decoder},
+			{name: name + "/flags-privacy-only", in: with(func(m *v3Message) { *m = m.withFlags(t, usmPrivacyFlag) }), decoder: decoder},
 			{name: name + "/receiver-" + strings.ToLower(other.String()), in: data, decoder: usmDecoder(SHA, "codec-auth-pass", other, "codec-priv-pass")},
 			{name: name + "/receiver-priv-pass-empty", in: data, decoder: usmDecoder(SHA, "codec-auth-pass", priv, "")},
 			{name: name + "/receiver-keys-other-engine", in: data, decoder: localized(otherEngineID, true)},
@@ -309,6 +313,189 @@ func TestUSMDecryptCharacterization(t *testing.T) {
 		}
 	}
 	usmGolden.check(t, "decrypt", results)
+}
+
+// usmPrivacyFlag is the msgFlags privacy bit without the authentication bit,
+// an invalid combination (RFC 3412 section 7.2 step 5d).
+const usmPrivacyFlag SnmpV3MsgFlags = 0x02
+
+// withFlags returns the message with other msgFlags.
+func (m v3Message) withFlags(t testing.TB, flags SnmpV3MsgFlags) v3Message {
+	t.Helper()
+	old := []byte{byte(OctetString), 1, byte(AuthPriv)}
+	require.Equal(t, 1, bytes.Count(m.header, old), "authPriv msgFlags not found once in the header")
+	m.header = bytes.Replace(m.header, old, []byte{byte(OctetString), 1, byte(flags)}, 1)
+	return m
+}
+
+// withModel returns the message with another msgSecurityModel.
+func (m v3Message) withModel(t testing.TB, model byte) v3Message {
+	t.Helper()
+	usm := []byte{byte(Integer), 1, byte(UserSecurityModel)}
+	require.True(t, bytes.HasSuffix(m.header, usm), "the header does not end with the USM security model")
+	m.header = append(bytes.Clone(m.header[:len(m.header)-1]), model)
+	return m
+}
+
+// usmFlagsTrap is usmCharTrap, still encrypted, with other msgFlags and the
+// first saltLen octets of its privacy parameters.
+func usmFlagsTrap(t testing.TB, priv SnmpV3PrivProtocol, flags SnmpV3MsgFlags, saltLen int) []byte {
+	t.Helper()
+	m := splitV3Message(t, usmCharTrap(t, priv, usmCharSalt(priv), usmCharVarbinds)).withFlags(t, flags)
+	m.usm[5] = m.usm[5][:saltLen]
+	return m.bytes()
+}
+
+// usmMalformedV3Header is an SNMPv3 message whose header is not a SEQUENCE.
+var usmMalformedV3Header = tlv(0x30, intTLV(3), tlv(0x31, intTLV(1)))
+
+// TestUSMTrapUnauthenticated pins what UnmarshalTrap does, for a single user
+// requiring authPriv and through a credentials table, with messages it
+// decodes without checking a digest: the table path takes the security level
+// from the message (TestTrapSecurityOutcomes); both paths check the digest
+// only for the User-based Security Model, and skip it for an empty user name
+// and engine ID (the engine discovery exception of RFC 3414 section 4, which
+// applies to traps too). Decryption follows the scoped PDU's tag (an OCTET
+// STRING is decrypted) whatever the flags say. Cases with a knownBug note
+// record wrong behavior that the bug-fix phase changes.
+func TestUSMTrapUnauthenticated(t *testing.T) {
+	plainTrap := func(model int64, engineID, user string) []byte {
+		usm := craftedUSM(octets(engineID), intTLV(0), intTLV(0), octets(user), octets(""), octets(""))
+		scoped := tlv(0x30, octets(""), octets(""), craftedPDU(SNMPv2Trap, craftedVBL(craftedVB(intTLV(5)))))
+		return craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(model), usm, scoped)
+	}
+	encryptedWithModel := func(priv SnmpV3PrivProtocol, model byte, saltLen int) []byte {
+		m := splitV3Message(t, usmCharTrap(t, priv, usmCharSalt(priv), usmCharVarbinds)).withModel(t, model)
+		m.usm[5] = m.usm[5][:saltLen]
+		return m.bytes()
+	}
+
+	receiver := func(priv SnmpV3PrivProtocol, table bool) *GoSNMP {
+		sp := usmDecoder(SHA, "codec-auth-pass", priv, "codec-priv-pass")().SecurityParameters
+		if !table {
+			return &GoSNMP{Version: Version3, MsgFlags: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp}
+		}
+		tb := NewSnmpV3SecurityParametersTable(Logger{})
+		require.NoError(t, tb.Add("codec-user", sp))
+		return &GoSNMP{Version: Version3, TrapSecurityParametersTable: tb}
+	}
+
+	tests := map[string]struct {
+		in       func() []byte
+		priv     SnmpV3PrivProtocol
+		table    bool
+		want     string // accepted, rejected or panic
+		knownBug string
+	}{
+		"privacy-only DES, single user": {
+			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 8) }, priv: DES, want: "rejected",
+		},
+		"privacy-only DES, table": {
+			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 8) }, priv: DES, table: true, want: "accepted",
+			knownBug: "decrypted and accepted without checking the digest",
+		},
+		"privacy-only AES, table": {
+			in: func() []byte { return usmFlagsTrap(t, AES, usmPrivacyFlag, 8) }, priv: AES, table: true, want: "accepted",
+			knownBug: "decrypted and accepted without checking the digest",
+		},
+		"noAuthNoPriv flags, encrypted AES, table": {
+			in: func() []byte { return usmFlagsTrap(t, AES, NoAuthNoPriv, 8) }, priv: AES, table: true, want: "accepted",
+			knownBug: "decrypted and accepted without checking the digest",
+		},
+		"noAuthNoPriv flags, encrypted AES, single user": {
+			in: func() []byte { return usmFlagsTrap(t, AES, NoAuthNoPriv, 8) }, priv: AES, want: "rejected",
+		},
+		"privacy-only DES with a 7-octet salt, single user": {
+			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 7) }, priv: DES, want: "rejected",
+		},
+		"privacy-only DES with a 7-octet salt, table": {
+			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 7) }, priv: DES, table: true, want: "panic",
+			knownBug: "DES builds its IV from 8 octets of a shorter salt",
+		},
+		"noAuthNoPriv flags, encrypted DES with a 7-octet salt, table": {
+			in: func() []byte { return usmFlagsTrap(t, DES, NoAuthNoPriv, 7) }, priv: DES, table: true, want: "panic",
+			knownBug: "DES builds its IV from 8 octets of a shorter salt",
+		},
+		"privacy-only AES with a 7-octet salt, table": {
+			in: func() []byte { return usmFlagsTrap(t, AES, usmPrivacyFlag, 7) }, priv: AES, table: true, want: "rejected",
+		},
+		"security model 2, plaintext, single user": {
+			in: func() []byte { return plainTrap(2, usmCharEngineID, "codec-user") }, priv: AES, want: "accepted",
+			knownBug: "the digest is checked only for the User-based Security Model",
+		},
+		"security model 2, plaintext, table": {
+			in: func() []byte { return plainTrap(2, usmCharEngineID, "codec-user") }, priv: AES, table: true, want: "accepted",
+			knownBug: "the digest is checked only for the User-based Security Model",
+		},
+		"security model 2, encrypted DES with a 7-octet salt, single user": {
+			in: func() []byte { return encryptedWithModel(DES, 2, 7) }, priv: DES, want: "panic",
+			knownBug: "DES builds its IV from 8 octets of a shorter salt",
+		},
+		"empty user name and engine ID, single user": {
+			in: func() []byte { return plainTrap(3, "", "") }, priv: AES, want: "accepted",
+			knownBug: "the engine discovery exception skips the digest for traps",
+		},
+		"empty user name, engine ID set, single user": {
+			in: func() []byte { return plainTrap(3, usmCharEngineID, "") }, priv: AES, want: "rejected",
+		},
+		"malformed header, single user": {
+			in: func() []byte { return usmMalformedV3Header }, priv: AES, want: "rejected",
+		},
+		"malformed header, table": {
+			in: func() []byte { return usmMalformedV3Header }, priv: AES, table: true, want: "panic",
+			knownBug: "getTrapIdentifier reads the user name from nil SecurityParameters",
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			x := receiver(tc.priv, tc.table)
+			var res *SnmpPacket
+			var err error
+			got := "accepted"
+			switch v, _ := recoverPanic(func() { res, err = x.UnmarshalTrap(tc.in(), false) }); {
+			case v != nil:
+				got = "panic"
+			case err != nil:
+				got = "rejected"
+			}
+			require.Equal(t, tc.want, got, "known bug: %q", tc.knownBug)
+			if got == "accepted" {
+				assert.NotEmpty(t, res.Variables)
+			}
+		})
+	}
+}
+
+// TestUSMAuthFieldZeroing pins that, before checking any digest, USM
+// unmarshal zeroes the expected digest length (12 octets for SHA) after the
+// first two octets of msgAuthenticationParameters, whatever the field's
+// length. In an authNoPriv message that ends with an empty field this panics
+// when the input has no spare capacity (known bug), and otherwise writes the
+// zeros past the end of the input.
+func TestUSMAuthFieldZeroing(t *testing.T) {
+	usm := craftedUSM(octets(usmCharEngineID), intTLV(0), intTLV(0), octets("codec-user"), octets(""), nil)
+	msg := craftedV3(intTLV(42), intTLV(65507), octets("\x01"), intTLV(3), usm, nil)
+	decoder := usmDecoder(SHA, "codec-auth-pass", NoPriv, "")
+
+	t.Run("no spare capacity", func(t *testing.T) {
+		in := bytes.Clone(msg)[:len(msg):len(msg)]
+		v, _ := recoverPanic(func() { _, _ = decoder().SnmpDecodePacket(in) })
+		assert.NotNil(t, v, "SnmpDecodePacket did not panic (known bug: zeroes past the end of the packet)")
+
+		x := decoder()
+		x.Version, x.SecurityModel, x.MsgFlags = Version3, UserSecurityModel, AuthNoPriv
+		in = bytes.Clone(msg)[:len(msg):len(msg)]
+		v, _ = recoverPanic(func() { _, _ = x.UnmarshalTrap(in, false) })
+		assert.NotNil(t, v, "UnmarshalTrap did not panic (known bug: zeroes past the end of the packet)")
+	})
+	t.Run("spare capacity", func(t *testing.T) {
+		buf := append(bytes.Clone(msg), bytes.Repeat([]byte{0xaa}, 16)...)
+		in := buf[:len(msg)]
+		_, err := decoder().SnmpDecodePacket(in)
+		assert.Error(t, err)
+		assert.Equal(t, append(make([]byte, 12), bytes.Repeat([]byte{0xaa}, 4)...), buf[len(msg):], "octets after the input")
+	})
 }
 
 // TestUSMPrivacyPadding pins the ciphertext length: DES pads the scoped PDU
