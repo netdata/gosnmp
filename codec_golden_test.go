@@ -210,11 +210,14 @@ func readGoldenFile(path string) ([]goldenSection, error) {
 	return sections, nil
 }
 
-// codecSentinels are the exported errors a codec result is matched against.
-var codecSentinels = []struct {
+// sentinel is an exported error and its name.
+type sentinel struct {
 	name string
 	err  error
-}{
+}
+
+// codecSentinels are the exported errors a codec result is matched against.
+var codecSentinels = []sentinel{
 	{"ErrBase128IntegerTooLarge", ErrBase128IntegerTooLarge},
 	{"ErrBase128IntegerTruncated", ErrBase128IntegerTruncated},
 	{"ErrFloatBufferTooShort", ErrFloatBufferTooShort},
@@ -239,8 +242,13 @@ var codecSentinels = []struct {
 // dumpError describes an error by the exported sentinels it matches; the
 // message text is not part of the pinned behavior.
 func dumpError(err error) string {
+	return dumpErrorBy(err, codecSentinels)
+}
+
+// dumpErrorBy is dumpError against the given sentinels.
+func dumpErrorBy(err error, sentinels []sentinel) string {
 	var matched []string
-	for _, s := range codecSentinels {
+	for _, s := range sentinels {
 		if errors.Is(err, s.err) {
 			matched = append(matched, s.name)
 		}
