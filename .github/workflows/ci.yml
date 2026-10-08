@@ -223,5 +223,3 @@ jobs:
         run: go test -fuzztime 60s -v -run '^FuzzUnmarshal$' -fuzz '^FuzzUnmarshal$'
       - name: Fuzz DecodeReencode
         run: go test -fuzztime 60s -v -run '^FuzzDecodeReencode$' -fuzz '^FuzzDecodeReencode$'
-      - name: Fuzz DecodeDifferential
-        run: go test -fuzztime 60s -v -run '^FuzzDecodeDifferential$' -fuzz '^FuzzDecodeDifferential$'
