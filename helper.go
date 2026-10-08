@@ -65,7 +65,7 @@ func Check(err error) {
 	}
 }
 
-func (x *GoSNMP) decodeValue(data []byte, retVal *variable) error {
+func decodeValue(data []byte, retVal *variable) error {
 	if len(data) == 0 {
 		return ErrZeroByteBuffer
 	}
@@ -567,91 +567,6 @@ func parseInt(bytes []byte) (int, error) {
 		return 0, ErrIntegerTooLarge
 	}
 	return int(ret64), nil
-}
-
-func parseRawField(data []byte) (any, int, error) {
-	if len(data) == 0 {
-		return nil, 0, fmt.Errorf("empty data passed to parseRawField")
-	}
-	switch Asn1BER(data[0]) {
-	case Integer:
-		length, cursor, err := ber.Length(data)
-		if err != nil {
-			return nil, 0, err
-		}
-		if length > len(data) {
-			return nil, 0, fmt.Errorf("not enough data for Integer (%d vs %d): %x", length, len(data), data)
-		}
-		if cursor > length {
-			return nil, 0, fmt.Errorf("invalid cursor position for Integer %x (data %d length %d cursor %d)", data, len(data), length, cursor)
-		}
-		i, err := parseInt(data[cursor:length])
-		if err != nil {
-			return nil, 0, fmt.Errorf("unable to parse raw INTEGER: %x err: %w", data, err)
-		}
-		return i, length, nil
-	case OctetString:
-		length, cursor, err := ber.Length(data)
-		if err != nil {
-			return nil, 0, err
-		}
-		if length > len(data) {
-			return nil, 0, fmt.Errorf("not enough data for OctetString (%d vs %d): %x", length, len(data), data)
-		}
-		if cursor > length {
-			return nil, 0, fmt.Errorf("invalid cursor position for OctetString %x (data %d length %d cursor %d)", data, len(data), length, cursor)
-		}
-		return string(data[cursor:length]), length, nil
-	case ObjectIdentifier:
-		length, cursor, err := ber.Length(data)
-		if err != nil {
-			return nil, 0, err
-		}
-		if length > len(data) {
-			return nil, 0, fmt.Errorf("not enough data for OID (%d vs %d): %x", length, len(data), data)
-		}
-		if cursor > length {
-			return nil, 0, fmt.Errorf("invalid cursor position for OID %x (data %d length %d cursor %d)", data, len(data), length, cursor)
-		}
-		oid, err := ber.OID(data[cursor:length])
-		return oid, length, err
-	case IPAddress:
-		length, cursor, err := ber.Length(data)
-		if err != nil {
-			return nil, 0, err
-		}
-		// length includes header bytes, ipLen is just the address bytes
-		ipLen := length - cursor
-		switch ipLen {
-		case 0: // real life, buggy devices returning bad data
-			return nil, length, nil
-		case 4: // IPv4
-			if len(data) < cursor+4 {
-				return nil, 0, fmt.Errorf("not enough data for ipv4 address: %x", data)
-			}
-			return net.IP(data[cursor : cursor+4]).String(), length, nil
-		default:
-			return nil, 0, fmt.Errorf("got ipaddress len %d, expected 4", ipLen)
-		}
-	case TimeTicks:
-		length, cursor, err := ber.Length(data)
-		if err != nil {
-			return nil, 0, err
-		}
-		if length > len(data) {
-			return nil, 0, fmt.Errorf("not enough data for TimeTicks (%d vs %d): %x", length, len(data), data)
-		}
-		if cursor > length {
-			return nil, 0, fmt.Errorf("invalid cursor position for TimeTicks %x (data %d length %d cursor %d)", data, len(data), length, cursor)
-		}
-		ret, err := parseUint(data[cursor:length])
-		if err != nil {
-			return nil, 0, fmt.Errorf("error in parseUint: %w", err)
-		}
-		return ret, length, nil
-	}
-
-	return nil, 0, fmt.Errorf("unknown field type: %x", data[0])
 }
 
 // parseUint32 treats the given bytes as a big-endian, signed integer and returns

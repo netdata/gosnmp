@@ -1743,7 +1743,7 @@ func serveGetResponses(t *testing.T, srvr *net.UDPConn, x *GoSNMP, send func(rep
 		if err != nil {
 			t.Errorf("error: %s", err)
 		}
-		if err = x.unmarshalPayload(req, cursor, &reqPkt); err != nil {
+		if err = unmarshalPayload(req, cursor, &reqPkt); err != nil {
 			t.Errorf("error: %s", err)
 		}
 
@@ -1928,8 +1928,6 @@ func snmpv3HelloResponse() []byte {
 // TestMarshalVarbindRoundTrip verifies that marshaled varbinds can be parsed back correctly
 // for all PDU types with various OID sizes including boundary cases.
 func TestMarshalVarbindRoundTrip(t *testing.T) {
-	logger := NewLogger(log.New(io.Discard, "", 0))
-
 	// OID that encodes to exactly 128 bytes (requires long-form BER length)
 	// Base .1.3.6.1.4.1 = 5 bytes, each 268435455 = 4 bytes, each 127 = 1 byte
 	// 5 + (30 * 4) + 3 = 128 bytes
@@ -2024,8 +2022,7 @@ func TestMarshalVarbindRoundTrip(t *testing.T) {
 			// Parse value
 			cursor += oidLength
 			var decodedVal variable
-			x := &GoSNMP{Logger: logger}
-			if err = x.decodeValue(result[cursor:], &decodedVal); err != nil {
+			if err = decodeValue(result[cursor:], &decodedVal); err != nil {
 				t.Fatalf("decodeValue() error = %v", err)
 			}
 
@@ -2146,9 +2143,8 @@ func rawVB(suffix byte, rawValue []byte) []byte {
 // testUnmarshalVBL calls unmarshalVBL and returns the parsed variables and error.
 func testUnmarshalVBL(t *testing.T, packet []byte) ([]SnmpPDU, error) {
 	t.Helper()
-	vhandle := GoSNMP{Logger: NewLogger(log.New(io.Discard, "", 0))}
 	response := &SnmpPacket{}
-	err := vhandle.unmarshalVBL(packet, response)
+	err := unmarshalVBL(packet, response)
 	return response.Variables, err
 }
 

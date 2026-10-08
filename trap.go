@@ -11,7 +11,7 @@ import (
 // UnmarshalTrap unpacks the SNMP Trap.
 func (x *GoSNMP) UnmarshalTrap(trap []byte, useResponseSecurityParameters bool) (result *SnmpPacket, err error) {
 	// Get only the version from the header of the trap
-	version, _, err := x.unmarshalVersionFromHeader(trap, new(SnmpPacket))
+	version, _, err := unmarshalVersionFromHeader(trap, new(SnmpPacket))
 	if err != nil {
 		x.Logger.Printf("UnmarshalTrap version unmarshal: %s\n", err)
 		return nil, err
@@ -87,7 +87,7 @@ func (x *GoSNMP) unmarshalTrapBase(trap []byte, sp SnmpV3SecurityParameters, use
 			return nil, err
 		}
 	}
-	err = x.unmarshalPayload(trap, cursor, result)
+	err = unmarshalPayload(trap, cursor, result)
 	if err != nil {
 		x.Logger.Printf("UnmarshalTrap: %s\n", err)
 		return nil, err

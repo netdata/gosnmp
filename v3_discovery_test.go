@@ -136,7 +136,7 @@ func (m *mockAgentUnknownUserNames) serve() {
 			continue
 		}
 
-		if err = parser.unmarshalPayload(pkt, cursor, req); err != nil {
+		if err = unmarshalPayload(pkt, cursor, req); err != nil {
 			m.sendErr(fmt.Errorf("unmarshalPayload: %w", err))
 			continue
 		}

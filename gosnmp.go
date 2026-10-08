@@ -575,7 +575,7 @@ func (x *GoSNMP) SnmpDecodePacket(resp []byte) (*SnmpPacket, error) {
 		}
 	}
 
-	err = x.unmarshalPayload(resp, cursor, result)
+	err = unmarshalPayload(resp, cursor, result)
 	if err != nil {
 		err = fmt.Errorf("unable to decode packet body: %w", err)
 		return result, err
