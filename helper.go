@@ -325,9 +325,15 @@ func marshalObjectIdentifier(oid string) ([]byte, error) {
 	return out, nil
 }
 
-// TODO no tests
-func ipv4toBytes(ip net.IP) []byte {
-	return []byte(ip)[12:]
+// marshalIPAddress returns the four octets of an IpAddress given as a string:
+// the last four bytes of the parsed address, so an IPv6 address loses its
+// first twelve. It returns an array so the parsed address stays on the stack.
+func marshalIPAddress(s string) ([4]byte, error) {
+	ip := net.ParseIP(s)
+	if ip == nil {
+		return [4]byte{}, fmt.Errorf("%q is not an IP address", s)
+	}
+	return [4]byte(ip[12:]), nil
 }
 
 // -- Bit String ---------------------------------------------------------------

@@ -1815,7 +1815,7 @@ pdu: 0xa4 (Trap) request-id=0 error=0 (NoError) error-index=0 non-repeaters=0 ma
 trap-v1: enterprise=".1.3.6.1.4.1.20372" agent-address="" generic=6 specific=1 timestamp=256
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
-reencode: panic
+reencode: error
 
 == crafted/trap-v1/agent-address-16-octets
 decode: error
@@ -1828,7 +1828,7 @@ pdu: 0xa4 (Trap) request-id=0 error=0 (NoError) error-index=0 non-repeaters=0 ma
 trap-v1: enterprise=".1.3.6.1.4.1.20372" agent-address="\xc0\x00\x02\x01" generic=6 specific=1 timestamp=256
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
-reencode: panic
+reencode: error
 
 == crafted/trap-v1/enterprise-octet-string
 decode: ok

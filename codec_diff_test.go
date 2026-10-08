@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"fmt"
 	"math"
+	"net"
 	"reflect"
 	"slices"
 	"strconv"
@@ -321,6 +322,9 @@ func diffDump(impl diffImpl, d *diffDecoder, data []byte) string {
 // codec goldens pin the fixed bytes.
 func diffReencodeFixed(packet any) string {
 	p := reflect.ValueOf(packet).Elem()
+	if PDUType(p.FieldByName("PDUType").Uint()) == Trap && net.ParseIP(p.FieldByName("AgentAddress").String()) == nil {
+		return "v1 trap agent address that is not an IP address"
+	}
 	if p.FieldByName("Version").Uint() != uint64(Version3) {
 		if p.FieldByName("Community").Len() > 127 {
 			return "community longer than 127 bytes"

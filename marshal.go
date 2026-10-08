@@ -551,10 +551,12 @@ func (packet *SnmpPacket) marshalSNMPV1TrapHeader() ([]byte, error) {
 	}
 
 	// marshal AgentAddress (ip address)
-	ip := net.ParseIP(packet.AgentAddress)
-	ipAddressBytes := ipv4toBytes(ip)
-	buf.Write([]byte{byte(IPAddress), byte(len(ipAddressBytes))}) //nolint:gosec
-	buf.Write(ipAddressBytes)
+	agentAddress, err := marshalIPAddress(packet.AgentAddress)
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal SNMPv1 AgentAddress: %w", err)
+	}
+	buf.Write([]byte{byte(IPAddress), byte(len(agentAddress))})
+	buf.Write(agentAddress[:])
 
 	// marshal GenericTrap. Could just cast GenericTrap to a single byte as IDs greater than 6 are unknown,
 	// but do it properly. See issue 182.
@@ -745,15 +747,12 @@ func marshalVarbind(pdu *SnmpPDU) ([]byte, error) {
 
 		// Number
 		var intBytes []byte
-		switch value := pdu.Value.(type) {
-		case byte:
-			intBytes = []byte{byte(pdu.Value.(int))} //nolint:gosec
-		case int:
-			if intBytes, err = marshalInt32(value); err != nil {
-				return nil, fmt.Errorf("error mashalling PDU Integer: %w", err)
-			}
-		default:
-			return nil, fmt.Errorf("unable to marshal PDU Integer; not byte or int")
+		value, ok := pdu.Value.(int)
+		if !ok {
+			return nil, fmt.Errorf("unable to marshal PDU Integer; not int")
+		}
+		if intBytes, err = marshalInt32(value); err != nil {
+			return nil, fmt.Errorf("error mashalling PDU Integer: %w", err)
 		}
 		if err = marshalTLV(tmpBuf, byte(pdu.Type), intBytes); err != nil {
 			return nil, err
@@ -814,7 +813,10 @@ func marshalVarbind(pdu *SnmpPDU) ([]byte, error) {
 		if err = marshalTLV(tmpBuf, byte(ObjectIdentifier), oid); err != nil {
 			return nil, err
 		}
-		value := pdu.Value.(string)
+		value, ok := pdu.Value.(string)
+		if !ok {
+			return nil, fmt.Errorf("unable to marshal PDU ObjectIdentifier; not string")
+		}
 		oidBytes, encErr := marshalObjectIdentifier(value)
 		if encErr != nil {
 			return nil, fmt.Errorf("error marshalling ObjectIdentifier: %w", encErr)
@@ -836,8 +838,11 @@ func marshalVarbind(pdu *SnmpPDU) ([]byte, error) {
 		case []byte:
 			ipAddressBytes = value
 		case string:
-			ip := net.ParseIP(value)
-			ipAddressBytes = ipv4toBytes(ip)
+			ip, ipErr := marshalIPAddress(value)
+			if ipErr != nil {
+				return nil, fmt.Errorf("unable to marshal PDU IPAddress: %w", ipErr)
+			}
+			ipAddressBytes = ip[:]
 		default:
 			return nil, fmt.Errorf("unable to marshal PDU IPAddress; not []byte or string")
 		}

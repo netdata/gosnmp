@@ -59,7 +59,7 @@ int32(-5): error
 int64(5): error
 int64(MaxInt64): error
 uint(5): error
-uint8(200): panic
+uint8(200): error
 uint32(MaxUint32): error
 uint64(2^40): error
 uint64(MaxUint64): error
@@ -145,28 +145,28 @@ string("x"): 05 00
 []byte{}: 05 00
 
 == 0x06 ObjectIdentifier
-nil: panic
-int(0): panic
-int(-1): panic
-int(MaxInt32): panic
-int(MinInt32): panic
-int8(-1): panic
-int32(-5): panic
-int64(5): panic
-int64(MaxInt64): panic
-uint(5): panic
-uint8(200): panic
-uint32(MaxUint32): panic
-uint64(2^40): panic
-uint64(MaxUint64): panic
-float32(1.5): panic
-float64(-2.25): panic
+nil: error
+int(0): error
+int(-1): error
+int(MaxInt32): error
+int(MinInt32): error
+int8(-1): error
+int32(-5): error
+int64(5): error
+int64(MaxInt64): error
+uint(5): error
+uint8(200): error
+uint32(MaxUint32): error
+uint64(2^40): error
+uint64(MaxUint64): error
+float32(1.5): error
+float64(-2.25): error
 string("1.3.6.1"): 06 03 2b 06 01
 string("192.0.2.1"): error
 string("2001:db8::1"): error
 string("x"): error
-[]byte("x"): panic
-[]byte{}: panic
+[]byte("x"): error
+[]byte{}: error
 
 == 0x07 ObjectDescription
 nil: error
@@ -212,7 +212,7 @@ float64(-2.25): error
 string("1.3.6.1"): 40 04 01 03 06 01
 string("192.0.2.1"): 40 04 c0 00 02 01
 string("2001:db8::1"): 40 04 00 00 00 01
-string("x"): panic
+string("x"): error
 []byte("x"): 40 01 78
 []byte{}: 40 00
 

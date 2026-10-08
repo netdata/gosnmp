@@ -82,6 +82,52 @@ func TestMarshalLongOctetStringFields(t *testing.T) {
 	}
 }
 
+// TestMarshalUnencodableValues checks that MarshalMsg reports caller values
+// it cannot encode as errors instead of panicking.
+func TestMarshalUnencodableValues(t *testing.T) {
+	varbind := func(typ Asn1BER, value any) *SnmpPacket {
+		return &SnmpPacket{
+			Version:   Version2c,
+			Community: "public",
+			PDUType:   SetRequest,
+			RequestID: 1,
+			Variables: []SnmpPDU{{Name: ".1.3.6.1.2.1.1.5.0", Type: typ, Value: value}},
+		}
+	}
+	trap := func(agentAddress string) *SnmpPacket {
+		return &SnmpPacket{
+			Version:   Version1,
+			Community: "public",
+			PDUType:   Trap,
+			SnmpTrap: SnmpTrap{
+				Enterprise:   ".1.3.6.1.4.1.20372",
+				AgentAddress: agentAddress,
+				GenericTrap:  6,
+				Variables:    []SnmpPDU{{Name: ".1.3.6.1.2.1.1.5.0", Type: Null}},
+			},
+		}
+	}
+	tests := map[string]*SnmpPacket{
+		"Integer with a uint8 value":                varbind(Integer, uint8(200)),
+		"ObjectIdentifier with an int value":        varbind(ObjectIdentifier, 5),
+		"ObjectIdentifier with a []byte value":      varbind(ObjectIdentifier, []byte(".1.3.6.1")),
+		"ObjectIdentifier with a nil value":         varbind(ObjectIdentifier, nil),
+		"IPAddress with a string that is not an IP": varbind(IPAddress, "x"),
+		"v1 trap with an empty agent address":       trap(""),
+		"v1 trap with an agent address not an IP":   trap("x"),
+	}
+
+	for name, packet := range tests {
+		t.Run(name, func(t *testing.T) {
+			var err error
+			panicked, _ := observe(func() { _, err = packet.MarshalMsg() })
+			if panicked || err == nil {
+				t.Errorf("MarshalMsg panicked: %v, error: %v; want an error", panicked, err)
+			}
+		})
+	}
+}
+
 func TestEncodeValueTypesCharacterization(t *testing.T) {
 	tags := []Asn1BER{
 		UnknownType, Boolean, Integer, BitString, OctetString, Null, ObjectIdentifier, ObjectDescription, IPAddress,

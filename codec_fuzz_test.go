@@ -9,7 +9,6 @@ import (
 	"io"
 	"log"
 	"math"
-	"net"
 	"slices"
 	"strconv"
 	"testing"
@@ -81,16 +80,12 @@ func FuzzDecodeReencode(f *testing.F) {
 }
 
 // reencodeKnownBug reports packets that hit known codec bugs breaking the
-// FuzzDecodeReencode properties: a v1 trap whose agent address is not an IP
-// address makes MarshalMsg panic, and on 32-bit platforms a Uinteger32 above
+// FuzzDecodeReencode properties: on 32-bit platforms a Uinteger32 above
 // MaxInt32 re-encodes to five octets, which the decoder, reading Uinteger32
-// as a signed int, rejects. Fixing these bugs removes the cases.
+// as a signed int, rejects. Fixing the bug removes the case.
 func reencodeKnownBug(p *SnmpPacket) bool {
-	if strconv.IntSize == 32 && slices.ContainsFunc(p.Variables, func(v SnmpPDU) bool {
+	return strconv.IntSize == 32 && slices.ContainsFunc(p.Variables, func(v SnmpPDU) bool {
 		u, ok := v.Value.(uint32)
 		return ok && v.Type == Uinteger32 && u > math.MaxInt32
-	}) {
-		return true
-	}
-	return p.PDUType == Trap && net.ParseIP(p.AgentAddress) == nil
+	})
 }
