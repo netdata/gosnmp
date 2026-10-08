@@ -113,13 +113,10 @@ func decodeValue(data []byte, retVal *variable) error {
 		retVal.Value = nil
 	case ObjectIdentifier:
 		// 0x06
-		rawOid, _, err := parseRawField(data)
+		r := ber.NewReader(data)
+		oid, _, err := readString(&r)
 		if err != nil {
 			return fmt.Errorf("error parsing OID Value: %w", err)
-		}
-		oid, ok := rawOid.(string)
-		if !ok {
-			return fmt.Errorf("unable to type assert rawOid |%v| to string", rawOid)
 		}
 		retVal.Type = ObjectIdentifier
 		retVal.Value = oid

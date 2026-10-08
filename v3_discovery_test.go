@@ -130,7 +130,7 @@ func (m *mockAgentUnknownUserNames) serve() {
 
 		// decryptPacket advances the cursor past the ScopedPDU wrapper and
 		// context fields, leaving it at the PDU type byte.
-		pkt, cursor, err := parser.decryptPacket(buf[:n], cursor, req)
+		pkt, cursor, err := unmarshalScopedPDU(buf[:n], cursor, req)
 		if err != nil {
 			m.sendErr(fmt.Errorf("decryptPacket: %w", err))
 			continue

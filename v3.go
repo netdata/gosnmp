@@ -55,7 +55,7 @@ type SnmpV3SecurityParameters interface {
 	getDefaultContextEngineID() string
 	setSecurityParameters(in SnmpV3SecurityParameters) error
 	marshal(flags SnmpV3MsgFlags) ([]byte, error)
-	unmarshal(flags SnmpV3MsgFlags, packet []byte, cursor int) (int, error)
+	unmarshal(flags SnmpV3MsgFlags, r *ber.Reader) error
 	authenticate(packet []byte) error
 	isAuthentic(packetBytes []byte, packet *SnmpPacket) (bool, error)
 	encryptPacket(scopedPdu []byte) ([]byte, error)
@@ -350,161 +350,124 @@ func (packet *SnmpPacket) prepareV3ScopedPDU() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// unmarshalV3Header reads the SNMPv3 header at packet[cursor:]: msgGlobalData
+// (message ID, maximum size, flags, security model) and the security
+// parameters. The headers of msgGlobalData and of the security parameters are
+// skipped without enforcing their declared lengths; the fields are read from
+// the rest of the packet. It returns the offset of the scoped PDU.
 func (x *GoSNMP) unmarshalV3Header(packet []byte,
 	cursor int,
 	response *SnmpPacket,
 ) (int, error) {
-	if PDUType(packet[cursor]) != Sequence {
-		return 0, fmt.Errorf("invalid SNMPV3 Header")
+	r := ber.NewReader(packet[cursor:])
+	if tag, _ := r.Peek(); PDUType(tag) != Sequence {
+		return 0, errors.New("invalid SNMPV3 Header")
+	}
+	if _, err := r.SkipHeader(); err != nil {
+		return 0, fmt.Errorf("error parsing SNMPV3 header: %w", err)
 	}
 
-	_, cursorTmp, err := ber.Length(packet[cursor:])
-	if err != nil {
-		return 0, err
-	}
-	cursor += cursorTmp
-	if cursor > len(packet) {
-		return 0, errors.New("error parsing SNMPV3 message ID: truncted packet")
-	}
-
-	rawMsgID, count, err := parseRawField(packet[cursor:])
+	msgID, ok, err := readInt(&r)
 	if err != nil {
 		return 0, fmt.Errorf("error parsing SNMPV3 message ID: %w", err)
 	}
-	cursor += count
-	if cursor < 0 || cursor > len(packet) {
-		return 0, errors.New("error parsing SNMPV3 message ID: truncted packet")
+	if ok {
+		response.MsgID = uint32(msgID) //nolint:gosec
 	}
 
-	if MsgID, ok := rawMsgID.(int); ok {
-		response.MsgID = uint32(MsgID) //nolint:gosec
-	}
-
-	rawMsgMaxSize, count, err := parseRawField(packet[cursor:])
+	msgMaxSize, ok, err := readInt(&r)
 	if err != nil {
 		return 0, fmt.Errorf("error parsing SNMPV3 msgMaxSize: %w", err)
 	}
-	cursor += count
-	if cursor < 0 || cursor > len(packet) {
-		return 0, errors.New("error parsing SNMPV3 message ID: truncted packet")
+	if ok {
+		response.MsgMaxSize = uint32(msgMaxSize) //nolint:gosec
 	}
 
-	if MsgMaxSize, ok := rawMsgMaxSize.(int); ok {
-		response.MsgMaxSize = uint32(MsgMaxSize) //nolint:gosec
-	}
-
-	rawMsgFlags, count, err := parseRawField(packet[cursor:])
+	msgFlags, ok, err := readString(&r)
 	if err != nil {
 		return 0, fmt.Errorf("error parsing SNMPV3 msgFlags: %w", err)
 	}
-	cursor += count
-	if cursor < 0 || cursor > len(packet) {
-		return 0, errors.New("error parsing SNMPV3 message ID: truncted packet")
+	if ok && len(msgFlags) > 0 {
+		response.MsgFlags = SnmpV3MsgFlags(msgFlags[0])
 	}
 
-	if MsgFlags, ok := rawMsgFlags.(string); ok && len(MsgFlags) > 0 {
-		response.MsgFlags = SnmpV3MsgFlags(MsgFlags[0])
-	}
-
-	rawSecModel, count, err := parseRawField(packet[cursor:])
+	secModel, ok, err := readInt(&r)
 	if err != nil {
 		return 0, fmt.Errorf("error parsing SNMPV3 msgSecModel: %w", err)
 	}
-	cursor += count
-	if cursor < 0 || cursor >= len(packet) {
-		return 0, errors.New("error parsing SNMPV3 message ID: truncted packet")
+	tag, more := r.Peek()
+	if !more {
+		return 0, errors.New("error parsing SNMPV3: nothing after the security model")
+	}
+	if ok {
+		response.SecurityModel = SnmpV3SecurityModel(secModel) //nolint:gosec
 	}
 
-	if SecModel, ok := rawSecModel.(int); ok {
-		response.SecurityModel = SnmpV3SecurityModel(SecModel) //nolint:gosec
-	}
-
-	if PDUType(packet[cursor]) != PDUType(OctetString) {
+	if PDUType(tag) != PDUType(OctetString) {
 		return 0, errors.New("invalid SNMPV3 Security Parameters")
 	}
-	_, cursorTmp, err = ber.Length(packet[cursor:])
-	if err != nil {
-		return 0, err
-	}
-	cursor += cursorTmp
-	if cursor > len(packet) {
-		return 0, errors.New("error parsing SNMPV3 message ID: truncted packet")
+	if _, err := r.SkipHeader(); err != nil {
+		return 0, fmt.Errorf("error parsing SNMPV3 security parameters: %w", err)
 	}
 	if response.SecurityParameters == nil {
 		response.SecurityParameters = &UsmSecurityParameters{Logger: x.Logger}
 	}
-
-	cursor, err = response.SecurityParameters.unmarshal(response.MsgFlags, packet, cursor)
-	if err != nil {
+	if err := response.SecurityParameters.unmarshal(response.MsgFlags, &r); err != nil {
 		return 0, err
 	}
 
-	return cursor, nil
+	return len(packet) - r.Len(), nil
 }
 
-func (x *GoSNMP) decryptPacket(packet []byte, cursor int, response *SnmpPacket) ([]byte, int, error) {
-	var err error
-	decrypted := false
-
+// unmarshalScopedPDU reads the scoped PDU at packet[cursor:], decrypting it in
+// place first when it is encrypted, and returns the packet and the offset of
+// the PDU. A decrypted scoped PDU must fit its declared length, which cuts off
+// the padding; a plaintext one is read like the SNMPv3 header, without
+// enforcing its declared length.
+func unmarshalScopedPDU(packet []byte, cursor int, response *SnmpPacket) ([]byte, int, error) {
 	if cursor >= len(packet) {
 		return nil, 0, errors.New("error parsing SNMPV3: truncated packet")
 	}
 
+	var r ber.Reader
 	switch PDUType(packet[cursor]) {
 	case PDUType(OctetString):
-		// pdu is encrypted
+		var err error
 		packet, err = response.SecurityParameters.decryptPacket(packet, cursor)
 		if err != nil {
 			return nil, 0, err
 		}
-		decrypted = true
-		fallthrough
+		pr := ber.NewReader(packet[cursor:])
+		_, content, err := pr.Next()
+		if err != nil {
+			return nil, 0, fmt.Errorf("error parsing SNMPV3 decrypted scoped PDU: %w", err)
+		}
+		packet = packet[:len(packet)-pr.Len()]
+		r = ber.NewReader(content)
 	case Sequence:
-		// pdu is plaintext or has been decrypted
-		tlength, cursorTmp, err := ber.Length(packet[cursor:])
-		if err != nil {
-			return nil, 0, err
+		r = ber.NewReader(packet[cursor:])
+		if _, err := r.SkipHeader(); err != nil {
+			return nil, 0, fmt.Errorf("error parsing SNMPV3 scoped PDU: %w", err)
 		}
-		if decrypted {
-			// truncate padding that might have been included with
-			// the encrypted PDU
-			if cursor+tlength < 0 || cursor+tlength > len(packet) {
-				return nil, 0, errors.New("error parsing SNMPV3: truncated packet")
-			}
-			packet = packet[:cursor+tlength]
-		}
-		cursor += cursorTmp
-		if cursor > len(packet) {
-			return nil, 0, errors.New("error parsing SNMPV3: truncated packet")
-		}
-
-		rawContextEngineID, count, err := parseRawField(packet[cursor:])
-		if err != nil {
-			return nil, 0, fmt.Errorf("error parsing SNMPV3 contextEngineID: %w", err)
-		}
-		cursor += count
-		if cursor < 0 || cursor > len(packet) {
-			return nil, 0, errors.New("error parsing SNMPV3: truncated packet")
-		}
-
-		if contextEngineID, ok := rawContextEngineID.(string); ok {
-			response.ContextEngineID = contextEngineID
-		}
-		rawContextName, count, err := parseRawField(packet[cursor:])
-		if err != nil {
-			return nil, 0, fmt.Errorf("error parsing SNMPV3 contextName: %w", err)
-		}
-		cursor += count
-		if cursor < 0 || cursor > len(packet) {
-			return nil, 0, errors.New("error parsing SNMPV3: truncated packet")
-		}
-
-		if contextName, ok := rawContextName.(string); ok {
-			response.ContextName = contextName
-		}
-
 	default:
 		return nil, 0, errors.New("error parsing SNMPV3 scoped PDU")
 	}
-	return packet, cursor, nil
+
+	contextEngineID, ok, err := readString(&r)
+	if err != nil {
+		return nil, 0, fmt.Errorf("error parsing SNMPV3 contextEngineID: %w", err)
+	}
+	if ok {
+		response.ContextEngineID = contextEngineID
+	}
+
+	contextName, ok, err := readString(&r)
+	if err != nil {
+		return nil, 0, fmt.Errorf("error parsing SNMPV3 contextName: %w", err)
+	}
+	if ok {
+		response.ContextName = contextName
+	}
+
+	return packet, len(packet) - r.Len(), nil
 }

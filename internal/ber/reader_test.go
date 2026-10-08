@@ -91,3 +91,62 @@ func TestReaderPeek(t *testing.T) {
 		t.Fatalf("Peek consumed input: Len = %d", r.Len())
 	}
 }
+
+func TestReaderSkipHeader(t *testing.T) {
+	tests := map[string]struct {
+		in      []byte
+		wantTag byte
+		wantErr error
+		rest    []byte
+	}{
+		"empty input": {
+			wantErr: ErrEmpty,
+		},
+		"short form": {
+			in:      []byte{0x30, 0x03, 0x02, 0x01, 0x05},
+			wantTag: 0x30,
+			rest:    []byte{0x02, 0x01, 0x05},
+		},
+		"long form": {
+			in:      []byte{0x04, 0x81, 0x03, 0x02, 0x01, 0x05},
+			wantTag: 0x04,
+			rest:    []byte{0x02, 0x01, 0x05},
+		},
+		"declared length beyond the input is not checked": {
+			in:      []byte{0x30, 0x7f, 0x02, 0x01, 0x05},
+			wantTag: 0x30,
+			rest:    []byte{0x02, 0x01, 0x05},
+		},
+		"declared length shorter than the content does not bound": {
+			in:      []byte{0x30, 0x01, 0x02, 0x01, 0x05},
+			wantTag: 0x30,
+			rest:    []byte{0x02, 0x01, 0x05},
+		},
+		"lone tag octet": {
+			in:      []byte{0x30},
+			wantTag: 0x30,
+			rest:    []byte{},
+		},
+		"truncated long form length": {
+			in:      []byte{0x30, 0x82, 0x01},
+			wantErr: ErrInvalidPacketLength,
+			rest:    []byte{0x30, 0x82, 0x01},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			r := NewReader(tc.in)
+			tag, err := r.SkipHeader()
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("err = %v, want %v", err, tc.wantErr)
+			}
+			if tag != tc.wantTag {
+				t.Fatalf("tag = %#x, want %#x", tag, tc.wantTag)
+			}
+			if !bytes.Equal(r.Rest(), tc.rest) {
+				t.Fatalf("rest = %x, want %x", r.Rest(), tc.rest)
+			}
+		})
+	}
+}

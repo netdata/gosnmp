@@ -353,9 +353,9 @@ func TestIPAddressDecodeValue(t *testing.T) {
 	}
 }
 
-// TestIPAddressParseRawField tests IPAddress parsing via parseRawField.
-// Note: parseRawField only supports IPv4, not IPv6 (returns error for length != 4).
-func TestIPAddressParseRawField(t *testing.T) {
+// TestIPAddressReadField tests IPAddress parsing via readField.
+// Note: readField only supports IPv4, not IPv6 (returns error for length != 4).
+func TestIPAddressReadField(t *testing.T) {
 	tests := []struct {
 		name       string
 		data       []byte
@@ -391,9 +391,9 @@ func TestIPAddressParseRawField(t *testing.T) {
 			wantNull:   true,
 			wantLength: 2,
 		},
-		// Error cases - parseRawField only supports IPv4
+		// Error cases - readField only supports IPv4
 		{
-			name:    "IPv6 rejected by parseRawField",
+			name:    "IPv6 rejected by readField",
 			data:    []byte{0x40, 0x10, 0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
 			wantErr: true,
 		},
@@ -411,29 +411,30 @@ func TestIPAddressParseRawField(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			val, length, err := parseRawField(tt.data)
+			r := ber.NewReader(tt.data)
+			f, err := readField(&r)
 
 			if tt.wantErr {
 				if err == nil {
-					t.Errorf("parseRawField() expected error, got nil")
+					t.Errorf("readField() expected error, got nil")
 				}
 				return
 			}
 			if err != nil {
-				t.Errorf("parseRawField() unexpected error: %v", err)
+				t.Errorf("readField() unexpected error: %v", err)
 				return
 			}
-			if length != tt.wantLength {
-				t.Errorf("parseRawField() length = %v, want %v", length, tt.wantLength)
+			if length := len(tt.data) - r.Len(); length != tt.wantLength {
+				t.Errorf("readField() length = %v, want %v", length, tt.wantLength)
 			}
 			if tt.wantNull {
-				if val != nil {
-					t.Errorf("parseRawField() = %v, want nil", val)
+				if f.kind != fieldNone {
+					t.Errorf("readField() = %+v, want an empty IpAddress", f)
 				}
 				return
 			}
-			if val != tt.wantIP {
-				t.Errorf("parseRawField() = %v, want %v", val, tt.wantIP)
+			if f.kind != fieldString || f.s != tt.wantIP {
+				t.Errorf("readField() = %+v, want %v", f, tt.wantIP)
 			}
 		})
 	}

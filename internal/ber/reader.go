@@ -59,3 +59,21 @@ func (r *Reader) Next() (tag byte, content []byte, err error) {
 	r.b = r.b[length:]
 	return tag, content, nil
 }
+
+// SkipHeader reads the tag and length octets of the next TLV and leaves the
+// reader at its content. Unlike Next, it neither checks the declared length
+// against the input nor bounds later reads to it: the SNMPv3 decoders read
+// the fields of msgGlobalData and the USM parameters this way, so packets with
+// wrong lengths in those headers decode as long as the fields follow.
+func (r *Reader) SkipHeader() (tag byte, err error) {
+	if len(r.b) == 0 {
+		return 0, ErrEmpty
+	}
+	_, header, err := Length(r.b)
+	if err != nil {
+		return 0, err
+	}
+	tag = r.b[0]
+	r.b = r.b[header:]
+	return tag, nil
+}

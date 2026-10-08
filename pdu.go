@@ -103,28 +103,6 @@ func readUint(r *ber.Reader) (v uint, ok bool, err error) {
 	return f.u, f.kind == fieldUint, err
 }
 
-// parseRawField reads the field at the start of data for the SNMPv3 header
-// and USM decoders. It returns the field as the Go type it decoded to (nil
-// for an empty IpAddress) and the length of its encoding.
-func parseRawField(data []byte) (any, int, error) {
-	r := ber.NewReader(data)
-	f, err := readField(&r)
-	if err != nil {
-		return nil, 0, err
-	}
-	n := len(data) - r.Len()
-	switch f.kind {
-	case fieldInt:
-		return f.i, n, nil
-	case fieldString:
-		return f.s, n, nil
-	case fieldUint:
-		return f.u, n, nil
-	default:
-		return nil, n, nil
-	}
-}
-
 // readWhole reads the TLV that b must consist of and returns its content.
 func readWhole(b []byte) ([]byte, error) {
 	r := ber.NewReader(b)

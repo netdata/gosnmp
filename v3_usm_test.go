@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/netdata/gosnmp/internal/ber"
 )
 
 /**
@@ -271,13 +273,6 @@ func TestIsAuthenticSHA512(t *testing.T) {
 
 // TestUnmarshalTruncatedUSMSequence verifies that unmarshal returns an error
 // rather than panicking when the USM SEQUENCE body is truncated.
-//
-// The bounds check at v3_usm.go:991 originally compared cursorTmp (the BER
-// length-header size, a small relative increment) against len(packet) rather
-// than cursor (the updated absolute position). Because ber.Length guarantees
-// cursorTmp <= len(packet[cursor:]), cursor after incrementing is at most
-// len(packet) and the check never fires either way. The fix uses the correct
-// variable so the check reflects its intended purpose.
 func TestUnmarshalTruncatedUSMSequence(t *testing.T) {
 	sp := &UsmSecurityParameters{
 		Logger: NewLogger(log.New(io.Discard, "", 0)),
@@ -295,11 +290,8 @@ func TestUnmarshalTruncatedUSMSequence(t *testing.T) {
 		},
 		{
 			name: "long-form length one extra byte truncated body",
-			// 0x81 signals long-form with 1 extra length byte; body is absent.
-			// cursorTmp = 3 (2 + 1); cursor advances to 3 == len(packet).
-			// Old check: cursorTmp(3) > len(packet)(3) → false (check is dead).
-			// New check: cursor(3)    > len(packet)(3) → false (boundary, not past end).
-			// Either way execution reaches parseRawField with an empty slice → error.
+			// 0x81 signals long-form with 1 extra length byte; the body is
+			// absent, so the first field read finds no bytes left.
 			packet: []byte{0x30, 0x81, 0x05},
 			cursor: 0,
 		},
@@ -313,8 +305,8 @@ func TestUnmarshalTruncatedUSMSequence(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			require.NotPanics(t, func() {
-				_, err := sp.unmarshal(NoAuthNoPriv, tt.packet, tt.cursor)
-				require.Error(t, err)
+				r := ber.NewReader(tt.packet[tt.cursor:])
+				require.Error(t, sp.unmarshal(NoAuthNoPriv, &r))
 			})
 		})
 	}

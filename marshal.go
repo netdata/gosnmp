@@ -314,7 +314,7 @@ sendRetry:
 					x.Logger.Printf("ERROR on Test Authentication on v3: %s", err)
 					break
 				}
-				resp, cursor, err = x.decryptPacket(resp, cursor, result)
+				resp, cursor, err = unmarshalScopedPDU(resp, cursor, result)
 				if err != nil {
 					x.Logger.Printf("ERROR on decryptPacket on v3: %s", err)
 					break

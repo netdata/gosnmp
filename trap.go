@@ -81,7 +81,7 @@ func (x *GoSNMP) unmarshalTrapBase(trap []byte, sp SnmpV3SecurityParameters, use
 			}
 		}
 
-		trap, cursor, err = x.decryptPacket(trap, cursor, result)
+		trap, cursor, err = unmarshalScopedPDU(trap, cursor, result)
 		if err != nil {
 			x.Logger.Printf("UnmarshalTrap v3 decrypt: %s\n", err)
 			return nil, err

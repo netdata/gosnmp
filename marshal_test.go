@@ -936,7 +936,7 @@ func panicUnmarshalParseFloat64() []byte {
 
 /*
 panicUnmarshalParseRawFieldTimeTicks() tests a boundary condition that results in a panic
-in parseRawField TimeTicks type when ber.Length overflows the length value returning a value
+in the TimeTicks field decoder when the length parser overflows the length value returning a value
 for cursor that is higher than length.
 */
 func panicUnmarshalParseRawFieldTimeTicks() []byte {
@@ -2006,21 +2006,20 @@ func TestMarshalVarbindRoundTrip(t *testing.T) {
 			}
 
 			// Parse OID
-			rawOid, oidLength, err := parseRawField(result[cursor:])
+			r := ber.NewReader(result[cursor:])
+			parsedOID, ok, err := readString(&r)
 			if err != nil {
-				t.Fatalf("parseRawField(OID) error = %v", err)
+				t.Fatalf("readString(OID) error = %v", err)
 			}
-
-			parsedOID, ok := rawOid.(string)
 			if !ok {
-				t.Fatalf("OID type assertion failed, got %T", rawOid)
+				t.Fatal("OID did not decode to text")
 			}
 			if parsedOID != tt.pdu.Name {
 				t.Errorf("OID mismatch: got %q, want %q", parsedOID, tt.pdu.Name)
 			}
 
 			// Parse value
-			cursor += oidLength
+			cursor = len(result) - r.Len()
 			var decodedVal variable
 			if err = decodeValue(result[cursor:], &decodedVal); err != nil {
 				t.Fatalf("decodeValue() error = %v", err)

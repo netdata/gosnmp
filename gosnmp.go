@@ -569,7 +569,7 @@ func (x *GoSNMP) SnmpDecodePacket(resp []byte) (*SnmpPacket, error) {
 	}
 
 	if result.Version == Version3 {
-		resp, cursor, err = x.decryptPacket(resp, cursor, result)
+		resp, cursor, err = unmarshalScopedPDU(resp, cursor, result)
 		if err != nil {
 			return result, err
 		}
