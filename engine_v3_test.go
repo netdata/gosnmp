@@ -245,6 +245,64 @@ func v3Scenarios() map[string]v3Scenario {
 			},
 			knownBug: "a notInTimeWindow Report answering the resynchronized retransmission is returned with a nil error",
 		},
+		// send's resynchronization after a notInTimeWindow Report.
+		"resync/panic-in-retransmission": {
+			user:   "codec-md5",
+			script: onRequest(2, agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "not in time window"}),
+			run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+				preSend, calls := x.PreSend, 0
+				x.PreSend = func(x *GoSNMP) {
+					preSend(x)
+					if calls++; calls == 3 {
+						a.tr.addf("hook PreSend panics in the retransmission")
+						panic("hook failure")
+					}
+				}
+				return x.Get([]string{engineOID})
+			},
+			knownBug: "send recovers a panic into an error, with the result the request had when it panicked",
+		},
+		"resync/security-model-changed-by-hook": {
+			user:   "codec-md5",
+			script: onRequest(2, agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "not in time window"}),
+			run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+				onFinish, calls := x.OnFinish, 0
+				x.OnFinish = func(x *GoSNMP) {
+					onFinish(x)
+					if calls++; calls == 2 {
+						x.SecurityModel = 2
+						a.tr.addf("hook OnFinish sets the client's security model to 2")
+					}
+				}
+				return x.Get([]string{engineOID})
+			},
+		},
+		"resync/retransmission-answered-by-report": {
+			user: "codec-noauth", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				switch n {
+				case 2:
+					return agentAnswer{report: usmStatsNotInTimeWindows, why: "not in time window"}, true
+				case 3:
+					return agentAnswer{report: usmStatsUnknownUserNames, why: "unknown user"}, true
+				}
+				return agentAnswer{}, false
+			},
+			knownBug: "the retransmission's error is replaced by ErrNotInTimeWindow",
+		},
+		"resync/retransmission-answer-time": {
+			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				switch n {
+				case 2:
+					return agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "not in time window"}, true
+				case 3:
+					return agentAnswer{level: AuthNoPriv, why: "a later engine time", edit: func(p *SnmpPacket) {
+						p.SecurityParameters.usm().AuthoritativeEngineTime += 7
+					}}, true
+				}
+				return agentAnswer{}, false
+			},
+			knownBug: "the engine boots and time of the answer to the retransmission are not stored",
+		},
 		"engine-change": {
 			user: "codec-md5", run: getTwice(func(a *fakeV3Agent) { a.setEngineID(agentOtherEngineID) }),
 			knownBug: "the unauthenticated unknownEngineID Report fails the digest check and is discarded, so the client never adopts the engine ID",
