@@ -10,9 +10,7 @@ package gosnmp
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
-	"math"
 	"math/big"
 	"net"
 	"strconv"
@@ -138,7 +136,7 @@ type GoSNMP struct {
 	AppOpts map[string]any
 
 	// Internal - used to sync requests to responses.
-	requestID uint32
+	requestID atomic.Uint32
 	random    uint32
 
 	rxBuf *[rxBufSize]byte // has to be pointer due to https://github.com/golang/go/issues/11728
@@ -163,7 +161,7 @@ type GoSNMP struct {
 	ContextName string
 
 	// Internal - used to sync requests to responses - snmpv3.
-	msgID uint32
+	msgID atomic.Uint32
 
 	// Internal - we use to send packets if using unconnected socket.
 	uaddr *net.UDPAddr
@@ -322,19 +320,9 @@ func (x *GoSNMP) connect(networkSuffix string) error {
 		return fmt.Errorf("error establishing connection to host: %w", err)
 	}
 
-	if x.random == 0 {
-		n, err := rand.Int(rand.Reader, big.NewInt(math.MaxInt32)) // returns a uniform random value in [0, 2147483647].
-		if err != nil {
-			return fmt.Errorf("error occurred while generating random: %w", err)
-		}
-		x.random = uint32(n.Uint64()) //nolint:gosec
+	if err = x.seedIDs(); err != nil {
+		return err
 	}
-	// http://tools.ietf.org/html/rfc3412#section-6 - msgID only uses the first 31 bits
-	// msgID INTEGER (0..2147483647)
-	x.msgID = x.random
-
-	// RequestID is Integer32 from SNMPV2-SMI and uses all 32 bits
-	x.requestID = x.random
 
 	x.rxBuf = new([rxBufSize]byte)
 
@@ -407,106 +395,6 @@ func (x *GoSNMP) validateParameters() error {
 	return nil
 }
 
-func (x *GoSNMP) MkSnmpPacket(pdutype PDUType, pdus []SnmpPDU, nonRepeaters uint8, maxRepetitions uint32) *SnmpPacket {
-	return x.mkSnmpPacket(pdutype, pdus, nonRepeaters, maxRepetitions)
-}
-
-func (x *GoSNMP) mkSnmpPacket(pdutype PDUType, pdus []SnmpPDU, nonRepeaters uint8, maxRepetitions uint32) *SnmpPacket {
-	var newSecParams SnmpV3SecurityParameters
-	if x.SecurityParameters != nil {
-		newSecParams = x.SecurityParameters.Copy()
-	}
-	return &SnmpPacket{
-		Version:            x.Version,
-		Community:          x.Community,
-		MsgFlags:           x.MsgFlags,
-		SecurityModel:      x.SecurityModel,
-		SecurityParameters: newSecParams,
-		ContextEngineID:    x.ContextEngineID,
-		ContextName:        x.ContextName,
-		Error:              0,
-		ErrorIndex:         0,
-		PDUType:            pdutype,
-		NonRepeaters:       nonRepeaters,
-		MaxRepetitions:     (maxRepetitions & 0x7FFFFFFF),
-		Variables:          pdus,
-	}
-}
-
-// Get sends an SNMP GET request
-func (x *GoSNMP) Get(oids []string) (result *SnmpPacket, err error) {
-	oidCount := len(oids)
-	if oidCount > x.MaxOids {
-		return nil, fmt.Errorf("oid count (%d) is greater than MaxOids (%d)",
-			oidCount, x.MaxOids)
-	}
-	// convert oids slice to pdu slice
-	pdus := make([]SnmpPDU, 0, oidCount)
-	for _, oid := range oids {
-		pdus = append(pdus, SnmpPDU{Name: oid, Type: Null, Value: nil})
-	}
-	// build up SnmpPacket
-	packetOut := x.mkSnmpPacket(GetRequest, pdus, 0, 0)
-	return x.send(packetOut)
-}
-
-// Set sends an SNMP SET request
-func (x *GoSNMP) Set(pdus []SnmpPDU) (result *SnmpPacket, err error) {
-	var packetOut *SnmpPacket
-	switch pdus[0].Type {
-	// TODO test Gauge32
-	case Integer, OctetString, Gauge32, IPAddress, ObjectIdentifier, Counter32, Counter64, Null, TimeTicks, Uinteger32, OpaqueFloat, OpaqueDouble:
-		packetOut = x.mkSnmpPacket(SetRequest, pdus, 0, 0)
-	default:
-		return nil, fmt.Errorf("ERR:gosnmp currently only supports SNMP SETs for Integer, OctetString, Gauge32, IPAddress, ObjectIdentifier, Counter32, Counter64, Null, TimeTicks, Uinteger32, OpaqueFloat, and OpaqueDouble. Not %s", pdus[0].Type)
-	}
-	return x.send(packetOut)
-}
-
-// GetNext sends an SNMP GETNEXT request
-func (x *GoSNMP) GetNext(oids []string) (result *SnmpPacket, err error) {
-	oidCount := len(oids)
-	if oidCount > x.MaxOids {
-		return nil, fmt.Errorf("oid count (%d) is greater than MaxOids (%d)",
-			oidCount, x.MaxOids)
-	}
-
-	// convert oids slice to pdu slice
-	pdus := make([]SnmpPDU, 0, oidCount)
-	for _, oid := range oids {
-		pdus = append(pdus, SnmpPDU{Name: oid, Type: Null, Value: nil})
-	}
-
-	// Marshal and send the packet
-	packetOut := x.mkSnmpPacket(GetNextRequest, pdus, 0, 0)
-
-	return x.send(packetOut)
-}
-
-// GetBulk sends an SNMP GETBULK request
-//
-// For maxRepetitions greater than 255, use BulkWalk() or BulkWalkAll()
-func (x *GoSNMP) GetBulk(oids []string, nonRepeaters uint8, maxRepetitions uint32) (result *SnmpPacket, err error) {
-	if x.Version == Version1 {
-		return nil, fmt.Errorf("GETBULK not supported in SNMPv1")
-	}
-	oidCount := len(oids)
-	if oidCount > x.MaxOids {
-		return nil, fmt.Errorf("oid count (%d) is greater than MaxOids (%d)",
-			oidCount, x.MaxOids)
-	}
-
-	// convert oids slice to pdu slice
-	pdus := make([]SnmpPDU, 0, oidCount)
-	for _, oid := range oids {
-		pdus = append(pdus, SnmpPDU{Name: oid, Type: Null, Value: nil})
-	}
-
-	// Marshal and send the packet
-	packetOut := x.mkSnmpPacket(GetBulkRequest, pdus, nonRepeaters, maxRepetitions)
-	return x.send(packetOut)
-}
-
 // SnmpEncodePacket exposes SNMP packet generation to external callers.
 // This is useful for generating traffic for use over separate transport
 // stacks and creating traffic samples for test purposes.
@@ -518,15 +406,10 @@ func (x *GoSNMP) SnmpEncodePacket(pdutype PDUType, pdus []SnmpPDU, nonRepeaters 
 
 	pkt := x.mkSnmpPacket(pdutype, pdus, nonRepeaters, maxRepetitions)
 
-	// Request ID is an atomic counter that wraps to 0 at max int32.
-	reqID := (atomic.AddUint32(&x.requestID, 1) & 0x7FFFFFFF)
-
-	pkt.RequestID = reqID
+	pkt.RequestID = x.nextRequestID()
 
 	if x.Version == Version3 {
-		msgID := (atomic.AddUint32(&x.msgID, 1) & 0x7FFFFFFF)
-
-		pkt.MsgID = msgID
+		pkt.MsgID = x.nextMsgID()
 
 		err = x.initPacket(pkt)
 		if err != nil {
@@ -582,16 +465,6 @@ func (x *GoSNMP) SnmpDecodePacket(resp []byte) (*SnmpPacket, error) {
 	}
 
 	return result, nil
-}
-
-// SetRequestID sets the base ID value for future requests
-func (x *GoSNMP) SetRequestID(reqID uint32) {
-	x.requestID = reqID & 0x7fffffff
-}
-
-// SetMsgID sets the base ID value for future messages
-func (x *GoSNMP) SetMsgID(msgID uint32) {
-	x.msgID = msgID & 0x7fffffff
 }
 
 //

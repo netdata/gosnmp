@@ -250,7 +250,8 @@ func newEngineClientFrom(tb testing.TB, tr *engineTranscript, conn net.Conn, x *
 	}
 	x.Conn = conn
 	x.rxBuf = new([rxBufSize]byte)
-	x.requestID, x.msgID = 1000, 2000
+	x.requestID.Store(1000)
+	x.msgID.Store(2000)
 	if tr != nil {
 		x.PreSend = func(*GoSNMP) { tr.addf("hook PreSend") }
 		x.OnSent = func(*GoSNMP) { tr.addf("hook OnSent") }
