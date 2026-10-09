@@ -394,6 +394,19 @@ func v3Scenarios() map[string]v3Scenario {
 		"answer/other-version/sha-aes": {
 			user: "codec-sha-aes", script: onRequest(2, agentAnswer{level: AuthPriv, why: "SNMPv2c GetResponse", edit: asV2c}),
 		},
+		"hooks/privacy-protocol-changed-on-retry": {
+			user: "codec-sha-aes", script: onRequest(2, agentAnswer{drop: true, why: "no answer"}),
+			setup: func(x *GoSNMP, _ *UsmSecurityParameters) { x.Retries = 1 },
+			run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+				onRetry := x.OnRetry
+				x.OnRetry = func(x *GoSNMP) {
+					onRetry(x)
+					x.SecurityParameters.usm().PrivacyProtocol = DES
+					a.tr.addf("hook OnRetry sets the client's privacy protocol to DES")
+				}
+				return x.Get([]string{engineOID})
+			},
+		},
 		"answer/other-security-model": {
 			user: "codec-noauth", script: onRequest(2, agentAnswer{
 				why: "GetResponse with security model 2", edit: func(p *SnmpPacket) { p.SecurityModel = 2 },
