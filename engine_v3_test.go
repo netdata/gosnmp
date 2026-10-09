@@ -6,6 +6,7 @@ package gosnmp
 
 import (
 	"bytes"
+	"crypto/fips140"
 	"fmt"
 	"maps"
 	"slices"
@@ -23,6 +24,7 @@ var agentCreds = map[string]agentUser{
 	"codec-md5":            {auth: MD5, authPass: "codec-md5-pass", priv: NoPriv},
 	"codec-sha-aes":        {auth: SHA, authPass: "codec-sha-pass", priv: AES, privPass: "codec-aes-pass"},
 	"codec-sha256-des":     {auth: SHA256, authPass: "codec-sha256-pass", priv: DES, privPass: "codec-des-pass"},
+	"codec-sha256-aes":     {auth: SHA256, authPass: "codec-sha256-pass", priv: AES, privPass: "codec-aes-pass"},
 	"codec-sha512-aes256c": {auth: SHA512, authPass: "codec-sha512-pass", priv: AES256C, privPass: "codec-aes256c-pass"},
 }
 
@@ -478,12 +480,17 @@ func TestEngineV3Characterization(t *testing.T) {
 }
 
 // runV3Scenario runs sc in the calling synctest bubble and returns its
-// transcript.
+// transcript. The agent and the key oracle run without FIPS 140-only
+// enforcement: they stand for the other side, not the client.
 func runV3Scenario(t *testing.T, sc v3Scenario) string {
 	tr := newEngineTranscript()
-	agent := newFakeV3Agent(tr, agentCreds, sysDescr)
+	var agent *fakeV3Agent
+	fips140.WithoutEnforcement(func() { agent = newFakeV3Agent(tr, agentCreds, sysDescr) })
 	agent.script = sc.script
-	c := newFakeTransport(tr, agent.handle)
+	c := newFakeTransport(tr, func(n int, data []byte) (replies []agentReply) {
+		fips140.WithoutEnforcement(func() { replies = agent.handle(n, data) })
+		return replies
+	})
 
 	creds, ok := agentCreds[sc.user]
 	if sc.creds != nil {
@@ -555,7 +562,9 @@ func describeKeys(sp *UsmSecurityParameters) string {
 			PrivacyPassphrase:        sp.PrivacyPassphrase,
 			AuthoritativeEngineID:    id,
 		}
-		if want.InitSecurityKeys() != nil || !bytes.Equal(want.SecretKey, sp.SecretKey) ||
+		var err error
+		fips140.WithoutEnforcement(func() { err = want.InitSecurityKeys() })
+		if err != nil || !bytes.Equal(want.SecretKey, sp.SecretKey) ||
 			!bytes.Equal(want.PrivacyKey, sp.PrivacyKey) {
 			continue
 		}
