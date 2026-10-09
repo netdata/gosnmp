@@ -6,6 +6,7 @@ package gosnmp
 
 import (
 	"bytes"
+	"crypto/fips140"
 	"encoding/hex"
 	"io"
 	"log"
@@ -501,6 +502,54 @@ func TestUSMReceiverAuthenticationWithoutProtocol(t *testing.T) {
 			var err error
 			require.NotPanics(t, func() { _, err = x.UnmarshalTrap(bytes.Clone(data), false) })
 			assert.EqualError(t, err, tc.wantErr)
+		})
+	}
+}
+
+// TestUSMFIPS140OnlyDigest checks, when run with GODEBUG=fips140=only, that
+// HMAC-MD5-96 and HMAC-SHA-96 fail with the hash's error instead of
+// panicking, when encoding and when decoding a message made with enforcement
+// off.
+func TestUSMFIPS140OnlyDigest(t *testing.T) {
+	if !fips140.Enforced() {
+		t.Skip("run with GODEBUG=fips140=only")
+	}
+	for _, auth := range []SnmpV3AuthProtocol{MD5, SHA} {
+		t.Run(auth.String(), func(t *testing.T) {
+			sp := &UsmSecurityParameters{
+				UserName:                 "codec-user",
+				AuthoritativeEngineID:    usmCharEngineID,
+				AuthenticationProtocol:   auth,
+				AuthenticationPassphrase: "codec-auth-pass",
+			}
+			trap := func() *SnmpPacket {
+				return &SnmpPacket{
+					Version:            Version3,
+					MsgFlags:           AuthNoPriv,
+					SecurityModel:      UserSecurityModel,
+					SecurityParameters: sp.Copy(),
+					PDUType:            SNMPv2Trap,
+					Variables:          usmCharVarbinds,
+				}
+			}
+			var data []byte
+			fips140.WithoutEnforcement(func() {
+				require.NoError(t, sp.InitSecurityKeys())
+				var err error
+				data, err = trap().MarshalMsg()
+				require.NoError(t, err)
+			})
+
+			var err error
+			panicked, wroteStdout := observe(func() { _, err = trap().MarshalMsg() })
+			assert.False(t, panicked, "encode panicked")
+			assert.False(t, wroteStdout, "encode wrote to stdout")
+			assert.ErrorContains(t, err, "not allowed in FIPS 140-only mode")
+
+			// The receiver has the keys, so decoding derives none.
+			x := &GoSNMP{Version: Version3, MsgFlags: AuthNoPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy()}
+			require.NotPanics(t, func() { _, err = x.UnmarshalTrap(bytes.Clone(data), false) })
+			assert.ErrorContains(t, err, "not allowed in FIPS 140-only mode")
 		})
 	}
 }

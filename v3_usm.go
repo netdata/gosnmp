@@ -91,16 +91,54 @@ func (authProtocol SnmpV3AuthProtocol) spec() authSpec {
 	return authSpec{}
 }
 
-// digest returns the HMAC of msg keyed with key, cut to the MAC length (RFC
-// 3414 sections 6.3.1 and 7.3.1, RFC 7860 section 4.2.1). For MD5 and SHA-1, a
-// key longer than the 64-octet block is cut to the block instead of hashed.
-func (s authSpec) digest(key, msg []byte) []byte {
-	if (s.hash == crypto.MD5 || s.hash == crypto.SHA1) && len(key) > 64 {
-		key = key[:64]
+// digest returns the HMAC of msg keyed with key, cut to the MAC length:
+// HMAC-MD5-96 and HMAC-SHA-96 as RFC 3414 sections 6.3.1 and 7.3.1 spell them
+// out, the SHA-2 protocols with crypto/hmac (RFC 7860 section 4.2.1).
+func (s authSpec) digest(key, msg []byte) ([]byte, error) {
+	var mac []byte
+	switch s.hash {
+	case crypto.MD5, crypto.SHA1:
+		var err error
+		if mac, err = hmacRFC3414(s.hash, key, msg); err != nil {
+			return nil, err
+		}
+	default:
+		h := hmac.New(s.hash.New, key)
+		_, _ = h.Write(msg)
+		mac = h.Sum(nil)
 	}
-	mac := hmac.New(s.hash.New, key)
-	_, _ = mac.Write(msg)
-	return mac.Sum(nil)[:s.macLen]
+	return mac[:s.macLen], nil
+}
+
+// hmacRFC3414 computes the HMAC of RFC 3414 sections 6.3.1 and 7.3.1: the key
+// zero-padded to the 64-octet block (a longer key is cut, not hashed as RFC
+// 2104 does), XORed with ipad and opad around two hash passes. Unlike
+// crypto/hmac, which panics, it returns the error a hash reports, as MD5 and
+// SHA-1 do in FIPS 140-only mode.
+func hmacRFC3414(hash crypto.Hash, key, msg []byte) ([]byte, error) {
+	var ipad, opad [64]byte
+	copy(ipad[:], key)
+	copy(opad[:], key)
+	for i := range ipad {
+		ipad[i] ^= 0x36
+		opad[i] ^= 0x5c
+	}
+
+	inner := hash.New()
+	if _, err := inner.Write(ipad[:]); err != nil {
+		return nil, err
+	}
+	if _, err := inner.Write(msg); err != nil {
+		return nil, err
+	}
+	outer := hash.New()
+	if _, err := outer.Write(opad[:]); err != nil {
+		return nil, err
+	}
+	if _, err := outer.Write(inner.Sum(nil)); err != nil {
+		return nil, err
+	}
+	return outer.Sum(nil), nil
 }
 
 // appendMACPlaceholder appends msgAuthenticationParameters as an outgoing
@@ -679,7 +717,10 @@ func (sp *UsmSecurityParameters) discoveryRequired() *SnmpPacket {
 // msgAuthenticationParameters placeholder found in it.
 func (sp *UsmSecurityParameters) authenticate(packet []byte) error {
 	spec := sp.AuthenticationProtocol.spec()
-	msgDigest := spec.digest(sp.SecretKey, packet)
+	msgDigest, err := spec.digest(sp.SecretKey, packet)
+	if err != nil {
+		return err
+	}
 
 	var buf [2 + maxMACLen]byte
 	placeholder := appendMACPlaceholder(buf[:0], spec.macLen)
@@ -706,7 +747,10 @@ func (sp *UsmSecurityParameters) isAuthentic(packetBytes []byte, packet *SnmpPac
 		return false, errAuthProtocolRequired
 	}
 
-	msgDigest := packetSecParams.AuthenticationProtocol.spec().digest(packetSecParams.SecretKey, packetBytes)
+	msgDigest, err := packetSecParams.AuthenticationProtocol.spec().digest(packetSecParams.SecretKey, packetBytes)
+	if err != nil {
+		return false, err
+	}
 
 	// Check the message signature against the computed digest
 	signature := []byte(packetSecParams.AuthenticationParameters)

@@ -147,6 +147,11 @@ jobs:
       - name: netsnmp tests (playback)
         working-directory: netsnmp
         run: go test -v ./...
+      - name: Unit tests (FIPS 140-only)
+        if: matrix.name == 'linux/amd64'
+        env:
+          GODEBUG: fips140=only
+        run: go test -v -run FIPS140Only .
 
   e2e:
     name: End-to-end (net-snmp agent, ${{ matrix.goarch }})
