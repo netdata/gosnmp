@@ -14,9 +14,8 @@ import (
 
 //go:generate go tool -modfile=tools/go.mod mockgen -source=interface.go -destination=mocks/gosnmp_mock.go -package=mocks
 
-// Handler is a GoSNMP interface
-//
-// Handler is provided to assist with testing using mocks
+// Handler is the interface of a GoSNMP, provided for mocks in tests. Like a
+// GoSNMP, a Handler is not safe for concurrent use.
 type Handler interface {
 	// Connect creates and opens a socket. Because UDP is a connectionless
 	// protocol, you won't know if the remote host is responding until you send
@@ -308,6 +307,8 @@ func (x *snmpHandler) SetContextName(contextName string) {
 }
 
 func (x *snmpHandler) Close() error {
-	// not x.Conn for consistency
+	// Known bug: it closes Conn itself instead of calling GoSNMP.Close, so a
+	// nil Conn panics, Conn is not cleared (a second call returns the
+	// connection's error), and the lock GoSNMP.Close takes is skipped.
 	return x.Conn.Close()
 }

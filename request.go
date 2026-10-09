@@ -43,6 +43,8 @@ func (x *GoSNMP) Get(oids []string) (result *SnmpPacket, err error) {
 
 // Set sends an SNMP SET request
 func (x *GoSNMP) Set(pdus []SnmpPDU) (result *SnmpPacket, err error) {
+	// Known bugs: no pdus panics, and only the first varbind's type is
+	// checked.
 	var packetOut *SnmpPacket
 	switch pdus[0].Type {
 	// TODO test Gauge32
@@ -63,9 +65,8 @@ func (x *GoSNMP) GetNext(oids []string) (result *SnmpPacket, err error) {
 	return x.send(packetOut)
 }
 
-// GetBulk sends an SNMP GETBULK request
-//
-// For maxRepetitions greater than 255, use BulkWalk() or BulkWalkAll()
+// GetBulk sends an SNMP GETBULK request. maxRepetitions is sent with its top
+// bit cleared.
 func (x *GoSNMP) GetBulk(oids []string, nonRepeaters uint8, maxRepetitions uint32) (result *SnmpPacket, err error) {
 	if x.Version == Version1 {
 		return nil, fmt.Errorf("GETBULK not supported in SNMPv1")

@@ -21,10 +21,10 @@ import (
 )
 
 const (
-	// MaxOids is the maximum number of OIDs permitted in a single call,
-	// otherwise error. MaxOids too high can cause remote devices to fail
-	// strangely. 60 seems to be a common value that works, but you will want
-	// to change this in the GoSNMP struct
+	// MaxOids is the default of GoSNMP.MaxOids, the maximum number of OIDs in
+	// a Get, GetNext or GetBulk request. MaxOids too high can cause remote
+	// devices to fail strangely. 60 seems to be a common value that works;
+	// set GoSNMP.MaxOids to change it.
 	MaxOids = 60
 
 	// Max oid sub-identifier value
@@ -39,12 +39,15 @@ const (
 	tcp = "tcp"
 )
 
-// GoSNMP represents GoSNMP library state.
+// GoSNMP is an SNMP client: its exported fields configure it, Connect opens
+// its connection, and its methods send requests. A GoSNMP is not safe for
+// concurrent use: requests share its connection, receive buffer and deadline,
+// so run one request at a time, or give each goroutine its own GoSNMP.
 type GoSNMP struct {
 	// Conn is net connection to use, typically established using GoSNMP.Connect().
 	Conn net.Conn
 
-	// Target is an ipv4 address.
+	// Target is the agent's host name or IP address.
 	Target string
 
 	// Port is a port.
@@ -78,9 +81,7 @@ type GoSNMP struct {
 
 	// Message hook methods allow passing in a functions at various points in the packet handling.
 	// For example, this can be used to collect packet timing, add metrics, or implement tracing.
-	/*
 
-	 */
 	// PreSend is called before a packet is sent.
 	PreSend func(*GoSNMP)
 
@@ -96,8 +97,8 @@ type GoSNMP struct {
 	// OnFinish is called when the request completed.
 	OnFinish func(*GoSNMP)
 
-	// MaxOids is the maximum number of oids allowed in a Get().
-	// (default: MaxOids)
+	// MaxOids is the maximum number of OIDs in a Get, GetNext or GetBulk
+	// request; Set does not check it. Zero means the MaxOids constant.
 	MaxOids int
 
 	// MaxRepetitions sets the GETBULK max-repetitions used by BulkWalk*

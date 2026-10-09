@@ -18,10 +18,10 @@ import (
 // by the Walk function.  If an error is returned processing stops.
 type WalkFunc func(dataUnit SnmpPDU) error
 
-// BulkWalk retrieves a subtree of values using GETBULK. As the tree is
-// walked walkFn is called for each new value. The function immediately returns
-// an error if either there is an underlaying SNMP error (e.g. GetBulk fails),
-// or if walkFn returns an error.
+// BulkWalk walks the subtree under rootOid with GETBULK requests, calling
+// walkFn for each value in it; an empty or "." rootOid walks .1.3.6.1. It
+// returns at once the error of a failed request or of walkFn. An answer whose
+// Error is TooBig through InconsistentName ends the walk without an error.
 func (x *GoSNMP) BulkWalk(rootOid string, walkFn WalkFunc) error {
 	return x.walk(GetBulkRequest, rootOid, walkFn)
 }
@@ -34,11 +34,11 @@ func (x *GoSNMP) BulkWalkAll(rootOid string) (results []SnmpPDU, err error) {
 	return x.walkAll(GetBulkRequest, rootOid)
 }
 
-// Walk retrieves a subtree of values using GETNEXT - a request is made for each
-// value, unlike BulkWalk which does this operation in batches. As the tree is
-// walked walkFn is called for each new value. The function immediately returns
-// an error if either there is an underlaying SNMP error (e.g. GetNext fails),
-// or if walkFn returns an error.
+// Walk walks the subtree under rootOid with GETNEXT requests, one per value,
+// where BulkWalk asks for many at a time, calling walkFn for each value in it;
+// an empty or "." rootOid walks .1.3.6.1. It returns at once the error of a
+// failed request or of walkFn. An answer whose Error is TooBig through
+// InconsistentName ends the walk without an error.
 func (x *GoSNMP) Walk(rootOid string, walkFn WalkFunc) error {
 	return x.walk(GetNextRequest, rootOid, walkFn)
 }

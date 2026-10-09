@@ -9,12 +9,6 @@ import (
 	"fmt"
 )
 
-//
-// Remaining globals and definitions located here.
-// See http://www.rane.com/note161.html for a succint description of the SNMP
-// protocol.
-//
-
 // SnmpVersion 1, 2c and 3 implemented
 type SnmpVersion uint8
 

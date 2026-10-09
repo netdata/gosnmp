@@ -31,10 +31,9 @@ func (x *GoSNMP) ConnectIPv6() error {
 	return x.connect("6")
 }
 
-// Close closes the underlaying connection.
-//
-// This method is safe to call multiple times and from concurrent goroutines.
-// Only the first call will close the connection; subsequent calls are no-ops.
+// Close closes the connection. Only the first call closes it; later calls,
+// and calls from other goroutines at the same time, return nil. Like the rest
+// of GoSNMP, Close is not safe to call while a request is running.
 func (x *GoSNMP) Close() error {
 	x.mu.Lock()
 	defer x.mu.Unlock()
@@ -123,7 +122,10 @@ func (x *GoSNMP) write(b []byte) error {
 
 const rxBufSize = 65535 // max size of IPv4 & IPv6 packet
 
-// receive response from network and read into a byte array
+// receive reads one reply from the connection. Known bugs: a client given a
+// Conn without Connect has no receive buffer, and this panics (send recovers
+// it); a TCP reply is taken from a single Read, so a reply split over several
+// reads fails to decode.
 func (x *GoSNMP) receive() ([]byte, error) {
 	var n int
 	var err error
