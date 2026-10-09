@@ -486,7 +486,7 @@ func TestEngineRequestCharacterization(t *testing.T) {
 // runEngineScenario runs sc in the calling synctest bubble and returns its
 // transcript.
 func runEngineScenario(t *testing.T, sc engineScenario) string {
-	tr := newEngineTranscript()
+	tr := newEngineTranscript(t)
 	c := newFakeTransport(tr, sc.agent)
 	var conn net.Conn
 	switch sc.shape {

@@ -679,7 +679,7 @@ func TestEngineV3Characterization(t *testing.T) {
 // transcript. The agent and the key oracle run without FIPS 140-only
 // enforcement: they stand for the other side, not the client.
 func runV3Scenario(t *testing.T, sc v3Scenario) string {
-	tr := newEngineTranscript()
+	tr := newEngineTranscript(t)
 	var agent *fakeV3Agent
 	fips140.WithoutEnforcement(func() { agent = newFakeV3Agent(tr, agentCreds, sysDescr) })
 	agent.script = sc.script
