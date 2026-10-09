@@ -9,244 +9,283 @@ import (
 	"fmt"
 	"io"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 )
 
-// GoSNMP
-// send/receive one snmp request
-func (x *GoSNMP) sendOneRequest(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
-	allReqIDs := make([]uint32, 0, x.Retries+1)
-	// allMsgIDs := make([]uint32, 0, x.Retries+1) // unused
+// exchange is one request on its way through the attempts sendOneRequest
+// makes.
+type exchange struct {
+	x      *GoSNMP
+	packet *SnmpPacket
 
-	timeout := x.Timeout
-	withContextDeadline := false
-sendRetry:
-	for retries := 0; ; retries++ {
-		if retries > 0 {
-			if x.OnRetry != nil {
-				x.OnRetry(x)
-			}
+	// timeout is the current attempt's timeout; ExponentialTimeout doubles it
+	// before each retry.
+	timeout time.Duration
+	// contextDeadline is set when the context's deadline, not the timeout,
+	// ends the current attempt.
+	contextDeadline bool
+}
 
-			x.Logger.Printf("Retry number %d. Last error was: %v", retries, err)
-			if withContextDeadline && strings.Contains(err.Error(), "timeout") {
-				err = context.DeadlineExceeded
-				break
-			}
-			if retries > x.Retries {
-				if err == nil {
-					err = fmt.Errorf("max retries (%d) exceeded", x.Retries)
-				}
-				if strings.Contains(err.Error(), "timeout") {
-					err = fmt.Errorf("request timeout (after %d retries)", retries-1)
-				}
-				break
-			}
-			if x.ExponentialTimeout {
-				// https://www.webnms.com/snmp/help/snmpapi/snmpv3/v1/timeout.html
-				timeout *= 2
-			}
-			withContextDeadline = false
-		}
-		err = nil
+// attemptOutcome is how an attempt ended: with the request's result, or with
+// a failure another attempt may cure.
+type attemptOutcome struct {
+	packet *SnmpPacket
+	err    error
+	// retry asks for another attempt; err is the reason, nil after a TCP
+	// reconnect.
+	retry bool
+}
 
-		if x.Context.Err() != nil {
-			return nil, x.Context.Err()
-		}
-
-		reqDeadline := time.Now().Add(timeout)
-		if contextDeadline, ok := x.Context.Deadline(); ok {
-			if contextDeadline.Before(reqDeadline) {
-				reqDeadline = contextDeadline
-				withContextDeadline = true
+// sendOneRequest sends packetOut and returns the reply that answers it,
+// retrying up to x.Retries times. OnFinish runs when it succeeds.
+func (x *GoSNMP) sendOneRequest(packetOut *SnmpPacket) (*SnmpPacket, error) {
+	e := exchange{x: x, packet: packetOut, timeout: x.Timeout}
+	// The request IDs of the attempts before the current one. The slice lives
+	// in this frame, where it stays off the heap.
+	earlierIDs := make([]uint32, 0, x.Retries+1)
+	var lastErr error
+	for n := 0; ; n++ {
+		if n > 0 {
+			if err := e.beforeRetry(n, lastErr); err != nil {
+				return nil, err
 			}
 		}
-
-		err = x.Conn.SetDeadline(reqDeadline)
-		if err != nil {
-			return nil, err
-		}
-
-		reqID := x.nextRequestID()
-		allReqIDs = append(allReqIDs, reqID)
-
-		packetOut.RequestID = reqID
-
-		if x.Version == Version3 {
-			msgID := x.nextMsgID()
-
-			// allMsgIDs = append(allMsgIDs, msgID) // unused
-
-			packetOut.MsgID = msgID
-
-			err = x.initPacket(packetOut)
-			if err != nil {
-				break
-			}
-		}
-		if x.Version == Version3 {
-			packetOut.SecurityParameters.Log()
-		}
-
-		var outBuf []byte
-		outBuf, err = packetOut.marshalMsg()
-		if err != nil {
-			// Don't retry - not going to get any better!
-			err = fmt.Errorf("marshal: %w", err)
-			break
-		}
-
-		if x.PreSend != nil {
-			x.PreSend(x)
-		}
-		if x.Logger.enabled() {
-			x.Logger.Printf("SENDING PACKET: %s", packetOut.SafeString())
-		}
-		if err = x.write(outBuf); err != nil {
+		out := e.attempt(earlierIDs)
+		if out.retry {
+			// An attempt asks for a retry only after it has stamped the
+			// packet with its request ID.
+			earlierIDs = append(earlierIDs, packetOut.RequestID)
+			lastErr = out.err
 			continue
 		}
-		if x.OnSent != nil {
-			x.OnSent(x)
-		}
-
-	waitingResponse:
-		for {
-			if x.Logger.enabled() {
-				x.Logger.Print("WAITING RESPONSE...")
-			}
-			// Receive response and try receiving again on any decoding error.
-			// Let the deadline abort us if we don't receive a valid response.
-
-			var resp []byte
-			resp, err = x.receive()
-			if err == io.EOF && strings.HasPrefix(x.Transport, tcp) {
-				x.Logger.Printf("ERROR: EOF. Performing reconnect")
-				err = x.netConnect()
-				if err != nil {
-					return nil, err
-				}
-				continue sendRetry
-			} else if err != nil {
-				// receive error. retrying won't help. abort
-				break
-			}
-			if x.OnRecv != nil {
-				x.OnRecv(x)
-			}
-			if x.Logger.enabled() {
-				x.Logger.Printf("GET RESPONSE OK: %+v", resp)
-			}
-			result = new(SnmpPacket)
-			result.Logger = x.Logger
-
-			result.MsgFlags = packetOut.MsgFlags
-			if packetOut.SecurityParameters != nil {
-				result.SecurityParameters = packetOut.SecurityParameters.Copy()
-			}
-
-			var cursor int
-			cursor, err = x.unmarshalHeader(resp, result)
-			if err != nil {
-				x.Logger.Printf("ERROR on unmarshall header: %s", err)
-				break
-			}
-
-			if x.Version == Version3 {
-				usp := usmOf(x.SecurityParameters)
-				useResponseSecurityParameters := usp != nil && usp.AuthoritativeEngineID == ""
-				err = x.testAuthentication(resp, result, useResponseSecurityParameters)
-				if err != nil {
-					x.Logger.Printf("ERROR on Test Authentication on v3: %s", err)
-					break
-				}
-				resp, cursor, err = unmarshalScopedPDU(resp, cursor, result)
-				if err != nil {
-					x.Logger.Printf("ERROR on decryptPacket on v3: %s", err)
-					break
-				}
-			}
-
-			err = unmarshalPayload(resp, cursor, result)
-			if err != nil {
-				x.Logger.Printf("ERROR on UnmarshalPayload on v3: %s", err)
-				break
-			}
-			if result.Error == NoError && len(result.Variables) < 1 {
-				x.Logger.Printf("ERROR on UnmarshalPayload on v3: Empty result")
-				break
-			}
-
-			// While Report PDU was defined by RFC 1905 as part of SNMPv2, it was never
-			// used until SNMPv3. Report PDU's allow a SNMP engine to tell another SNMP
-			// engine that an error was detected while processing an SNMP message.
-			//
-			// The format for a Report PDU is
-			// -----------------------------------
-			// | 0xA8 | reqid | 0 | 0 | varbinds |
-			// -----------------------------------
-			// where:
-			// - PDU type 0xA8 indicates a Report PDU.
-			// - reqid is either:
-			//    The request identifier of the message that triggered the report
-			//    or zero if the request identifier cannot be extracted.
-			// - The variable bindings will contain a single object identifier and its value
-			//
-			// usmStatsNotInTimeWindows and usmStatsUnknownEngineIDs are recoverable errors
-			// and will be retransmitted, for others we return the result with an error.
-			if result.Version == Version3 && result.PDUType == Report && len(result.Variables) == 1 {
-				switch result.Variables[0].Name {
-				case usmStatsUnsupportedSecLevels:
-					return result, ErrUnknownSecurityLevel
-				case usmStatsNotInTimeWindows:
-					break waitingResponse
-				case usmStatsUnknownUserNames:
-					return result, ErrUnknownUsername
-				case usmStatsUnknownEngineIDs:
-					break waitingResponse
-				case usmStatsWrongDigests:
-					return result, ErrWrongDigest
-				case usmStatsDecryptionErrors:
-					return result, ErrDecryption
-				case snmpUnknownSecurityModels:
-					return result, ErrUnknownSecurityModels
-				case snmpInvalidMsgs:
-					return result, ErrInvalidMsgs
-				case snmpUnknownPDUHandlers:
-					return result, ErrUnknownPDUHandlers
-				default:
-					return result, ErrUnknownReportPDU
-				}
-			}
-
-			validID := false
-			for _, id := range allReqIDs {
-				if id == result.RequestID {
-					validID = true
-				}
-			}
-			if result.RequestID == 0 {
-				validID = true
-			}
-			if !validID {
-				x.Logger.Print("ERROR out of order")
-				continue
-			}
-
-			break
-		}
-		if err != nil {
-			continue
-		}
-
-		if x.OnFinish != nil {
+		if out.err == nil && x.OnFinish != nil {
 			x.OnFinish(x)
 		}
-		// Success!
-		return result, nil
+		return out.packet, out.err
+	}
+}
+
+// beforeRetry runs before retry n, after an attempt that failed with lastErr.
+// It returns the request's error when no retry follows: the context's
+// deadline ended the attempt, or the retries are used up.
+func (e *exchange) beforeRetry(n int, lastErr error) error {
+	x := e.x
+	// Known bug: OnRetry runs even when no retry follows.
+	if x.OnRetry != nil {
+		x.OnRetry(x)
+	}
+	x.Logger.Printf("Retry number %d. Last error was: %v", n, lastErr)
+
+	if e.contextDeadline && isTimeout(lastErr) {
+		return context.DeadlineExceeded
+	}
+	if n > x.Retries {
+		switch {
+		case lastErr == nil:
+			return fmt.Errorf("max retries (%d) exceeded", x.Retries)
+		case isTimeout(lastErr):
+			return fmt.Errorf("request timeout (after %d retries)", n-1)
+		}
+		return lastErr
+	}
+	if x.ExponentialTimeout {
+		// https://www.webnms.com/snmp/help/snmpapi/snmpv3/v1/timeout.html
+		e.timeout *= 2
+	}
+	return nil
+}
+
+// isTimeout reports whether err ended an attempt by timing out. Known bug: it
+// looks for the word in the error's text, so any error mentioning a timeout
+// counts, and a nil err panics (the one after a TCP reconnect, under a context
+// deadline; send recovers it).
+func isTimeout(err error) bool {
+	return strings.Contains(err.Error(), "timeout")
+}
+
+// attempt sends the request once and reads until a reply answers it or the
+// attempt's deadline passes. A reply to an earlier attempt, whose request ID
+// is one of earlierIDs, answers it too.
+func (e *exchange) attempt(earlierIDs []uint32) attemptOutcome {
+	x := e.x
+	// Known bug: a client given a Conn without Connect has no Context, and this
+	// panics (send recovers it).
+	if err := x.Context.Err(); err != nil {
+		return attemptOutcome{err: err}
+	}
+	var deadline time.Time
+	deadline, e.contextDeadline = x.attemptDeadline(e.timeout)
+	if err := x.Conn.SetDeadline(deadline); err != nil {
+		return attemptOutcome{err: err}
 	}
 
-	// Return last error
-	return nil, err
+	// An encoding failure is not retried: another attempt would fail the same
+	// way.
+	outBuf, err := e.encode()
+	if err != nil {
+		return attemptOutcome{err: err}
+	}
+
+	if x.PreSend != nil {
+		x.PreSend(x)
+	}
+	if x.Logger.enabled() {
+		x.Logger.Printf("SENDING PACKET: %s", e.packet.SafeString())
+	}
+	if err := x.write(outBuf); err != nil {
+		return attemptOutcome{err: err, retry: true}
+	}
+	if x.OnSent != nil {
+		x.OnSent(x)
+	}
+	return e.await(earlierIDs)
+}
+
+// attemptDeadline returns when an attempt with timeout ends: after the
+// timeout, or at the context's deadline if that comes first (byContext).
+func (x *GoSNMP) attemptDeadline(timeout time.Duration) (deadline time.Time, byContext bool) {
+	deadline = time.Now().Add(timeout)
+	if ctxDeadline, ok := x.Context.Deadline(); ok && ctxDeadline.Before(deadline) {
+		return ctxDeadline, true
+	}
+	return deadline, false
+}
+
+// encode stamps the request with a new request ID and, for SNMPv3, a new
+// message ID and privacy parameters, and marshals it.
+func (e *exchange) encode() ([]byte, error) {
+	x, p := e.x, e.packet
+	p.RequestID = x.nextRequestID()
+	if x.Version == Version3 {
+		p.MsgID = x.nextMsgID()
+		if err := x.initPacket(p); err != nil {
+			return nil, err
+		}
+		p.SecurityParameters.Log()
+	}
+	out, err := p.marshalMsg()
+	if err != nil {
+		return nil, fmt.Errorf("marshal: %w", err)
+	}
+	return out, nil
+}
+
+// await reads replies until one answers the request. Known bug: it does not
+// watch the context, so a cancellation is noticed only when the attempt's
+// deadline passes, and in the last attempt it ends as a request timeout.
+func (e *exchange) await(earlierIDs []uint32) attemptOutcome {
+	x := e.x
+	for {
+		if x.Logger.enabled() {
+			x.Logger.Print("WAITING RESPONSE...")
+		}
+		resp, err := x.receive()
+		if err == io.EOF && strings.HasPrefix(x.Transport, tcp) {
+			// The agent closed the connection: reconnect for the next attempt.
+			x.Logger.Printf("ERROR: EOF. Performing reconnect")
+			if err = x.netConnect(); err != nil {
+				return attemptOutcome{err: err}
+			}
+			return attemptOutcome{retry: true}
+		}
+		if err != nil {
+			return attemptOutcome{err: err, retry: true}
+		}
+		if x.OnRecv != nil {
+			x.OnRecv(x)
+		}
+		if x.Logger.enabled() {
+			x.Logger.Printf("GET RESPONSE OK: %+v", resp)
+		}
+
+		reply, err := e.decode(resp)
+		if err != nil {
+			// Known bug: an undecodable reply ends the attempt, and the request
+			// is sent again at once, instead of reading on.
+			return attemptOutcome{err: err, retry: true}
+		}
+		if answered, err := e.answers(reply, earlierIDs); answered {
+			return attemptOutcome{packet: reply, err: err}
+		}
+		x.Logger.Print("ERROR out of order")
+	}
+}
+
+// decode decodes a reply to the request: the header, for SNMPv3 the
+// authentication and the scoped PDU, then the PDU.
+func (e *exchange) decode(resp []byte) (*SnmpPacket, error) {
+	x := e.x
+	reply := &SnmpPacket{Logger: x.Logger, MsgFlags: e.packet.MsgFlags}
+	if e.packet.SecurityParameters != nil {
+		reply.SecurityParameters = e.packet.SecurityParameters.Copy()
+	}
+
+	cursor, err := x.unmarshalHeader(resp, reply)
+	if err != nil {
+		x.Logger.Printf("ERROR on unmarshall header: %s", err)
+		return nil, err
+	}
+	if x.Version == Version3 {
+		// Until discovery has set the authoritative engine ID, the reply is
+		// checked with its own flags and the security parameters it carries.
+		usp := usmOf(x.SecurityParameters)
+		fromReply := usp != nil && usp.AuthoritativeEngineID == ""
+		if err = x.testAuthentication(resp, reply, fromReply); err != nil {
+			x.Logger.Printf("ERROR on Test Authentication on v3: %s", err)
+			return nil, err
+		}
+		if resp, cursor, err = unmarshalScopedPDU(resp, cursor, reply); err != nil {
+			x.Logger.Printf("ERROR on decryptPacket on v3: %s", err)
+			return nil, err
+		}
+	}
+	if err = unmarshalPayload(resp, cursor, reply); err != nil {
+		x.Logger.Printf("ERROR on UnmarshalPayload on v3: %s", err)
+		return nil, err
+	}
+	return reply, nil
+}
+
+// answers reports whether reply answers the request, and with which error: a
+// reply answers with the current attempt's request ID or one of earlierIDs.
+// Known bugs: an empty reply and a Report answer before their request ID is
+// checked, request ID 0 answers any request, and the reply's version and PDU
+// type are not checked.
+func (e *exchange) answers(reply *SnmpPacket, earlierIDs []uint32) (bool, error) {
+	if reply.Error == NoError && len(reply.Variables) < 1 {
+		e.x.Logger.Printf("ERROR on UnmarshalPayload on v3: Empty result")
+		return true, nil
+	}
+	if reply.Version == Version3 && reply.PDUType == Report && len(reply.Variables) == 1 {
+		err, ok := reportErrors[reply.Variables[0].Name]
+		if !ok {
+			err = ErrUnknownReportPDU
+		}
+		return true, err
+	}
+	id := reply.RequestID
+	return id == e.packet.RequestID || slices.Contains(earlierIDs, id) || id == 0, nil
+}
+
+// reportErrors maps the counter an SNMPv3 Report carries (the USM counters of
+// RFC 3414, the message processing counters of RFC 3412) to the request's
+// error. A Report is a Report PDU with one varbind, the counter of the error
+// the agent detected; its request ID is the request's, or 0 when the agent
+// could not read it. Reports about the time window and an unknown engine ID
+// give no error: the caller takes the engine parameters they carry, and send
+// sends the request again.
+var reportErrors = map[string]error{ //nolint:gochecknoglobals // a read-only table
+	usmStatsUnsupportedSecLevels: ErrUnknownSecurityLevel,
+	usmStatsNotInTimeWindows:     nil,
+	usmStatsUnknownUserNames:     ErrUnknownUsername,
+	usmStatsUnknownEngineIDs:     nil,
+	usmStatsWrongDigests:         ErrWrongDigest,
+	usmStatsDecryptionErrors:     ErrDecryption,
+	snmpUnknownSecurityModels:    ErrUnknownSecurityModels,
+	snmpInvalidMsgs:              ErrInvalidMsgs,
+	snmpUnknownPDUHandlers:       ErrUnknownPDUHandlers,
 }
 
 // generic "sender" that negotiate any version of snmp request
