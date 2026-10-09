@@ -108,6 +108,35 @@ func asV2c(p *SnmpPacket) {
 	p.Version, p.Community = Version2c, "public"
 }
 
+// withoutEngineID takes the engine ID out of an answer and its context.
+func withoutEngineID(p *SnmpPacket) {
+	p.SecurityParameters.usm().AuthoritativeEngineID = ""
+	p.ContextEngineID = ""
+}
+
+// changeClientWhenLogging runs a Get with a Logger that applies change to the
+// client the first time it is given msg.
+func changeClientWhenLogging(msg string, change func(x *GoSNMP)) func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+	return func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+		done := false
+		x.Logger = NewLogger(funcLogger(func(s string) {
+			if s == msg && !done {
+				done = true
+				change(x)
+				a.tr.addf("Logger changes the client at %q", msg)
+			}
+		}))
+		return x.Get([]string{engineOID})
+	}
+}
+
+// funcLogger is a LoggerInterface that hands each line to a function.
+type funcLogger func(string)
+
+func (l funcLogger) Print(v ...any) { l(fmt.Sprint(v...)) }
+
+func (l funcLogger) Printf(format string, v ...any) { l(fmt.Sprintf(format, v...)) }
+
 // fromOtherEngine makes an answer come from the agent's other engine ID.
 func fromOtherEngine(p *SnmpPacket) {
 	p.SecurityParameters.usm().AuthoritativeEngineID = agentOtherEngineID
@@ -245,6 +274,31 @@ func v3Scenarios() map[string]v3Scenario {
 			},
 			knownBug: "a notInTimeWindow Report answering the resynchronized retransmission is returned with a nil error",
 		},
+		// Discovery answered by a Report without an engine ID.
+		"discovery/report-without-engine-id/md5": {
+			user: "codec-md5", script: onRequest(1, agentAnswer{
+				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
+			}),
+			knownBug: "a discovery answer without an engine ID is accepted, and the request goes out with an empty engine ID",
+		},
+		"discovery/report-without-engine-id/sha-aes": {
+			user: "codec-sha-aes", script: onRequest(1, agentAnswer{
+				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
+			}),
+			knownBug: "a discovery answer without an engine ID is accepted, and the request goes out with an empty engine ID: at authPriv it fails in the encoder for want of a privacy key",
+		},
+
+		// The client's Logger is user code that runs inside send, before the
+		// negotiation.
+		"hooks/logger-changes-security-model": {
+			user: "codec-md5",
+			run:  changeClientWhenLogging("SEND INIT", func(x *GoSNMP) { x.SecurityModel = 2 }),
+		},
+		"hooks/logger-changes-version": {
+			user: "codec-md5",
+			run:  changeClientWhenLogging("SEND INIT", func(x *GoSNMP) { x.Version = Version2c }),
+		},
+
 		// send's resynchronization after a notInTimeWindow Report.
 		"resync/panic-in-retransmission": {
 			user:   "codec-md5",
