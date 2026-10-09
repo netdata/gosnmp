@@ -99,6 +99,51 @@ func (packet *SnmpPacket) authenticate(msg []byte) ([]byte, error) {
 	return msg, nil
 }
 
+func (x *GoSNMP) testAuthentication(packet []byte, result *SnmpPacket, useResponseSecurityParameters bool) error {
+	if x.Version != Version3 {
+		return fmt.Errorf("testAuthentication called with non Version3 connection")
+	}
+	msgFlags := x.MsgFlags
+	if useResponseSecurityParameters {
+		msgFlags = result.MsgFlags
+	}
+
+	// Engine discovery (RFC 3414 section 4): a message with an empty user name
+	// and engine ID is accepted without authentication. Known bug: whatever its
+	// flags and variable bindings (the bindings are not decoded yet), so any
+	// message with an empty user name and engine ID skips the digest.
+	msgSecParams := result.SecurityParameters.usm()
+	if msgSecParams.UserName == "" && msgSecParams.AuthoritativeEngineID == "" {
+		return nil
+	}
+
+	if msgFlags&AuthNoPriv > 0 {
+		var authentic bool
+		var err error
+		if useResponseSecurityParameters {
+			authentic, err = result.SecurityParameters.usm().isAuthentic(packet, result)
+		} else {
+			authentic, err = x.SecurityParameters.usm().isAuthentic(packet, result)
+		}
+		if err != nil {
+			return err
+		}
+		if !authentic {
+			return fmt.Errorf("incoming packet is not authentic, discarding")
+		}
+	}
+
+	return nil
+}
+
+func (x *GoSNMP) initPacket(packetOut *SnmpPacket) error {
+	if x.MsgFlags&AuthPriv > AuthNoPriv {
+		return x.SecurityParameters.InitPacket(packetOut)
+	}
+
+	return nil
+}
+
 // appendV3 appends the SNMPv3 part of a message after the version: the header
 // (msgGlobalData), the security parameters in an OCTET STRING and the scoped
 // PDU.
