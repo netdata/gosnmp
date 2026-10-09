@@ -31,17 +31,27 @@ import (
 // engineTranscript is the ordered record of one engine scenario. A nil
 // transcript records nothing.
 type engineTranscript struct {
+	tb    testing.TB
 	start time.Time
 	lines []string
 }
 
-func newEngineTranscript() *engineTranscript {
-	return &engineTranscript{start: time.Now()}
+// maxTranscriptLines fails a scenario whose transcript grows past it, far
+// beyond the longest scenario, so that a change making the engine loop (a
+// regression or a mutant) fails at once instead of growing the transcript
+// until the test times out.
+const maxTranscriptLines = 5000
+
+func newEngineTranscript(tb testing.TB) *engineTranscript {
+	return &engineTranscript{tb: tb, start: time.Now()}
 }
 
 func (tr *engineTranscript) addf(format string, args ...any) {
 	if tr == nil {
 		return
+	}
+	if len(tr.lines) >= maxTranscriptLines {
+		tr.tb.Fatalf("transcript passed %d lines: the scenario does not end", maxTranscriptLines)
 	}
 	tr.lines = append(tr.lines, fmt.Sprintf("%-5s ", time.Since(tr.start))+fmt.Sprintf(format, args...))
 }

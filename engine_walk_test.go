@@ -347,7 +347,7 @@ func TestEngineWalkCharacterization(t *testing.T) {
 // runWalkScenario runs sc in the calling synctest bubble and returns its
 // transcript.
 func runWalkScenario(t *testing.T, sc walkScenario) string {
-	tr := newEngineTranscript()
+	tr := newEngineTranscript(t)
 	agent := &mibAgent{tr: tr, mib: walkMIB, script: sc.script}
 	version := Version2c
 	if sc.v1 {
