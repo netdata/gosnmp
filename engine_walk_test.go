@@ -239,6 +239,16 @@ func walkScenarios() map[string]walkScenario {
 		"leaf/last-object-v1": {
 			root: ".1.3.6.1.4.1.99.1.0", v1: true, knownBug: lastLeafBug,
 		},
+		// An agent echoing the root as the first answer: the root is taken
+		// for a leaf.
+		"leaf/root-echo": {
+			root: walkSystem, script: onWalkRequest(1, varbinds(SnmpPDU{Name: walkSystem, Type: Integer, Value: 1})),
+		},
+		"leaf/get-answer-in-subtree": {
+			root:     ".1.3.6.1.2.1.1.5.0",
+			script:   onWalkRequest(2, varbinds(SnmpPDU{Name: ".1.3.6.1.2.1.1.5.0.1", Type: OctetString, Value: []byte("inside")})),
+			knownBug: "after the leaf fallback the walk keeps sending Gets: an answer inside the subtree is walked and the walk gets the next name (net-snmp's snmpwalk makes one Get)",
+		},
 
 		// Answers a walk does not expect.
 		"empty-response": {
@@ -257,6 +267,11 @@ func walkScenarios() map[string]walkScenario {
 		},
 		"not-increasing/app-opts-c": {
 			root: walkIfDescr, setup: func(x *GoSNMP) { x.AppOpts = map[string]any{"c": true} },
+			script: onWalkRequest(3, varbinds(ifDescr(0))),
+		},
+		// The option counts by its key: a nil value turns the check off too.
+		"not-increasing/app-opts-c-nil": {
+			root: walkIfDescr, setup: func(x *GoSNMP) { x.AppOpts = map[string]any{"c": nil} },
 			script: onWalkRequest(3, varbinds(ifDescr(0))),
 		},
 		"not-increasing/app-opts-c-bulk": {
@@ -317,6 +332,13 @@ func walkScenarios() map[string]walkScenario {
 	scenarios["error-status/19-unknown"] = walkScenario{
 		root: walkSystem, script: onWalkRequest(2, errorStatus(InconsistentName+1)),
 		knownBug: "an error status the walk does not name is ignored and the varbinds walked",
+	}
+	scenarios["error-status/19-unknown-empty"] = walkScenario{
+		root: walkSystem,
+		script: onWalkRequest(2, func(_, out *SnmpPacket) {
+			out.Error, out.ErrorIndex, out.Variables = InconsistentName+1, 0, nil
+		}),
+		knownBug: "an empty response ends the walk with a nil error",
 	}
 	scenarios["error-status/bulk-too-big"] = walkScenario{
 		root: walkSystem, bulk: true, script: onWalkRequest(1, errorStatus(TooBig)),
