@@ -5,6 +5,7 @@
 package gosnmp
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -15,13 +16,17 @@ import (
 )
 
 // fakeV3Agent is an authoritative SNMPv3 engine for the engine tests. It reads
-// a request with its own parser (parseV3Message), checks it with the library's
-// digests and ciphers in the order of RFC 3414 section 3.2 (engine ID, user,
-// security level, digest, time window, decryption) and answers with a
-// GetResponse at the request's security level or with a Report: noAuthNoPriv
-// for an unknown engine ID or user, an unsupported level, a wrong digest or a
-// decryption error, authNoPriv for a message outside the time window. Its
-// engine time counts the seconds of the bubble's clock.
+// a request with its own parser (parseV3Message) and, like net-snmp's snmpd,
+// drops what RFC 3412 section 7.2 discards (another version or security
+// model, privacy without authentication, a msgMaxSize below 484, a scoped PDU
+// it cannot decode). It checks the rest with the library's digests and ciphers
+// in the order of RFC 3414 section 3.2 (engine ID, user, security level,
+// digest, time window, decryption) and answers with a GetResponse at the
+// request's security level and in its context, or with a Report in the
+// default context: noAuthNoPriv for an unknown engine ID or user, an
+// unsupported level, a wrong digest or a decryption error, authNoPriv for a
+// message outside the time window. Its engine time counts the seconds of the
+// bubble's clock. Unlike snmpd it serves every context name.
 type fakeV3Agent struct {
 	tr       *engineTranscript
 	engineID string
@@ -49,10 +54,12 @@ type agentUser struct {
 
 // agentRequest is a request as the fake agent read it.
 type agentRequest struct {
+	version, maxSize, model      int64
 	msgID                        uint32
 	flags                        SnmpV3MsgFlags
 	engineID, user               string
 	boots, engineTime            uint32
+	salt                         []byte // msgPrivacyParameters
 	contextEngineID, contextName string
 	pdu                          *SnmpPacket // nil when the scoped PDU was not read
 }
@@ -62,7 +69,8 @@ type agentAnswer struct {
 	report string         // the Report's counter OID, or "" for a GetResponse
 	level  SnmpV3MsgFlags // the security level of the answer
 	edit   func(*SnmpPacket)
-	drop   bool // no answer
+	raw    func(*v3Message) // edits the encoded answer, after edit
+	drop   bool             // no answer
 	why    string
 }
 
@@ -72,7 +80,13 @@ const (
 	agentBoots         = 7
 	agentTimeBase      = 1000
 	agentTimeWindow    = 150 // seconds, RFC 3414 section 2.2.3
+	agentMinMaxSize    = 484 // msgMaxSize range, RFC 3412 section 6
+	agentMaxMaxSize    = 1<<31 - 1
 )
+
+// errAgentDecryption is a scoped PDU the agent's cipher rejects, as opposed
+// to one that decrypts to something it cannot decode.
+var errAgentDecryption = errors.New("decryption error")
 
 func newFakeV3Agent(tr *engineTranscript, creds map[string]agentUser, vbs ...SnmpPDU) *fakeV3Agent {
 	a := &fakeV3Agent{
@@ -128,9 +142,18 @@ func (a *fakeV3Agent) handle(n int, data []byte) []agentReply {
 		a.tr.addf("agent: #%d not an SNMPv3 message: %v", n, err)
 		return nil
 	}
+	if !bytes.Equal(m.bytes(), data) {
+		// agentDigestOK checks the digest over m.bytes().
+		a.tr.addf("agent: drops #%d (not in minimal BER, its digest cannot be checked)", n)
+		return nil
+	}
 	req, err := readAgentRequest(m)
 	if err != nil {
 		a.tr.addf("agent: #%d unreadable: %v", n, err)
+		return nil
+	}
+	if why := req.discarded(); why != "" {
+		a.tr.addf("agent: drops #%d (%s)", n, why)
 		return nil
 	}
 
@@ -155,10 +178,18 @@ func (a *fakeV3Agent) handle(n int, data []byte) []agentReply {
 	}
 
 	out := a.answer(req, ans)
-	a.tr.addf("agent: answers #%d with %s at %s (%s)", n, describeAnswerPDU(out), describeFlags(ans.level), ans.why)
+	a.tr.addf("agent: answers #%d with %s at %s (%s)", n, describeAnswerPDU(out), describeFlags(out.MsgFlags), ans.why)
 	b, err := out.MarshalMsg()
 	if err != nil {
 		panic(fmt.Sprintf("agent cannot encode its answer: %v", err))
+	}
+	if ans.raw != nil {
+		m, err := parseV3Message(b)
+		if err != nil {
+			panic(fmt.Sprintf("agent cannot read its answer: %v", err))
+		}
+		ans.raw(&m)
+		b = m.bytes()
 	}
 	return []agentReply{{data: b}}
 }
@@ -185,9 +216,30 @@ func (a *fakeV3Agent) check(m v3Message, req *agentRequest) agentAnswer {
 		}
 	}
 	if err := a.readScopedPDU(m, req); err != nil {
-		return agentAnswer{report: usmStatsDecryptionErrors, why: err.Error()}
+		if errors.Is(err, errAgentDecryption) {
+			return agentAnswer{report: usmStatsDecryptionErrors, why: err.Error()}
+		}
+		// A scoped PDU that does not decode is dropped, as snmpd does
+		// (snmpInASNParseErrs): a wrong privacy passphrase gets no answer.
+		return agentAnswer{drop: true, why: err.Error()}
 	}
 	return agentAnswer{level: req.flags & AuthPriv, why: "request accepted"}
+}
+
+// discarded names why RFC 3412 section 7.2 discards req before its security
+// checks, or returns "".
+func (req agentRequest) discarded() string {
+	switch {
+	case req.version != int64(Version3):
+		return fmt.Sprintf("msgVersion %d", req.version)
+	case req.maxSize < agentMinMaxSize || req.maxSize > agentMaxMaxSize:
+		return fmt.Sprintf("msgMaxSize %d", req.maxSize)
+	case req.model != int64(UserSecurityModel):
+		return fmt.Sprintf("security model %d", req.model)
+	case req.flags&AuthPriv == usmPrivacyFlag:
+		return "privacy without authentication"
+	}
+	return ""
 }
 
 // readScopedPDU reads the scoped PDU of req, decrypting it with its user's
@@ -201,7 +253,7 @@ func (a *fakeV3Agent) readScopedPDU(m v3Message, req *agentRequest) error {
 		}
 		dec, err := user.PrivacyProtocol.spec().Decrypt(user.PrivacyKey, m.usm[5], req.boots, req.engineTime, m.scoped)
 		if err != nil {
-			return err
+			return fmt.Errorf("%w: %w", errAgentDecryption, err)
 		}
 		r := ber.NewReader(dec)
 		if _, plain, err = r.Next(); err != nil {
@@ -251,18 +303,25 @@ func (a *fakeV3Agent) answer(req agentRequest, ans agentAnswer) *SnmpPacket {
 		MsgFlags:           ans.level,
 		SecurityModel:      UserSecurityModel,
 		SecurityParameters: sp,
-		ContextEngineID:    a.engineID,
+		ContextEngineID:    req.contextEngineID,
 		ContextName:        req.contextName,
 		PDUType:            GetResponse,
 		MsgID:              req.msgID,
 		Variables:          a.vbs,
 	}
+	if out.ContextEngineID == "" {
+		// snmpd answers a request without a context engine ID in its own.
+		out.ContextEngineID = a.engineID
+	}
 	if req.pdu != nil {
 		out.RequestID = req.pdu.RequestID
 	}
 	if ans.report != "" {
+		// RFC 3412 section 7.1 step 3 d: the agent's engine ID and the
+		// default context.
 		a.counters[ans.report]++
 		out.PDUType = Report
+		out.ContextEngineID, out.ContextName = a.engineID, ""
 		out.Variables = []SnmpPDU{{Name: ans.report, Type: Counter32, Value: a.counters[ans.report]}}
 	}
 	if ans.edit != nil {
@@ -283,12 +342,24 @@ func readAgentRequest(m v3Message) (agentRequest, error) {
 		}
 		header[i] = f
 	}
+	version, err := ber.Int64(m.version)
+	if err != nil {
+		return req, fmt.Errorf("msgVersion: %w", err)
+	}
 	msgID, err := ber.Int64(header[0])
 	if err != nil {
 		return req, fmt.Errorf("msgID: %w", err)
 	}
+	maxSize, err := ber.Int64(header[1])
+	if err != nil {
+		return req, fmt.Errorf("msgMaxSize: %w", err)
+	}
 	if len(header[2]) != 1 {
 		return req, fmt.Errorf("msgFlags of %d octets", len(header[2]))
+	}
+	model, err := ber.Int64(header[3])
+	if err != nil {
+		return req, fmt.Errorf("msgSecurityModel: %w", err)
 	}
 	boots, err := ber.Int64(m.usm[1])
 	if err != nil {
@@ -298,10 +369,12 @@ func readAgentRequest(m v3Message) (agentRequest, error) {
 	if err != nil {
 		return req, fmt.Errorf("engine time: %w", err)
 	}
+	req.version, req.maxSize, req.model = version, maxSize, model
 	req.msgID = uint32(msgID) //nolint:gosec // a test message
 	req.flags = SnmpV3MsgFlags(header[2][0])
 	req.engineID, req.user = string(m.usm[0]), string(m.usm[3])
 	req.boots, req.engineTime = uint32(boots), uint32(engineTime) //nolint:gosec // a test message
+	req.salt = m.usm[5]
 	if m.scopedTag != byte(OctetString) {
 		// A plaintext scoped PDU is read even before the checks, so a
 		// Report can carry its request ID.
@@ -346,10 +419,21 @@ func describeFlags(f SnmpV3MsgFlags) string {
 	return level
 }
 
+// describeAgentRequest describes req; the security model and msgMaxSize only
+// when they are not the library's (3 and rxBufSize).
 func describeAgentRequest(req agentRequest) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "msgID=%d %s user=%q engine=%q boots=%d time=%d", req.msgID, describeFlags(req.flags), req.user,
 		req.engineID, req.boots, req.engineTime)
+	if req.model != int64(UserSecurityModel) {
+		fmt.Fprintf(&sb, " model=%d", req.model)
+	}
+	if req.maxSize != rxBufSize {
+		fmt.Fprintf(&sb, " msgMaxSize=%d", req.maxSize)
+	}
+	if len(req.salt) > 0 {
+		fmt.Fprintf(&sb, " salt=%x", req.salt)
+	}
 	if req.pdu != nil {
 		fmt.Fprintf(&sb, " context=%q/%q %v id=%d %s", req.contextEngineID, req.contextName, req.pdu.PDUType,
 			req.pdu.RequestID, describeVarbinds(req.pdu.Variables))
