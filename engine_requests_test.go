@@ -363,9 +363,9 @@ func engineScenarios() map[string]engineScenario {
 		},
 
 		// Request IDs.
-		"request-id/wraps": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.requestID = 0x7FFFFFFF }},
+		"request-id/wraps": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.requestID.Store(0x7FFFFFFF) }},
 		"request-id/wraps-between-attempts": {agent: answerFromSecond(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) {
-			x.requestID = 0x7FFFFFFE
+			x.requestID.Store(0x7FFFFFFE)
 		}},
 		"request-id/set": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.SetRequestID(5) }},
 
@@ -457,7 +457,7 @@ func runEngineScenario(t *testing.T, sc engineScenario) string {
 	} else {
 		tr.addf("result: %s", describeEngineResult(res, err))
 	}
-	tr.addf("client after: retries=%d next request id=%d", x.Retries, (x.requestID+1)&0x7FFFFFFF)
+	tr.addf("client after: retries=%d next request id=%d", x.Retries, (x.requestID.Load()+1)&0x7FFFFFFF)
 	if sc.knownBug != "" {
 		tr.addf("known bug: %s", sc.knownBug)
 	}
