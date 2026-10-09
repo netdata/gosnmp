@@ -140,8 +140,10 @@ func (x *GoSNMP) testAuthentication(packet []byte, result *SnmpPacket, useRespon
 	return nil
 }
 
-// initPacket sets the privacy parameters (the salt) of an outgoing SNMPv3
-// packet when the client uses privacy, for the engine and SnmpEncodePacket.
+// initPacket draws a new salt when the client uses privacy, and sets it as the
+// privacy parameters of the outgoing SNMPv3 packet when the packet asks for
+// privacy too (a discovery packet does not); for the engine and
+// SnmpEncodePacket.
 func (x *GoSNMP) initPacket(packetOut *SnmpPacket) error {
 	if x.MsgFlags&AuthPriv > AuthNoPriv {
 		return x.SecurityParameters.InitPacket(packetOut)

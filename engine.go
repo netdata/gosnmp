@@ -377,9 +377,8 @@ const (
 	snmpUnknownPDUHandlers       = ".1.3.6.1.6.3.11.2.1.3.0"
 )
 
-// The errors of a request answered by a Report: one per counter in
-// reportKinds, and ErrUnknownReportPDU for a counter the library does not
-// know.
+// The errors of a request answered by a Report: one per Report counter the
+// library knows, and ErrUnknownReportPDU for any other counter.
 var (
 	ErrDecryption            = errors.New("decryption error")
 	ErrInvalidMsgs           = errors.New("invalid messages")

@@ -20,11 +20,11 @@ type WalkFunc func(dataUnit SnmpPDU) error
 
 // BulkWalk walks the subtree under rootOid with GETBULK requests, calling
 // walkFn for each value in it. An empty or "." rootOid walks .1.3.6.1; when
-// the first answer lies outside the subtree, rootOid is taken for a leaf and
-// fetched with a Get. It returns at once the error of a failed request or of
-// walkFn, and an error for a name that is not after the requested one (unless
-// AppOpts has "c"). An answer whose Error is TooBig through InconsistentName
-// ends the walk without an error.
+// the first value of the first answer lies outside the subtree, rootOid is
+// taken for a leaf and fetched with a Get. It returns at once the error of a
+// failed request or of walkFn, and an error for a name in the subtree that is
+// not after the requested one (unless AppOpts has "c"). An answer whose Error
+// is TooBig through InconsistentName ends the walk without an error.
 func (x *GoSNMP) BulkWalk(rootOid string, walkFn WalkFunc) error {
 	return x.walk(GetBulkRequest, rootOid, walkFn)
 }
@@ -39,12 +39,12 @@ func (x *GoSNMP) BulkWalkAll(rootOid string) (results []SnmpPDU, err error) {
 
 // Walk walks the subtree under rootOid with GETNEXT requests, one per value,
 // where BulkWalk asks for many at a time, calling walkFn for each value in it.
-// An empty or "." rootOid walks .1.3.6.1; when the first answer lies outside
-// the subtree, rootOid is taken for a leaf and fetched with a Get. It returns
-// at once the error of a failed request or of walkFn, and an error for a name
-// that is not after the requested one (unless AppOpts has "c"). An answer
-// whose Error is TooBig through InconsistentName ends the walk without an
-// error.
+// An empty or "." rootOid walks .1.3.6.1; when the first value of the first
+// answer lies outside the subtree, rootOid is taken for a leaf and fetched
+// with a Get. It returns at once the error of a failed request or of walkFn,
+// and an error for a name in the subtree that is not after the requested one
+// (unless AppOpts has "c"). An answer whose Error is TooBig through
+// InconsistentName ends the walk without an error.
 func (x *GoSNMP) Walk(rootOid string, walkFn WalkFunc) error {
 	return x.walk(GetNextRequest, rootOid, walkFn)
 }

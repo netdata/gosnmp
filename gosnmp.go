@@ -45,8 +45,8 @@ const (
 // so run one request at a time, or give each goroutine its own GoSNMP.
 type GoSNMP struct {
 	// Conn is the connection to the agent, opened by Connect. A Conn set
-	// without Connect cannot carry requests: the client then lacks its context
-	// and receive buffer.
+	// without Connect cannot carry requests: the client then lacks its receive
+	// buffer, and its context unless Context is set.
 	Conn net.Conn
 
 	// Target is the agent's host name or IP address.
@@ -93,15 +93,19 @@ type GoSNMP struct {
 	// OnRecv is called when a packet is received.
 	OnRecv func(*GoSNMP)
 
-	// OnRetry is called after each failed attempt, before the next one, and
-	// also after the last one, when no attempt follows.
+	// OnRetry is called after each attempt that fails in a way another attempt
+	// may cure (a write or read error, a timeout, an undecodable reply, a TCP
+	// connection the agent closed and the client reopened), before the next
+	// one, and also after the last such attempt, when no attempt follows. An
+	// encoding, deadline-setting or context error, or a failed TCP reconnect,
+	// ends the request without it.
 	OnRetry func(*GoSNMP)
 
 	// OnFinish is called each time an exchange (a request and the answer to
-	// it, after any retries) ends without an error: for SNMPv3 also after
-	// engine discovery and after a Report the client resynchronizes from,
-	// before the request is sent again. It is not called when an exchange
-	// fails.
+	// it, after any retries) ends without an error, including one answered by
+	// a Report the client resynchronizes from (unknownEngineID, the usual answer
+	// to SNMPv3 engine discovery, or notInTimeWindow). It is not called when an
+	// exchange fails.
 	OnFinish func(*GoSNMP)
 
 	// MaxOids is the maximum number of OIDs in a Get, GetNext or GetBulk
