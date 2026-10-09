@@ -64,9 +64,12 @@ type pendingReply struct {
 
 // fakeTransport is an in-memory connection to an engineAgent, shaped like a
 // TCP socket or a custom net.Conn; fakePacketTransport gives it the shape of a
-// UDP socket. Each read returns one reply, the earliest due, as a datagram
-// socket does, and fails with os.ErrDeadlineExceeded once the read deadline
-// has passed: a reply due at the deadline is not read, as on a real socket. A
+// UDP socket. A read takes from the earliest reply due: on the stream shape
+// what the buffer does not hold stays for the next read, as on a TCP socket
+// (which may also join replies in one read; scenarios space them apart), on
+// the UDP shape the rest is lost, as with a datagram. A read fails with
+// os.ErrDeadlineExceeded once the read deadline has passed: a reply due at
+// the deadline is not read, as on a real socket. A
 // write fails the same way once the write deadline has passed. Writes and
 // reads can be made to fail by number. An io.EOF read on a TCP client makes
 // the engine reconnect with a real dial, so those cases run on loopback
@@ -124,10 +127,12 @@ func (c *fakeTransport) write(b []byte, op string) (int, error) {
 }
 
 func (c *fakeTransport) Read(b []byte) (int, error) {
-	return c.read(b, "read")
+	return c.read(b, "read", true)
 }
 
-func (c *fakeTransport) read(b []byte, op string) (int, error) {
+// read reads the earliest reply due into b, keeping what does not fit for the
+// next read when stream is set.
+func (c *fakeTransport) read(b []byte, op string, stream bool) (int, error) {
 	c.reads++
 	if c.failRead != nil {
 		if err := c.failRead(c.reads); err != nil {
@@ -143,11 +148,16 @@ func (c *fakeTransport) read(b []byte, op string) (int, error) {
 		}
 		if len(c.pending) > 0 && !c.pending[0].due.After(now) {
 			msg := c.pending[0].data
-			c.pending = c.pending[1:]
-			if c.tr != nil {
-				c.tr.addf("%s: %s", op, describeMessage(msg))
+			n := copy(b, msg)
+			if stream && n < len(msg) {
+				c.pending[0].data = msg[n:]
+			} else {
+				c.pending = c.pending[1:]
 			}
-			return copy(b, msg), nil
+			if c.tr != nil {
+				c.tr.addf("%s: %s", op, describeMessage(msg[:n]))
+			}
+			return n, nil
 		}
 		var wake time.Time
 		if len(c.pending) > 0 {
@@ -207,7 +217,7 @@ type fakePacketTransport struct {
 }
 
 func (c fakePacketTransport) ReadFrom(b []byte) (int, net.Addr, error) {
-	n, err := c.read(b, "read from")
+	n, err := c.read(b, fmt.Sprintf("read from %s", c.RemoteAddr()), false)
 	return n, c.RemoteAddr(), err
 }
 
@@ -293,6 +303,9 @@ func describeVarbinds(vbs []SnmpPDU) string {
 		value := vb.Value
 		if b, ok := value.([]byte); ok {
 			value = fmt.Sprintf("%q", b)
+			if len(b) > 64 {
+				value = fmt.Sprintf("%q... (%d octets)", b[:16], len(b))
+			}
 		}
 		parts = append(parts, fmt.Sprintf("%s=%v:%v", vb.Name, vb.Type, value))
 	}

@@ -12,8 +12,11 @@ import (
 	"io"
 	"maps"
 	"net"
+	"regexp"
+	"runtime"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"testing/synctest"
@@ -253,7 +256,10 @@ func engineScenarios() map[string]engineScenario {
 			agent:    answerWith(func(p *SnmpPacket) { p.PDUType = GetRequest }, sysDescr),
 			knownBug: "the reply's PDU type is not checked",
 		},
-		"answer/report": {agent: answerWith(func(p *SnmpPacket) { p.PDUType = Report }, sysDescr)},
+		"answer/report": {
+			agent:    answerWith(func(p *SnmpPacket) { p.PDUType = Report }, sysDescr),
+			knownBug: "the reply's PDU type is not checked",
+		},
 		"answer/unknown-pdu-type": {
 			agent: answerRaw(func(r []byte) []byte {
 				r[bytes.IndexByte(r, byte(GetResponse))] = 0xaf
@@ -261,7 +267,10 @@ func engineScenarios() map[string]engineScenario {
 			}),
 			knownBug: "the error text formats the PDU type's String() as hexadecimal",
 		},
-		"answer/other-version":   {agent: answerWith(func(p *SnmpPacket) { p.Version = Version1 }, sysDescr)},
+		"answer/other-version": {
+			agent:    answerWith(func(p *SnmpPacket) { p.Version = Version1 }, sysDescr),
+			knownBug: "a reply of another SNMP version is accepted, though RFC 3412 hands each message to the model of its own version",
+		},
 		"answer/other-community": {agent: answerWith(func(p *SnmpPacket) { p.Community = "private" }, sysDescr)},
 		"answer/garbage-then-valid": {
 			agent: func(_ int, req []byte) []agentReply {
@@ -275,9 +284,24 @@ func engineScenarios() map[string]engineScenario {
 			setup: func(x *GoSNMP, _ *fakeTransport) { x.Transport, x.Retries = "tcp", 0 },
 			agent: func(_ int, req []byte) []agentReply {
 				r := replyTo(req, nil, sysDescr)
-				return []agentReply{{data: r[:10]}, {data: r[10:]}}
+				return []agentReply{{data: r[:10]}, {data: r[10:], after: 10 * time.Millisecond}}
 			},
 			knownBug: "a TCP reply must arrive in one read",
+		},
+		"answer/largest-tcp": {
+			shape: shapeStream,
+			setup: func(x *GoSNMP, _ *fakeTransport) { x.Transport = "tcp" },
+			agent: func(_ int, req []byte) []agentReply {
+				// The largest reply the receive buffer accepts.
+				size := rxBufSize - 100
+				for {
+					r := replyTo(req, nil, SnmpPDU{Name: engineOID, Type: OctetString, Value: bytes.Repeat([]byte{'x'}, size)})
+					if len(r) == rxBufSize-1 {
+						return []agentReply{{data: r}}
+					}
+					size += rxBufSize - 1 - len(r)
+				}
+			},
 		},
 		"answer/too-big-tcp": {
 			shape: shapeStream,
@@ -441,30 +465,45 @@ func runEngineScenario(t *testing.T, sc engineScenario) string {
 }
 
 // TestEngineTCPReconnect pins, on loopback sockets, what the engine does when
-// a TCP agent closes the connection: it reconnects and sends again, and gives
-// up on the reconnect's error or when the retries run out, known bugs
-// included.
+// a TCP agent closes the connection after reading each request: it reconnects
+// and sends again, and gives up on the reconnect's error or when the retries
+// run out, known bugs included.
 func TestEngineTCPReconnect(t *testing.T) {
 	tests := map[string]struct {
+		transport      string        // "tcp" unless set
 		acceptAgain    bool          // the agent accepts the reconnection
 		contextTimeout time.Duration // a context deadline before the timeout
-		want           string        // the start of the error's description
-		wantIs         string        // the end of it: the errors it is, if any
+		wantErr        string        // describeEngineError, the dial address masked
+		wantHooks      []string
+		wantRequests   int32 // requests the agent read
 		knownBug       string
 	}{
-		"retries run out":   {acceptAgain: true, want: `error "max retries (1) exceeded"`},
-		"reconnect refused": {want: `error "dial tcp `, wantIs: "(is syscall.ECONNREFUSED)"},
+		"retries run out": {
+			acceptAgain: true, wantErr: `error "max retries (1) exceeded"`,
+			wantHooks: []string{"PreSend", "OnSent", "OnRetry", "PreSend", "OnSent", "OnRetry"}, wantRequests: 2,
+		},
+		"retries run out, tcp4": {
+			transport: "tcp4", acceptAgain: true, wantErr: `error "max retries (1) exceeded"`,
+			wantHooks: []string{"PreSend", "OnSent", "OnRetry", "PreSend", "OnSent", "OnRetry"}, wantRequests: 2,
+		},
+		"reconnect refused": {
+			wantErr:   `error "dial tcp <address>: connect: connection refused" (is syscall.ECONNREFUSED)`,
+			wantHooks: []string{"PreSend", "OnSent"}, wantRequests: 1,
+		},
 		"context deadline": {
 			acceptAgain: true, contextTimeout: 5 * time.Second,
-			want:     `error "recover: runtime error: invalid memory address or nil pointer dereference Stack: ..."`,
+			wantErr:   `error "recover: runtime error: invalid memory address or nil pointer dereference Stack: ..."`,
+			wantHooks: []string{"PreSend", "OnSent", "OnRetry"}, wantRequests: 1,
 			knownBug: "after the reconnect under a context deadline, the engine reads the nil error of the reconnect",
 		},
 	}
+	dialAddress := regexp.MustCompile(`dial tcp \S+: `)
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			ln, err := net.Listen("tcp", "127.0.0.1:0")
 			require.NoError(t, err)
 			port := uint16(ln.Addr().(*net.TCPAddr).Port) //nolint:gosec // a TCP port
+			var requests atomic.Int32
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
@@ -478,7 +517,9 @@ func TestEngineTCPReconnect(t *testing.T) {
 					}
 					go func() {
 						defer conn.Close()
-						_, _ = conn.Read(make([]byte, 2048))
+						if n, _ := conn.Read(make([]byte, 2048)); n > 0 {
+							requests.Add(1)
+						}
 					}()
 				}
 			}()
@@ -493,23 +534,41 @@ func TestEngineTCPReconnect(t *testing.T) {
 				ctx, cancel = context.WithTimeout(ctx, tc.contextTimeout)
 				defer cancel()
 			}
+			transport := tc.transport
+			if transport == "" {
+				transport = "tcp"
+			}
+			var hooks []string
+			hook := func(name string) func(*GoSNMP) { return func(*GoSNMP) { hooks = append(hooks, name) } }
 			x := &GoSNMP{
 				Target:    "127.0.0.1",
 				Port:      port,
-				Transport: "tcp",
+				Transport: transport,
 				Community: "public",
 				Version:   Version2c,
 				Timeout:   10 * time.Second,
 				Retries:   1,
 				Context:   ctx,
+				PreSend:   hook("PreSend"),
+				OnSent:    hook("OnSent"),
+				OnRecv:    hook("OnRecv"),
+				OnRetry:   hook("OnRetry"),
+				OnFinish:  hook("OnFinish"),
 			}
 			require.NoError(t, x.Connect())
 			defer x.Close()
 
 			_, err = x.Get([]string{engineOID})
 			require.Error(t, err)
-			got := describeEngineError(err)
-			assert.True(t, strings.HasPrefix(got, tc.want) && strings.HasSuffix(got, tc.wantIs), "got %s (known bug: %q)", got, tc.knownBug)
+			got := dialAddress.ReplaceAllString(describeEngineError(err), "dial tcp <address>: ")
+			if runtime.GOOS == "windows" && name == "reconnect refused" {
+				// Windows words the refusal differently and reports WSAECONNREFUSED.
+				assert.True(t, strings.HasPrefix(got, `error "dial tcp <address>: connectex:`), "got %s", got)
+			} else {
+				assert.Equal(t, tc.wantErr, got, "known bug: %q", tc.knownBug)
+			}
+			assert.Equal(t, tc.wantHooks, hooks, "hooks")
+			assert.Equal(t, tc.wantRequests, requests.Load(), "requests the agent read")
 		})
 	}
 }
