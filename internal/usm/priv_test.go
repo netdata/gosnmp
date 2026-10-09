@@ -62,3 +62,31 @@ func TestPrivErrors(t *testing.T) {
 	_, err = Priv{Cipher: AESCFB, KeyLen: 16}.Decrypt(key[:15], salt, 0, 0, make([]byte, 9))
 	require.EqualError(t, err, "crypto/aes: invalid key size 15")
 }
+
+// TestPrivDESShortKeyOrSalt pins a known bug and the order of the DES checks:
+// Decrypt rejects a ciphertext that is not whole blocks before it reads the
+// key and salt, and a key shorter than 16 octets or a salt shorter than 8
+// panics in desIV at the first missing octet, in Encrypt and Decrypt alike.
+// The short inputs have no spare capacity, so nothing reads past their length.
+func TestPrivDESShortKeyOrSalt(t *testing.T) {
+	des := Priv{Cipher: DESCBC}
+	key, salt := make([]byte, 16), make([]byte, 8)
+
+	_, err := des.Decrypt(key, salt[:7:7], 0, 0, make([]byte, 9))
+	require.EqualError(t, err, "error decrypting ScopedPDU: not multiple of des block size")
+
+	tests := map[string]struct {
+		key, salt []byte
+		want      string
+	}{
+		"salt of 7 octets": {key: key, salt: salt[:7:7], want: "runtime error: index out of range [7] with length 7"},
+		"key of 12 octets": {key: key[:12:12], salt: salt, want: "runtime error: index out of range [4] with length 4"},
+		"key of 7 octets":  {key: key[:7:7], salt: salt, want: "runtime error: slice bounds out of range [8:7]"},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.PanicsWithError(t, tc.want, func() { _, _ = des.Encrypt(tc.key, tc.salt, 0, 0, make([]byte, 3)) }, "encrypt")
+			assert.PanicsWithError(t, tc.want, func() { _, _ = des.Decrypt(tc.key, tc.salt, 0, 0, make([]byte, 8)) }, "decrypt")
+		})
+	}
+}

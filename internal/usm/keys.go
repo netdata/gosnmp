@@ -14,8 +14,9 @@ import (
 
 // Cache derives localized keys and memoizes their costly first step, the
 // password-to-key hash of a megabyte of the passphrase (RFC 3414 appendix
-// A.2.1), by hash and passphrase. A new cache is on; while it is off it stores
-// nothing and derives every key from scratch.
+// A.2.1), by hash and passphrase. NewCache returns a cache that is on; the zero
+// Cache is off. While off, it stores nothing and derives every key from
+// scratch.
 type Cache struct {
 	// mu guards keys, which is nil while the cache is off.
 	mu   sync.RWMutex
@@ -78,8 +79,9 @@ func (c *Cache) LocalizedKey(h crypto.Hash, passphrase, engineID string) ([]byte
 
 // PrivacyKey returns the key of privacy protocol p: passphrase localized to
 // engineID with hash h, extended once when it is shorter than the cipher key,
-// and cut to the cipher key length. A key still too short, as an empty
-// localized key is, fails with a *ShortKeyError.
+// and cut to the cipher key length. A key still too short fails with a
+// *ShortKeyError. A key length of 0 takes the localized key whole. Known bug:
+// for an empty passphrase that key is empty, and DES panics on it.
 func (c *Cache) PrivacyKey(p Priv, h crypto.Hash, passphrase, engineID string) ([]byte, error) {
 	key, err := c.LocalizedKey(h, passphrase, engineID)
 	if err != nil {

@@ -770,11 +770,16 @@ type testLogger struct{}
 func (testLogger) Print(...any)          {}
 func (testLogger) Printf(string, ...any) {}
 
-// TestUSMPasswordCaching pins that PasswordCaching turns the password-to-key
-// cache on and off, and that the cache does not change the keys: with caching
-// on, off, re-enabled, and with concurrent users. The cache itself is tested
-// in internal/usm.
+// usmCacheOnAtInit is whether the password cache is on before any test
+// toggles it.
+var usmCacheOnAtInit = passwordCache.Enabled()
+
+// TestUSMPasswordCaching pins that the password-to-key cache is on by default
+// and that PasswordCaching turns it on and off, and that the cache does not
+// change the keys: with caching on, off, re-enabled, and with concurrent
+// users. The cache itself is tested in internal/usm.
 func TestUSMPasswordCaching(t *testing.T) {
+	require.True(t, usmCacheOnAtInit, "on by default")
 	t.Cleanup(func() { PasswordCaching(true) })
 
 	keys := func() []string {

@@ -158,6 +158,7 @@ func (h *countingHash) Write(p []byte) (int, error) {
 func TestCacheHashes(t *testing.T) {
 	k := cacheKey{hash: crypto.MD5, password: "codec-count-pass"}
 	c := NewCache()
+	assert.True(t, c.Enabled(), "new")
 	hashes := func() bool {
 		h := &countingHash{Hash: crypto.MD5.New()}
 		_, err := c.passwordToKey(h, k)
