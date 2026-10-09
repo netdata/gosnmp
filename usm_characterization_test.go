@@ -561,8 +561,9 @@ func TestUSMPrivacyPadding(t *testing.T) {
 // of the parameters it is called on, incremented on every call (also for
 // packets without privacy), written to the packet's own parameters; DES
 // prefixes the packet's engine boots (RFC 3414 section 8.1.1.1), the AES
-// protocols use the 64-bit counter (RFC 3826 section 3.1.2.1). The counters
-// start at zero until GoSNMP initializes them with random values.
+// protocols use the 64-bit counter (RFC 3826 section 3.1.2.1); a counter of
+// one family cannot fill the parameters of the other. The counters start at
+// zero until GoSNMP initializes them with random values.
 func TestUSMSalts(t *testing.T) {
 	newPacket := func(sp *UsmSecurityParameters, flags SnmpV3MsgFlags) *SnmpPacket {
 		return &SnmpPacket{Version: Version3, MsgFlags: flags, SecurityModel: UserSecurityModel, SecurityParameters: sp}
@@ -615,6 +616,33 @@ func TestUSMSalts(t *testing.T) {
 			assert.Nil(t, tc.sp.PrivacyParameters, "the counter's own parameters")
 		})
 	}
+	t.Run("the counter's protocol family must match the packet's", func(t *testing.T) {
+		tests := map[string]struct {
+			counter, packet SnmpV3PrivProtocol
+			wantErr         string
+		}{
+			"aes counter, des packet": {
+				counter: AES192, packet: DES,
+				wantErr: "salt provided to usmSetSalt is not the correct type for the DES privacy protocol",
+			},
+			"aes counter, no privacy packet": {
+				counter: AES, packet: NoPriv,
+				wantErr: "salt provided to usmSetSalt is not the correct type for the DES privacy protocol",
+			},
+			"des counter, aes packet": {
+				counter: DES, packet: AES256C,
+				wantErr: "salt provided to usmSetSalt is not the correct type for the AES privacy protocol",
+			},
+		}
+		for name, tc := range tests {
+			t.Run(name, func(t *testing.T) {
+				pktSP := &UsmSecurityParameters{PrivacyProtocol: tc.packet}
+				err := (&UsmSecurityParameters{PrivacyProtocol: tc.counter}).InitPacket(newPacket(pktSP, AuthPriv))
+				assert.EqualError(t, err, tc.wantErr)
+				assert.Nil(t, pktSP.PrivacyParameters)
+			})
+		}
+	})
 	t.Run("GoSNMP starts the counter at a random value", func(t *testing.T) {
 		encode := func() string {
 			x := &GoSNMP{

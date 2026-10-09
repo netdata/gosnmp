@@ -36,7 +36,8 @@ import (
 // SnmpV3AuthProtocol describes the authentication protocol in use by an authenticated SnmpV3 connection.
 type SnmpV3AuthProtocol uint8
 
-// NoAuth, MD5, and SHA are implemented
+// Authentication protocols: HMAC-MD5-96 and HMAC-SHA-96 (RFC 3414) and the
+// HMAC-SHA-2 protocols (RFC 7860).
 const (
 	NoAuth SnmpV3AuthProtocol = 1
 	MD5    SnmpV3AuthProtocol = 2
@@ -130,8 +131,8 @@ var macVarbinds = [][]byte{
 // SnmpV3PrivProtocol is the privacy protocol in use by an private SnmpV3 connection.
 type SnmpV3PrivProtocol uint8
 
-// NoPriv, DES implemented, AES planned
-// Changed: AES192, AES256, AES192C, AES256C added
+// Privacy protocols: CBC-DES (RFC 3414), CFB128-AES-128 (RFC 3826) and AES-192
+// and AES-256 with the Blumenthal or the Reeder key extension.
 const (
 	NoPriv  SnmpV3PrivProtocol = 1
 	DES     SnmpV3PrivProtocol = 2
@@ -146,8 +147,9 @@ const (
 
 // UsmSecurityParameters is an implementation of SnmpV3SecurityParameters for the UserSecurityModel
 type UsmSecurityParameters struct {
-	mu sync.Mutex
-	// localAESSalt must be 64bit aligned to use with atomic operations.
+	// mu guards the salt counters and serializes key initialization, Copy
+	// and Log.
+	mu           sync.Mutex
 	localAESSalt uint64
 	localDESSalt uint32
 
@@ -182,7 +184,8 @@ func (sp *UsmSecurityParameters) setLogger(log Logger) {
 	sp.Logger = log
 }
 
-// Description logs authentication paramater information to the provided GoSNMP Logger
+// Description returns the user name, the engine ID in hex, the protocols and
+// both passphrases. Use SafeString for anything that may be logged.
 func (sp *UsmSecurityParameters) Description() string {
 	var sb strings.Builder
 	sb.WriteString("user=")
@@ -190,7 +193,6 @@ func (sp *UsmSecurityParameters) Description() string {
 
 	sb.WriteString(",engine=(")
 	sb.WriteString(hex.EncodeToString([]byte(sp.AuthoritativeEngineID)))
-	// sb.WriteString(sp.AuthoritativeEngineID)
 	sb.WriteString(")")
 
 	switch sp.AuthenticationProtocol {
@@ -248,7 +250,7 @@ func (sp *UsmSecurityParameters) SafeString() string {
 	)
 }
 
-// Log logs security paramater information to the provided GoSNMP Logger
+// Log logs SafeString to the parameters' Logger.
 func (sp *UsmSecurityParameters) Log() {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
@@ -257,7 +259,8 @@ func (sp *UsmSecurityParameters) Log() {
 	}
 }
 
-// Copy method for UsmSecurityParameters used to copy a SnmpV3SecurityParameters without knowing it's implementation
+// Copy returns a copy of the parameters, the salt counters included. The key
+// and salt slices are shared with the original, not copied.
 func (sp *UsmSecurityParameters) Copy() SnmpV3SecurityParameters {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
@@ -304,10 +307,10 @@ func (sp *UsmSecurityParameters) initSecurityKeysNoLock() error {
 		}
 	}
 	if sp.PrivacyProtocol > NoPriv && len(sp.PrivacyKey) == 0 {
+		// The AES protocols cut or extend the localized key to the cipher key
+		// length; DES uses it as is (the DES key, then the pre-IV).
 		switch sp.PrivacyProtocol {
-		// Changed: The Output of SHA1 is a 20 octets array, therefore for AES128 (16 octets) either key extension algorithm can be used.
 		case AES, AES192, AES256, AES192C, AES256C:
-			// Use abstract AES key localization algorithms.
 			sp.PrivacyKey, err = genlocalPrivKey(sp.PrivacyProtocol, sp.AuthenticationProtocol,
 				sp.PrivacyPassphrase,
 				sp.AuthoritativeEngineID)
@@ -390,7 +393,12 @@ func (sp *UsmSecurityParameters) validate(flags SnmpV3MsgFlags) error {
 	return nil
 }
 
+// init sets the logger and seeds the salt counter of the privacy protocol with
+// random bits.
 func (sp *UsmSecurityParameters) init(log Logger) error {
+	sp.mu.Lock()
+	defer sp.mu.Unlock()
+
 	var err error
 
 	sp.Logger = log
@@ -529,7 +537,6 @@ func cacheKey(authProtocol SnmpV3AuthProtocol, passphrase string) string {
 // https://tools.ietf.org/html/draft-reeder-snmpv3-usm-3dese
 // Many vendors, including Cisco, use the 3DES key extension algorithm to extend the privacy keys that are too short when using AES,AES192 and AES256.
 // Previously implemented in net-snmp and pysnmp libraries.
-// Tested for AES128 and AES256
 func extendKeyReeder(authProtocol SnmpV3AuthProtocol, password, engineID string) ([]byte, error) {
 	var key []byte
 	var err error
@@ -548,7 +555,6 @@ func extendKeyReeder(authProtocol SnmpV3AuthProtocol, password, engineID string)
 // https://tools.ietf.org/html/draft-blumenthal-aes-usm-04#page-7
 // Not many vendors use this algorithm.
 // Previously implemented in the net-snmp and pysnmp libraries.
-// TODO: Not tested
 func extendKeyBlumenthal(authProtocol SnmpV3AuthProtocol, password, engineID string) ([]byte, error) {
 	var key []byte
 	var err error
@@ -563,7 +569,8 @@ func extendKeyBlumenthal(authProtocol SnmpV3AuthProtocol, password, engineID str
 	return append(key, newkey.Sum(nil)...), err
 }
 
-// Changed: New function to calculate the Privacy Key for abstract AES
+// genlocalPrivKey derives the key of an AES privacy protocol: the localized
+// key, extended as the protocol asks, cut to the cipher key length.
 func genlocalPrivKey(privProtocol SnmpV3PrivProtocol, authProtocol SnmpV3AuthProtocol, password, engineID string) ([]byte, error) {
 	var keylen int
 	var localPrivKey []byte
@@ -613,58 +620,59 @@ func genlocalkey(authProtocol SnmpV3AuthProtocol, passphrase, engineID string) (
 	return secretKey, nil
 }
 
-// http://tools.ietf.org/html/rfc2574#section-8.1.1.1
-// localDESSalt needs to be incremented on every packet.
-func (sp *UsmSecurityParameters) usmAllocateNewSalt() any {
+// usmAllocateNewSalt increments the salt counter of the privacy protocol and
+// returns its new value: the 64-bit AES counter (isAES, RFC 3826 section
+// 3.1.2.1) or the 32-bit DES counter (RFC 3414 section 8.1.1.1).
+func (sp *UsmSecurityParameters) usmAllocateNewSalt() (salt uint64, isAES bool) {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
-	var newSalt any
 
 	switch sp.PrivacyProtocol {
 	case AES, AES192, AES256, AES192C, AES256C:
-		newSalt = atomic.AddUint64(&sp.localAESSalt, 1)
+		sp.localAESSalt++
+		return sp.localAESSalt, true
 	default:
-		newSalt = atomic.AddUint32(&sp.localDESSalt, 1)
+		sp.localDESSalt++
+		return uint64(sp.localDESSalt), false
 	}
-	return newSalt
 }
 
-func (sp *UsmSecurityParameters) usmSetSalt(newSalt any) error {
+// usmSetSalt sets msgPrivacyParameters from a salt counter value: the AES
+// counter, or the engine boots followed by the DES counter. The counter must
+// be of the family of the parameters' own privacy protocol.
+func (sp *UsmSecurityParameters) usmSetSalt(salt uint64, isAES bool) error {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
 	switch sp.PrivacyProtocol {
 	case AES, AES192, AES256, AES192C, AES256C:
-		aesSalt, ok := newSalt.(uint64)
-		if !ok {
+		if !isAES {
 			return fmt.Errorf("salt provided to usmSetSalt is not the correct type for the AES privacy protocol")
 		}
-		salt := make([]byte, 8)
-		binary.BigEndian.PutUint64(salt, aesSalt)
-		sp.PrivacyParameters = salt
+		params := make([]byte, 8)
+		binary.BigEndian.PutUint64(params, salt)
+		sp.PrivacyParameters = params
 	default:
-		desSalt, ok := newSalt.(uint32)
-		if !ok {
+		if isAES {
 			return fmt.Errorf("salt provided to usmSetSalt is not the correct type for the DES privacy protocol")
 		}
-		salt := make([]byte, 8)
-		binary.BigEndian.PutUint32(salt, sp.AuthoritativeEngineBoots)
-		binary.BigEndian.PutUint32(salt[4:], desSalt)
-		sp.PrivacyParameters = salt
+		params := make([]byte, 8)
+		binary.BigEndian.PutUint32(params, sp.AuthoritativeEngineBoots)
+		binary.BigEndian.PutUint32(params[4:], uint32(salt)) //nolint:gosec // the DES counter is 32 bits wide
+		sp.PrivacyParameters = params
 	}
 	return nil
 }
 
-// InitPacket ensures the enc salt is incremented for packets marked for AuthPriv
+// InitPacket advances the salt counter, for every packet, and sets the
+// packet's msgPrivacyParameters from it when the packet asks for privacy.
 func (sp *UsmSecurityParameters) InitPacket(packet *SnmpPacket) error {
-	// http://tools.ietf.org/html/rfc2574#section-8.1.1.1
-	// localDESSalt needs to be incremented on every packet.
-	newSalt := sp.usmAllocateNewSalt()
+	salt, isAES := sp.usmAllocateNewSalt()
 	if packet.MsgFlags&AuthPriv > AuthNoPriv {
 		s, err := castUsmSecParams(packet.SecurityParameters)
 		if err != nil {
 			return err
 		}
-		return s.usmSetSalt(newSalt)
+		return s.usmSetSalt(salt, isAES)
 	}
 	return nil
 }
@@ -817,7 +825,6 @@ func (sp *UsmSecurityParameters) isAuthentic(packetBytes []byte, packet *SnmpPac
 		return false, nil
 	}
 
-	// TODO: investigate call chain to determine if this is really the best spot for this
 	if msgDigest, err = calcPacketDigest(packetBytes, packetSecParams); err != nil {
 		return false, err
 	}
@@ -834,7 +841,6 @@ func (sp *UsmSecurityParameters) encryptPacket(scopedPdu []byte) ([]byte, error)
 		binary.BigEndian.PutUint32(iv[:], sp.AuthoritativeEngineBoots)
 		binary.BigEndian.PutUint32(iv[4:], sp.AuthoritativeEngineTime)
 		copy(iv[8:], sp.PrivacyParameters)
-		// aes.NewCipher(sp.PrivacyKey[:16]) changed to aes.NewCipher(sp.PrivacyKey)
 		block, err := aes.NewCipher(sp.PrivacyKey)
 		if err != nil {
 			return nil, err
