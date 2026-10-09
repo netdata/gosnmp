@@ -553,3 +553,30 @@ func TestUSMFIPS140OnlyDigest(t *testing.T) {
 		})
 	}
 }
+
+// TestUSMShortPrivacyKey checks the error and the empty key InitSecurityKeys
+// leaves when the privacy key stays shorter than the cipher key, as it does
+// for an empty privacy passphrase.
+func TestUSMShortPrivacyKey(t *testing.T) {
+	tests := map[string]struct {
+		auth    SnmpV3AuthProtocol
+		priv    SnmpV3PrivProtocol
+		wantErr string
+	}{
+		"no extension": {auth: MD5, priv: AES, wantErr: "genlocalPrivKey: privProtocol: AES len(localPrivKey): 0, keylen: 16"},
+		"Blumenthal":   {auth: SHA, priv: AES256, wantErr: "genlocalPrivKey: privProtocol: AES256 len(localPrivKey): 20, keylen: 32"},
+		"Reeder":       {auth: SHA, priv: AES256C, wantErr: "genlocalPrivKey: privProtocol: AES256C len(localPrivKey): 0, keylen: 32"},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			sp := &UsmSecurityParameters{
+				AuthoritativeEngineID:    usmCharEngineID,
+				AuthenticationProtocol:   tc.auth,
+				AuthenticationPassphrase: "codec-auth-pass",
+				PrivacyProtocol:          tc.priv,
+			}
+			assert.EqualError(t, sp.InitSecurityKeys(), tc.wantErr)
+			assert.Equal(t, []byte{}, sp.PrivacyKey)
+		})
+	}
+}

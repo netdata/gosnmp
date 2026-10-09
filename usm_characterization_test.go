@@ -392,6 +392,13 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 		scoped := tlv(0x30, octets(""), octets(""), craftedPDU(SNMPv2Trap, craftedVBL(craftedVB(intTLV(5)))))
 		return craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(model), usm, scoped)
 	}
+	// wrappedTrap carries the plaintext scoped PDU's fields in an OCTET
+	// STRING, where an encrypted scoped PDU goes.
+	wrappedTrap := func() []byte {
+		usm := craftedUSM(octets(usmCharEngineID), intTLV(0), intTLV(0), octets("codec-user"), octets(""), octets(""))
+		scoped := tlv(byte(OctetString), octets(""), octets(""), craftedPDU(SNMPv2Trap, craftedVBL(craftedVB(intTLV(5)))))
+		return craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), usm, scoped)
+	}
 	encryptedWithModel := func(priv SnmpV3PrivProtocol, model byte, saltLen int) []byte {
 		m := splitV3Message(t, usmCharTrap(t, priv, usmCharSalt(priv), usmCharVarbinds)).withModel(t, model)
 		m.usm[5] = m.usm[5][:saltLen]
@@ -442,6 +449,10 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 		},
 		"noAuthNoPriv flags, encrypted AES, single user": {
 			in: func() []byte { return usmFlagsTrap(t, AES, NoAuthNoPriv, 8) }, priv: AES, want: "rejected",
+		},
+		"noAuthNoPriv flags, OCTET STRING scoped PDU, table without privacy": {
+			in: wrappedTrap, priv: NoPriv, receiver: table,
+			want: "accepted", vars: plainVars, knownBug: "without a privacy protocol an OCTET STRING scoped PDU is read as plaintext",
 		},
 		"privacy-only DES with a 7-octet salt, single user": {
 			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 7) }, priv: DES, want: "rejected",
