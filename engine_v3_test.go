@@ -114,16 +114,16 @@ func withoutEngineID(p *SnmpPacket) {
 	p.ContextEngineID = ""
 }
 
-// changeClientWhenLogging runs a Get with a Logger that applies change to the
-// client the first time it is given msg.
-func changeClientWhenLogging(msg string, change func(x *GoSNMP)) func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+// onLogging runs a Get with a Logger that calls do the first time it is
+// given msg: user code that changes the client or panics inside the engine.
+func onLogging(msg string, do func(x *GoSNMP)) func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
 	return func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
 		done := false
 		x.Logger = NewLogger(funcLogger(func(s string) {
 			if s == msg && !done {
 				done = true
-				change(x)
-				a.tr.addf("Logger changes the client at %q", msg)
+				a.tr.addf("Logger is given %q", msg)
+				do(x)
 			}
 		}))
 		return x.Get([]string{engineOID})
@@ -281,6 +281,12 @@ func v3Scenarios() map[string]v3Scenario {
 			}),
 			knownBug: "a discovery answer without an engine ID is accepted, and the request goes out with an empty engine ID",
 		},
+		"discovery/report-without-engine-id/sha256-des": {
+			user: "codec-sha256-des", script: onRequest(1, agentAnswer{
+				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
+			}),
+			knownBug: "a discovery answer without an engine ID is accepted, and the request goes out with an empty engine ID: with DES the encoder panics for want of a privacy key and send recovers it",
+		},
 		"discovery/report-without-engine-id/sha-aes": {
 			user: "codec-sha-aes", script: onRequest(1, agentAnswer{
 				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
@@ -292,11 +298,40 @@ func v3Scenarios() map[string]v3Scenario {
 		// negotiation.
 		"hooks/logger-changes-security-model": {
 			user: "codec-md5",
-			run:  changeClientWhenLogging("SEND INIT", func(x *GoSNMP) { x.SecurityModel = 2 }),
+			run:  onLogging("SEND INIT", func(x *GoSNMP) { x.SecurityModel = 2 }),
 		},
 		"hooks/logger-changes-version": {
 			user: "codec-md5",
-			run:  changeClientWhenLogging("SEND INIT", func(x *GoSNMP) { x.Version = Version2c }),
+			run:  onLogging("SEND INIT", func(x *GoSNMP) { x.Version = Version2c }),
+		},
+		"hooks/logger-panics-after-failed-retransmission": {
+			user: "codec-noauth", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				switch n {
+				case 2:
+					return agentAnswer{report: usmStatsNotInTimeWindows, why: "not in time window"}, true
+				case 3:
+					return agentAnswer{report: usmStatsUnknownUserNames, why: "unknown user"}, true
+				}
+				return agentAnswer{}, false
+			},
+			run: onLogging("ERROR out-of-time-window retransmit error: unknown username", func(*GoSNMP) {
+				panic("logger failure")
+			}),
+			knownBug: "send recovers a panic into an error, with the result the request had when it panicked",
+		},
+		"hooks/onfinish-changes-version": {
+			user: "codec-md5",
+			run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+				onFinish, calls := x.OnFinish, 0
+				x.OnFinish = func(x *GoSNMP) {
+					onFinish(x)
+					if calls++; calls == 2 {
+						x.Version = Version2c
+						a.tr.addf("hook OnFinish sets the client's version to 2c")
+					}
+				}
+				return x.Get([]string{engineOID})
+			},
 		},
 
 		// send's resynchronization after a notInTimeWindow Report.
@@ -342,6 +377,28 @@ func v3Scenarios() map[string]v3Scenario {
 				return agentAnswer{}, false
 			},
 			knownBug: "the retransmission's error is replaced by ErrNotInTimeWindow",
+		},
+		"resync/report-for-other-request-id": {
+			user: "codec-md5", script: onRequest(2, agentAnswer{
+				report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "not in time window, for another request ID",
+				edit: func(p *SnmpPacket) { p.RequestID += 100 },
+			}),
+			knownBug: "a Report is mapped without checking its msgID or request ID",
+		},
+		"resync/retransmission-answered-by-authenticated-report": {
+			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				switch n {
+				case 2:
+					return agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "not in time window"}, true
+				case 3:
+					return agentAnswer{
+						report: snmpUnknownContexts, level: AuthNoPriv, why: "unknown context, a later engine time",
+						edit: func(p *SnmpPacket) { p.SecurityParameters.usm().AuthoritativeEngineTime += 7 },
+					}, true
+				}
+				return agentAnswer{}, false
+			},
+			knownBug: "the retransmission's error is replaced by ErrNotInTimeWindow, and the engine boots and time of its answer are not stored",
 		},
 		"resync/retransmission-answer-time": {
 			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
