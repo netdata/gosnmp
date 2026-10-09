@@ -819,7 +819,9 @@ func (sp *UsmSecurityParameters) authenticate(packet []byte) error {
 	return nil
 }
 
-// determine whether a message is authentic
+// isAuthentic reports whether the message is from the user of sp and carries
+// the digest computed with the decoded message's parameters, which need an
+// authentication protocol.
 func (sp *UsmSecurityParameters) isAuthentic(packetBytes []byte, packet *SnmpPacket) (bool, error) {
 	var msgDigest []byte
 	var err error
@@ -829,6 +831,9 @@ func (sp *UsmSecurityParameters) isAuthentic(packetBytes []byte, packet *SnmpPac
 	// Verify the username
 	if packetSecParams.UserName != sp.UserName {
 		return false, nil
+	}
+	if packetSecParams.AuthenticationProtocol <= NoAuth {
+		return false, errAuthProtocolRequired
 	}
 
 	if msgDigest, err = calcPacketDigest(packetBytes, packetSecParams); err != nil {

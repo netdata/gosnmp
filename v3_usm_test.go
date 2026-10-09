@@ -5,6 +5,7 @@
 package gosnmp
 
 import (
+	"bytes"
 	"encoding/hex"
 	"io"
 	"log"
@@ -443,6 +444,62 @@ func TestUSMEncodeSecurityLevel(t *testing.T) {
 				assert.NotEmpty(t, msg)
 				return
 			}
+			assert.EqualError(t, err, tc.wantErr)
+		})
+	}
+}
+
+// TestUSMReceiverAuthenticationWithoutProtocol checks that a single-user
+// UnmarshalTrap receiver whose flags require authentication, but whose
+// parameters have no authentication protocol, rejects a trap from its user
+// instead of panicking or accepting it unauthenticated.
+func TestUSMReceiverAuthenticationWithoutProtocol(t *testing.T) {
+	sender := &SnmpPacket{
+		Version:            Version3,
+		MsgFlags:           NoAuthNoPriv,
+		SecurityModel:      UserSecurityModel,
+		SecurityParameters: &UsmSecurityParameters{UserName: "codec-user", AuthoritativeEngineID: usmCharEngineID},
+		PDUType:            SNMPv2Trap,
+		Variables:          usmCharVarbinds,
+	}
+	data, err := sender.MarshalMsg()
+	require.NoError(t, err)
+
+	tests := map[string]struct {
+		receiver *UsmSecurityParameters
+		wantErr  string
+	}{
+		"unset protocol": {
+			receiver: &UsmSecurityParameters{UserName: "codec-user"},
+			wantErr:  "securityParameters.AuthenticationProtocol is required",
+		},
+		"NoAuth": {
+			receiver: &UsmSecurityParameters{UserName: "codec-user", AuthenticationProtocol: NoAuth},
+			wantErr:  "securityParameters.AuthenticationProtocol is required",
+		},
+		"authentication protocol": {
+			receiver: &UsmSecurityParameters{
+				UserName:                 "codec-user",
+				AuthenticationProtocol:   SHA,
+				AuthenticationPassphrase: "codec-auth-pass",
+			},
+			wantErr: "incoming packet is not authentic, discarding",
+		},
+		"other user": {
+			receiver: &UsmSecurityParameters{UserName: "other-user"},
+			wantErr:  "incoming packet is not authentic, discarding",
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			x := &GoSNMP{
+				Version:            Version3,
+				MsgFlags:           AuthNoPriv,
+				SecurityModel:      UserSecurityModel,
+				SecurityParameters: tc.receiver,
+			}
+			var err error
+			require.NotPanics(t, func() { _, err = x.UnmarshalTrap(bytes.Clone(data), false) })
 			assert.EqualError(t, err, tc.wantErr)
 		})
 	}
