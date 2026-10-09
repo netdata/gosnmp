@@ -274,9 +274,13 @@ func decodeMessage(b []byte) (*SnmpPacket, error) {
 	return p, nil
 }
 
-// describeMessage summarizes a v1/v2c message for a transcript, or describes
-// why it does not decode.
+// describeMessage summarizes a message for a transcript, or describes why it
+// does not decode. An SNMPv3 message is described by its header, and by its
+// scoped PDU when that is not encrypted.
 func describeMessage(b []byte) string {
+	if version, _, err := unmarshalVersionFromHeader(b, new(SnmpPacket)); err == nil && version == Version3 {
+		return describeV3Message(b)
+	}
 	p, err := decodeMessage(b)
 	if err != nil {
 		return fmt.Sprintf("%d octets, not decodable (%v)", len(b), err)
@@ -291,6 +295,21 @@ func describeMessage(b []byte) string {
 	}
 	fmt.Fprintf(&sb, " %s", describeVarbinds(p.Variables))
 	return sb.String()
+}
+
+func describeV3Message(b []byte) string {
+	m, err := parseV3Message(b)
+	if err != nil {
+		return fmt.Sprintf("%d octets, SNMPv3, not decodable (%v)", len(b), err)
+	}
+	req, err := readAgentRequest(m)
+	if err != nil {
+		return fmt.Sprintf("%d octets, SNMPv3, not decodable (%v)", len(b), err)
+	}
+	if req.pdu == nil {
+		return "3 " + describeAgentRequest(req) + " encrypted"
+	}
+	return "3 " + describeAgentRequest(req)
 }
 
 func describeVarbinds(vbs []SnmpPDU) string {
@@ -396,6 +415,17 @@ func describeEngineResult(p *SnmpPacket, err error) string {
 		sb.WriteString("packet nil")
 	case p.PDUType == 0 && p.Version == 0 && len(p.Variables) == 0:
 		sb.WriteString("packet empty")
+	case p.Version == Version3:
+		fmt.Fprintf(&sb, "packet 3 msgID=%d %s %v id=%d context=%q/%q", p.MsgID, describeFlags(p.MsgFlags), p.PDUType,
+			p.RequestID, p.ContextEngineID, p.ContextName)
+		if usp := usmOf(p.SecurityParameters); usp != nil {
+			fmt.Fprintf(&sb, " usm=%q/%q/%d/%d", usp.UserName, usp.AuthoritativeEngineID, usp.AuthoritativeEngineBoots,
+				usp.AuthoritativeEngineTime)
+		}
+		if p.Error != NoError || p.ErrorIndex != 0 {
+			fmt.Fprintf(&sb, " error=%v index=%d", p.Error, p.ErrorIndex)
+		}
+		fmt.Fprintf(&sb, " %s", describeVarbinds(p.Variables))
 	default:
 		fmt.Fprintf(&sb, "packet %v %q %v id=%d", p.Version, p.Community, p.PDUType, p.RequestID)
 		if p.Error != NoError || p.ErrorIndex != 0 {
