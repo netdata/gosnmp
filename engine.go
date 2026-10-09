@@ -14,6 +14,92 @@ import (
 	"time"
 )
 
+// send runs a request: for SNMPv3 it first discovers the agent's engine or
+// derives the keys, then sends the request, and sends it once more when the
+// answer is a Report that resynchronizes the client with the agent's engine.
+// Every result it returns passes through its named results, which the
+// recover below returns when a panic, user code's included, ends the request.
+func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
+	// Known bug: a panic becomes the request's error, with the stacks of all
+	// goroutines in its text (8 KB, NUL-padded), and the result the request had
+	// when it panicked.
+	defer func() {
+		if e := recover(); e != nil {
+			buf := make([]byte, 8192)
+			runtime.Stack(buf, true)
+
+			err = fmt.Errorf("recover: %v Stack:%v", e, string(buf))
+		}
+	}()
+
+	if x.Conn == nil {
+		return nil, fmt.Errorf("&GoSNMP.Conn is missing. Provide a connection or use Connect()")
+	}
+	if x.Retries < 0 {
+		x.Retries = 0
+	}
+	if x.Logger.enabled() {
+		x.Logger.Print("SEND INIT")
+	}
+	if packetOut.Version == Version3 {
+		if x.Logger.enabled() {
+			x.Logger.Print("SEND INIT NEGOTIATE SECURITY PARAMS")
+		}
+		if err = x.negotiateInitialSecurityParameters(packetOut); err != nil {
+			return &SnmpPacket{}, err
+		}
+		if x.Logger.enabled() {
+			x.Logger.Print("SEND END NEGOTIATE SECURITY PARAMS")
+		}
+	}
+
+	result, err = x.sendOneRequest(packetOut)
+	if err != nil {
+		// Known bug: the engine boots and time of an authenticated error Report
+		// are not stored.
+		x.Logger.Printf("SEND Error on the first Request Error: %s", err)
+		return result, err
+	}
+	if result.Version != Version3 {
+		return result, nil
+	}
+
+	if x.Logger.enabled() {
+		x.Logger.Printf("SEND STORE SECURITY PARAMS from result: %s", result.SecurityParameters.SafeString())
+	}
+	err = x.storeSecurityParameters(result)
+	kind, ok := reportKindOf(result)
+	if !ok || !kind.resync {
+		// Known bug: a reply with another security model is returned together
+		// with the store error.
+		return result, err
+	}
+
+	// Resynchronize: send the request again with the engine ID or time the
+	// client stored from the Report. The retransmission's result goes into the
+	// named result, which a recovered panic returns. Known bugs: the store
+	// error is dropped, so a Report with another security model is acted on
+	// instead of being discarded; a failed retransmission returns the first
+	// Report's error instead of its own; a resync Report answering the
+	// retransmission is returned with a nil error; the engine boots and time of
+	// the answer to the retransmission are not stored.
+	if x.Logger.enabled() {
+		x.Logger.Print("WARNING detected " + kind.name + " ERROR")
+	}
+	if err = x.updatePktSecurityParameters(packetOut); err != nil {
+		x.Logger.Printf("ERROR updatePktSecurityParameters error: %s", err)
+		return nil, err
+	}
+	result, err = x.sendOneRequest(packetOut)
+	if err != nil {
+		if x.Logger.enabled() {
+			x.Logger.Printf("ERROR "+kind.name+" retransmit error: %s", err)
+		}
+		return result, kind.err
+	}
+	return result, nil
+}
+
 // exchange is one request on its way through the attempts sendOneRequest
 // makes.
 type exchange struct {
@@ -254,123 +340,67 @@ func (e *exchange) decode(resp []byte) (*SnmpPacket, error) {
 }
 
 // answers reports whether reply answers the request, and with which error: a
-// reply answers with the current attempt's request ID or one of earlierIDs.
-// Known bugs: nothing else of the reply is compared with the request (its
-// version, PDU type and msgID, nor the security model, level, user, engine ID
-// and context of RFC 3412 section 7.2 step 12 b); an empty reply without an
-// error status and a Report answer before their request ID is checked; request
-// ID 0 answers any request; a Report counts only with exactly one varbind, so
-// one with more is returned as a successful reply.
+// reply answers with the current attempt's request ID or one of earlierIDs;
+// a Report gives its kind's error, none for a resync Report. Known bugs:
+// nothing else of the reply is compared with the request (its version, PDU
+// type and msgID, nor the security model, level, user, engine ID and context
+// of RFC 3412 section 7.2 step 12 b); an empty reply without an error status
+// and a Report answer before their request ID is checked; request ID 0 answers
+// any request.
 func (e *exchange) answers(reply *SnmpPacket, earlierIDs []uint32) (bool, error) {
 	if reply.Error == NoError && len(reply.Variables) < 1 {
 		e.x.Logger.Printf("ERROR on UnmarshalPayload on v3: Empty result")
 		return true, nil
 	}
-	if reply.Version == Version3 && reply.PDUType == Report && len(reply.Variables) == 1 {
-		err, ok := reportErrors[reply.Variables[0].Name]
-		if !ok {
-			err = ErrUnknownReportPDU
+	if kind, ok := reportKindOf(reply); ok {
+		if kind.resync {
+			return true, nil
 		}
-		return true, err
+		return true, kind.err
 	}
 	id := reply.RequestID
 	return id == e.packet.RequestID || slices.Contains(earlierIDs, id) || id == 0, nil
 }
 
-// reportErrors maps the counter an SNMPv3 Report carries (the USM counters of
-// RFC 3414, the message processing counters of RFC 3412) to the request's
-// error. The agent puts the counter of the error it detected in the Report's
-// varbinds; the Report's request ID is the request's, or 0 when the agent
-// could not read it. Reports about the time window and an unknown engine ID
-// give no error: the caller takes the engine parameters they carry, and send,
-// when it is the caller, sends the request again.
-var reportErrors = map[string]error{ //nolint:gochecknoglobals // a read-only table
-	usmStatsUnsupportedSecLevels: ErrUnknownSecurityLevel,
-	usmStatsNotInTimeWindows:     nil,
-	usmStatsUnknownUserNames:     ErrUnknownUsername,
-	usmStatsUnknownEngineIDs:     nil,
-	usmStatsWrongDigests:         ErrWrongDigest,
-	usmStatsDecryptionErrors:     ErrDecryption,
-	snmpUnknownSecurityModels:    ErrUnknownSecurityModels,
-	snmpInvalidMsgs:              ErrInvalidMsgs,
-	snmpUnknownPDUHandlers:       ErrUnknownPDUHandlers,
+// reportKind is what the counter an SNMPv3 Report carries means to a request.
+type reportKind struct {
+	// err is the request's error.
+	err error
+	// resync marks the Reports that say the request's engine ID or time is
+	// out of date: they answer without err, the caller takes the engine
+	// parameters they carry, and send, when it is the caller, sends the request
+	// again and returns err only if that fails.
+	resync bool
+	// name names a resync Report in log lines.
+	name string
 }
 
-// generic "sender" that negotiate any version of snmp request
-func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
-	defer func() {
-		if e := recover(); e != nil {
-			buf := make([]byte, 8192)
-			runtime.Stack(buf, true)
+// reportKinds are the counters of the USM (RFC 3414) and of message processing
+// (RFC 3412) a Report can carry.
+var reportKinds = map[string]reportKind{ //nolint:gochecknoglobals // a read-only table
+	usmStatsUnsupportedSecLevels: {err: ErrUnknownSecurityLevel},
+	usmStatsNotInTimeWindows:     {err: ErrNotInTimeWindow, resync: true, name: "out-of-time-window"},
+	usmStatsUnknownUserNames:     {err: ErrUnknownUsername},
+	usmStatsUnknownEngineIDs:     {err: ErrUnknownEngineID, resync: true, name: "unknown engine id"},
+	usmStatsWrongDigests:         {err: ErrWrongDigest},
+	usmStatsDecryptionErrors:     {err: ErrDecryption},
+	snmpUnknownSecurityModels:    {err: ErrUnknownSecurityModels},
+	snmpInvalidMsgs:              {err: ErrInvalidMsgs},
+	snmpUnknownPDUHandlers:       {err: ErrUnknownPDUHandlers},
+}
 
-			err = fmt.Errorf("recover: %v Stack:%v", e, string(buf))
-		}
-	}()
-
-	if x.Conn == nil {
-		return nil, fmt.Errorf("&GoSNMP.Conn is missing. Provide a connection or use Connect()")
+// reportKindOf returns the kind of p as a Report, and false when p is not one.
+// The agent puts the counter of the error it detected in a Report's varbinds;
+// the Report's request ID is the request's, or 0 when the agent could not read
+// it. An unknown counter gives ErrUnknownReportPDU. Known bug: a Report counts
+// only with exactly one varbind, so one with more is treated as a reply and
+// matched by its request ID.
+func reportKindOf(p *SnmpPacket) (reportKind, bool) {
+	if p.Version != Version3 || p.PDUType != Report || len(p.Variables) != 1 {
+		return reportKind{}, false
 	}
-
-	if x.Retries < 0 {
-		x.Retries = 0
+	if kind, ok := reportKinds[p.Variables[0].Name]; ok {
+		return kind, true
 	}
-	if x.Logger.enabled() {
-		x.Logger.Print("SEND INIT")
-	}
-	if packetOut.Version == Version3 {
-		if x.Logger.enabled() {
-			x.Logger.Print("SEND INIT NEGOTIATE SECURITY PARAMS")
-		}
-		if err = x.negotiateInitialSecurityParameters(packetOut); err != nil {
-			return &SnmpPacket{}, err
-		}
-		if x.Logger.enabled() {
-			x.Logger.Print("SEND END NEGOTIATE SECURITY PARAMS")
-		}
-	}
-
-	// perform request
-	result, err = x.sendOneRequest(packetOut)
-	if err != nil {
-		x.Logger.Printf("SEND Error on the first Request Error: %s", err)
-		return result, err
-	}
-
-	if result.Version == Version3 {
-		if x.Logger.enabled() {
-			x.Logger.Printf("SEND STORE SECURITY PARAMS from result: %s", result.SecurityParameters.SafeString())
-		}
-		err = x.storeSecurityParameters(result)
-
-		if result.PDUType == Report && len(result.Variables) == 1 {
-			switch result.Variables[0].Name {
-			case usmStatsNotInTimeWindows:
-				x.Logger.Print("WARNING detected out-of-time-window ERROR")
-				if err = x.updatePktSecurityParameters(packetOut); err != nil {
-					x.Logger.Printf("ERROR updatePktSecurityParameters error: %s", err)
-					return nil, err
-				}
-				// retransmit with updated auth engine params
-				result, err = x.sendOneRequest(packetOut)
-				if err != nil {
-					x.Logger.Printf("ERROR out-of-time-window retransmit error: %s", err)
-					return result, ErrNotInTimeWindow
-				}
-
-			case usmStatsUnknownEngineIDs:
-				x.Logger.Print("WARNING detected unknown engine id ERROR")
-				if err = x.updatePktSecurityParameters(packetOut); err != nil {
-					x.Logger.Printf("ERROR updatePktSecurityParameters error: %s", err)
-					return nil, err
-				}
-				// retransmit with updated engine id
-				result, err = x.sendOneRequest(packetOut)
-				if err != nil {
-					x.Logger.Printf("ERROR unknown engine id retransmit error: %s", err)
-					return result, ErrUnknownEngineID
-				}
-			}
-		}
-	}
-	return result, err
+	return reportKind{err: ErrUnknownReportPDU}, true
 }
