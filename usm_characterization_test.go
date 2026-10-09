@@ -6,6 +6,7 @@ package gosnmp
 
 import (
 	"bytes"
+	"crypto"
 	"fmt"
 	"math"
 	"strings"
@@ -609,6 +610,16 @@ func TestUSMSalts(t *testing.T) {
 			flags: []SnmpV3MsgFlags{AuthPriv},
 			want:  []string{"0000000900000001"},
 		},
+		"unset privacy protocol uses the DES layout": {
+			sp:    &UsmSecurityParameters{},
+			flags: []SnmpV3MsgFlags{AuthPriv},
+			want:  []string{"0000000900000001"},
+		},
+		"unknown privacy protocol uses the DES layout": {
+			sp:    &UsmSecurityParameters{PrivacyProtocol: SnmpV3PrivProtocol(8)},
+			flags: []SnmpV3MsgFlags{AuthPriv},
+			want:  []string{"0000000900000001"},
+		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -668,6 +679,15 @@ func TestUSMSalts(t *testing.T) {
 				}
 				assert.EqualError(t, err, tc.wantErr)
 			})
+		}
+	})
+	t.Run("init seeds the counter of the AES or the DES protocols only", func(t *testing.T) {
+		for _, priv := range []SnmpV3PrivProtocol{0, NoPriv, DES, AES, AES192, AES256, AES192C, AES256C, 8} {
+			sp := &UsmSecurityParameters{PrivacyProtocol: priv}
+			require.NoError(t, sp.init(Logger{}))
+			aes := priv >= AES && priv <= AES256C
+			assert.Equal(t, aes, sp.localAESSalt != 0, "%v AES counter", priv)
+			assert.Equal(t, priv == DES, sp.localDESSalt != 0, "%v DES counter", priv)
 		}
 	})
 	t.Run("GoSNMP starts the counter at a random value", func(t *testing.T) {
@@ -911,5 +931,29 @@ func TestUSMStrings(t *testing.T) {
 			assert.Contains(t, s, ",auth="+strings.ToLower(a.String())+",", "%v", a)
 			assert.Contains(t, s, ",priv="+p.String()+",", "%v", p)
 		}
+	}
+	// Unset and unknown protocols have no name.
+	for _, v := range []uint8{0, 8} {
+		s := (&UsmSecurityParameters{AuthenticationProtocol: SnmpV3AuthProtocol(v), PrivacyProtocol: SnmpV3PrivProtocol(v)}).Description()
+		assert.Equal(t, "user=,engine=(),authPass=,privPass=", s, "protocol value %d", v)
+	}
+}
+
+// TestUSMHashType pins the hash of every authentication protocol value: MD5
+// for NoAuth, unset and unknown values.
+func TestUSMHashType(t *testing.T) {
+	want := map[SnmpV3AuthProtocol]crypto.Hash{
+		0:      crypto.MD5,
+		NoAuth: crypto.MD5,
+		MD5:    crypto.MD5,
+		SHA:    crypto.SHA1,
+		SHA224: crypto.SHA224,
+		SHA256: crypto.SHA256,
+		SHA384: crypto.SHA384,
+		SHA512: crypto.SHA512,
+		8:      crypto.MD5,
+	}
+	for auth, hash := range want {
+		assert.Equal(t, hash, auth.HashType(), "%v", auth)
 	}
 }

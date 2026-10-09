@@ -499,6 +499,22 @@ func encodeCases(t *testing.T) []encodeCase {
 		{"v3/auth-no-priv/sha256", marshal(v3(AuthNoPriv, GetRequest, codecUSM(t, SHA256, NoPriv)))},
 		{"v3/auth-no-priv/sha384", marshal(v3(AuthNoPriv, GetRequest, codecUSM(t, SHA384, NoPriv)))},
 		{"v3/auth-no-priv/sha512", marshal(v3(AuthNoPriv, GetRequest, codecUSM(t, SHA512, NoPriv)))},
+		// Authentication keys longer than the 64-octet HMAC block: MD5 and SHA-1
+		// cut them to the block, the SHA-2 protocols hash them.
+		{"v3/auth-no-priv/md5/key-80", marshal(edit(v3(AuthNoPriv, GetRequest, codecUSM(t, MD5, NoPriv)), func(p *SnmpPacket) {
+			p.SecurityParameters.(*UsmSecurityParameters).SecretKey = []byte(strings.Repeat("k", 80))
+		}))},
+		{"v3/auth-no-priv/sha/key-80", marshal(edit(v3(AuthNoPriv, GetRequest, codecUSM(t, SHA, NoPriv)), func(p *SnmpPacket) {
+			p.SecurityParameters.(*UsmSecurityParameters).SecretKey = []byte(strings.Repeat("k", 80))
+		}))},
+		{"v3/auth-no-priv/sha256/key-80", marshal(edit(v3(AuthNoPriv, GetRequest, codecUSM(t, SHA256, NoPriv)), func(p *SnmpPacket) {
+			p.SecurityParameters.(*UsmSecurityParameters).SecretKey = []byte(strings.Repeat("k", 80))
+		}))},
+		// The digest goes to the first occurrence of the placeholder bytes in
+		// the message, here inside the user name.
+		{"v3/auth-no-priv/md5/placeholder-in-user-name", marshal(edit(v3(AuthNoPriv, GetRequest, codecUSM(t, MD5, NoPriv)), func(p *SnmpPacket) {
+			p.SecurityParameters.(*UsmSecurityParameters).UserName = "\x04\x0c" + strings.Repeat("\x00", 12)
+		}))},
 		{"v3/auth-no-priv/flags-without-keys", marshal(v3(AuthNoPriv, GetRequest, &UsmSecurityParameters{UserName: "codec-user"}))},
 		{"v3/auth-priv/sha-aes", marshal(v3(AuthPriv, GetRequest, withPrivSalt(codecUSM(t, SHA, AES))))},
 		{"v3/auth-priv/sha-aes192", marshal(v3(AuthPriv, GetRequest, withPrivSalt(codecUSM(t, SHA, AES192))))},
