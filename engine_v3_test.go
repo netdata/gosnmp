@@ -660,3 +660,33 @@ func describeKeys(sp *UsmSecurityParameters) string {
 	}
 	return "unknown"
 }
+
+// BenchmarkGetV3 measures one SNMPv3 authNoPriv Get through send, after
+// discovery, against the fake agent; the agent's checks and answer are
+// included.
+func BenchmarkGetV3(b *testing.B) {
+	agent := newFakeV3Agent(nil, agentCreds, sysDescr)
+	c := newFakeTransport(nil, agent.handle)
+	creds := agentCreds["codec-md5"]
+	x := newEngineClientFrom(b, nil, fakePacketTransport{c}, &GoSNMP{
+		Version:       Version3,
+		MsgFlags:      AuthNoPriv,
+		SecurityModel: UserSecurityModel,
+		SecurityParameters: &UsmSecurityParameters{
+			UserName:                 "codec-md5",
+			AuthenticationProtocol:   creds.auth,
+			AuthenticationPassphrase: creds.authPass,
+		},
+		Timeout: time.Second,
+		Retries: 2,
+	})
+	if _, err := x.Get([]string{engineOID}); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := x.Get([]string{engineOID}); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
