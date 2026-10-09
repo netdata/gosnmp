@@ -5,11 +5,13 @@
 package gosnmp
 
 import (
+	"bytes"
 	"encoding/hex"
 	"io"
 	"log"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netdata/gosnmp/internal/ber"
@@ -308,6 +310,197 @@ func TestUnmarshalTruncatedUSMSequence(t *testing.T) {
 				r := ber.NewReader(tt.packet[tt.cursor:])
 				require.Error(t, sp.unmarshal(NoAuthNoPriv, &r))
 			})
+		})
+	}
+}
+
+// TestUSMUnsupportedProtocols checks that protocol values outside the defined
+// sets fail with an error on every path: validation, key derivation,
+// encoding without validation, and decoding with table parameters changed
+// after Add.
+func TestUSMUnsupportedProtocols(t *testing.T) {
+	const (
+		authErr = "securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(8) is not supported"
+		privErr = "securityParameters.PrivacyProtocol SnmpV3PrivProtocol(8) is not supported"
+	)
+	params := func(auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol) *UsmSecurityParameters {
+		return &UsmSecurityParameters{
+			UserName:                 "codec-user",
+			AuthoritativeEngineID:    usmCharEngineID,
+			AuthenticationProtocol:   auth,
+			AuthenticationPassphrase: "codec-auth-pass",
+			PrivacyProtocol:          priv,
+			PrivacyPassphrase:        "codec-priv-pass",
+		}
+	}
+
+	tests := map[string]struct {
+		auth    SnmpV3AuthProtocol
+		priv    SnmpV3PrivProtocol
+		flags   SnmpV3MsgFlags
+		wantErr string
+	}{
+		"authentication": {auth: SnmpV3AuthProtocol(8), priv: NoPriv, flags: AuthNoPriv, wantErr: authErr},
+		"privacy":        {auth: SHA, priv: SnmpV3PrivProtocol(8), flags: AuthPriv, wantErr: privErr},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Run("validate", func(t *testing.T) {
+				x := &GoSNMP{
+					Version:            Version3,
+					MsgFlags:           tc.flags,
+					SecurityModel:      UserSecurityModel,
+					SecurityParameters: params(tc.auth, tc.priv),
+				}
+				// Validation runs before decoding, so an empty message reaches it.
+				_, err := x.SnmpDecodePacket(nil)
+				assert.EqualError(t, err, tc.wantErr)
+			})
+			t.Run("keys", func(t *testing.T) {
+				assert.EqualError(t, params(tc.auth, tc.priv).InitSecurityKeys(), tc.wantErr)
+			})
+			t.Run("table", func(t *testing.T) {
+				table := NewSnmpV3SecurityParametersTable(Logger{})
+				assert.EqualError(t, table.Add("codec-user", params(tc.auth, tc.priv)), tc.wantErr)
+			})
+			t.Run("encode", func(t *testing.T) {
+				pkt := &SnmpPacket{
+					Version:            Version3,
+					MsgFlags:           tc.flags,
+					SecurityModel:      UserSecurityModel,
+					SecurityParameters: params(tc.auth, tc.priv),
+					PDUType:            SNMPv2Trap,
+					Variables:          usmCharVarbinds,
+				}
+				var err error
+				require.NotPanics(t, func() { _, err = pkt.MarshalMsg() })
+				assert.EqualError(t, err, tc.wantErr)
+			})
+			t.Run("decode", func(t *testing.T) {
+				data := usmCharTrap(t, AES, usmCharSalt(AES), usmCharVarbinds)
+				sp := params(SHA, AES)
+				table := NewSnmpV3SecurityParametersTable(Logger{})
+				require.NoError(t, table.Add("codec-user", sp))
+				sp.AuthenticationProtocol, sp.PrivacyProtocol = tc.auth, tc.priv
+				x := &GoSNMP{Version: Version3, TrapSecurityParametersTable: table}
+				var err error
+				require.NotPanics(t, func() { _, err = x.UnmarshalTrap(data, true) })
+				assert.EqualError(t, err, "no credentials successfully unmarshaled trap: "+tc.wantErr)
+			})
+		})
+	}
+}
+
+// TestUSMEncodeSecurityLevel checks that encoding fails when the message
+// flags ask for authentication or privacy without a protocol for it, instead
+// of sending a message without the MAC or the encryption its flags claim.
+func TestUSMEncodeSecurityLevel(t *testing.T) {
+	const (
+		authErr = "securityParameters.AuthenticationProtocol is required"
+		privErr = "securityParameters.PrivacyProtocol is required"
+	)
+
+	tests := map[string]struct {
+		flags   SnmpV3MsgFlags
+		auth    SnmpV3AuthProtocol
+		priv    SnmpV3PrivProtocol
+		wantErr string
+	}{
+		"authentication, unset protocol": {flags: AuthNoPriv, wantErr: authErr},
+		"authentication, NoAuth":         {flags: AuthNoPriv, auth: NoAuth, wantErr: authErr},
+		"privacy, unset protocol":        {flags: AuthPriv, auth: SHA, wantErr: privErr},
+		"privacy, NoPriv":                {flags: AuthPriv, auth: SHA, priv: NoPriv, wantErr: privErr},
+		"privacy, no protocol at all":    {flags: AuthPriv, wantErr: authErr},
+		"no authentication, unset":       {flags: NoAuthNoPriv},
+		"authentication":                 {flags: AuthNoPriv, auth: SHA},
+		"privacy":                        {flags: AuthPriv, auth: SHA, priv: AES},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			sp := &UsmSecurityParameters{
+				UserName:                 "codec-user",
+				AuthoritativeEngineID:    usmCharEngineID,
+				AuthenticationProtocol:   tc.auth,
+				AuthenticationPassphrase: "codec-auth-pass",
+				PrivacyProtocol:          tc.priv,
+				PrivacyPassphrase:        "codec-priv-pass",
+			}
+			require.NoError(t, sp.InitSecurityKeys())
+			pkt := &SnmpPacket{
+				Version:            Version3,
+				MsgFlags:           tc.flags,
+				SecurityModel:      UserSecurityModel,
+				SecurityParameters: sp,
+				PDUType:            SNMPv2Trap,
+				Variables:          usmCharVarbinds,
+			}
+			var msg []byte
+			var err error
+			panicked, wroteStdout := observe(func() { msg, err = pkt.MarshalMsg() })
+			require.False(t, panicked)
+			assert.False(t, wroteStdout)
+			if tc.wantErr == "" {
+				assert.NoError(t, err)
+				assert.NotEmpty(t, msg)
+				return
+			}
+			assert.EqualError(t, err, tc.wantErr)
+		})
+	}
+}
+
+// TestUSMReceiverAuthenticationWithoutProtocol checks that a single-user
+// UnmarshalTrap receiver whose flags require authentication, but whose
+// parameters have no authentication protocol, rejects a trap from its user
+// instead of panicking or accepting it unauthenticated.
+func TestUSMReceiverAuthenticationWithoutProtocol(t *testing.T) {
+	sender := &SnmpPacket{
+		Version:            Version3,
+		MsgFlags:           NoAuthNoPriv,
+		SecurityModel:      UserSecurityModel,
+		SecurityParameters: &UsmSecurityParameters{UserName: "codec-user", AuthoritativeEngineID: usmCharEngineID},
+		PDUType:            SNMPv2Trap,
+		Variables:          usmCharVarbinds,
+	}
+	data, err := sender.MarshalMsg()
+	require.NoError(t, err)
+
+	tests := map[string]struct {
+		receiver *UsmSecurityParameters
+		wantErr  string
+	}{
+		"unset protocol": {
+			receiver: &UsmSecurityParameters{UserName: "codec-user"},
+			wantErr:  "securityParameters.AuthenticationProtocol is required",
+		},
+		"NoAuth": {
+			receiver: &UsmSecurityParameters{UserName: "codec-user", AuthenticationProtocol: NoAuth},
+			wantErr:  "securityParameters.AuthenticationProtocol is required",
+		},
+		"authentication protocol": {
+			receiver: &UsmSecurityParameters{
+				UserName:                 "codec-user",
+				AuthenticationProtocol:   SHA,
+				AuthenticationPassphrase: "codec-auth-pass",
+			},
+			wantErr: "incoming packet is not authentic, discarding",
+		},
+		"other user": {
+			receiver: &UsmSecurityParameters{UserName: "other-user"},
+			wantErr:  "incoming packet is not authentic, discarding",
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			x := &GoSNMP{
+				Version:            Version3,
+				MsgFlags:           AuthNoPriv,
+				SecurityModel:      UserSecurityModel,
+				SecurityParameters: tc.receiver,
+			}
+			var err error
+			require.NotPanics(t, func() { _, err = x.UnmarshalTrap(bytes.Clone(data), false) })
+			assert.EqualError(t, err, tc.wantErr)
 		})
 	}
 }

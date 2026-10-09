@@ -37,7 +37,8 @@ import (
 type SnmpV3AuthProtocol uint8
 
 // Authentication protocols: HMAC-MD5-96 and HMAC-SHA-96 (RFC 3414) and the
-// HMAC-SHA-2 protocols (RFC 7860).
+// HMAC-SHA-2 protocols (RFC 7860). The zero value means unset; other values
+// are rejected.
 const (
 	NoAuth SnmpV3AuthProtocol = 1
 	MD5    SnmpV3AuthProtocol = 2
@@ -132,7 +133,8 @@ var macVarbinds = [][]byte{
 type SnmpV3PrivProtocol uint8
 
 // Privacy protocols: CBC-DES (RFC 3414), CFB128-AES-128 (RFC 3826) and AES-192
-// and AES-256 with the Blumenthal or the Reeder key extension.
+// and AES-256 with the Blumenthal or the Reeder key extension. The zero value
+// means unset; other values are rejected.
 const (
 	NoPriv  SnmpV3PrivProtocol = 1
 	DES     SnmpV3PrivProtocol = 2
@@ -284,6 +286,10 @@ func (sp *UsmSecurityParameters) InitSecurityKeys() error {
 }
 
 func (sp *UsmSecurityParameters) initSecurityKeysNoLock() error {
+	if err := sp.checkProtocols(); err != nil {
+		return err
+	}
+
 	var err error
 
 	if sp.AuthenticationProtocol > NoAuth && len(sp.SecretKey) == 0 {
@@ -338,18 +344,51 @@ func (sp *UsmSecurityParameters) setSecurityParameters(in *UsmSecurityParameters
 	return nil
 }
 
+var (
+	errAuthProtocolRequired = errors.New("securityParameters.AuthenticationProtocol is required")
+	errPrivProtocolRequired = errors.New("securityParameters.PrivacyProtocol is required")
+)
+
+// checkProtocols rejects authentication and privacy protocol values outside
+// the defined sets.
+func (sp *UsmSecurityParameters) checkProtocols() error {
+	if sp.AuthenticationProtocol > SHA512 {
+		return fmt.Errorf("securityParameters.AuthenticationProtocol %v is not supported", sp.AuthenticationProtocol)
+	}
+	if sp.PrivacyProtocol > AES256C {
+		return fmt.Errorf("securityParameters.PrivacyProtocol %v is not supported", sp.PrivacyProtocol)
+	}
+	return nil
+}
+
+// checkLevel rejects message flags that ask for authentication or privacy
+// without a protocol for it.
+func (sp *UsmSecurityParameters) checkLevel(flags SnmpV3MsgFlags) error {
+	if flags&AuthNoPriv > 0 && sp.AuthenticationProtocol <= NoAuth {
+		return errAuthProtocolRequired
+	}
+	if flags&AuthPriv > AuthNoPriv && sp.PrivacyProtocol <= NoPriv {
+		return errPrivProtocolRequired
+	}
+	return nil
+}
+
 func (sp *UsmSecurityParameters) validate(flags SnmpV3MsgFlags) error {
+	if err := sp.checkProtocols(); err != nil {
+		return err
+	}
+
 	securityLevel := flags & AuthPriv // isolate flags that determine security level
 
 	switch securityLevel {
 	case AuthPriv:
 		if sp.PrivacyProtocol <= NoPriv {
-			return fmt.Errorf("securityParameters.PrivacyProtocol is required")
+			return errPrivProtocolRequired
 		}
 		fallthrough
 	case AuthNoPriv:
 		if sp.AuthenticationProtocol <= NoAuth {
-			return fmt.Errorf("securityParameters.AuthenticationProtocol is required")
+			return errAuthProtocolRequired
 		}
 		fallthrough
 	case NoAuthNoPriv:
@@ -780,7 +819,9 @@ func (sp *UsmSecurityParameters) authenticate(packet []byte) error {
 	return nil
 }
 
-// determine whether a message is authentic
+// isAuthentic reports whether the message is from the user of sp and carries
+// the digest computed with the decoded message's parameters, which need an
+// authentication protocol.
 func (sp *UsmSecurityParameters) isAuthentic(packetBytes []byte, packet *SnmpPacket) (bool, error) {
 	var msgDigest []byte
 	var err error
@@ -790,6 +831,9 @@ func (sp *UsmSecurityParameters) isAuthentic(packetBytes []byte, packet *SnmpPac
 	// Verify the username
 	if packetSecParams.UserName != sp.UserName {
 		return false, nil
+	}
+	if packetSecParams.AuthenticationProtocol <= NoAuth {
+		return false, errAuthProtocolRequired
 	}
 
 	if msgDigest, err = calcPacketDigest(packetBytes, packetSecParams); err != nil {
@@ -919,8 +963,12 @@ func (sp *UsmSecurityParameters) marshal(dst []byte, flags SnmpV3MsgFlags) []byt
 // their SEQUENCE in the rest of the packet. The SEQUENCE header is skipped
 // without enforcing its declared length. When the message is authenticated,
 // the authentication parameters are zeroed in the packet so the digest can be
-// verified.
+// verified. Parameters with an unsupported protocol decode nothing.
 func (sp *UsmSecurityParameters) unmarshal(flags SnmpV3MsgFlags, r *ber.Reader) error {
+	if err := sp.checkProtocols(); err != nil {
+		return err
+	}
+
 	tag, ok := r.Peek()
 	if !ok {
 		return errors.New("error parsing SNMPV3 User Security Model parameters: end of packet")
