@@ -4,68 +4,68 @@
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read: 2c GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
 0s    deadline +1s
 0s    hook PreSend
-0s    write #2: 2c GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #2 after 0s
 0s    agent answers #2 after 0s
 0s    hook OnSent
-0s    read: 2c GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
-0s    read: 2c GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1003
 
 == requests/answer/empty
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read: 2c GetResponse id=1001 []
+0s    read from: 2c "public" GetResponse id=1001 []
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet GetResponse id=1001 [], no error
+0s    result: packet 2c "public" GetResponse id=1001 [], no error
 0s    client after: retries=2 next request id=1002
 
 == requests/answer/empty-with-error-status-wrong-id
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read: 2c GetResponse id=1101 error=GenErr index=0 []
+0s    read from: 2c "public" GetResponse id=1101 error=GenErr index=0 []
 0s    hook OnRecv
-1s    read: deadline
+1s    read from: deadline
 1s    hook OnRetry
 1s    deadline +1s
 1s    hook PreSend
-1s    write #2: 2c GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 1s    agent answers #2 after 0s
 1s    hook OnSent
-1s    read: 2c GetResponse id=1102 error=GenErr index=0 []
+1s    read from: 2c "public" GetResponse id=1102 error=GenErr index=0 []
 1s    hook OnRecv
-2s    read: deadline
+2s    read from: deadline
 2s    hook OnRetry
 2s    deadline +1s
 2s    hook PreSend
-2s    write #3: 2c GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
 2s    agent answers #3 after 0s
 2s    hook OnSent
-2s    read: 2c GetResponse id=1103 error=GenErr index=0 []
+2s    read from: 2c "public" GetResponse id=1103 error=GenErr index=0 []
 2s    hook OnRecv
-3s    read: deadline
+3s    read from: deadline
 3s    hook OnRetry
 3s    result: packet nil, error "request timeout (after 2 retries)"
 3s    client after: retries=2 next request id=1004
@@ -74,13 +74,13 @@
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read: 2c GetResponse id=1101 []
+0s    read from: 2c "public" GetResponse id=1101 []
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet GetResponse id=1101 [], no error
+0s    result: packet 2c "public" GetResponse id=1101 [], no error
 0s    client after: retries=2 next request id=1002
 0s    known bug: a reply without varbinds is accepted before its request ID is checked
 
@@ -88,39 +88,60 @@
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read: 2c GetResponse id=1001 error=NoSuchName index=1 [.1.3.6.1.2.1.1.1.0]
+0s    read from: 2c "public" GetResponse id=1001 error=NoSuchName index=1 [.1.3.6.1.2.1.1.1.0]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet GetResponse id=1001 error=NoSuchName index=1 [.1.3.6.1.2.1.1.1.0], no error
+0s    result: packet 2c "public" GetResponse id=1001 error=NoSuchName index=1 [.1.3.6.1.2.1.1.1.0], no error
 0s    client after: retries=2 next request id=1002
+
+== requests/answer/first-result-after-second-get
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent 1"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #2 after 0s
+0s    hook OnSent
+0s    read from: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent 2"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent 1"], no error
+0s    client after: retries=2 next request id=1003
 
 == requests/answer/garbage
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read: 4 octets, not decodable (error verifying packet sanity: TLV length exceeds the remaining input)
+0s    read from: 4 octets, not decodable (error verifying packet sanity: TLV length exceeds the remaining input)
 0s    hook OnRecv
 0s    hook OnRetry
 0s    deadline +1s
 0s    hook PreSend
-0s    write #2: 2c GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #2 after 0s
 0s    hook OnSent
-0s    read: 4 octets, not decodable (error verifying packet sanity: TLV length exceeds the remaining input)
+0s    read from: 4 octets, not decodable (error verifying packet sanity: TLV length exceeds the remaining input)
 0s    hook OnRecv
 0s    hook OnRetry
 0s    deadline +1s
 0s    hook PreSend
-0s    write #3: 2c GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+0s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #3 after 0s
 0s    hook OnSent
-0s    read: 4 octets, not decodable (error verifying packet sanity: TLV length exceeds the remaining input)
+0s    read from: 4 octets, not decodable (error verifying packet sanity: TLV length exceeds the remaining input)
 0s    hook OnRecv
 0s    hook OnRetry
 0s    result: packet nil, error "error verifying packet sanity: TLV length exceeds the remaining input"
@@ -130,85 +151,86 @@
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read: 4 octets, not decodable (error verifying packet sanity: TLV length exceeds the remaining input)
+0s    read from: 4 octets, not decodable (error verifying packet sanity: TLV length exceeds the remaining input)
 0s    hook OnRecv
 0s    hook OnRetry
 0s    deadline +1s
 0s    hook PreSend
-0s    write #2: 2c GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #2 after 0s
 0s    agent answers #2 after 0s
 0s    hook OnSent
-0s    read: 2c GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1003
+0s    known bug: an undecodable reply ends the attempt and the request is sent again at once, instead of reading on
 
 == requests/answer/late
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 1.5s
 0s    hook OnSent
-1s    read: deadline
+1s    read from: deadline
 1s    hook OnRetry
 1s    deadline +1s
 1s    hook PreSend
-1s    write #2: 2c GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 1s    hook OnSent
-1.5s  read: 2c GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+1.5s  read from: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 1.5s  hook OnRecv
 1.5s  hook OnFinish
-1.5s  result: packet GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+1.5s  result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 1.5s  client after: retries=2 next request id=1003
 
 == requests/answer/late-reply-read-by-next-request
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 1.5s
 0s    hook OnSent
-1s    read: deadline
+1s    read from: deadline
 1s    hook OnRetry
 1s    deadline +1s
 1s    hook PreSend
-1s    write #2: 2c GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 1s    agent answers #2 after 0s
 1s    hook OnSent
-1s    read: 2c GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+1s    read from: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 1s    hook OnRecv
 1s    hook OnFinish
 1s    deadline +1s
 1s    hook PreSend
-1s    write #3: 2c GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+1s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
 1s    agent answers #3 after 800ms
 1s    hook OnSent
-1.5s  read: 2c GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+1.5s  read from: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 1.5s  hook OnRecv
-1.8s  read: 2c GetResponse id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+1.8s  read from: 2c "public" GetResponse id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 1.8s  hook OnRecv
 1.8s  hook OnFinish
-1.8s  result: packet GetResponse id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+1.8s  result: packet 2c "public" GetResponse id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 1.8s  client after: retries=2 next request id=1004
 
 == requests/answer/not-a-response
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet GetRequest id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1002
 0s    known bug: the reply's PDU type is not checked
 
@@ -216,108 +238,173 @@
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read: 2c GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from: 2c "private" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "private" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1002
 
 == requests/answer/other-version
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read: 1 GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from: 1 "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 1 "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    client after: retries=2 next request id=1002
+
+== requests/answer/report
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from: 2c "public" Report id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" Report id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1002
 
 == requests/answer/second-attempt
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    hook OnSent
-1s    read: deadline
+1s    read from: deadline
 1s    hook OnRetry
 1s    deadline +1s
 1s    hook PreSend
-1s    write #2: 2c GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 1s    agent answers #2 after 0s
 1s    hook OnSent
-1s    read: 2c GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+1s    read from: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 1s    hook OnRecv
 1s    hook OnFinish
-1s    result: packet GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+1s    result: packet 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 1s    client after: retries=2 next request id=1003
 
 == requests/answer/split-tcp
-0s    client: 2c timeout=1s retries=2 exponential=false
+0s    client: 2c timeout=1s retries=0 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    agent answers #1 after 0s
-0s    hook OnSent
-0s    read: 10 octets, not decodable (error verifying packet sanity: TLV length exceeds the remaining input)
-0s    hook OnRecv
-0s    hook OnRetry
-0s    deadline +1s
-0s    hook PreSend
-0s    write #2: 2c GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
-0s    agent answers #2 after 0s
-0s    agent answers #2 after 0s
-0s    hook OnSent
-0s    read: 42 octets, not decodable (invalid packet header)
-0s    hook OnRecv
-0s    hook OnRetry
-0s    deadline +1s
-0s    hook PreSend
-0s    write #3: 2c GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
-0s    agent answers #3 after 0s
-0s    agent answers #3 after 0s
 0s    hook OnSent
 0s    read: 10 octets, not decodable (error verifying packet sanity: TLV length exceeds the remaining input)
 0s    hook OnRecv
 0s    hook OnRetry
 0s    result: packet nil, error "error verifying packet sanity: TLV length exceeds the remaining input"
+0s    client after: retries=0 next request id=1002
+0s    known bug: a TCP reply must arrive in one read
+
+== requests/answer/too-big-tcp
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read: 65545 octets, not decodable (invalid packet header)
+0s    hook OnRetry
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #2 after 0s
+0s    hook OnSent
+0s    read: 65545 octets, not decodable (invalid packet header)
+0s    hook OnRetry
+0s    deadline +1s
+0s    hook PreSend
+0s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #3 after 0s
+0s    hook OnSent
+0s    read: 65545 octets, not decodable (invalid packet header)
+0s    hook OnRetry
+0s    result: packet nil, error "response buffer too small"
 0s    client after: retries=2 next request id=1004
-0s    known bug: a TCP reply must arrive in one read; its parts are decoded as separate messages
+
+== requests/answer/unknown-pdu-type
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from: 52 octets, not decodable (unknown PDUType 0x504455547970652831373529)
+0s    hook OnRecv
+0s    hook OnRetry
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #2 after 0s
+0s    hook OnSent
+0s    read from: 52 octets, not decodable (unknown PDUType 0x504455547970652831373529)
+0s    hook OnRecv
+0s    hook OnRetry
+0s    deadline +1s
+0s    hook PreSend
+0s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #3 after 0s
+0s    hook OnSent
+0s    read from: 52 octets, not decodable (unknown PDUType 0x504455547970652831373529)
+0s    hook OnRecv
+0s    hook OnRetry
+0s    result: packet nil, error "unknown PDUType 0x504455547970652831373529"
+0s    client after: retries=2 next request id=1004
+0s    known bug: the error text formats the PDU type's String() as hexadecimal
+
+== requests/answer/v1-trap
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from: 1 "public" Trap id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 1 "public" Trap id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    client after: retries=2 next request id=1002
+0s    known bug: a reply with request ID 0 is accepted for any request, even a v1 Trap
 
 == requests/answer/wrong-id
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read: 2c GetResponse id=1101 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from: 2c "public" GetResponse id=1101 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
-1s    read: deadline
+1s    read from: deadline
 1s    hook OnRetry
 1s    deadline +1s
 1s    hook PreSend
-1s    write #2: 2c GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 1s    agent answers #2 after 0s
 1s    hook OnSent
-1s    read: 2c GetResponse id=1102 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+1s    read from: 2c "public" GetResponse id=1102 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 1s    hook OnRecv
-2s    read: deadline
+2s    read from: deadline
 2s    hook OnRetry
 2s    deadline +1s
 2s    hook PreSend
-2s    write #3: 2c GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
 2s    agent answers #3 after 0s
 2s    hook OnSent
-2s    read: 2c GetResponse id=1103 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+2s    read from: 2c "public" GetResponse id=1103 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 2s    hook OnRecv
-3s    read: deadline
+3s    read from: deadline
 3s    hook OnRetry
 3s    result: packet nil, error "request timeout (after 2 retries)"
 3s    client after: retries=2 next request id=1004
@@ -326,27 +413,58 @@
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read: 2c GetResponse id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from: 2c "public" GetResponse id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet GetResponse id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" GetResponse id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1002
+0s    known bug: a reply with request ID 0 is accepted for any request
+
+== requests/conn-without-connect
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    result: packet nil, error "recover: runtime error: invalid memory address or nil pointer dereference Stack: ..."
+0s    client after: retries=2 next request id=1001
+0s    known bug: a client given a Conn without Connect has no Context and no receive buffer: send recovers the nil dereference into an error
 
 == requests/context/canceled-before
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    result: packet nil, error "context canceled" (is context.Canceled)
 0s    client after: retries=2 next request id=1001
 
+== requests/context/canceled-in-last-attempt
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    hook OnSent
+1s    read from: deadline
+1s    hook OnRetry
+1s    deadline +1s
+1s    hook PreSend
+1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+1s    hook OnSent
+2s    read from: deadline
+2s    hook OnRetry
+2s    deadline +1s
+2s    hook PreSend
+2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+2s    hook OnSent
+3s    read from: deadline
+3s    hook OnRetry
+3s    result: packet nil, error "request timeout (after 2 retries)"
+3s    client after: retries=2 next request id=1004
+3s    known bug: a cancellation during the last attempt is reported as a request timeout
+
 == requests/context/canceled-while-waiting
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    hook OnSent
-1s    read: deadline
+1s    read from: deadline
 1s    hook OnRetry
 1s    result: packet nil, error "context canceled" (is context.Canceled)
 1s    client after: retries=2 next request id=1002
@@ -356,32 +474,43 @@
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    hook OnSent
-1s    read: deadline
+1s    read from: deadline
 1s    hook OnRetry
 1s    deadline +1s
 1s    hook PreSend
-1s    write #2: 2c GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 1s    hook OnSent
-2s    read: deadline
+2s    read from: deadline
 2s    hook OnRetry
 2s    deadline +1s
 2s    hook PreSend
-2s    write #3: 2c GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
 2s    hook OnSent
-3s    read: deadline
+3s    read from: deadline
 3s    hook OnRetry
 3s    result: packet nil, error "request timeout (after 2 retries)"
 3s    client after: retries=2 next request id=1004
+
+== requests/context/deadline-during-hook
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    hook OnSent
+1s    read from: deadline
+1s    hook OnRetry, which takes 1s
+2s    result: packet nil, error "context deadline exceeded" (is context.DeadlineExceeded, net.Error timeout)
+2s    client after: retries=2 next request id=1002
 
 == requests/context/deadline-in-first-attempt
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +700ms
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    hook OnSent
-700ms read: deadline
+700ms read from: deadline
 700ms hook OnRetry
 700ms result: packet nil, error "context deadline exceeded" (is context.DeadlineExceeded, net.Error timeout)
 700ms client after: retries=2 next request id=1002
@@ -390,24 +519,37 @@
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    hook OnSent
-1s    read: deadline
+1s    read from: deadline
 1s    hook OnRetry
 1s    deadline +1s
 1s    hook PreSend
-1s    write #2: 2c GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 1s    hook OnSent
-2s    read: deadline
+2s    read from: deadline
 2s    hook OnRetry
 2s    deadline +500ms
 2s    hook PreSend
-2s    write #3: 2c GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
 2s    hook OnSent
-2.5s  read: deadline
+2.5s  read from: deadline
 2.5s  hook OnRetry
 2.5s  result: packet nil, error "context deadline exceeded" (is context.DeadlineExceeded, net.Error timeout)
 2.5s  client after: retries=2 next request id=1004
+
+== requests/custom-conn
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    client after: retries=2 next request id=1002
 
 == requests/deadline-error
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -419,67 +561,86 @@
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read: 2c GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1002
+
+== requests/get/invalid-oid
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    result: packet nil, error "marshal: unable to marshal varbind list: unable to marshal OID \".1.3.6.1.x\": invalid object identifier"
+0s    client after: retries=2 next request id=1002
+
+== requests/get/max-oids/at-limit
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0 .1.3.6.1.2.1.1.3.0]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    client after: retries=2 next request id=1002
+
+== requests/get/max-oids/over-limit
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    result: packet nil, error "oid count (3) is greater than MaxOids (2)"
+0s    client after: retries=2 next request id=1001
 
 == requests/get/no-conn
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    result: packet nil, error "&GoSNMP.Conn is missing. Provide a connection or use Connect()"
 0s    client after: retries=2 next request id=1001
 
-== requests/get/too-many-oids
-0s    client: 2c timeout=1s retries=2 exponential=false
-0s    result: packet nil, error "oid count (61) is greater than MaxOids (60)"
-0s    client after: retries=2 next request id=1001
-
-== requests/get/two-oids
-0s    client: 2c timeout=1s retries=2 exponential=false
-0s    deadline +1s
-0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0 .1.3.6.1.2.1.1.3.0]
-0s    agent answers #1 after 0s
-0s    hook OnSent
-0s    read: 2c GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent" .1.3.6.1.2.1.1.3.0=TimeTicks:42]
-0s    hook OnRecv
-0s    hook OnFinish
-0s    result: packet GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent" .1.3.6.1.2.1.1.3.0=TimeTicks:42], no error
-0s    client after: retries=2 next request id=1002
-
 == requests/get/v1
 0s    client: 1 timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 1 GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 1 "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read: 1 GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from: 1 "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 1 "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1002
 
 == requests/getbulk
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetBulkRequest id=1001 nonRepeaters=1 maxRepetitions=10 [.1.3.6.1.2.1.1]
+0s    write #1: 2c "public" GetBulkRequest id=1001 nonRepeaters=1 maxRepetitions=10 [.1.3.6.1.2.1.1]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read: 2c GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1002
 
-== requests/getbulk/too-many-oids
+== requests/getbulk/max-oids/at-limit
 0s    client: 2c timeout=1s retries=2 exponential=false
-0s    result: packet nil, error "oid count (61) is greater than MaxOids (60)"
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetBulkRequest id=1001 nonRepeaters=0 maxRepetitions=5 [.1.3.6.1.2.1.1.1.0 .1.3.6.1.2.1.1.3.0]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    client after: retries=2 next request id=1002
+
+== requests/getbulk/max-oids/over-limit
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    result: packet nil, error "oid count (3) is greater than MaxOids (2)"
 0s    client after: retries=2 next request id=1001
 
 == requests/getbulk/v1
@@ -491,102 +652,334 @@
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetNextRequest id=1001 [.1.3.6.1.2.1.1]
+0s    write #1: 2c "public" GetNextRequest id=1001 [.1.3.6.1.2.1.1]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read: 2c GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1002
 
-== requests/getnext/too-many-oids
+== requests/getnext/max-oids/at-limit
 0s    client: 2c timeout=1s retries=2 exponential=false
-0s    result: packet nil, error "oid count (61) is greater than MaxOids (60)"
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetNextRequest id=1001 [.1.3.6.1.2.1.1.1.0 .1.3.6.1.2.1.1.3.0]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    client after: retries=2 next request id=1002
+
+== requests/getnext/max-oids/over-limit
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    result: packet nil, error "oid count (3) is greater than MaxOids (2)"
 0s    client after: retries=2 next request id=1001
 
 == requests/hook-panics
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
-0s    result: packet nil, error "recover: codec hook failure"
+0s    result: packet nil, error "recover: codec hook failure Stack: ..."
 0s    client after: retries=2 next request id=1002
 
-== requests/read-error
+== requests/mk-snmp-packet
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetBulkRequest id=1001 nonRepeaters=2 maxRepetitions=7 [.1.3.6.1.2.1.1]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read: read udp: connection refused
+0s    read from: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    client after: retries=2 next request id=1002
+
+== requests/read-eof/udp
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    hook OnSent
+0s    read from: EOF
 0s    hook OnRetry
 0s    deadline +1s
 0s    hook PreSend
-0s    write #2: 2c GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #2 after 0s
 0s    hook OnSent
-0s    read: 2c GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1003
 
-== requests/request-id/retries
+== requests/read-error/always
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #1 after 0s
 0s    hook OnSent
-1s    read: deadline
-1s    hook OnRetry
-1s    deadline +1s
-1s    hook PreSend
-1s    write #2: 2c GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
-1s    agent answers #2 after 0s
-1s    hook OnSent
-1s    read: 2c GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
-1s    hook OnRecv
-1s    hook OnFinish
-1s    result: packet GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
-1s    client after: retries=2 next request id=1003
+0s    read from: read udp: connection refused
+0s    hook OnRetry
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #2 after 0s
+0s    hook OnSent
+0s    read from: read udp: connection refused
+0s    hook OnRetry
+0s    deadline +1s
+0s    hook PreSend
+0s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #3 after 0s
+0s    hook OnSent
+0s    read from: read udp: connection refused
+0s    hook OnRetry
+0s    result: packet nil, error "error reading from socket: read udp: connection refused" (is syscall.ECONNREFUSED)
+0s    client after: retries=2 next request id=1004
+
+== requests/read-error/once
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    hook OnSent
+0s    read from: read udp: connection refused
+0s    hook OnRetry
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #2 after 0s
+0s    hook OnSent
+0s    read from: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    client after: retries=2 next request id=1003
 
 == requests/request-id/set
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=6 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=6 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read: 2c GetResponse id=6 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from: 2c "public" GetResponse id=6 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet GetResponse id=6 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" GetResponse id=6 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=7
 
 == requests/request-id/wraps
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=0 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=0 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read: 2c GetResponse id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from: 2c "public" GetResponse id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet GetResponse id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" GetResponse id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1
 
-== requests/set
+== requests/request-id/wraps-between-attempts
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c SetRequest id=1001 [.1.3.6.1.2.1.1.5.0=OctetString:"codec"]
+0s    write #1: 2c "public" GetRequest id=2147483647 [.1.3.6.1.2.1.1.1.0]
+0s    hook OnSent
+1s    read from: deadline
+1s    hook OnRetry
+1s    deadline +1s
+1s    hook PreSend
+1s    write #2: 2c "public" GetRequest id=0 [.1.3.6.1.2.1.1.1.0]
+1s    agent answers #2 after 0s
+1s    hook OnSent
+1s    read from: 2c "public" GetResponse id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+1s    hook OnRecv
+1s    hook OnFinish
+1s    result: packet 2c "public" GetResponse id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+1s    client after: retries=2 next request id=1
+
+== requests/set/Counter32
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" SetRequest id=1001 [.1.3.6.1.2.1.1.5.0=Counter32:7]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read: 2c GetResponse id=1001 [.1.3.6.1.2.1.1.5.0=OctetString:"codec"]
+0s    read from: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.5.0=Counter32:7]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet GetResponse id=1001 [.1.3.6.1.2.1.1.5.0=OctetString:"codec"], no error
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.5.0=Counter32:7], no error
+0s    client after: retries=2 next request id=1002
+
+== requests/set/Counter64
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" SetRequest id=1001 [.1.3.6.1.2.1.1.5.0=Counter64:8]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.5.0=Counter64:8]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.5.0=Counter64:8], no error
+0s    client after: retries=2 next request id=1002
+
+== requests/set/Gauge32
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" SetRequest id=1001 [.1.3.6.1.2.1.1.5.0=Gauge32:6]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.5.0=Gauge32:6]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.5.0=Gauge32:6], no error
+0s    client after: retries=2 next request id=1002
+
+== requests/set/IPAddress
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" SetRequest id=1001 [.1.3.6.1.2.1.1.5.0=IPAddress:192.0.2.1]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.5.0=IPAddress:192.0.2.1]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.5.0=IPAddress:192.0.2.1], no error
+0s    client after: retries=2 next request id=1002
+
+== requests/set/Integer
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" SetRequest id=1001 [.1.3.6.1.2.1.1.5.0=Integer:5]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.5.0=Integer:5]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.5.0=Integer:5], no error
+0s    client after: retries=2 next request id=1002
+
+== requests/set/Null
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" SetRequest id=1001 [.1.3.6.1.2.1.1.5.0]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.5.0]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.5.0], no error
+0s    client after: retries=2 next request id=1002
+
+== requests/set/ObjectIdentifier
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" SetRequest id=1001 [.1.3.6.1.2.1.1.5.0=ObjectIdentifier:.1.3.6.1.4.1.8072]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.5.0=ObjectIdentifier:.1.3.6.1.4.1.8072]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.5.0=ObjectIdentifier:.1.3.6.1.4.1.8072], no error
+0s    client after: retries=2 next request id=1002
+
+== requests/set/OctetString
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" SetRequest id=1001 [.1.3.6.1.2.1.1.5.0=OctetString:"codec"]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.5.0=OctetString:"codec"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.5.0=OctetString:"codec"], no error
+0s    client after: retries=2 next request id=1002
+
+== requests/set/OpaqueDouble
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" SetRequest id=1001 [.1.3.6.1.2.1.1.5.0=OpaqueDouble:2.5]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.5.0=OpaqueDouble:2.5]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.5.0=OpaqueDouble:2.5], no error
+0s    client after: retries=2 next request id=1002
+
+== requests/set/OpaqueFloat
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" SetRequest id=1001 [.1.3.6.1.2.1.1.5.0=OpaqueFloat:1.5]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.5.0=OpaqueFloat:1.5]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.5.0=OpaqueFloat:1.5], no error
+0s    client after: retries=2 next request id=1002
+
+== requests/set/TimeTicks
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" SetRequest id=1001 [.1.3.6.1.2.1.1.5.0=TimeTicks:9]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.5.0=TimeTicks:9]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.5.0=TimeTicks:9], no error
+0s    client after: retries=2 next request id=1002
+
+== requests/set/Uinteger32
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" SetRequest id=1001 [.1.3.6.1.2.1.1.5.0=Uinteger32:10]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.5.0=Uinteger32:10]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.5.0=Uinteger32:10], no error
+0s    client after: retries=2 next request id=1002
+
+== requests/set/integer-with-text
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    result: packet nil, error "marshal: unable to marshal varbind list: unable to marshal PDU Integer; not int"
+0s    client after: retries=2 next request id=1002
+
+== requests/set/max-oids/over-limit
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" SetRequest id=1001 [.1.3.6.1.2.1.1.5.0=Integer:1 .1.3.6.1.2.1.1.5.0=Integer:2 .1.3.6.1.2.1.1.5.0=Integer:3]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from: 2c "public" GetResponse id=1001 []
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1001 [], no error
 0s    client after: retries=2 next request id=1002
 
 == requests/set/no-varbinds
@@ -595,18 +988,12 @@
 0s    client after: retries=2 next request id=1001
 0s    known bug: Set reads the first varbind without a length check and panics outside send's recover
 
-== requests/set/too-many-varbinds
+== requests/set/second-varbind-unsupported
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
-0s    hook PreSend
-0s    write #1: 2c SetRequest id=1001 [.1.3.6.1.2.1.1.5.0=Integer:0 .1.3.6.1.2.1.1.5.1=Integer:1 .1.3.6.1.2.1.1.5.2=Integer:2 .1.3.6.1.2.1.1.5.3=Integer:3 .1.3.6.1.2.1.1.5.4=Integer:4 .1.3.6.1.2.1.1.5.5=Integer:5 .1.3.6.1.2.1.1.5.6=Integer:6 .1.3.6.1.2.1.1.5.7=Integer:7 .1.3.6.1.2.1.1.5.8=Integer:8 .1.3.6.1.2.1.1.5.9=Integer:9 .1.3.6.1.2.1.1.5.10=Integer:10 .1.3.6.1.2.1.1.5.11=Integer:11 .1.3.6.1.2.1.1.5.12=Integer:12 .1.3.6.1.2.1.1.5.13=Integer:13 .1.3.6.1.2.1.1.5.14=Integer:14 .1.3.6.1.2.1.1.5.15=Integer:15 .1.3.6.1.2.1.1.5.16=Integer:16 .1.3.6.1.2.1.1.5.17=Integer:17 .1.3.6.1.2.1.1.5.18=Integer:18 .1.3.6.1.2.1.1.5.19=Integer:19 .1.3.6.1.2.1.1.5.20=Integer:20 .1.3.6.1.2.1.1.5.21=Integer:21 .1.3.6.1.2.1.1.5.22=Integer:22 .1.3.6.1.2.1.1.5.23=Integer:23 .1.3.6.1.2.1.1.5.24=Integer:24 .1.3.6.1.2.1.1.5.25=Integer:25 .1.3.6.1.2.1.1.5.26=Integer:26 .1.3.6.1.2.1.1.5.27=Integer:27 .1.3.6.1.2.1.1.5.28=Integer:28 .1.3.6.1.2.1.1.5.29=Integer:29 .1.3.6.1.2.1.1.5.30=Integer:30 .1.3.6.1.2.1.1.5.31=Integer:31 .1.3.6.1.2.1.1.5.32=Integer:32 .1.3.6.1.2.1.1.5.33=Integer:33 .1.3.6.1.2.1.1.5.34=Integer:34 .1.3.6.1.2.1.1.5.35=Integer:35 .1.3.6.1.2.1.1.5.36=Integer:36 .1.3.6.1.2.1.1.5.37=Integer:37 .1.3.6.1.2.1.1.5.38=Integer:38 .1.3.6.1.2.1.1.5.39=Integer:39 .1.3.6.1.2.1.1.5.40=Integer:40 .1.3.6.1.2.1.1.5.41=Integer:41 .1.3.6.1.2.1.1.5.42=Integer:42 .1.3.6.1.2.1.1.5.43=Integer:43 .1.3.6.1.2.1.1.5.44=Integer:44 .1.3.6.1.2.1.1.5.45=Integer:45 .1.3.6.1.2.1.1.5.46=Integer:46 .1.3.6.1.2.1.1.5.47=Integer:47 .1.3.6.1.2.1.1.5.48=Integer:48 .1.3.6.1.2.1.1.5.49=Integer:49 .1.3.6.1.2.1.1.5.50=Integer:50 .1.3.6.1.2.1.1.5.51=Integer:51 .1.3.6.1.2.1.1.5.52=Integer:52 .1.3.6.1.2.1.1.5.53=Integer:53 .1.3.6.1.2.1.1.5.54=Integer:54 .1.3.6.1.2.1.1.5.55=Integer:55 .1.3.6.1.2.1.1.5.56=Integer:56 .1.3.6.1.2.1.1.5.57=Integer:57 .1.3.6.1.2.1.1.5.58=Integer:58 .1.3.6.1.2.1.1.5.59=Integer:59 .1.3.6.1.2.1.1.5.60=Integer:60]
-0s    agent answers #1 after 0s
-0s    hook OnSent
-0s    read: 2c GetResponse id=1001 []
-0s    hook OnRecv
-0s    hook OnFinish
-0s    result: packet GetResponse id=1001 [], no error
+0s    result: packet nil, error "marshal: unable to marshal varbind list: unable to marshal PDU: unknown BER type \"Boolean\""
 0s    client after: retries=2 next request id=1002
+0s    known bug: Set checks the type of the first varbind only; a later one fails in the encoder, after an attempt has started
 
 == requests/set/unsupported-type
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -617,45 +1004,45 @@
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    hook OnSent
-1s    read: deadline
+1s    read from: deadline
 1s    hook OnRetry
 1s    deadline +1s
 1s    hook PreSend
-1s    write #2: 2c GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 1s    hook OnSent
-2s    read: deadline
+2s    read from: deadline
 2s    hook OnRetry
 2s    deadline +1s
 2s    hook PreSend
-2s    write #3: 2c GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
 2s    hook OnSent
-3s    read: deadline
+3s    read from: deadline
 3s    hook OnRetry
 3s    result: packet nil, error "request timeout (after 2 retries)"
 3s    client after: retries=2 next request id=1004
-3s    known bug: OnRetry also runs after the last attempt has failed
+3s    known bug: OnRetry runs even when no retry follows
 
 == requests/timeout/exponential
 0s    client: 2c timeout=1s retries=2 exponential=true
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    hook OnSent
-1s    read: deadline
+1s    read from: deadline
 1s    hook OnRetry
 1s    deadline +2s
 1s    hook PreSend
-1s    write #2: 2c GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 1s    hook OnSent
-3s    read: deadline
+3s    read from: deadline
 3s    hook OnRetry
 3s    deadline +4s
 3s    hook PreSend
-3s    write #3: 2c GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+3s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
 3s    hook OnSent
-7s    read: deadline
+7s    read from: deadline
 7s    hook OnRetry
 7s    result: packet nil, error "request timeout (after 2 retries)"
 7s    client after: retries=2 next request id=1004
@@ -664,9 +1051,9 @@
 0s    client: 2c timeout=1s retries=-3 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    hook OnSent
-1s    read: deadline
+1s    read from: deadline
 1s    hook OnRetry
 1s    result: packet nil, error "request timeout (after 0 retries)"
 1s    client after: retries=0 next request id=1002
@@ -675,57 +1062,84 @@
 0s    client: 2c timeout=1s retries=0 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    hook OnSent
-1s    read: deadline
+1s    read from: deadline
 1s    hook OnRetry
 1s    result: packet nil, error "request timeout (after 0 retries)"
 1s    client after: retries=0 next request id=1002
+
+== requests/timeout/tcp
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    hook OnSent
+1s    read: deadline
+1s    hook OnRetry
+1s    deadline +1s
+1s    hook PreSend
+1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+1s    hook OnSent
+2s    read: deadline
+2s    hook OnRetry
+2s    deadline +1s
+2s    hook PreSend
+2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+2s    hook OnSent
+3s    read: deadline
+3s    hook OnRetry
+3s    result: packet nil, error "request timeout (after 2 retries)"
+3s    client after: retries=2 next request id=1004
+
+== requests/timeout/zero
+0s    client: 2c timeout=0s retries=2 exponential=false
+0s    deadline +0s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: deadline
+0s    hook OnRetry
+0s    deadline +0s
+0s    hook PreSend
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    write #2: deadline
+0s    hook OnRetry
+0s    deadline +0s
+0s    hook PreSend
+0s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+0s    write #3: deadline
+0s    hook OnRetry
+0s    result: packet nil, error "request timeout (after 2 retries)"
+0s    client after: retries=2 next request id=1004
 
 == requests/unconnected
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write to 127.0.0.2:161
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write to 127.0.0.3:161 #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from
-0s    read: 2c GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
-0s    client after: retries=2 next request id=1002
-
-== requests/unconnected/no-address
-0s    client: 2c timeout=1s retries=2 exponential=false
-0s    deadline +1s
-0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
-0s    agent answers #1 after 0s
-0s    hook OnSent
-0s    read from
-0s    read: 2c GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
-0s    hook OnRecv
-0s    hook OnFinish
-0s    result: packet GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1002
 
 == requests/write-error/always
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    write #1 fails: codec write failure
 0s    hook OnRetry
 0s    deadline +1s
 0s    hook PreSend
-0s    write #2: 2c GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 0s    write #2 fails: codec write failure
 0s    hook OnRetry
 0s    deadline +1s
 0s    hook PreSend
-0s    write #3: 2c GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+0s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
 0s    write #3 fails: codec write failure
 0s    hook OnRetry
 0s    result: packet nil, error "codec write failure" (is errEngineWrite)
@@ -735,16 +1149,37 @@
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
-0s    write #1: 2c GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    write #1 fails: codec write failure
 0s    hook OnRetry
 0s    deadline +1s
 0s    hook PreSend
-0s    write #2: 2c GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #2 after 0s
 0s    hook OnSent
-0s    read: 2c GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1003
+
+== requests/write-error/timeout-in-text
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1 fails: codec timeout of the write queue
+0s    hook OnRetry
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    write #2 fails: codec timeout of the write queue
+0s    hook OnRetry
+0s    deadline +1s
+0s    hook PreSend
+0s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+0s    write #3 fails: codec timeout of the write queue
+0s    hook OnRetry
+0s    result: packet nil, error "request timeout (after 2 retries)"
+0s    client after: retries=2 next request id=1004
+0s    known bug: a timeout is recognized by the word in the error's text, so another error with that word becomes a request timeout

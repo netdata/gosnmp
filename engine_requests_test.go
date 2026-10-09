@@ -5,9 +5,11 @@
 package gosnmp
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net"
 	"slices"
@@ -25,11 +27,25 @@ var engineGolden = goldenFiles{dir: "testdata/engine", title: "Engine"}
 
 const engineOID = ".1.3.6.1.2.1.1.1.0"
 
+// engineShape is the kind of connection a scenario's client has.
+type engineShape int
+
+const (
+	// shapeUDP is a UDP socket as Connect leaves it: a connected
+	// net.PacketConn, written with Write and read with ReadFrom.
+	shapeUDP engineShape = iota
+	// shapeUnconnectedUDP is the socket of UseUnconnectedUDPSocket, written
+	// with WriteTo the target's address.
+	shapeUnconnectedUDP
+	// shapeStream is a TCP socket or a custom net.Conn, read with Read.
+	shapeStream
+)
+
 // engineScenario is one v1/v2c request run against a scripted agent.
 type engineScenario struct {
-	v1          bool // SNMPv1 instead of SNMPv2c
-	unconnected bool // the transport is an unconnected UDP socket
-	setup       func(x *GoSNMP, c *fakeTransport)
+	v1    bool // SNMPv1 instead of SNMPv2c
+	shape engineShape
+	setup func(x *GoSNMP, c *fakeTransport)
 	// context, when set, gives the client's Context; its cancel runs when
 	// the scenario ends.
 	context  func() (context.Context, context.CancelFunc)
@@ -40,9 +56,7 @@ type engineScenario struct {
 
 // answer is an agent that answers every request at once with vbs.
 func answer(vbs ...SnmpPDU) engineAgent {
-	return func(_ int, req []byte) []agentReply {
-		return []agentReply{{data: replyTo(req, nil, vbs...)}}
-	}
+	return answerWith(nil, vbs...)
 }
 
 // answerWith is an agent that answers every request at once with a reply
@@ -53,10 +67,57 @@ func answerWith(edit func(*SnmpPacket), vbs ...SnmpPDU) engineAgent {
 	}
 }
 
+// answerFromSecond is an agent that answers the requests from the second on
+// with vbs.
+func answerFromSecond(vbs ...SnmpPDU) engineAgent {
+	return func(n int, req []byte) []agentReply {
+		if n < 2 {
+			return nil
+		}
+		return []agentReply{{data: replyTo(req, nil, vbs...)}}
+	}
+}
+
+// answerRaw is an agent that answers every request with its sysDescr reply
+// changed by edit as encoded octets.
+func answerRaw(edit func(reply []byte) []byte) engineAgent {
+	return func(_ int, req []byte) []agentReply {
+		return []agentReply{{data: edit(replyTo(req, nil, sysDescr))}}
+	}
+}
+
 var sysDescr = SnmpPDU{Name: engineOID, Type: OctetString, Value: []byte("codec agent")}
 
 // errEngineWrite is the error of a failing write in the engine scenarios.
 var errEngineWrite = errors.New("codec write failure")
+
+// refused is the error of a read from a UDP socket whose target port is
+// closed.
+var refused = &net.OpError{Op: "read", Net: "udp", Err: syscall.ECONNREFUSED}
+
+// withEngineTimeout gives a context that times out after d.
+func withEngineTimeout(d time.Duration) func() (context.Context, context.CancelFunc) {
+	return func() (context.Context, context.CancelFunc) {
+		return context.WithTimeout(context.Background(), d)
+	}
+}
+
+// canceledAfter gives a context canceled after d.
+func canceledAfter(d time.Duration) func() (context.Context, context.CancelFunc) {
+	return func() (context.Context, context.CancelFunc) {
+		ctx, cancel := context.WithCancel(context.Background())
+		time.AfterFunc(d, cancel)
+		return ctx, cancel
+	}
+}
+
+func getOIDs(oids ...string) func(x *GoSNMP) (*SnmpPacket, error) {
+	return func(x *GoSNMP) (*SnmpPacket, error) { return x.Get(oids) }
+}
+
+func setVarbinds(vbs ...SnmpPDU) func(x *GoSNMP) (*SnmpPacket, error) {
+	return func(x *GoSNMP) (*SnmpPacket, error) { return x.Set(vbs) }
+}
 
 // engineScenarios are the request scenarios of TestEngineRequestCharacterization.
 func engineScenarios() map[string]engineScenario {
@@ -66,52 +127,64 @@ func engineScenarios() map[string]engineScenario {
 		}
 		return x.Get([]string{engineOID})
 	}
-	tooManyOIDs := make([]string, MaxOids+1)
-	for i := range tooManyOIDs {
-		tooManyOIDs[i] = fmt.Sprintf(".1.3.6.1.2.1.2.2.1.1.%d", i)
-	}
+	maxOIDs2 := func(x *GoSNMP, _ *fakeTransport) { x.MaxOids = 2 }
+	twoOIDs := []string{engineOID, ".1.3.6.1.2.1.1.3.0"}
+	threeOIDs := []string{engineOID, ".1.3.6.1.2.1.1.3.0", ".1.3.6.1.2.1.1.5.0"}
+	const setOID = ".1.3.6.1.2.1.1.5.0"
 
-	return map[string]engineScenario{
+	scenarios := map[string]engineScenario{
 		// Operations.
-		"get":          {agent: answer(sysDescr)},
-		"get/v1":       {v1: true, agent: answer(sysDescr)},
-		"get/two-oids": {agent: answer(sysDescr, SnmpPDU{Name: ".1.3.6.1.2.1.1.3.0", Type: TimeTicks, Value: uint32(42)}), run: func(x *GoSNMP) (*SnmpPacket, error) { return x.Get([]string{engineOID, ".1.3.6.1.2.1.1.3.0"}) }},
-		"getnext":      {agent: answer(sysDescr), run: func(x *GoSNMP) (*SnmpPacket, error) { return x.GetNext([]string{".1.3.6.1.2.1.1"}) }},
-		"getbulk":      {agent: answer(sysDescr), run: func(x *GoSNMP) (*SnmpPacket, error) { return x.GetBulk([]string{".1.3.6.1.2.1.1"}, 1, 10) }},
-		"getbulk/v1":   {v1: true, agent: answer(sysDescr), run: func(x *GoSNMP) (*SnmpPacket, error) { return x.GetBulk([]string{".1.3.6.1.2.1.1"}, 0, 10) }},
-		"set": {agent: answer(SnmpPDU{Name: ".1.3.6.1.2.1.1.5.0", Type: OctetString, Value: []byte("codec")}), run: func(x *GoSNMP) (*SnmpPacket, error) {
-			return x.Set([]SnmpPDU{{Name: ".1.3.6.1.2.1.1.5.0", Type: OctetString, Value: "codec"}})
+		"get":     {agent: answer(sysDescr)},
+		"get/v1":  {v1: true, agent: answer(sysDescr)},
+		"getnext": {agent: answer(sysDescr), run: func(x *GoSNMP) (*SnmpPacket, error) { return x.GetNext([]string{".1.3.6.1.2.1.1"}) }},
+		"getbulk": {agent: answer(sysDescr), run: func(x *GoSNMP) (*SnmpPacket, error) {
+			return x.GetBulk([]string{".1.3.6.1.2.1.1"}, 1, 10)
 		}},
-		"set/unsupported-type": {agent: answer(), run: func(x *GoSNMP) (*SnmpPacket, error) {
-			return x.Set([]SnmpPDU{{Name: ".1.3.6.1.2.1.1.5.0", Type: Boolean, Value: true}})
+		"getbulk/v1": {v1: true, agent: answer(sysDescr), run: func(x *GoSNMP) (*SnmpPacket, error) {
+			return x.GetBulk([]string{".1.3.6.1.2.1.1"}, 0, 10)
 		}},
+		"mk-snmp-packet": {agent: answer(sysDescr), run: func(x *GoSNMP) (*SnmpPacket, error) {
+			return x.send(x.MkSnmpPacket(GetBulkRequest, []SnmpPDU{{Name: ".1.3.6.1.2.1.1", Type: Null}}, 2, 7))
+		}},
+		"set/unsupported-type": {agent: answer(), run: setVarbinds(SnmpPDU{Name: setOID, Type: Boolean, Value: true})},
+		"set/second-varbind-unsupported": {
+			agent: answer(), run: setVarbinds(SnmpPDU{Name: setOID, Type: Integer, Value: 1}, SnmpPDU{Name: setOID, Type: Boolean, Value: true}),
+			knownBug: "Set checks the type of the first varbind only; a later one fails in the encoder, after an attempt has started",
+		},
+		"set/integer-with-text": {agent: answer(), run: setVarbinds(SnmpPDU{Name: setOID, Type: Integer, Value: "five"})},
 		"set/no-varbinds": {
-			agent: answer(), run: func(x *GoSNMP) (*SnmpPacket, error) { return x.Set(nil) },
+			agent: answer(), run: setVarbinds(),
 			knownBug: "Set reads the first varbind without a length check and panics outside send's recover",
 		},
-		"get/too-many-oids":     {agent: answer(), run: func(x *GoSNMP) (*SnmpPacket, error) { return x.Get(tooManyOIDs) }},
-		"getnext/too-many-oids": {agent: answer(), run: func(x *GoSNMP) (*SnmpPacket, error) { return x.GetNext(tooManyOIDs) }},
-		"getbulk/too-many-oids": {agent: answer(), run: func(x *GoSNMP) (*SnmpPacket, error) { return x.GetBulk(tooManyOIDs, 0, 10) }},
-		"set/too-many-varbinds": {agent: answer(), run: func(x *GoSNMP) (*SnmpPacket, error) {
-			vbs := make([]SnmpPDU, MaxOids+1)
-			for i := range vbs {
-				vbs[i] = SnmpPDU{Name: fmt.Sprintf(".1.3.6.1.2.1.1.5.%d", i), Type: Integer, Value: i}
-			}
-			return x.Set(vbs)
-		}},
+		"get/invalid-oid": {agent: answer(), run: getOIDs(".1.3.6.1.x")},
+
+		// The MaxOids limit, at 2.
+		"get/max-oids/at-limit":       {agent: answer(sysDescr), setup: maxOIDs2, run: getOIDs(twoOIDs...)},
+		"get/max-oids/over-limit":     {agent: answer(sysDescr), setup: maxOIDs2, run: getOIDs(threeOIDs...)},
+		"getnext/max-oids/at-limit":   {agent: answer(sysDescr), setup: maxOIDs2, run: func(x *GoSNMP) (*SnmpPacket, error) { return x.GetNext(twoOIDs) }},
+		"getnext/max-oids/over-limit": {agent: answer(sysDescr), setup: maxOIDs2, run: func(x *GoSNMP) (*SnmpPacket, error) { return x.GetNext(threeOIDs) }},
+		"getbulk/max-oids/at-limit":   {agent: answer(sysDescr), setup: maxOIDs2, run: func(x *GoSNMP) (*SnmpPacket, error) { return x.GetBulk(twoOIDs, 0, 5) }},
+		"getbulk/max-oids/over-limit": {agent: answer(sysDescr), setup: maxOIDs2, run: func(x *GoSNMP) (*SnmpPacket, error) { return x.GetBulk(threeOIDs, 0, 5) }},
+		"set/max-oids/over-limit": {agent: answer(), setup: maxOIDs2, run: setVarbinds(
+			SnmpPDU{Name: setOID, Type: Integer, Value: 1}, SnmpPDU{Name: setOID, Type: Integer, Value: 2}, SnmpPDU{Name: setOID, Type: Integer, Value: 3},
+		)},
+
+		// The client.
 		"get/no-conn": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.Conn = nil }},
+		"conn-without-connect": {
+			agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.Context, x.rxBuf = nil, nil },
+			knownBug: "a client given a Conn without Connect has no Context and no receive buffer: send recovers the nil dereference into an error",
+		},
+		"custom-conn": {shape: shapeStream, agent: answer(sysDescr)},
 
 		// Timeouts and retries.
-		"timeout":                  {knownBug: "OnRetry also runs after the last attempt has failed"},
+		"timeout":                  {knownBug: "OnRetry runs even when no retry follows"},
 		"timeout/exponential":      {setup: func(x *GoSNMP, _ *fakeTransport) { x.ExponentialTimeout = true }},
 		"timeout/no-retries":       {setup: func(x *GoSNMP, _ *fakeTransport) { x.Retries = 0 }},
 		"timeout/negative-retries": {setup: func(x *GoSNMP, _ *fakeTransport) { x.Retries = -3 }},
-		"answer/second-attempt": {agent: func(n int, req []byte) []agentReply {
-			if n == 1 {
-				return nil
-			}
-			return []agentReply{{data: replyTo(req, nil, sysDescr)}}
-		}},
+		"timeout/zero":             {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.Timeout = 0 }},
+		"timeout/tcp":              {shape: shapeStream, setup: func(x *GoSNMP, _ *fakeTransport) { x.Transport = "tcp" }},
+		"answer/second-attempt":    {agent: answerFromSecond(sysDescr)},
 
 		// Reply matching.
 		"answer/late": {agent: func(n int, req []byte) []agentReply {
@@ -134,9 +207,42 @@ func engineScenarios() map[string]engineScenario {
 			r := replyTo(req, nil, sysDescr)
 			return []agentReply{{data: r}, {data: r}}
 		}},
+		"answer/first-result-after-second-get": {
+			run: func(x *GoSNMP) (*SnmpPacket, error) {
+				first, err := x.Get([]string{engineOID})
+				if err != nil {
+					return nil, fmt.Errorf("first Get: %w", err)
+				}
+				if _, err := x.Get([]string{engineOID}); err != nil {
+					return nil, fmt.Errorf("second Get: %w", err)
+				}
+				return first, nil
+			},
+			agent: func(n int, req []byte) []agentReply {
+				value := fmt.Sprintf("codec agent %d", n)
+				return []agentReply{{data: replyTo(req, nil, SnmpPDU{Name: engineOID, Type: OctetString, Value: []byte(value)})}}
+			},
+		},
 		"answer/wrong-id": {agent: answerWith(func(p *SnmpPacket) { p.RequestID += 100 }, sysDescr)},
-		"answer/zero-id":  {agent: answerWith(func(p *SnmpPacket) { p.RequestID = 0 }, sysDescr)},
-		"answer/empty":    {agent: answerWith(nil)},
+		"answer/zero-id": {
+			agent:    answerWith(func(p *SnmpPacket) { p.RequestID = 0 }, sysDescr),
+			knownBug: "a reply with request ID 0 is accepted for any request",
+		},
+		"answer/v1-trap": {
+			agent: func(int, []byte) []agentReply {
+				trap := &SnmpPacket{
+					Version: Version1, Community: "public", PDUType: Trap, Variables: []SnmpPDU{sysDescr},
+					Enterprise: ".1.3.6.1.4.1.8072", AgentAddress: "127.0.0.2", GenericTrap: 6, SpecificTrap: 1,
+				}
+				b, err := trap.marshalMsg()
+				if err != nil {
+					panic(err)
+				}
+				return []agentReply{{data: b}}
+			},
+			knownBug: "a reply with request ID 0 is accepted for any request, even a v1 Trap",
+		},
+		"answer/empty": {agent: answerWith(nil)},
 		"answer/empty-wrong-id": {
 			agent:    answerWith(func(p *SnmpPacket) { p.RequestID += 100 }),
 			knownBug: "a reply without varbinds is accepted before its request ID is checked",
@@ -147,33 +253,62 @@ func engineScenarios() map[string]engineScenario {
 			agent:    answerWith(func(p *SnmpPacket) { p.PDUType = GetRequest }, sysDescr),
 			knownBug: "the reply's PDU type is not checked",
 		},
+		"answer/report": {agent: answerWith(func(p *SnmpPacket) { p.PDUType = Report }, sysDescr)},
+		"answer/unknown-pdu-type": {
+			agent: answerRaw(func(r []byte) []byte {
+				r[bytes.IndexByte(r, byte(GetResponse))] = 0xaf
+				return r
+			}),
+			knownBug: "the error text formats the PDU type's String() as hexadecimal",
+		},
 		"answer/other-version":   {agent: answerWith(func(p *SnmpPacket) { p.Version = Version1 }, sysDescr)},
 		"answer/other-community": {agent: answerWith(func(p *SnmpPacket) { p.Community = "private" }, sysDescr)},
-		"answer/garbage-then-valid": {agent: func(_ int, req []byte) []agentReply {
-			return []agentReply{{data: []byte{0x30, 0x03, 0x02, 0x01}}, {data: replyTo(req, nil, sysDescr)}}
-		}},
+		"answer/garbage-then-valid": {
+			agent: func(_ int, req []byte) []agentReply {
+				return []agentReply{{data: []byte{0x30, 0x03, 0x02, 0x01}}, {data: replyTo(req, nil, sysDescr)}}
+			},
+			knownBug: "an undecodable reply ends the attempt and the request is sent again at once, instead of reading on",
+		},
 		"answer/garbage": {agent: func(int, []byte) []agentReply { return []agentReply{{data: []byte{0x30, 0x03, 0x02, 0x01}}} }},
 		"answer/split-tcp": {
-			setup: func(x *GoSNMP, _ *fakeTransport) { x.Transport = "tcp" },
+			shape: shapeStream,
+			setup: func(x *GoSNMP, _ *fakeTransport) { x.Transport, x.Retries = "tcp", 0 },
 			agent: func(_ int, req []byte) []agentReply {
 				r := replyTo(req, nil, sysDescr)
 				return []agentReply{{data: r[:10]}, {data: r[10:]}}
 			},
-			knownBug: "a TCP reply must arrive in one read; its parts are decoded as separate messages",
+			knownBug: "a TCP reply must arrive in one read",
+		},
+		"answer/too-big-tcp": {
+			shape: shapeStream,
+			setup: func(x *GoSNMP, _ *fakeTransport) { x.Transport = "tcp" },
+			agent: func(int, []byte) []agentReply { return []agentReply{{data: make([]byte, rxBufSize+10)}} },
 		},
 
 		// Transport errors.
 		"write-error/once": {agent: answer(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
-			c.writeErrs = map[int]error{1: errEngineWrite}
+			c.failWrite = func(n int) error { return map[int]error{1: errEngineWrite}[n] }
 		}},
 		"write-error/always": {agent: answer(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
-			c.writeErrs = map[int]error{1: errEngineWrite, 2: errEngineWrite, 3: errEngineWrite}
+			c.failWrite = func(int) error { return errEngineWrite }
 		}},
+		"write-error/timeout-in-text": {
+			agent: answer(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
+				c.failWrite = func(int) error { return errors.New("codec timeout of the write queue") }
+			},
+			knownBug: "a timeout is recognized by the word in the error's text, so another error with that word becomes a request timeout",
+		},
 		"deadline-error": {agent: answer(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
 			c.deadlineErr = errors.New("codec deadline failure")
 		}},
-		"read-error": {agent: answer(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
-			c.readErr = &net.OpError{Op: "read", Net: "udp", Err: syscall.ECONNREFUSED}
+		"read-error/once": {agent: answerFromSecond(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
+			c.failRead = func(n int) error { return map[int]error{1: refused}[n] }
+		}},
+		"read-error/always": {agent: answer(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
+			c.failRead = func(int) error { return refused }
+		}},
+		"read-eof/udp": {agent: answerFromSecond(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
+			c.failRead = func(n int) error { return map[int]error{1: io.EOF}[n] }
 		}},
 
 		// Context.
@@ -185,38 +320,61 @@ func engineScenarios() map[string]engineScenario {
 		"context/deadline-in-first-attempt":   {context: withEngineTimeout(700 * time.Millisecond)},
 		"context/deadline-in-third-attempt":   {context: withEngineTimeout(2500 * time.Millisecond)},
 		"context/deadline-after-all-attempts": {context: withEngineTimeout(time.Hour)},
-		"context/canceled-while-waiting": {
-			context: func() (context.Context, context.CancelFunc) {
-				ctx, cancel := context.WithCancel(context.Background())
-				time.AfterFunc(300*time.Millisecond, cancel)
-				return ctx, cancel
+		"context/deadline-during-hook": {
+			context: withEngineTimeout(1500 * time.Millisecond),
+			setup: func(x *GoSNMP, c *fakeTransport) {
+				x.OnRetry = func(*GoSNMP) {
+					c.tr.addf("hook OnRetry, which takes 1s")
+					time.Sleep(time.Second)
+				}
 			},
+		},
+		"context/canceled-while-waiting": {
+			context:  canceledAfter(300 * time.Millisecond),
 			knownBug: "cancellation is noticed only when the attempt's deadline passes",
+		},
+		"context/canceled-in-last-attempt": {
+			context:  canceledAfter(2300 * time.Millisecond),
+			knownBug: "a cancellation during the last attempt is reported as a request timeout",
 		},
 
 		// Request IDs.
-		"request-id/wraps":   {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.requestID = 0x7FFFFFFF }},
-		"request-id/set":     {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.SetRequestID(5) }},
-		"request-id/retries": {agent: func(n int, req []byte) []agentReply { return answer(sysDescr)(n, req)[:min(n-1, 1)] }},
+		"request-id/wraps": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.requestID = 0x7FFFFFFF }},
+		"request-id/wraps-between-attempts": {agent: answerFromSecond(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) {
+			x.requestID = 0x7FFFFFFE
+		}},
+		"request-id/set": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.SetRequestID(5) }},
 
 		// Socket shapes.
-		"unconnected": {unconnected: true, agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) {
-			x.uaddr = &net.UDPAddr{IP: net.IPv4(127, 0, 0, 2), Port: 161}
+		"unconnected": {shape: shapeUnconnectedUDP, agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) {
+			x.uaddr = &net.UDPAddr{IP: net.IPv4(127, 0, 0, 3), Port: 161}
 		}},
-		"unconnected/no-address": {unconnected: true, agent: answer(sysDescr)},
 
 		// Hooks.
 		"hook-panics": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) {
 			x.PreSend = func(*GoSNMP) { panic("codec hook failure") }
 		}},
 	}
-}
 
-// withEngineTimeout gives a context that times out after d.
-func withEngineTimeout(d time.Duration) func() (context.Context, context.CancelFunc) {
-	return func() (context.Context, context.CancelFunc) {
-		return context.WithTimeout(context.Background(), d)
+	// A Set of each value type it supports.
+	for _, vb := range []SnmpPDU{
+		{Type: Integer, Value: 5},
+		{Type: OctetString, Value: "codec"},
+		{Type: Gauge32, Value: uint32(6)},
+		{Type: IPAddress, Value: "192.0.2.1"},
+		{Type: ObjectIdentifier, Value: ".1.3.6.1.4.1.8072"},
+		{Type: Counter32, Value: uint32(7)},
+		{Type: Counter64, Value: uint64(8)},
+		{Type: Null},
+		{Type: TimeTicks, Value: uint32(9)},
+		{Type: Uinteger32, Value: uint32(10)},
+		{Type: OpaqueFloat, Value: float32(1.5)},
+		{Type: OpaqueDouble, Value: 2.5},
+	} {
+		vb.Name = setOID
+		scenarios["set/"+vb.Type.String()] = engineScenario{agent: answer(vb), run: setVarbinds(vb)}
 	}
+	return scenarios
 }
 
 // TestEngineRequestCharacterization pins what the request engine does for
@@ -242,9 +400,12 @@ func TestEngineRequestCharacterization(t *testing.T) {
 func runEngineScenario(t *testing.T, sc engineScenario) string {
 	tr := newEngineTranscript()
 	c := newFakeTransport(tr, sc.agent)
-	var conn net.Conn = c
-	if sc.unconnected {
+	var conn net.Conn
+	switch sc.shape {
+	case shapeUDP, shapeUnconnectedUDP:
 		conn = fakePacketTransport{c}
+	case shapeStream:
+		conn = c
 	}
 	version := Version2c
 	if sc.v1 {
@@ -261,7 +422,7 @@ func runEngineScenario(t *testing.T, sc engineScenario) string {
 	}
 	run := sc.run
 	if run == nil {
-		run = func(x *GoSNMP) (*SnmpPacket, error) { return x.Get([]string{engineOID}) }
+		run = getOIDs(engineOID)
 	}
 
 	tr.addf("client: %v timeout=%s retries=%d exponential=%t", x.Version, x.Timeout, x.Retries, x.ExponentialTimeout)
@@ -279,58 +440,89 @@ func runEngineScenario(t *testing.T, sc engineScenario) string {
 	return strings.Join(tr.lines, "\n")
 }
 
-// TestEngineTCPEOFWithContextDeadline pins a known bug: when a TCP agent
-// closes the connection during an attempt whose deadline comes from the
-// context, the engine reconnects and then reads the error of the successful
-// reconnect, which is nil; send recovers the panic into an error.
-func TestEngineTCPEOFWithContextDeadline(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	defer ln.Close()
-	go func() {
-		for {
-			conn, acceptErr := ln.Accept()
-			if acceptErr != nil {
-				return
-			}
-			go func() {
-				defer conn.Close()
-				_, _ = conn.Read(make([]byte, 2048))
-			}()
-		}
-	}()
-
-	// The context deadline comes before the timeout, so it bounds the attempt.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	x := &GoSNMP{
-		Target:    "127.0.0.1",
-		Port:      uint16(ln.Addr().(*net.TCPAddr).Port), //nolint:gosec // a TCP port
-		Transport: "tcp",
-		Community: "public",
-		Version:   Version2c,
-		Timeout:   10 * time.Second,
-		Retries:   1,
-		Context:   ctx,
+// TestEngineTCPReconnect pins, on loopback sockets, what the engine does when
+// a TCP agent closes the connection: it reconnects and sends again, and gives
+// up on the reconnect's error or when the retries run out, known bugs
+// included.
+func TestEngineTCPReconnect(t *testing.T) {
+	tests := map[string]struct {
+		acceptAgain    bool          // the agent accepts the reconnection
+		contextTimeout time.Duration // a context deadline before the timeout
+		want           string        // the start of the error's description
+		wantIs         string        // the end of it: the errors it is, if any
+		knownBug       string
+	}{
+		"retries run out":   {acceptAgain: true, want: `error "max retries (1) exceeded"`},
+		"reconnect refused": {want: `error "dial tcp `, wantIs: "(is syscall.ECONNREFUSED)"},
+		"context deadline": {
+			acceptAgain: true, contextTimeout: 5 * time.Second,
+			want:     `error "recover: runtime error: invalid memory address or nil pointer dereference Stack: ..."`,
+			knownBug: "after the reconnect under a context deadline, the engine reads the nil error of the reconnect",
+		},
 	}
-	require.NoError(t, x.Connect())
-	defer x.Close()
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ln, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			port := uint16(ln.Addr().(*net.TCPAddr).Port) //nolint:gosec // a TCP port
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				for first := true; ; first = false {
+					conn, acceptErr := ln.Accept()
+					if acceptErr != nil {
+						return
+					}
+					if first && !tc.acceptAgain {
+						ln.Close()
+					}
+					go func() {
+						defer conn.Close()
+						_, _ = conn.Read(make([]byte, 2048))
+					}()
+				}
+			}()
+			defer func() {
+				ln.Close()
+				<-done
+			}()
 
-	_, err = x.Get([]string{engineOID})
-	require.Error(t, err)
-	assert.True(t, strings.HasPrefix(err.Error(), "recover: runtime error: invalid memory address or nil pointer dereference"),
-		"got %q", err)
+			ctx := context.Background()
+			if tc.contextTimeout > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, tc.contextTimeout)
+				defer cancel()
+			}
+			x := &GoSNMP{
+				Target:    "127.0.0.1",
+				Port:      port,
+				Transport: "tcp",
+				Community: "public",
+				Version:   Version2c,
+				Timeout:   10 * time.Second,
+				Retries:   1,
+				Context:   ctx,
+			}
+			require.NoError(t, x.Connect())
+			defer x.Close()
+
+			_, err = x.Get([]string{engineOID})
+			require.Error(t, err)
+			got := describeEngineError(err)
+			assert.True(t, strings.HasPrefix(got, tc.want) && strings.HasSuffix(got, tc.wantIs), "got %s (known bug: %q)", got, tc.knownBug)
+		})
+	}
 }
 
 // BenchmarkSendOneRequest measures one SNMPv2c Get through the request engine
-// on the in-memory transport; the agent's decoding of the request and encoding
-// of the reply are included.
+// on the in-memory transport, without socket system calls; the agent's
+// decoding of the request and encoding of the reply are included.
 func BenchmarkSendOneRequest(b *testing.B) {
 	const oid = ".1.3.6.1.2.1.31.1.1.1.10.1"
 	c := newFakeTransport(nil, func(_ int, req []byte) []agentReply {
 		return []agentReply{{data: replyTo(req, nil, SnmpPDU{Name: oid, Type: Counter64, Value: uint64(3825929753)})}}
 	})
-	x := newEngineClient(b, nil, Version2c, c)
+	x := newEngineClient(b, nil, Version2c, fakePacketTransport{c})
 	pkt := x.mkSnmpPacket(GetRequest, []SnmpPDU{{Name: oid, Type: Null}}, 0, 0)
 
 	b.ReportAllocs()

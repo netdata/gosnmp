@@ -12,8 +12,8 @@ import (
 	"io"
 	"net"
 	"os"
+	"slices"
 	"strings"
-	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -22,9 +22,11 @@ import (
 // The engine harness runs the request engine against a scripted agent over an
 // in-memory transport. Run inside a testing/synctest bubble, retries and
 // deadlines play out on the bubble's clock, so schedules are exact and a
-// scenario takes no real time. A transcript records, in the client's
-// goroutine, every write, deadline, read and hook call with the time since the
-// scenario started; the agent's replies are recorded when it schedules them.
+// scenario takes no real time. Everything runs in the client's goroutine: the
+// agent answers inside Write, and Read waits on the bubble's clock for the
+// next reply or the deadline. A transcript records every write, deadline,
+// read and hook call with the time since the scenario started, and the
+// agent's replies when it schedules them.
 
 // engineTranscript is the ordered record of one engine scenario. A nil
 // transcript records nothing.
@@ -54,81 +56,111 @@ type agentReply struct {
 // engineAgent answers the n-th write (counted from 1) with replies.
 type engineAgent func(n int, req []byte) []agentReply
 
-// fakeTransport is an in-memory net.Conn to an engineAgent. Each Read returns
-// one message, as a datagram socket does, or os.ErrDeadlineExceeded once the
-// deadline passes. A reply due at the same instant as a deadline may come
-// either way, so scenarios keep them apart. Writes, deadlines and reads can be
-// made to fail.
+// pendingReply is a reply on its way to the client.
+type pendingReply struct {
+	due  time.Time
+	data []byte
+}
+
+// fakeTransport is an in-memory connection to an engineAgent, shaped like a
+// TCP socket or a custom net.Conn; fakePacketTransport gives it the shape of a
+// UDP socket. Each read returns one reply, the earliest due, as a datagram
+// socket does, and fails with os.ErrDeadlineExceeded once the read deadline
+// has passed: a reply due at the deadline is not read, as on a real socket. A
+// write fails the same way once the write deadline has passed. Writes and
+// reads can be made to fail by number. An io.EOF read on a TCP client makes
+// the engine reconnect with a real dial, so those cases run on loopback
+// sockets (TestEngineTCPReconnect).
 type fakeTransport struct {
 	tr    *engineTranscript
 	agent engineAgent
 
-	mu       sync.Mutex
-	deadline time.Time
-	inbox    chan []byte
-	writes   int
+	pending                     []pendingReply // by due time, then by order of scheduling
+	readDeadline, writeDeadline time.Time
+	writes, reads               int
 
-	writeErrs   map[int]error // by write number
+	failWrite   func(n int) error // the error of write n, or nil
+	failRead    func(n int) error // the error of read n, or nil
 	deadlineErr error
-	readErr     error // returned once by the next Read, instead of a message
 }
 
 func newFakeTransport(tr *engineTranscript, agent engineAgent) *fakeTransport {
-	return &fakeTransport{tr: tr, agent: agent, inbox: make(chan []byte, 64)}
+	return &fakeTransport{tr: tr, agent: agent}
 }
 
 func (c *fakeTransport) Write(b []byte) (int, error) {
+	return c.write(b, "write")
+}
+
+func (c *fakeTransport) write(b []byte, op string) (int, error) {
 	c.writes++
 	n := c.writes
-	c.tr.addf("write #%d: %s", n, describeMessage(b))
-	if err := c.writeErrs[n]; err != nil {
-		c.tr.addf("write #%d fails: %v", n, err)
-		return 0, err
+	if c.tr != nil {
+		c.tr.addf("%s #%d: %s", op, n, describeMessage(b))
+	}
+	if !c.writeDeadline.IsZero() && !time.Now().Before(c.writeDeadline) {
+		c.tr.addf("%s #%d: deadline", op, n)
+		return 0, os.ErrDeadlineExceeded
+	}
+	if c.failWrite != nil {
+		if err := c.failWrite(n); err != nil {
+			c.tr.addf("%s #%d fails: %v", op, n, err)
+			return 0, err
+		}
 	}
 	if c.agent == nil {
 		return len(b), nil
 	}
 	for _, r := range c.agent(n, bytes.Clone(b)) {
 		c.tr.addf("agent answers #%d after %s", n, r.after)
-		if r.after <= 0 {
-			c.inbox <- r.data
-			continue
+		due := time.Now().Add(r.after)
+		i := len(c.pending)
+		for i > 0 && c.pending[i-1].due.After(due) {
+			i--
 		}
-		time.AfterFunc(r.after, func() { c.inbox <- r.data })
+		c.pending = slices.Insert(c.pending, i, pendingReply{due: due, data: r.data})
 	}
 	return len(b), nil
 }
 
 func (c *fakeTransport) Read(b []byte) (int, error) {
-	c.mu.Lock()
-	deadline := c.deadline
-	readErr := c.readErr
-	c.readErr = nil
-	c.mu.Unlock()
+	return c.read(b, "read")
+}
 
-	if readErr != nil {
-		c.tr.addf("read: %v", readErr)
-		return 0, readErr
-	}
-	var expired <-chan time.Time
-	if !deadline.IsZero() {
-		timer := time.NewTimer(time.Until(deadline))
-		defer timer.Stop()
-		expired = timer.C
-	}
-	var msg []byte
-	select {
-	case msg = <-c.inbox:
-	case <-expired:
-		select {
-		case msg = <-c.inbox:
-		default:
-			c.tr.addf("read: deadline")
-			return 0, os.ErrDeadlineExceeded
+func (c *fakeTransport) read(b []byte, op string) (int, error) {
+	c.reads++
+	if c.failRead != nil {
+		if err := c.failRead(c.reads); err != nil {
+			c.tr.addf("%s: %v", op, err)
+			return 0, err
 		}
 	}
-	c.tr.addf("read: %s", describeMessage(msg))
-	return copy(b, msg), nil
+	for {
+		now := time.Now()
+		if !c.readDeadline.IsZero() && !now.Before(c.readDeadline) {
+			c.tr.addf("%s: deadline", op)
+			return 0, os.ErrDeadlineExceeded
+		}
+		if len(c.pending) > 0 && !c.pending[0].due.After(now) {
+			msg := c.pending[0].data
+			c.pending = c.pending[1:]
+			if c.tr != nil {
+				c.tr.addf("%s: %s", op, describeMessage(msg))
+			}
+			return copy(b, msg), nil
+		}
+		var wake time.Time
+		if len(c.pending) > 0 {
+			wake = c.pending[0].due
+		}
+		if !c.readDeadline.IsZero() && (wake.IsZero() || c.readDeadline.Before(wake)) {
+			wake = c.readDeadline
+		}
+		if wake.IsZero() {
+			panic("fakeTransport: a read without a deadline would block forever")
+		}
+		time.Sleep(time.Until(wake))
+	}
 }
 
 func (c *fakeTransport) SetDeadline(t time.Time) error {
@@ -136,15 +168,29 @@ func (c *fakeTransport) SetDeadline(t time.Time) error {
 	if c.deadlineErr != nil {
 		return c.deadlineErr
 	}
-	c.mu.Lock()
-	c.deadline = t
-	c.mu.Unlock()
+	c.readDeadline, c.writeDeadline = t, t
 	return nil
 }
 
-func (c *fakeTransport) SetReadDeadline(t time.Time) error { return c.SetDeadline(t) }
-func (c *fakeTransport) SetWriteDeadline(time.Time) error  { return nil }
-func (c *fakeTransport) Close() error                      { c.tr.addf("close"); return nil }
+func (c *fakeTransport) SetReadDeadline(t time.Time) error {
+	c.tr.addf("read deadline +%s", time.Until(t))
+	if c.deadlineErr != nil {
+		return c.deadlineErr
+	}
+	c.readDeadline = t
+	return nil
+}
+
+func (c *fakeTransport) SetWriteDeadline(t time.Time) error {
+	c.tr.addf("write deadline +%s", time.Until(t))
+	if c.deadlineErr != nil {
+		return c.deadlineErr
+	}
+	c.writeDeadline = t
+	return nil
+}
+
+func (c *fakeTransport) Close() error { c.tr.addf("close"); return nil }
 func (c *fakeTransport) LocalAddr() net.Addr {
 	return &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 50000}
 }
@@ -153,36 +199,44 @@ func (c *fakeTransport) RemoteAddr() net.Addr {
 	return &net.UDPAddr{IP: net.IPv4(127, 0, 0, 2), Port: 161}
 }
 
-// fakePacketTransport is a fakeTransport shaped like an unconnected UDP
-// socket: the engine writes with WriteTo and reads with ReadFrom.
+// fakePacketTransport is a fakeTransport shaped like a UDP socket, connected
+// as Connect leaves it or unconnected: a net.PacketConn, which the engine reads
+// with ReadFrom.
 type fakePacketTransport struct {
 	*fakeTransport
 }
 
 func (c fakePacketTransport) ReadFrom(b []byte) (int, net.Addr, error) {
-	c.tr.addf("read from")
-	n, err := c.Read(b)
+	n, err := c.read(b, "read from")
 	return n, c.RemoteAddr(), err
 }
 
 func (c fakePacketTransport) WriteTo(b []byte, addr net.Addr) (int, error) {
-	c.tr.addf("write to %s", addr)
-	return c.Write(b)
+	return c.write(b, fmt.Sprintf("write to %s", addr))
 }
 
-// newEngineClient returns a client on conn configured as Connect would leave
-// it, with request IDs starting after 1000 and message IDs after 2000, and
-// hooks that record their calls in tr.
+// newEngineClient returns a v1/v2c client on conn with a 1 s timeout and 2
+// retries, completed by newEngineClientFrom.
 func newEngineClient(tb testing.TB, tr *engineTranscript, version SnmpVersion, conn net.Conn) *GoSNMP {
 	tb.Helper()
-	x := &GoSNMP{
+	return newEngineClientFrom(tb, tr, conn, &GoSNMP{
 		Version:   version,
 		Community: "public",
 		Timeout:   time.Second,
 		Retries:   2,
-	}
+	})
+}
+
+// newEngineClientFrom completes x on conn as Connect would leave it, with
+// request IDs starting after 1000, message IDs after 2000 and fixed salt
+// counters, and with hooks that record their calls in tr.
+func newEngineClientFrom(tb testing.TB, tr *engineTranscript, conn net.Conn, x *GoSNMP) *GoSNMP {
+	tb.Helper()
 	if err := x.validateParameters(); err != nil {
 		tb.Fatal(err)
+	}
+	if usp := usmOf(x.SecurityParameters); usp != nil {
+		usp.localAESSalt, usp.localDESSalt = 0x100, 0x100
 	}
 	x.Conn = conn
 	x.rxBuf = new([rxBufSize]byte)
@@ -218,7 +272,7 @@ func describeMessage(b []byte) string {
 		return fmt.Sprintf("%d octets, not decodable (%v)", len(b), err)
 	}
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "%v %v id=%d", p.Version, p.PDUType, p.RequestID)
+	fmt.Fprintf(&sb, "%v %q %v id=%d", p.Version, p.Community, p.PDUType, p.RequestID)
 	switch {
 	case p.PDUType == GetBulkRequest:
 		fmt.Fprintf(&sb, " nonRepeaters=%d maxRepetitions=%d", p.NonRepeaters, p.MaxRepetitions)
@@ -279,7 +333,11 @@ var engineSentinels = []struct {
 	{"context.DeadlineExceeded", context.DeadlineExceeded},
 	{"os.ErrDeadlineExceeded", os.ErrDeadlineExceeded},
 	{"io.EOF", io.EOF},
+	{"net.ErrClosed", net.ErrClosed},
 	{"syscall.ECONNREFUSED", syscall.ECONNREFUSED},
+	{"syscall.ECONNRESET", syscall.ECONNRESET},
+	{"syscall.EHOSTUNREACH", syscall.EHOSTUNREACH},
+	{"syscall.EACCES", syscall.EACCES},
 	{"errEngineWrite", errEngineWrite},
 	{"ErrDecryption", ErrDecryption},
 	{"ErrInvalidMsgs", ErrInvalidMsgs},
@@ -297,7 +355,10 @@ var engineSentinels = []struct {
 // stack, and what it is: the sentinels it matches and whether it is a timeout
 // net.Error, as callers that classify errors see it.
 func describeEngineError(err error) string {
-	text, _, _ := strings.Cut(err.Error(), " Stack:")
+	text, _, stack := strings.Cut(err.Error(), " Stack:")
+	if stack {
+		text += " Stack: ..."
+	}
 	var is []string
 	for _, s := range engineSentinels {
 		if errors.Is(err, s.err) {
@@ -323,7 +384,7 @@ func describeEngineResult(p *SnmpPacket, err error) string {
 	case p.PDUType == 0 && p.Version == 0 && len(p.Variables) == 0:
 		sb.WriteString("packet empty")
 	default:
-		fmt.Fprintf(&sb, "packet %v id=%d", p.PDUType, p.RequestID)
+		fmt.Fprintf(&sb, "packet %v %q %v id=%d", p.Version, p.Community, p.PDUType, p.RequestID)
 		if p.Error != NoError || p.ErrorIndex != 0 {
 			fmt.Fprintf(&sb, " error=%v index=%d", p.Error, p.ErrorIndex)
 		}
