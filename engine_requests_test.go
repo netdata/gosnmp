@@ -196,6 +196,12 @@ func engineScenarios() map[string]engineScenario {
 			}
 			return nil
 		}},
+		"answer/late-by-two-attempts": {agent: func(n int, req []byte) []agentReply {
+			if n == 1 {
+				return []agentReply{{data: replyTo(req, nil, sysDescr), after: 2500 * time.Millisecond}}
+			}
+			return nil
+		}},
 		"answer/late-reply-read-by-next-request": {run: twoGets, agent: func(n int, req []byte) []agentReply {
 			switch n {
 			case 1:
