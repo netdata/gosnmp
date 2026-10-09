@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"runtime"
 	"strings"
 	"time"
@@ -243,13 +242,7 @@ sendRetry:
 		if x.Logger.enabled() {
 			x.Logger.Printf("SENDING PACKET: %s", packetOut.SafeString())
 		}
-		// If using UDP and unconnected socket, send packet directly to stored address.
-		if uconn, ok := x.Conn.(net.PacketConn); ok && x.uaddr != nil {
-			_, err = uconn.WriteTo(outBuf, x.uaddr)
-		} else {
-			_, err = x.Conn.Write(outBuf)
-		}
-		if err != nil {
+		if err = x.write(outBuf); err != nil {
 			continue
 		}
 		if x.OnSent != nil {
@@ -480,31 +473,4 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 // MarshalMsg marshalls a snmp packet, ready for sending across the wire
 func (packet *SnmpPacket) MarshalMsg() ([]byte, error) {
 	return packet.marshalMsg()
-}
-
-// receive response from network and read into a byte array
-func (x *GoSNMP) receive() ([]byte, error) {
-	var n int
-	var err error
-	// If we are using UDP and unconnected socket, read the packet and
-	// disregard the source address.
-	if uconn, ok := x.Conn.(net.PacketConn); ok {
-		n, _, err = uconn.ReadFrom(x.rxBuf[:])
-	} else {
-		n, err = x.Conn.Read(x.rxBuf[:])
-	}
-	if err == io.EOF {
-		return nil, err
-	} else if err != nil {
-		return nil, fmt.Errorf("error reading from socket: %w", err)
-	}
-
-	if n == rxBufSize {
-		// This should never happen unless we're using something like a unix domain socket.
-		return nil, fmt.Errorf("response buffer too small")
-	}
-
-	resp := make([]byte, n)
-	copy(resp, x.rxBuf[:n])
-	return resp, nil
 }
