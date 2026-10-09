@@ -1640,48 +1640,6 @@ func TestSendOneRequest_TCP_EOF_Reconnect(t *testing.T) {
 	}
 }
 
-func BenchmarkSendOneRequest(b *testing.B) {
-	b.StopTimer()
-
-	srvr, err := net.ListenUDP("udp4", &net.UDPAddr{})
-	if err != nil {
-		b.Fatalf("udp4 error listening: %s", err)
-	}
-	defer srvr.Close()
-
-	x := &GoSNMP{
-		Version: Version2c,
-		Target:  srvr.LocalAddr().(*net.UDPAddr).IP.String(),
-		Port:    uint16(srvr.LocalAddr().(*net.UDPAddr).Port),
-		Timeout: time.Millisecond * 100,
-		Retries: 2,
-	}
-	if err = x.Connect(); err != nil {
-		b.Fatalf("error connecting: %s", err)
-	}
-
-	go serveCounter64Responses(srvr)
-
-	pdus := []SnmpPDU{{Name: ".1.3.6.1.2.1.31.1.1.1.10.1", Type: Null}}
-	reqPkt := x.mkSnmpPacket(GetRequest, pdus, 0, 0)
-
-	// make sure everything works before starting the test
-	_, err = x.sendOneRequest(reqPkt)
-	if err != nil {
-		b.Fatalf("Precheck failed: %s", err)
-	}
-
-	b.StartTimer()
-
-	for n := 0; n < b.N; n++ {
-		_, err = x.sendOneRequest(reqPkt)
-		if err != nil {
-			b.Fatalf("error: %s", err)
-			return
-		}
-	}
-}
-
 func TestUnconnectedSocket_fail(t *testing.T) {
 	withUnconnectedSocket(t, false)
 }
@@ -1788,23 +1746,6 @@ func sendFromNewSocket(reply []byte, addr net.Addr) error {
 	defer nsock.Close()
 	_, err = nsock.WriteTo(reply, addr)
 	return err
-}
-
-// serveCounter64Responses answers each request read from srvr with
-// counter64Response, copying in the request ID. It returns when srvr is closed.
-func serveCounter64Responses(srvr *net.UDPConn) {
-	buf := make([]byte, 256)
-	reply := counter64Response()
-	for {
-		_, addr, err := srvr.ReadFrom(buf)
-		if err != nil {
-			return
-		}
-		copy(reply[17:21], buf[11:15]) // evil: copy request ID
-		if _, err = srvr.WriteTo(reply, addr); err != nil {
-			return
-		}
-	}
 }
 
 /*
