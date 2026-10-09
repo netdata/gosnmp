@@ -40,7 +40,9 @@ const (
 
 //go:generate go tool -modfile=tools/go.mod stringer -type=SnmpV3SecurityModel
 
-// SnmpV3SecurityParameters is a generic interface type to contain various implementations of SnmpV3SecurityParameters
+// SnmpV3SecurityParameters holds the parameters of an SNMPv3 security model.
+// Its only implementation is *UsmSecurityParameters, for the User-based
+// Security Model.
 type SnmpV3SecurityParameters interface {
 	Log()
 	Copy() SnmpV3SecurityParameters
@@ -48,20 +50,19 @@ type SnmpV3SecurityParameters interface {
 	SafeString() string
 	InitPacket(packet *SnmpPacket) error
 	InitSecurityKeys() error
-	validate(flags SnmpV3MsgFlags) error
-	init(log Logger) error
-	discoveryRequired() *SnmpPacket
-	getDefaultContextEngineID() string
-	setSecurityParameters(in SnmpV3SecurityParameters) error
-	marshal(dst []byte, flags SnmpV3MsgFlags) []byte
-	unmarshal(flags SnmpV3MsgFlags, r *ber.Reader) error
-	authenticate(packet []byte) error
-	isAuthentic(packetBytes []byte, packet *SnmpPacket) (bool, error)
-	encryptPacket(scopedPdu []byte) ([]byte, error)
-	decryptPacket(packet []byte, cursor int) ([]byte, error)
-	getIdentifier() string
-	getLogger() Logger
-	setLogger(log Logger)
+
+	// usm returns the parameters of the User-based Security Model. Being
+	// unexported, it keeps the interface implemented only in this package.
+	usm() *UsmSecurityParameters
+}
+
+// usmOf returns the User-based Security Model parameters of sp, or nil when
+// sp is nil.
+func usmOf(sp SnmpV3SecurityParameters) *UsmSecurityParameters {
+	if sp == nil {
+		return nil
+	}
+	return sp.usm()
 }
 
 func (x *GoSNMP) validateParametersV3() error {
@@ -73,7 +74,7 @@ func (x *GoSNMP) validateParametersV3() error {
 		return errors.New("SNMPV3 SecurityParameters must be set")
 	}
 
-	return x.SecurityParameters.validate(x.MsgFlags)
+	return x.SecurityParameters.usm().validate(x.MsgFlags)
 }
 
 // authenticate the marshalled result of a snmp version 3 packet
@@ -89,7 +90,7 @@ func (packet *SnmpPacket) authenticate(msg []byte) ([]byte, error) {
 		return msg, nil
 	}
 	if packet.MsgFlags&AuthNoPriv > 0 {
-		err := packet.SecurityParameters.authenticate(msg)
+		err := packet.SecurityParameters.usm().authenticate(msg)
 		if err != nil {
 			return nil, err
 		}
@@ -110,7 +111,7 @@ func (x *GoSNMP) testAuthentication(packet []byte, result *SnmpPacket, useRespon
 	// Engine discovery (RFC 3414 section 4): a message with an empty user name
 	// and engine ID is accepted without authentication, whatever its flags and
 	// variable bindings (the bindings are not decoded yet).
-	msgSecParams := result.SecurityParameters.(*UsmSecurityParameters)
+	msgSecParams := result.SecurityParameters.usm()
 	if msgSecParams.UserName == "" && msgSecParams.AuthoritativeEngineID == "" {
 		return nil
 	}
@@ -119,9 +120,9 @@ func (x *GoSNMP) testAuthentication(packet []byte, result *SnmpPacket, useRespon
 		var authentic bool
 		var err error
 		if useResponseSecurityParameters {
-			authentic, err = result.SecurityParameters.isAuthentic(packet, result)
+			authentic, err = result.SecurityParameters.usm().isAuthentic(packet, result)
 		} else {
-			authentic, err = x.SecurityParameters.isAuthentic(packet, result)
+			authentic, err = x.SecurityParameters.usm().isAuthentic(packet, result)
 		}
 		if err != nil {
 			return err
@@ -156,7 +157,7 @@ func (x *GoSNMP) negotiateInitialSecurityParameters(packetOut *SnmpPacket) error
 		return fmt.Errorf("connection security model does not match security model defined in packet")
 	}
 
-	if discoveryPacket := packetOut.SecurityParameters.discoveryRequired(); discoveryPacket != nil {
+	if discoveryPacket := packetOut.SecurityParameters.usm().discoveryRequired(); discoveryPacket != nil {
 		discoveryPacket.ContextName = x.ContextName
 		result, err := x.sendOneRequest(discoveryPacket)
 		if err != nil {
@@ -166,8 +167,8 @@ func (x *GoSNMP) negotiateInitialSecurityParameters(packetOut *SnmpPacket) error
 			if !errors.Is(err, ErrUnknownUsername) || result == nil {
 				return err
 			}
-			usp, ok := result.SecurityParameters.(*UsmSecurityParameters)
-			if !ok || usp.AuthoritativeEngineID == "" {
+			usp := usmOf(result.SecurityParameters)
+			if usp == nil || usp.AuthoritativeEngineID == "" {
 				return err
 			}
 		}
@@ -200,10 +201,10 @@ func (x *GoSNMP) storeSecurityParameters(result *SnmpPacket) error {
 	}
 
 	if x.ContextEngineID == "" {
-		x.ContextEngineID = result.SecurityParameters.getDefaultContextEngineID()
+		x.ContextEngineID = result.SecurityParameters.usm().AuthoritativeEngineID
 	}
 
-	return x.SecurityParameters.setSecurityParameters(result.SecurityParameters)
+	return x.SecurityParameters.usm().setSecurityParameters(result.SecurityParameters.usm())
 }
 
 // update packet security parameters to match connection security parameters
@@ -216,7 +217,7 @@ func (x *GoSNMP) updatePktSecurityParameters(packetOut *SnmpPacket) error {
 		return fmt.Errorf("connection security model does not match security model extracted from packet")
 	}
 
-	err := packetOut.SecurityParameters.setSecurityParameters(x.SecurityParameters)
+	err := packetOut.SecurityParameters.usm().setSecurityParameters(x.SecurityParameters.usm())
 	if err != nil {
 		return err
 	}
@@ -234,7 +235,7 @@ func (x *GoSNMP) updatePktSecurityParameters(packetOut *SnmpPacket) error {
 func (packet *SnmpPacket) appendV3(dst []byte) ([]byte, error) {
 	dst = packet.appendV3Header(dst)
 	dst, start := ber.Begin(dst, byte(OctetString))
-	dst = ber.End(packet.SecurityParameters.marshal(dst, packet.MsgFlags), start)
+	dst = ber.End(packet.SecurityParameters.usm().marshal(dst, packet.MsgFlags), start)
 	return packet.appendV3ScopedPDU(dst)
 }
 
@@ -269,7 +270,7 @@ func (packet *SnmpPacket) appendV3ScopedPDU(dst []byte) ([]byte, error) {
 	}
 	dst = ber.End(dst, start)
 	if packet.MsgFlags&AuthPriv > AuthNoPriv {
-		encrypted, err := packet.SecurityParameters.encryptPacket(dst[scoped:])
+		encrypted, err := packet.SecurityParameters.usm().encryptPacket(dst[scoped:])
 		if err != nil {
 			return nil, err
 		}
@@ -340,7 +341,7 @@ func (x *GoSNMP) unmarshalV3Header(packet []byte,
 	if response.SecurityParameters == nil {
 		response.SecurityParameters = &UsmSecurityParameters{Logger: x.Logger}
 	}
-	if err := response.SecurityParameters.unmarshal(response.MsgFlags, &r); err != nil {
+	if err := response.SecurityParameters.usm().unmarshal(response.MsgFlags, &r); err != nil {
 		return 0, err
 	}
 
@@ -361,7 +362,7 @@ func unmarshalScopedPDU(packet []byte, cursor int, response *SnmpPacket) ([]byte
 	switch PDUType(packet[cursor]) {
 	case PDUType(OctetString):
 		var err error
-		packet, err = response.SecurityParameters.decryptPacket(packet, cursor)
+		packet, err = response.SecurityParameters.usm().decryptPacket(packet, cursor)
 		if err != nil {
 			return nil, 0, err
 		}

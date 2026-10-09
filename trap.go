@@ -47,10 +47,11 @@ func (x *GoSNMP) getTrapIdentifier(trap []byte) (string, error) {
 	packet := new(SnmpPacket)
 	_, err := x.unmarshalHeader(trap, packet)
 	// Return err if no identifier was able to be parsed after unmarshaling
-	if err != nil && packet.SecurityParameters.getIdentifier() == "" {
+	userName := packet.SecurityParameters.usm().UserName
+	if err != nil && userName == "" {
 		return "", err
 	}
-	return packet.SecurityParameters.getIdentifier(), nil
+	return userName, nil
 }
 
 func (x *GoSNMP) unmarshalTrapBase(trap []byte, sp SnmpV3SecurityParameters, useResponseSecurityParameters bool) (*SnmpPacket, error) {
