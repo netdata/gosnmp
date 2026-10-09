@@ -329,7 +329,7 @@ func (e *exchange) decode(resp []byte) (*SnmpPacket, error) {
 			return nil, err
 		}
 		if resp, cursor, err = unmarshalScopedPDU(resp, cursor, reply); err != nil {
-			x.Logger.Printf("ERROR on decryptPacket on v3: %s", err)
+			x.Logger.Printf("ERROR on the scoped PDU on v3: %s", err)
 			return nil, err
 		}
 	}
