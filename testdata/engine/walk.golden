@@ -299,7 +299,7 @@
 0s    write #2: 2c "public" GetNextRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #2 after 0s
 0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 error=SNMPError(19) index=1 [.1.3.6.1.2.1.1.1.0]
-0s    result: error "OID not increasing: .1.3.6.1.2.1.1.1.0 >= .1.3.6.1.2.1.1.1.0"
+0s    result: error "OID not increasing: .1.3.6.1.2.1.1.1.0 >= .1.3.6.1.2.1.1.1.0" *errors.errorString
 0s    known bug: an error status the walk does not name is ignored and the varbinds walked
 
 == walk/error-status/2-NoSuchName
@@ -548,7 +548,7 @@
 0s    agent answers #2 after 0s
 0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.5.0=OctetString:"codec-host"]
 0s    walkFn: [.1.3.6.1.2.1.1.5.0=OctetString:"codec-host"]
-0s    result: error "codec walkFn stop"
+0s    result: error "codec walkFn stop" *errors.errorString
 
 == walk/max-repetitions/one
 0s    client: 2c root=".1.3.6.1.2.1.1" bulk=true max-repetitions=1
@@ -681,7 +681,7 @@
 0s    write #3: 2c "public" GetNextRequest id=1003 [.1.3.6.1.2.1.2.2.1.2.2]
 0s    agent answers #3 after 0s
 0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1003 [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo"]
-0s    result: error "OID not increasing: .1.3.6.1.2.1.2.2.1.2.2 >= .1.3.6.1.2.1.2.2.1.2.1"
+0s    result: error "OID not increasing: .1.3.6.1.2.1.2.2.1.2.2 >= .1.3.6.1.2.1.2.2.1.2.1" *errors.errorString
 
 == walk/not-increasing/equal
 0s    client: 2c root=".1.3.6.1.2.1.1" bulk=false max-repetitions=0
@@ -694,7 +694,7 @@
 0s    write #2: 2c "public" GetNextRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #2 after 0s
 0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
-0s    result: error "OID not increasing: .1.3.6.1.2.1.1.1.0 >= .1.3.6.1.2.1.1.1.0"
+0s    result: error "OID not increasing: .1.3.6.1.2.1.1.1.0 >= .1.3.6.1.2.1.1.1.0" *errors.errorString
 
 == walk/request-error
 0s    client: 2c root=".1.3.6.1.2.1.1" bulk=false max-repetitions=0
@@ -722,7 +722,7 @@
 3s    read from 127.0.0.2:161: deadline
 3s    hook OnRetry
 3s    values: [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent" .1.3.6.1.2.1.1.3.0=TimeTicks:4200]
-3s    result: error "request timeout (after 2 retries)"
+3s    result: error "request timeout (after 2 retries)" *errors.errorString
 
 == walk/request-error/bulk
 0s    client: 2c root=".1.3.6.1.2.1.2.2.1.2" bulk=true max-repetitions=1
@@ -750,7 +750,7 @@
 3s    read from 127.0.0.2:161: deadline
 3s    hook OnRetry
 3s    values: [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo" .1.3.6.1.2.1.2.2.1.2.2=OctetString:"eth0"]
-3s    result: error "request timeout (after 2 retries)"
+3s    result: error "request timeout (after 2 retries)" *errors.errorString
 
 == walk/root-in-bulk-response
 0s    client: 2c root=".1.3.6.1.2.1.1" bulk=true max-repetitions=0
@@ -914,7 +914,7 @@
 
 == walk/v1-bulk
 0s    client: 1 root=".1.3.6.1.2.1.1" bulk=true max-repetitions=0
-0s    result: error "GETBULK not supported in SNMPv1"
+0s    result: error "GETBULK not supported in SNMPv1" *errors.errorString
 
 == walk/walk-all
 0s    client: 2c root=".1.3.6.1.2.1.2.2.1.2" bulk=false max-repetitions=0
@@ -958,7 +958,7 @@
 0s    agent answers #2 after 0s
 0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.3.0=TimeTicks:4200]
 0s    walkFn: [.1.3.6.1.2.1.1.3.0=TimeTicks:4200]
-0s    result: error "codec walkFn stop"
+0s    result: error "codec walkFn stop" *errors.errorString
 
 == walk/walkfn-error/bulk
 0s    client: 2c root=".1.3.6.1.2.1.1" bulk=true max-repetitions=0
@@ -968,4 +968,4 @@
 0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent" .1.3.6.1.2.1.1.3.0=TimeTicks:4200 .1.3.6.1.2.1.1.5.0=OctetString:"codec-host" .1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo" .1.3.6.1.2.1.2.2.1.2.2=OctetString:"eth0" .1.3.6.1.2.1.2.2.1.2.10=OctetString:"eth1" .1.3.6.1.4.1.99.1.0=Integer:7 .1.3.6.1.4.1.99.1.0=EndOfMibView:<nil>]
 0s    walkFn: [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    walkFn: [.1.3.6.1.2.1.1.3.0=TimeTicks:4200]
-0s    result: error "codec walkFn stop"
+0s    result: error "codec walkFn stop" *errors.errorString
