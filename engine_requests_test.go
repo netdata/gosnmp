@@ -271,6 +271,12 @@ func engineScenarios() map[string]engineScenario {
 			agent:    answerWith(func(p *SnmpPacket) { p.Version = Version1 }, sysDescr),
 			knownBug: "a reply of another SNMP version is accepted, though RFC 3412 hands each message to the model of its own version",
 		},
+		"answer/other-version-v3": {
+			agent: answerWith(func(p *SnmpPacket) {
+				p.Version, p.MsgFlags, p.SecurityModel = Version3, NoAuthNoPriv, UserSecurityModel
+				p.SecurityParameters = &UsmSecurityParameters{UserName: "public"}
+			}, sysDescr),
+		},
 		"answer/other-community": {agent: answerWith(func(p *SnmpPacket) { p.Community = "private" }, sysDescr)},
 		"answer/garbage-then-valid": {
 			agent: func(_ int, req []byte) []agentReply {
