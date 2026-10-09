@@ -17,6 +17,8 @@ import (
 // send runs a request: for SNMPv3 it first discovers the agent's engine or
 // derives the keys, then sends the request, and sends it once more when the
 // answer is a Report that resynchronizes the client with the agent's engine.
+// Every result it returns passes through its named results, which the
+// recover below returns when a panic, user code's included, ends the request.
 func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 	// Known bug: a panic becomes the request's error, with the stacks of all
 	// goroutines in its text (8 KB, NUL-padded), and the result the request had
@@ -66,30 +68,29 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 		x.Logger.Printf("SEND STORE SECURITY PARAMS from result: %s", result.SecurityParameters.SafeString())
 	}
 	err = x.storeSecurityParameters(result)
-	if kind, ok := reportKindOf(result); ok && kind.resync {
-		// Known bug: the store error is dropped, so a Report with another
-		// security model is acted on instead of being discarded.
-		return x.resync(packetOut, kind)
+	kind, ok := reportKindOf(result)
+	if !ok || !kind.resync {
+		// Known bug: a reply with another security model is returned together
+		// with the store error.
+		return result, err
 	}
-	// Known bug: a reply with another security model is returned together
-	// with the store error.
-	return result, err
-}
 
-// resync sends packetOut again after a Report of kind, with the engine ID or
-// time the client stored from it. Known bugs: a failed retransmission returns
-// the first Report's error instead of its own; a resync Report answering the
-// retransmission is returned with a nil error; the engine boots and time of
-// the answer to the retransmission are not stored.
-func (x *GoSNMP) resync(packetOut *SnmpPacket, kind reportKind) (*SnmpPacket, error) {
+	// Resynchronize: send the request again with the engine ID or time the
+	// client stored from the Report. The retransmission's result goes into the
+	// named result, which a recovered panic returns. Known bugs: the store
+	// error is dropped, so a Report with another security model is acted on
+	// instead of being discarded; a failed retransmission returns the first
+	// Report's error instead of its own; a resync Report answering the
+	// retransmission is returned with a nil error; the engine boots and time of
+	// the answer to the retransmission are not stored.
 	if x.Logger.enabled() {
 		x.Logger.Print("WARNING detected " + kind.name + " ERROR")
 	}
-	if err := x.updatePktSecurityParameters(packetOut); err != nil {
+	if err = x.updatePktSecurityParameters(packetOut); err != nil {
 		x.Logger.Printf("ERROR updatePktSecurityParameters error: %s", err)
 		return nil, err
 	}
-	result, err := x.sendOneRequest(packetOut)
+	result, err = x.sendOneRequest(packetOut)
 	if err != nil {
 		if x.Logger.enabled() {
 			x.Logger.Printf("ERROR "+kind.name+" retransmit error: %s", err)
