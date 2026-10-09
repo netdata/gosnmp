@@ -78,11 +78,9 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 
 // resync sends packetOut again after a Report of kind, with the engine ID or
 // time the client stored from it. Known bugs: a failed retransmission returns
-// the Report's error instead of its own; a Report answering the
+// the first Report's error instead of its own; a resync Report answering the
 // retransmission is returned with a nil error; the engine boots and time of
-// the answer to the retransmission are not stored; the client sends the engine
-// time of the last message it received, not the current one (RFC 3414 section
-// 3.1 step 6 a), so a request after 150 s of silence goes through this resync.
+// the answer to the retransmission are not stored.
 func (x *GoSNMP) resync(packetOut *SnmpPacket, kind reportKind) (*SnmpPacket, error) {
 	if x.Logger.enabled() {
 		x.Logger.Print("WARNING detected " + kind.name + " ERROR")
@@ -93,7 +91,9 @@ func (x *GoSNMP) resync(packetOut *SnmpPacket, kind reportKind) (*SnmpPacket, er
 	}
 	result, err := x.sendOneRequest(packetOut)
 	if err != nil {
-		x.Logger.Printf("ERROR %s retransmit error: %s", kind.name, err)
+		if x.Logger.enabled() {
+			x.Logger.Printf("ERROR "+kind.name+" retransmit error: %s", err)
+		}
 		return result, kind.err
 	}
 	return result, nil
@@ -365,10 +365,10 @@ func (e *exchange) answers(reply *SnmpPacket, earlierIDs []uint32) (bool, error)
 type reportKind struct {
 	// err is the request's error.
 	err error
-	// resync marks the Reports that carry the agent's engine ID or time: the
-	// request does not end with err, the caller takes the engine parameters
-	// they carry and send sends the request again, returning err only if that
-	// fails.
+	// resync marks the Reports that say the request's engine ID or time is
+	// out of date: they answer without err, the caller takes the engine
+	// parameters they carry, and send, when it is the caller, sends the request
+	// again and returns err only if that fails.
 	resync bool
 	// name names a resync Report in log lines.
 	name string
@@ -392,7 +392,8 @@ var reportKinds = map[string]reportKind{ //nolint:gochecknoglobals // a read-onl
 // The agent puts the counter of the error it detected in a Report's varbinds;
 // the Report's request ID is the request's, or 0 when the agent could not read
 // it. An unknown counter gives ErrUnknownReportPDU. Known bug: a Report counts
-// only with exactly one varbind, so one with more is a successful reply.
+// only with exactly one varbind, so one with more is treated as a reply and
+// matched by its request ID.
 func reportKindOf(p *SnmpPacket) (reportKind, bool) {
 	if p.Version != Version3 || p.PDUType != Report || len(p.Variables) != 1 {
 		return reportKind{}, false
