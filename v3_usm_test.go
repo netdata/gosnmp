@@ -389,3 +389,61 @@ func TestUSMUnsupportedProtocols(t *testing.T) {
 		})
 	}
 }
+
+// TestUSMEncodeSecurityLevel checks that encoding fails when the message
+// flags ask for authentication or privacy without a protocol for it, instead
+// of sending a message without the MAC or the encryption its flags claim.
+func TestUSMEncodeSecurityLevel(t *testing.T) {
+	const (
+		authErr = "securityParameters.AuthenticationProtocol is required"
+		privErr = "securityParameters.PrivacyProtocol is required"
+	)
+
+	tests := map[string]struct {
+		flags   SnmpV3MsgFlags
+		auth    SnmpV3AuthProtocol
+		priv    SnmpV3PrivProtocol
+		wantErr string
+	}{
+		"authentication, unset protocol": {flags: AuthNoPriv, wantErr: authErr},
+		"authentication, NoAuth":         {flags: AuthNoPriv, auth: NoAuth, wantErr: authErr},
+		"privacy, unset protocol":        {flags: AuthPriv, auth: SHA, wantErr: privErr},
+		"privacy, NoPriv":                {flags: AuthPriv, auth: SHA, priv: NoPriv, wantErr: privErr},
+		"privacy, no protocol at all":    {flags: AuthPriv, wantErr: authErr},
+		"no authentication, unset":       {flags: NoAuthNoPriv},
+		"authentication":                 {flags: AuthNoPriv, auth: SHA},
+		"privacy":                        {flags: AuthPriv, auth: SHA, priv: AES},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			sp := &UsmSecurityParameters{
+				UserName:                 "codec-user",
+				AuthoritativeEngineID:    usmCharEngineID,
+				AuthenticationProtocol:   tc.auth,
+				AuthenticationPassphrase: "codec-auth-pass",
+				PrivacyProtocol:          tc.priv,
+				PrivacyPassphrase:        "codec-priv-pass",
+			}
+			require.NoError(t, sp.InitSecurityKeys())
+			pkt := &SnmpPacket{
+				Version:            Version3,
+				MsgFlags:           tc.flags,
+				SecurityModel:      UserSecurityModel,
+				SecurityParameters: sp,
+				PDUType:            SNMPv2Trap,
+				Variables:          usmCharVarbinds,
+			}
+			var msg []byte
+			var err error
+			panicked, wroteStdout := observe(func() { msg, err = pkt.MarshalMsg() })
+			require.False(t, panicked)
+			assert.False(t, wroteStdout)
+			if tc.wantErr == "" {
+				assert.NoError(t, err)
+				assert.NotEmpty(t, msg)
+				return
+			}
+			assert.EqualError(t, err, tc.wantErr)
+		})
+	}
+}

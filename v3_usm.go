@@ -344,6 +344,11 @@ func (sp *UsmSecurityParameters) setSecurityParameters(in *UsmSecurityParameters
 	return nil
 }
 
+var (
+	errAuthProtocolRequired = errors.New("securityParameters.AuthenticationProtocol is required")
+	errPrivProtocolRequired = errors.New("securityParameters.PrivacyProtocol is required")
+)
+
 // checkProtocols rejects authentication and privacy protocol values outside
 // the defined sets.
 func (sp *UsmSecurityParameters) checkProtocols() error {
@@ -352,6 +357,18 @@ func (sp *UsmSecurityParameters) checkProtocols() error {
 	}
 	if sp.PrivacyProtocol > AES256C {
 		return fmt.Errorf("securityParameters.PrivacyProtocol %v is not supported", sp.PrivacyProtocol)
+	}
+	return nil
+}
+
+// checkLevel rejects message flags that ask for authentication or privacy
+// without a protocol for it.
+func (sp *UsmSecurityParameters) checkLevel(flags SnmpV3MsgFlags) error {
+	if flags&AuthNoPriv > 0 && sp.AuthenticationProtocol <= NoAuth {
+		return errAuthProtocolRequired
+	}
+	if flags&AuthPriv > AuthNoPriv && sp.PrivacyProtocol <= NoPriv {
+		return errPrivProtocolRequired
 	}
 	return nil
 }
@@ -366,12 +383,12 @@ func (sp *UsmSecurityParameters) validate(flags SnmpV3MsgFlags) error {
 	switch securityLevel {
 	case AuthPriv:
 		if sp.PrivacyProtocol <= NoPriv {
-			return fmt.Errorf("securityParameters.PrivacyProtocol is required")
+			return errPrivProtocolRequired
 		}
 		fallthrough
 	case AuthNoPriv:
 		if sp.AuthenticationProtocol <= NoAuth {
-			return fmt.Errorf("securityParameters.AuthenticationProtocol is required")
+			return errAuthProtocolRequired
 		}
 		fallthrough
 	case NoAuthNoPriv:

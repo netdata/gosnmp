@@ -237,6 +237,9 @@ func (packet *SnmpPacket) appendV3(dst []byte) ([]byte, error) {
 	if err := sp.checkProtocols(); err != nil {
 		return nil, err
 	}
+	if err := sp.checkLevel(packet.MsgFlags); err != nil {
+		return nil, err
+	}
 	dst = packet.appendV3Header(dst)
 	dst, start := ber.Begin(dst, byte(OctetString))
 	dst = ber.End(sp.marshal(dst, packet.MsgFlags), start)
