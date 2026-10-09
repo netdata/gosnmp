@@ -11,9 +11,9 @@
 0s    read from 127.0.0.2:161: 3 msgID=2001 noAuthNoPriv user="" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    first Get: packet empty, error "crypto/md5: use of MD5 is not allowed in FIPS 140-only mode"
+0s    first Get: packet empty, error "crypto/md5: use of MD5 is not allowed in FIPS 140-only mode" *errors.errorString
 0s    deadline +1s
-0s    result: packet nil, error "marshal: crypto/md5: use of MD5 is not allowed in FIPS 140-only mode"
+0s    result: packet nil, error "marshal: crypto/md5: use of MD5 is not allowed in FIPS 140-only mode" *fmt.wrapError
 0s    client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=0 time=0 keys=none context engine="\x80\x00\x1f\x88\x04codec-agent"
 0s    known bug: a failed key derivation leaves the agent's engine ID adopted without keys, boots or time, so the next request skips the discovery
 
@@ -51,9 +51,9 @@
 0s    read from 127.0.0.2:161: 3 msgID=2001 noAuthNoPriv user="" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    first Get: packet empty, error "crypto/sha1: use of SHA-1 is not allowed in FIPS 140-only mode"
+0s    first Get: packet empty, error "crypto/sha1: use of SHA-1 is not allowed in FIPS 140-only mode" *errors.errorString
 0s    deadline +1s
-0s    result: packet nil, error "marshal: crypto/aes: invalid key size 0"
+0s    result: packet nil, error "marshal: crypto/aes: invalid key size 0" *fmt.wrapError
 0s    client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=0 time=0 keys=none context engine="\x80\x00\x1f\x88\x04codec-agent"
 0s    known bug: a failed key derivation leaves the agent's engine ID adopted without keys, boots or time, so the next request skips the discovery
 
@@ -69,7 +69,7 @@
 0s    hook OnRecv
 0s    hook OnFinish
 0s    deadline +1s
-0s    result: packet nil, error "recover: crypto/cipher: use of CFB is not allowed in FIPS 140-only mode Stack: ..."
+0s    result: packet nil, error "recover: crypto/cipher: use of CFB is not allowed in FIPS 140-only mode Stack: ..." *errors.errorString
 0s    client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
 0s    known bug: AES-CFB panics in FIPS 140-only mode; send recovers it into an error that carries the stack
 
@@ -85,7 +85,7 @@
 0s    hook OnRecv
 0s    hook OnFinish
 0s    deadline +1s
-0s    result: packet nil, error "marshal: crypto/des: use of DES is not allowed in FIPS 140-only mode"
+0s    result: packet nil, error "marshal: crypto/des: use of DES is not allowed in FIPS 140-only mode" *fmt.wrapError
 0s    client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
 
 == v3-fips/discovery/sha512-aes256c
@@ -100,13 +100,13 @@
 0s    hook OnRecv
 0s    hook OnFinish
 0s    deadline +1s
-0s    result: packet nil, error "recover: crypto/cipher: use of CFB is not allowed in FIPS 140-only mode Stack: ..."
+0s    result: packet nil, error "recover: crypto/cipher: use of CFB is not allowed in FIPS 140-only mode Stack: ..." *errors.errorString
 0s    client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
 0s    known bug: AES-CFB panics in FIPS 140-only mode; send recovers it into an error that carries the stack
 
 == v3-fips/known-engine/md5
 0s    client: user="codec-md5" authNoPriv+reportable timeout=1s retries=2
 0s    deadline +1s
-0s    result: packet nil, error "marshal: crypto/md5: use of MD5 is not allowed in FIPS 140-only mode"
+0s    result: packet nil, error "marshal: crypto/md5: use of MD5 is not allowed in FIPS 140-only mode" *fmt.wrapError
 0s    client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=0 time=0 keys=none context engine=""
 0s    known bug: the key derivation error is ignored when the engine ID is known

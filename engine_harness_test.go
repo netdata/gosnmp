@@ -392,9 +392,12 @@ func describeEngineError(err error) string {
 	if stack {
 		text += " Stack: ..."
 	}
-	var is []string
+	var equals, is []string
 	for _, s := range engineSentinels {
-		if errors.Is(err, s.err) {
+		switch {
+		case err == s.err: //nolint:errorlint // the identity is what is described
+			equals = append(equals, s.name)
+		case errors.Is(err, s.err):
 			is = append(is, s.name)
 		}
 	}
@@ -402,10 +405,17 @@ func describeEngineError(err error) string {
 	if errors.As(err, &ne) && ne.Timeout() {
 		is = append(is, "net.Error timeout")
 	}
-	if len(is) == 0 {
-		return fmt.Sprintf("error %q", text)
+	var parts []string
+	if len(equals) > 0 {
+		parts = append(parts, "equals "+strings.Join(equals, ", "))
 	}
-	return fmt.Sprintf("error %q (is %s)", text, strings.Join(is, ", "))
+	if len(is) > 0 {
+		parts = append(parts, "is "+strings.Join(is, ", "))
+	}
+	if len(parts) == 0 {
+		return fmt.Sprintf("error %q %T", text, err)
+	}
+	return fmt.Sprintf("error %q %T (%s)", text, err, strings.Join(parts, "; "))
 }
 
 // describeEngineResult describes what a request returned.
