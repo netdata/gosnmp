@@ -8,10 +8,12 @@ import (
 	"bytes"
 	"crypto"
 	"fmt"
+	"hash"
 	"math"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -803,6 +805,97 @@ func TestUSMPasswordCaching(t *testing.T) {
 	}
 }
 
+// blockingHash holds its first Write until release is closed, after closing
+// started.
+type blockingHash struct {
+	hash.Hash
+	once             sync.Once
+	started, release chan struct{}
+}
+
+func (h *blockingHash) Write(p []byte) (int, error) {
+	h.once.Do(func() {
+		close(h.started)
+		<-h.release
+	})
+	return h.Hash.Write(p)
+}
+
+// TestUSMPasswordCachingOffDuringDerivation turns the password cache off while
+// a derivation that found it on hashes the passphrase: the derivation returns
+// the key without storing it, and the cache stays usable.
+func TestUSMPasswordCachingOffDuringDerivation(t *testing.T) {
+	const pass = "codec-toggle-pass"
+	PasswordCaching(false)
+	PasswordCaching(true)
+	usable := true
+	t.Cleanup(func() {
+		if usable {
+			PasswordCaching(true)
+		}
+	})
+	want, err := hashPassword(crypto.MD5.New(), pass)
+	require.NoError(t, err)
+
+	h := &blockingHash{Hash: crypto.MD5.New(), started: make(chan struct{}), release: make(chan struct{})}
+	type result struct {
+		key      []byte
+		err      error
+		panicked any
+	}
+	done := make(chan result, 1)
+	go func() {
+		var r result
+		defer func() {
+			r.panicked = recover()
+			done <- r
+		}()
+		r.key, r.err = cachedPasswordToKey(h, cacheKey(MD5, pass), pass)
+	}()
+
+	select {
+	case <-h.started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the derivation did not hash the passphrase")
+	}
+	PasswordCaching(false)
+	close(h.release)
+	r := <-done
+
+	if r.panicked != nil {
+		// The panic left the cache mutex locked, so the cleanup would block.
+		usable = false
+		t.Fatalf("derivation panicked: %v", r.panicked)
+	}
+	require.NoError(t, r.err)
+	assert.Equal(t, want, r.key)
+
+	PasswordCaching(true)
+	key, err := cachedPasswordToKey(crypto.MD5.New(), cacheKey(MD5, pass), pass)
+	require.NoError(t, err)
+	assert.Equal(t, want, key, "derivation after re-enabling the cache")
+}
+
+// TestUSMPasswordCachingOnBetweenKeyAndLookup makes the cache keys of two
+// passphrases while the cache is off and derives them after it is turned back
+// on: each passphrase gets its own key.
+func TestUSMPasswordCachingOnBetweenKeyAndLookup(t *testing.T) {
+	const pass1, pass2 = "codec-pass-one", "codec-pass-two"
+	t.Cleanup(func() { PasswordCaching(true) })
+
+	PasswordCaching(false)
+	key1, key2 := cacheKey(MD5, pass1), cacheKey(MD5, pass2)
+	PasswordCaching(true)
+
+	for _, c := range []struct{ key, pass string }{{key1, pass1}, {key2, pass2}} {
+		want, err := hashPassword(crypto.MD5.New(), c.pass)
+		require.NoError(t, err)
+		got, err := cachedPasswordToKey(crypto.MD5.New(), c.key, c.pass)
+		require.NoError(t, err)
+		assert.Equal(t, want, got, c.pass)
+	}
+}
+
 // TestUSMValidate pins which SNMPv3 settings GoSNMP rejects before decoding
 // or encoding, and the messages it rejects them with. The settings that pass
 // decode a noAuthNoPriv message; keys given without passphrases are localized
@@ -956,4 +1049,43 @@ func TestUSMHashType(t *testing.T) {
 	for auth, hash := range want {
 		assert.Equal(t, hash, auth.HashType(), "%v", auth)
 	}
+}
+
+// countingHash counts the Write calls of a hash.
+type countingHash struct {
+	hash.Hash
+	writes int
+}
+
+func (h *countingHash) Write(p []byte) (int, error) {
+	h.writes++
+	return h.Hash.Write(p)
+}
+
+// TestUSMPasswordCachingHashes pins when a derivation hashes the passphrase:
+// every time while the cache is off, once while it is on, and once again
+// after it is turned back on, which resets it.
+func TestUSMPasswordCachingHashes(t *testing.T) {
+	const pass = "codec-count-pass"
+	t.Cleanup(func() { PasswordCaching(true) })
+	hashes := func() bool {
+		h := &countingHash{Hash: crypto.MD5.New()}
+		_, err := cachedPasswordToKey(h, cacheKey(MD5, pass), pass)
+		require.NoError(t, err)
+		return h.writes > 0
+	}
+
+	PasswordCaching(false)
+	assert.True(t, hashes(), "off")
+	assert.True(t, hashes(), "off, again")
+	PasswordCaching(true)
+	assert.True(t, hashes(), "on")
+	assert.False(t, hashes(), "on, again")
+	PasswordCaching(true)
+	assert.False(t, hashes(), "on twice keeps the cache")
+	PasswordCaching(false)
+	assert.True(t, hashes(), "off after on")
+	PasswordCaching(true)
+	assert.True(t, hashes(), "on after off")
+	assert.False(t, hashes(), "on after off, again")
 }

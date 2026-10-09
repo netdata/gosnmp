@@ -28,7 +28,6 @@ import (
 	"hash"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	"github.com/netdata/gosnmp/internal/ber"
 )
@@ -476,24 +475,25 @@ func (sp *UsmSecurityParameters) init(log Logger) error {
 	return nil
 }
 
+// The password-to-key cache is off while its map is nil; the mutex guards
+// both.
 var (
 	passwordKeyHashCache = make(map[string][]byte) //nolint:gochecknoglobals
 	passwordKeyHashMutex sync.RWMutex              //nolint:gochecknoglobals
-	passwordCacheDisable atomic.Bool               //nolint:gochecknoglobals
 )
 
 // PasswordCaching is enabled by default for performance reason. If the cache was disabled then
 // re-enabled, the cache is reset.
 func PasswordCaching(enable bool) {
-	oldCacheEnable := !passwordCacheDisable.Load()
 	passwordKeyHashMutex.Lock()
-	if !enable { // if off
+	defer passwordKeyHashMutex.Unlock()
+
+	switch {
+	case !enable:
 		passwordKeyHashCache = nil
-	} else if !oldCacheEnable && enable { // if off then on
+	case passwordKeyHashCache == nil:
 		passwordKeyHashCache = make(map[string][]byte)
 	}
-	passwordCacheDisable.Store(!enable)
-	passwordKeyHashMutex.Unlock()
 }
 
 func hashPassword(hash hash.Hash, password string) ([]byte, error) {
@@ -515,17 +515,14 @@ func hashPassword(hash hash.Hash, password string) ([]byte, error) {
 	return hashed, nil
 }
 
-// Common passwordToKey algorithm, "caches" the result to avoid extra computation each reuse
+// Common passwordToKey algorithm, "caches" the result to avoid extra computation each reuse.
+// The cache may be turned off or on while the password is hashed.
 func cachedPasswordToKey(hash hash.Hash, cacheKey, password string) ([]byte, error) {
-	cacheDisable := passwordCacheDisable.Load()
-	if !cacheDisable {
-		passwordKeyHashMutex.RLock()
-		value := passwordKeyHashCache[cacheKey]
-		passwordKeyHashMutex.RUnlock()
-
-		if value != nil {
-			return value, nil
-		}
+	passwordKeyHashMutex.RLock()
+	value := passwordKeyHashCache[cacheKey]
+	passwordKeyHashMutex.RUnlock()
+	if value != nil {
+		return value, nil
 	}
 
 	hashed, err := hashPassword(hash, password)
@@ -533,11 +530,11 @@ func cachedPasswordToKey(hash hash.Hash, cacheKey, password string) ([]byte, err
 		return nil, err
 	}
 
-	if !cacheDisable {
-		passwordKeyHashMutex.Lock()
+	passwordKeyHashMutex.Lock()
+	if passwordKeyHashCache != nil {
 		passwordKeyHashCache[cacheKey] = hashed
-		passwordKeyHashMutex.Unlock()
 	}
+	passwordKeyHashMutex.Unlock()
 
 	return hashed, nil
 }
@@ -569,9 +566,6 @@ func hMAC(hash crypto.Hash, cacheKey, password, engineID string) ([]byte, error)
 }
 
 func cacheKey(authProtocol SnmpV3AuthProtocol, passphrase string) string {
-	if passwordCacheDisable.Load() {
-		return ""
-	}
 	cacheKey := make([]byte, 1+len(passphrase))
 	cacheKey = append(cacheKey, 'h'+byte(authProtocol))
 	cacheKey = append(cacheKey, []byte(passphrase)...)
