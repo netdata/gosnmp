@@ -257,10 +257,10 @@ func (e *exchange) decode(resp []byte) (*SnmpPacket, error) {
 // reply answers with the current attempt's request ID or one of earlierIDs.
 // Known bugs: nothing else of the reply is compared with the request (its
 // version, PDU type and msgID, nor the security model, level, user, engine ID
-// and context of RFC 3412 section 7.2 step 12 b); an empty reply and a Report
-// answer before their request ID is checked; request ID 0 answers any request;
-// a Report counts only with exactly one varbind, so one with more is returned
-// as a successful reply.
+// and context of RFC 3412 section 7.2 step 12 b); an empty reply without an
+// error status and a Report answer before their request ID is checked; request
+// ID 0 answers any request; a Report counts only with exactly one varbind, so
+// one with more is returned as a successful reply.
 func (e *exchange) answers(reply *SnmpPacket, earlierIDs []uint32) (bool, error) {
 	if reply.Error == NoError && len(reply.Variables) < 1 {
 		e.x.Logger.Printf("ERROR on UnmarshalPayload on v3: Empty result")
