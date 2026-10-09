@@ -210,7 +210,7 @@ func v3DecodeKnownPanic(receiver string, p usmFuzzPair, data []byte, v any, stac
 	case "(*UsmSecurityParameters).unmarshal":
 		var n, c int
 		if _, err := fmt.Sscanf(msg, "runtime error: slice bounds out of range [:%d] with capacity %d", &n, &c); err == nil &&
-			n == len(macVarbinds[p.auth]) && c < n {
+			n == 2+p.auth.spec().macLen && c < n {
 			return "USM unmarshal zeroes the digest past the end of the input"
 		}
 
