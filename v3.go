@@ -233,9 +233,13 @@ func (x *GoSNMP) updatePktSecurityParameters(packetOut *SnmpPacket) error {
 // (msgGlobalData), the security parameters in an OCTET STRING and the scoped
 // PDU.
 func (packet *SnmpPacket) appendV3(dst []byte) ([]byte, error) {
+	sp := packet.SecurityParameters.usm()
+	if err := sp.checkProtocols(); err != nil {
+		return nil, err
+	}
 	dst = packet.appendV3Header(dst)
 	dst, start := ber.Begin(dst, byte(OctetString))
-	dst = ber.End(packet.SecurityParameters.usm().marshal(dst, packet.MsgFlags), start)
+	dst = ber.End(sp.marshal(dst, packet.MsgFlags), start)
 	return packet.appendV3ScopedPDU(dst)
 }
 
