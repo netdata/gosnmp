@@ -86,7 +86,7 @@ func (x *GoSNMP) walk(getRequestType PDUType, rootOid string, walkFn WalkFunc) e
 			getRequestType = GetRequest
 		case walkDone:
 			if x.Logger.enabled() {
-				x.Logger.Printf("BulkWalk completed in %d requests", requests)
+				x.Logger.Printf("Walk completed in %d requests", requests)
 			}
 			return nil
 		}
@@ -160,12 +160,7 @@ func (w *walker) visit(response *SnmpPacket, oid string, firstAnswer bool, walkF
 	// net-snmp's snmpwalk fails for every status but noSuchName (the end of an
 	// SNMPv1 MIB); a status the RFC does not name is ignored and the answer
 	// walked.
-	switch status := response.Error; {
-	case status == NoError:
-		if x.Logger.enabled() {
-			x.Logger.Print("Walk completed with NoError")
-		}
-	case status >= TooBig && status <= InconsistentName:
+	if status := response.Error; status >= TooBig && status <= InconsistentName {
 		if x.Logger.enabled() {
 			x.Logger.Print("Walk terminated with " + status.String())
 		}
@@ -181,7 +176,7 @@ func (w *walker) visit(response *SnmpPacket, oid string, firstAnswer bool, walkF
 		// noSuchName).
 		if pdu.Type == EndOfMibView || pdu.Type == NoSuchObject || pdu.Type == NoSuchInstance {
 			if x.Logger.enabled() {
-				x.Logger.Printf("BulkWalk terminated with type 0x%x", pdu.Type)
+				x.Logger.Print("Walk terminated with " + pdu.Type.String())
 			}
 			return walkDone, nil
 		}

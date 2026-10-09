@@ -334,7 +334,7 @@ func (e *exchange) decode(resp []byte) (*SnmpPacket, error) {
 		}
 	}
 	if err = unmarshalPayload(resp, cursor, reply); err != nil {
-		x.Logger.Printf("ERROR on UnmarshalPayload on v3: %s", err)
+		x.Logger.Printf("ERROR on UnmarshalPayload: %s", err)
 		return nil, err
 	}
 	return reply, nil
@@ -350,7 +350,7 @@ func (e *exchange) decode(resp []byte) (*SnmpPacket, error) {
 // any request.
 func (e *exchange) answers(reply *SnmpPacket, earlierIDs []uint32) (bool, error) {
 	if reply.Error == NoError && len(reply.Variables) < 1 {
-		e.x.Logger.Printf("ERROR on UnmarshalPayload on v3: Empty result")
+		e.x.Logger.Print("Empty result: the reply answers the request")
 		return true, nil
 	}
 	if kind, ok := reportKindOf(reply); ok {
