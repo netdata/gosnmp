@@ -277,11 +277,11 @@ func (packet *SnmpPacket) appendV3ScopedPDU(dst []byte) ([]byte, error) {
 	}
 	dst = ber.End(dst, start)
 	if packet.MsgFlags&AuthPriv > AuthNoPriv {
-		encrypted, err := packet.SecurityParameters.usm().encryptPacket(dst[scoped:])
+		ciphertext, err := packet.SecurityParameters.usm().encryptPacket(dst[scoped:])
 		if err != nil {
 			return nil, err
 		}
-		dst = append(dst[:scoped], encrypted...)
+		dst = appendOctets(dst[:scoped], OctetString, ciphertext)
 	}
 	return dst, nil
 }

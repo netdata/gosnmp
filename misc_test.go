@@ -5,15 +5,9 @@
 package gosnmp
 
 import (
-	"bytes"
-	"crypto"
-	_ "crypto/md5"
-	_ "crypto/sha1"
 	"math"
 	"math/big"
 	"testing"
-
-	"github.com/stretchr/testify/assert"
 )
 
 // -----------------------------------------------------------------------------
@@ -106,54 +100,6 @@ func TestSnmpVersionString(t *testing.T) {
 		result := test.in.String()
 		if result != test.out {
 			t.Errorf("#%d, got %v expected %v", i, result, test.out)
-		}
-	}
-}
-
-// ---------------------------------------------------------------------
-
-var testSnmpV3MD5HMAC = []struct {
-	password string
-	engineid string
-	outKey   []byte
-}{
-	{"maplesyrup", string([]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2}), []byte{0x52, 0x6f, 0x5e, 0xed, 0x9f, 0xcc, 0xe2, 0x6f, 0x89, 0x64, 0xc2, 0x93, 0x07, 0x87, 0xd8, 0x2b}},
-}
-
-func TestMD5HMAC(t *testing.T) {
-	for i, test := range testSnmpV3MD5HMAC {
-		cacheKey := make([]byte, 1+len(test.password))
-		cacheKey = append(cacheKey, 'h'+byte(MD5))
-		cacheKey = append(cacheKey, []byte(test.password)...)
-
-		result, err := hMAC(crypto.MD5, string(cacheKey), test.password, test.engineid)
-		assert.NoError(t, err)
-		if !bytes.Equal(result, test.outKey) {
-			t.Errorf("#%d, got %v expected %v", i, result, test.outKey)
-		}
-	}
-}
-
-var testSnmpV3SHAHMAC = []struct {
-	password string
-	engineid string
-	outKey   []byte
-}{
-	{"maplesyrup", string([]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2}), []byte{0x66, 0x95, 0xfe, 0xbc, 0x92, 0x88, 0xe3, 0x62, 0x82, 0x23, 0x5f, 0xc7, 0x15, 0x1f, 0x12, 0x84, 0x97, 0xb3, 0x8f, 0x3f}},
-}
-
-func TestSHAHMAC(t *testing.T) {
-	for i, test := range testSnmpV3SHAHMAC {
-		cacheKey := make([]byte, 1+len(test.password))
-		cacheKey = append(cacheKey, 'h'+byte(SHA))
-		cacheKey = append(cacheKey, []byte(test.password)...)
-
-		result, err := hMAC(crypto.SHA1, string(cacheKey), test.password, test.engineid)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !bytes.Equal(result, test.outKey) {
-			t.Errorf("#%d, got %v expected %v", i, result, test.outKey)
 		}
 	}
 }

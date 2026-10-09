@@ -11,25 +11,16 @@ package gosnmp
 import (
 	"bytes"
 	"crypto"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/des"
-	"crypto/hmac"
-	_ "crypto/md5" // Register hash function #2 (MD5)
 	crand "crypto/rand"
-	_ "crypto/sha1"   // Register hash function #3 (SHA1)
-	_ "crypto/sha256" // Register hash function #4 (SHA224), #5 (SHA256)
-	_ "crypto/sha512" // Register hash function #6 (SHA384), #7 (SHA512)
-	"crypto/subtle"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"hash"
 	"strings"
 	"sync"
 
 	"github.com/netdata/gosnmp/internal/ber"
+	"github.com/netdata/gosnmp/internal/usm"
 )
 
 // SnmpV3AuthProtocol describes the authentication protocol in use by an authenticated SnmpV3 connection.
@@ -53,91 +44,30 @@ const (
 // HashType maps the AuthProtocol's hash type to an actual crypto.Hash object:
 // MD5 for NoAuth, unset and unknown values.
 func (authProtocol SnmpV3AuthProtocol) HashType() crypto.Hash {
-	if h := authProtocol.spec().hash; h != 0 {
+	if h := authProtocol.spec().Hash; h != 0 {
 		return h
 	}
 	return crypto.MD5
 }
 
-// authSpec describes an authentication protocol: the hash of its key
-// derivation and HMAC, and the length its HMAC is cut to, which is the length
-// of msgAuthenticationParameters.
-type authSpec struct {
-	hash   crypto.Hash
-	macLen int
-}
-
-// maxMACLen is the longest macLen, HMAC-SHA-512's.
-const maxMACLen = 48
-
 // spec describes the protocol; NoAuth, unset and unknown values have no
 // description.
-func (authProtocol SnmpV3AuthProtocol) spec() authSpec {
+func (authProtocol SnmpV3AuthProtocol) spec() usm.Auth {
 	switch authProtocol {
 	case MD5:
-		return authSpec{hash: crypto.MD5, macLen: 12}
+		return usm.Auth{Hash: crypto.MD5, MACLen: 12}
 	case SHA:
-		return authSpec{hash: crypto.SHA1, macLen: 12}
+		return usm.Auth{Hash: crypto.SHA1, MACLen: 12}
 	case SHA224:
-		return authSpec{hash: crypto.SHA224, macLen: 16}
+		return usm.Auth{Hash: crypto.SHA224, MACLen: 16}
 	case SHA256:
-		return authSpec{hash: crypto.SHA256, macLen: 24}
+		return usm.Auth{Hash: crypto.SHA256, MACLen: 24}
 	case SHA384:
-		return authSpec{hash: crypto.SHA384, macLen: 32}
+		return usm.Auth{Hash: crypto.SHA384, MACLen: 32}
 	case SHA512:
-		return authSpec{hash: crypto.SHA512, macLen: maxMACLen}
+		return usm.Auth{Hash: crypto.SHA512, MACLen: usm.MaxMACLen}
 	}
-	return authSpec{}
-}
-
-// digest returns the HMAC of msg keyed with key, cut to the MAC length:
-// HMAC-MD5-96 and HMAC-SHA-96 as RFC 3414 sections 6.3.1 and 7.3.1 spell them
-// out, the SHA-2 protocols with crypto/hmac (RFC 7860 section 4.2.1).
-func (s authSpec) digest(key, msg []byte) ([]byte, error) {
-	var mac []byte
-	switch s.hash {
-	case crypto.MD5, crypto.SHA1:
-		var err error
-		if mac, err = hmacRFC3414(s.hash, key, msg); err != nil {
-			return nil, err
-		}
-	default:
-		h := hmac.New(s.hash.New, key)
-		_, _ = h.Write(msg)
-		mac = h.Sum(nil)
-	}
-	return mac[:s.macLen], nil
-}
-
-// hmacRFC3414 computes the HMAC of RFC 3414 sections 6.3.1 and 7.3.1: the key
-// zero-padded to the 64-octet block (a longer key is cut, not hashed as RFC
-// 2104 does), XORed with ipad and opad around two hash passes. Unlike
-// crypto/hmac, which panics, it returns the error a hash reports, as MD5 and
-// SHA-1 do in FIPS 140-only mode.
-func hmacRFC3414(hash crypto.Hash, key, msg []byte) ([]byte, error) {
-	var ipad, opad [64]byte
-	copy(ipad[:], key)
-	copy(opad[:], key)
-	for i := range ipad {
-		ipad[i] ^= 0x36
-		opad[i] ^= 0x5c
-	}
-
-	inner := hash.New()
-	if _, err := inner.Write(ipad[:]); err != nil {
-		return nil, err
-	}
-	if _, err := inner.Write(msg); err != nil {
-		return nil, err
-	}
-	outer := hash.New()
-	if _, err := outer.Write(opad[:]); err != nil {
-		return nil, err
-	}
-	if _, err := outer.Write(inner.Sum(nil)); err != nil {
-		return nil, err
-	}
-	return outer.Sum(nil), nil
+	return usm.Auth{}
 }
 
 // appendMACPlaceholder appends msgAuthenticationParameters as an outgoing
@@ -166,52 +96,24 @@ const (
 
 //go:generate go tool -modfile=tools/go.mod stringer -type=SnmpV3PrivProtocol
 
-// privCipher is the cipher of a privacy protocol.
-type privCipher uint8
-
-const (
-	noCipher  privCipher = iota
-	cipherDES            // CBC-DES (RFC 3414 section 8)
-	cipherAES            // CFB128-AES (RFC 3826)
-)
-
-// keyExtension is how a privacy protocol extends a localized key shorter than
-// its cipher key.
-type keyExtension uint8
-
-const (
-	noExtension      keyExtension = iota
-	extendReeder                  // draft-reeder-snmpv3-usm-3desede
-	extendBlumenthal              // draft-blumenthal-aes-usm-04
-)
-
-// privSpec describes a privacy protocol: its cipher, its key length and how
-// a shorter localized key is extended. A key length of 0 keeps the whole
-// localized key, which DES uses as its key and pre-IV.
-type privSpec struct {
-	cipher    privCipher
-	keyLen    int
-	extension keyExtension
-}
-
 // spec describes the protocol; NoPriv, unset and unknown values have no
 // description.
-func (privProtocol SnmpV3PrivProtocol) spec() privSpec {
+func (privProtocol SnmpV3PrivProtocol) spec() usm.Priv {
 	switch privProtocol {
 	case DES:
-		return privSpec{cipher: cipherDES}
+		return usm.Priv{Cipher: usm.DESCBC}
 	case AES:
-		return privSpec{cipher: cipherAES, keyLen: 16}
+		return usm.Priv{Cipher: usm.AESCFB, KeyLen: 16}
 	case AES192:
-		return privSpec{cipher: cipherAES, keyLen: 24, extension: extendBlumenthal}
+		return usm.Priv{Cipher: usm.AESCFB, KeyLen: 24, Extension: usm.Blumenthal}
 	case AES256:
-		return privSpec{cipher: cipherAES, keyLen: 32, extension: extendBlumenthal}
+		return usm.Priv{Cipher: usm.AESCFB, KeyLen: 32, Extension: usm.Blumenthal}
 	case AES192C:
-		return privSpec{cipher: cipherAES, keyLen: 24, extension: extendReeder}
+		return usm.Priv{Cipher: usm.AESCFB, KeyLen: 24, Extension: usm.Reeder}
 	case AES256C:
-		return privSpec{cipher: cipherAES, keyLen: 32, extension: extendReeder}
+		return usm.Priv{Cipher: usm.AESCFB, KeyLen: 32, Extension: usm.Reeder}
 	}
-	return privSpec{}
+	return usm.Priv{}
 }
 
 // UsmSecurityParameters is an implementation of SnmpV3SecurityParameters for the UserSecurityModel
@@ -336,7 +238,7 @@ func (sp *UsmSecurityParameters) initSecurityKeysNoLock() error {
 	var err error
 
 	if sp.AuthenticationProtocol > NoAuth && len(sp.SecretKey) == 0 {
-		sp.SecretKey, err = genlocalkey(sp.AuthenticationProtocol,
+		sp.SecretKey, err = passwordCache.LocalizedKey(sp.AuthenticationProtocol.HashType(),
 			sp.AuthenticationPassphrase,
 			sp.AuthoritativeEngineID)
 		if err != nil {
@@ -344,14 +246,25 @@ func (sp *UsmSecurityParameters) initSecurityKeysNoLock() error {
 		}
 	}
 	if sp.PrivacyProtocol > NoPriv && len(sp.PrivacyKey) == 0 {
-		sp.PrivacyKey, err = genlocalPrivKey(sp.PrivacyProtocol, sp.AuthenticationProtocol,
-			sp.PrivacyPassphrase,
-			sp.AuthoritativeEngineID)
+		sp.PrivacyKey, err = sp.privacyKey()
 		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// privacyKey derives the key of the privacy protocol from the privacy
+// passphrase, with the hash of the authentication protocol.
+func (sp *UsmSecurityParameters) privacyKey() ([]byte, error) {
+	key, err := passwordCache.PrivacyKey(sp.PrivacyProtocol.spec(), sp.AuthenticationProtocol.HashType(),
+		sp.PrivacyPassphrase,
+		sp.AuthoritativeEngineID)
+	if short, ok := errors.AsType[*usm.ShortKeyError](err); ok {
+		return []byte{}, fmt.Errorf("genlocalPrivKey: privProtocol: %v len(localPrivKey): %d, keylen: %d",
+			sp.PrivacyProtocol, short.Len, short.KeyLen)
+	}
+	return key, err
 }
 
 // setSecurityParameters adopts the engine ID, boots and time of in, deriving
@@ -455,15 +368,15 @@ func (sp *UsmSecurityParameters) init(log Logger) error {
 
 	sp.Logger = log
 
-	switch sp.PrivacyProtocol.spec().cipher {
-	case cipherAES:
+	switch sp.PrivacyProtocol.spec().Cipher {
+	case usm.AESCFB:
 		salt := make([]byte, 8)
 		_, err = crand.Read(salt)
 		if err != nil {
 			return fmt.Errorf("error creating a cryptographically secure salt: %w", err)
 		}
 		sp.localAESSalt = binary.BigEndian.Uint64(salt)
-	case cipherDES:
+	case usm.DESCBC:
 		salt := make([]byte, 4)
 		_, err = crand.Read(salt)
 		if err != nil {
@@ -475,161 +388,13 @@ func (sp *UsmSecurityParameters) init(log Logger) error {
 	return nil
 }
 
-// The password-to-key cache is off while its map is nil; the mutex guards
-// both.
-var (
-	passwordKeyHashCache = make(map[string][]byte) //nolint:gochecknoglobals
-	passwordKeyHashMutex sync.RWMutex              //nolint:gochecknoglobals
-)
+// passwordCache derives the keys of every UsmSecurityParameters.
+var passwordCache = usm.NewCache() //nolint:gochecknoglobals // PasswordCaching turns it on and off
 
 // PasswordCaching is enabled by default for performance reason. If the cache was disabled then
 // re-enabled, the cache is reset.
 func PasswordCaching(enable bool) {
-	passwordKeyHashMutex.Lock()
-	defer passwordKeyHashMutex.Unlock()
-
-	switch {
-	case !enable:
-		passwordKeyHashCache = nil
-	case passwordKeyHashCache == nil:
-		passwordKeyHashCache = make(map[string][]byte)
-	}
-}
-
-func hashPassword(hash hash.Hash, password string) ([]byte, error) {
-	if len(password) == 0 {
-		return []byte{}, errors.New("hashPassword: password is empty")
-	}
-	var pi int // password index
-	for i := 0; i < 1048576; i += 64 {
-		var chunk []byte
-		for range 64 {
-			chunk = append(chunk, password[pi%len(password)])
-			pi++
-		}
-		if _, err := hash.Write(chunk); err != nil {
-			return []byte{}, err
-		}
-	}
-	hashed := hash.Sum(nil)
-	return hashed, nil
-}
-
-// Common passwordToKey algorithm, "caches" the result to avoid extra computation each reuse.
-// The cache may be turned off or on while the password is hashed.
-func cachedPasswordToKey(hash hash.Hash, cacheKey, password string) ([]byte, error) {
-	passwordKeyHashMutex.RLock()
-	value := passwordKeyHashCache[cacheKey]
-	passwordKeyHashMutex.RUnlock()
-	if value != nil {
-		return value, nil
-	}
-
-	hashed, err := hashPassword(hash, password)
-	if err != nil {
-		return nil, err
-	}
-
-	passwordKeyHashMutex.Lock()
-	if passwordKeyHashCache != nil {
-		passwordKeyHashCache[cacheKey] = hashed
-	}
-	passwordKeyHashMutex.Unlock()
-
-	return hashed, nil
-}
-
-func hMAC(hash crypto.Hash, cacheKey, password, engineID string) ([]byte, error) {
-	hashed, err := cachedPasswordToKey(hash.New(), cacheKey, password)
-	if err != nil {
-		return []byte{}, nil
-	}
-
-	local := hash.New()
-	_, err = local.Write(hashed)
-	if err != nil {
-		return []byte{}, err
-	}
-
-	_, err = local.Write([]byte(engineID))
-	if err != nil {
-		return []byte{}, err
-	}
-
-	_, err = local.Write(hashed)
-	if err != nil {
-		return []byte{}, err
-	}
-
-	final := local.Sum(nil)
-	return final, nil
-}
-
-func cacheKey(authProtocol SnmpV3AuthProtocol, passphrase string) string {
-	cacheKey := make([]byte, 1+len(passphrase))
-	cacheKey = append(cacheKey, 'h'+byte(authProtocol))
-	cacheKey = append(cacheKey, []byte(passphrase)...)
-	return string(cacheKey)
-}
-
-// extendKeyReeder extends a localized privacy key with the Reeder key
-// extension (draft-reeder-snmpv3-usm-3desede, used by Cisco and others): the
-// key followed by the key localized from it as a passphrase.
-func extendKeyReeder(authProtocol SnmpV3AuthProtocol, key []byte, engineID string) ([]byte, error) {
-	next, err := hMAC(authProtocol.HashType(), cacheKey(authProtocol, string(key)), string(key), engineID)
-	return append(key, next...), err
-}
-
-// extendKeyBlumenthal extends a localized privacy key with the Blumenthal key
-// extension (draft-blumenthal-aes-usm-04 section 3.1.2.1): the key followed by
-// its hash.
-func extendKeyBlumenthal(authProtocol SnmpV3AuthProtocol, key []byte) []byte {
-	h := authProtocol.HashType().New()
-	_, _ = h.Write(key)
-	return append(key, h.Sum(nil)...)
-}
-
-// genlocalPrivKey derives the key of a privacy protocol: the passphrase
-// localized with the authentication protocol's hash, extended once when it is
-// shorter than the cipher key, and cut to the cipher key length.
-func genlocalPrivKey(privProtocol SnmpV3PrivProtocol, authProtocol SnmpV3AuthProtocol, password, engineID string) ([]byte, error) {
-	spec := privProtocol.spec()
-	key, err := genlocalkey(authProtocol, password, engineID)
-	if err != nil {
-		return nil, err
-	}
-	if spec.keyLen == 0 {
-		return key, nil
-	}
-
-	if len(key) < spec.keyLen {
-		switch spec.extension {
-		case extendReeder:
-			if key, err = extendKeyReeder(authProtocol, key, engineID); err != nil {
-				return nil, err
-			}
-		case extendBlumenthal:
-			key = extendKeyBlumenthal(authProtocol, key)
-		}
-	}
-	if len(key) < spec.keyLen {
-		return []byte{}, fmt.Errorf("genlocalPrivKey: privProtocol: %v len(localPrivKey): %d, keylen: %d",
-			privProtocol, len(key), spec.keyLen)
-	}
-
-	return key[:spec.keyLen], nil
-}
-
-func genlocalkey(authProtocol SnmpV3AuthProtocol, passphrase, engineID string) ([]byte, error) {
-	var secretKey []byte
-	var err error
-
-	secretKey, err = hMAC(authProtocol.HashType(), cacheKey(authProtocol, passphrase), passphrase, engineID)
-	if err != nil {
-		return []byte{}, err
-	}
-
-	return secretKey, nil
+	passwordCache.SetEnabled(enable)
 }
 
 // usmAllocateNewSalt increments the salt counter of the privacy protocol and
@@ -639,7 +404,7 @@ func (sp *UsmSecurityParameters) usmAllocateNewSalt() (salt uint64, isAES bool) 
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
 
-	if sp.PrivacyProtocol.spec().cipher == cipherAES {
+	if sp.PrivacyProtocol.spec().Cipher == usm.AESCFB {
 		sp.localAESSalt++
 		return sp.localAESSalt, true
 	}
@@ -653,8 +418,8 @@ func (sp *UsmSecurityParameters) usmAllocateNewSalt() (salt uint64, isAES bool) 
 func (sp *UsmSecurityParameters) usmSetSalt(salt uint64, isAES bool) error {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
-	switch sp.PrivacyProtocol.spec().cipher {
-	case cipherAES:
+	switch sp.PrivacyProtocol.spec().Cipher {
+	case usm.AESCFB:
 		if !isAES {
 			return fmt.Errorf("salt provided to usmSetSalt is not the correct type for the AES privacy protocol")
 		}
@@ -711,13 +476,13 @@ func (sp *UsmSecurityParameters) discoveryRequired() *SnmpPacket {
 // msgAuthenticationParameters placeholder found in it.
 func (sp *UsmSecurityParameters) authenticate(packet []byte) error {
 	spec := sp.AuthenticationProtocol.spec()
-	msgDigest, err := spec.digest(sp.SecretKey, packet)
+	msgDigest, err := spec.Digest(sp.SecretKey, packet)
 	if err != nil {
 		return err
 	}
 
-	var buf [2 + maxMACLen]byte
-	placeholder := appendMACPlaceholder(buf[:0], spec.macLen)
+	var buf [2 + usm.MaxMACLen]byte
+	placeholder := appendMACPlaceholder(buf[:0], spec.MACLen)
 	idx := bytes.Index(packet, placeholder)
 	if idx < 0 {
 		return fmt.Errorf("unable to locate the position in packet to write authentication key")
@@ -741,55 +506,21 @@ func (sp *UsmSecurityParameters) isAuthentic(packetBytes []byte, packet *SnmpPac
 		return false, errAuthProtocolRequired
 	}
 
-	msgDigest, err := packetSecParams.AuthenticationProtocol.spec().digest(packetSecParams.SecretKey, packetBytes)
-	if err != nil {
-		return false, err
-	}
-
 	// Check the message signature against the computed digest
 	signature := []byte(packetSecParams.AuthenticationParameters)
-	return subtle.ConstantTimeCompare(msgDigest, signature) == 1, nil
+	return packetSecParams.AuthenticationProtocol.spec().Verify(packetSecParams.SecretKey, packetBytes, signature)
 }
 
+// encryptPacket returns the ciphertext of the scoped PDU.
 func (sp *UsmSecurityParameters) encryptPacket(scopedPdu []byte) ([]byte, error) {
-	switch sp.PrivacyProtocol.spec().cipher {
-	case cipherAES:
-		var iv [16]byte
-		binary.BigEndian.PutUint32(iv[:], sp.AuthoritativeEngineBoots)
-		binary.BigEndian.PutUint32(iv[4:], sp.AuthoritativeEngineTime)
-		copy(iv[8:], sp.PrivacyParameters)
-		block, err := aes.NewCipher(sp.PrivacyKey)
-		if err != nil {
-			return nil, err
-		}
-		//nolint:staticcheck // RFC3826 Section 3.1.1.1 specifies CFB-128 mode for AES
-		stream := cipher.NewCFBEncrypter(block, iv[:])
-		ciphertext := make([]byte, len(scopedPdu))
-		stream.XORKeyStream(ciphertext, scopedPdu)
-		scopedPdu = appendOctets(nil, OctetString, ciphertext)
-	case cipherDES:
-		preiv := sp.PrivacyKey[8:]
-		var iv [8]byte
-		for i := range len(iv) {
-			iv[i] = preiv[i] ^ sp.PrivacyParameters[i]
-		}
-		block, err := des.NewCipher(sp.PrivacyKey[:8]) //nolint:gosec
-		if err != nil {
-			return nil, err
-		}
-		mode := cipher.NewCBCEncrypter(block, iv[:])
-
-		pad := make([]byte, des.BlockSize-len(scopedPdu)%des.BlockSize)
-		scopedPdu = append(scopedPdu, pad...)
-
-		ciphertext := make([]byte, len(scopedPdu))
-		mode.CryptBlocks(ciphertext, scopedPdu)
-		scopedPdu = appendOctets(nil, OctetString, ciphertext)
-	}
-
-	return scopedPdu, nil
+	return sp.PrivacyProtocol.spec().Encrypt(sp.PrivacyKey, sp.PrivacyParameters,
+		sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime, scopedPdu)
 }
 
+// decryptPacket decrypts the OCTET STRING at packet[cursor:] in place: the
+// plaintext replaces the string, header included, and the packet is cut after
+// it. Known bug: without a privacy protocol the packet is returned unchanged,
+// and the caller reads the string's content as a plaintext scoped PDU.
 func (sp *UsmSecurityParameters) decryptPacket(packet []byte, cursor int) ([]byte, error) {
 	_, cursorTmp, err := ber.Length(packet[cursor:])
 	if err != nil {
@@ -800,46 +531,17 @@ func (sp *UsmSecurityParameters) decryptPacket(packet []byte, cursor int) ([]byt
 		return nil, errors.New("error decrypting ScopedPDU: truncated packet")
 	}
 
-	switch sp.PrivacyProtocol.spec().cipher {
-	case cipherAES:
-		var iv [16]byte
-		binary.BigEndian.PutUint32(iv[:], sp.AuthoritativeEngineBoots)
-		binary.BigEndian.PutUint32(iv[4:], sp.AuthoritativeEngineTime)
-		copy(iv[8:], sp.PrivacyParameters)
-
-		block, err := aes.NewCipher(sp.PrivacyKey)
-		if err != nil {
-			return nil, err
-		}
-		//nolint:staticcheck // RFC3826 Section 3.1.1.1 specifies CFB-128 mode for AES
-		stream := cipher.NewCFBDecrypter(block, iv[:])
-		plaintext := make([]byte, len(packet[cursorTmp:]))
-		stream.XORKeyStream(plaintext, packet[cursorTmp:])
-		copy(packet[cursor:], plaintext)
-		packet = packet[:cursor+len(plaintext)]
-	case cipherDES:
-		if len(packet[cursorTmp:])%des.BlockSize != 0 {
-			return nil, errors.New("error decrypting ScopedPDU: not multiple of des block size")
-		}
-		preiv := sp.PrivacyKey[8:]
-		var iv [8]byte
-		for i := range len(iv) {
-			iv[i] = preiv[i] ^ sp.PrivacyParameters[i]
-		}
-		block, err := des.NewCipher(sp.PrivacyKey[:8]) //nolint:gosec
-		if err != nil {
-			return nil, err
-		}
-		mode := cipher.NewCBCDecrypter(block, iv[:])
-
-		plaintext := make([]byte, len(packet[cursorTmp:]))
-		mode.CryptBlocks(plaintext, packet[cursorTmp:])
-		copy(packet[cursor:], plaintext)
-		// truncate packet to remove extra space caused by the
-		// octetstring/length header that was just replaced
-		packet = packet[:cursor+len(plaintext)]
+	spec := sp.PrivacyProtocol.spec()
+	if spec.Cipher == usm.NoCipher {
+		return packet, nil
 	}
-	return packet, nil
+	plaintext, err := spec.Decrypt(sp.PrivacyKey, sp.PrivacyParameters,
+		sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime, packet[cursorTmp:])
+	if err != nil {
+		return nil, err
+	}
+	copy(packet[cursor:], plaintext)
+	return packet[:cursor+len(plaintext)], nil
 }
 
 // marshal appends the User Security Model parameters: a SEQUENCE of the
@@ -853,7 +555,7 @@ func (sp *UsmSecurityParameters) marshal(dst []byte, flags SnmpV3MsgFlags) []byt
 	dst = appendUint(dst, Integer, uint64(sp.AuthoritativeEngineTime))
 	dst = appendOctets(dst, OctetString, sp.UserName)
 	if flags&AuthNoPriv > 0 {
-		dst = appendMACPlaceholder(dst, sp.AuthenticationProtocol.spec().macLen)
+		dst = appendMACPlaceholder(dst, sp.AuthenticationProtocol.spec().MACLen)
 	} else {
 		dst = append(dst, byte(OctetString), 0)
 	}
@@ -943,7 +645,7 @@ func (sp *UsmSecurityParameters) unmarshal(flags SnmpV3MsgFlags, r *ber.Reader) 
 		}
 		// The zeros go two octets into the field whatever its actual header
 		// size, up to the expected digest length.
-		clear(authField[2 : 2+sp.AuthenticationProtocol.spec().macLen])
+		clear(authField[2 : 2+sp.AuthenticationProtocol.spec().MACLen])
 	}
 
 	privParams, ok, err := readString(r)

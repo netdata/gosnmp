@@ -79,7 +79,7 @@ func TestIsAuthenticWrongUsername(t *testing.T) {
 		Logger:                   NewLogger(log.New(io.Discard, "", 0)),
 	}
 
-	sp.SecretKey, err = genlocalkey(sp.AuthenticationProtocol,
+	sp.SecretKey, err = passwordCache.LocalizedKey(sp.AuthenticationProtocol.HashType(),
 		sp.AuthenticationPassphrase,
 		sp.AuthoritativeEngineID)
 
@@ -119,7 +119,7 @@ func TestAuthenticationSHA224(t *testing.T) {
 		PrivacyKey:               nil,
 	}
 
-	sp.SecretKey, err = genlocalkey(sp.AuthenticationProtocol,
+	sp.SecretKey, err = passwordCache.LocalizedKey(sp.AuthenticationProtocol.HashType(),
 		sp.AuthenticationPassphrase,
 		sp.AuthoritativeEngineID)
 
@@ -154,7 +154,7 @@ func TestIsAuthenticSHA224(t *testing.T) {
 		Logger:                   NewLogger(log.New(io.Discard, "", 0)),
 	}
 
-	sp.SecretKey, err = genlocalkey(sp.AuthenticationProtocol,
+	sp.SecretKey, err = passwordCache.LocalizedKey(sp.AuthenticationProtocol.HashType(),
 		sp.AuthenticationPassphrase,
 		sp.AuthoritativeEngineID)
 
@@ -221,7 +221,7 @@ func TestAuthenticationSHA512(t *testing.T) {
 		Logger:                   NewLogger(log.New(io.Discard, "", 0)),
 	}
 
-	sp.SecretKey, err = genlocalkey(sp.AuthenticationProtocol,
+	sp.SecretKey, err = passwordCache.LocalizedKey(sp.AuthenticationProtocol.HashType(),
 		sp.AuthenticationPassphrase,
 		sp.AuthoritativeEngineID)
 
@@ -256,7 +256,7 @@ func TestIsAuthenticSHA512(t *testing.T) {
 		PrivacyKey:               nil,
 	}
 
-	sp.SecretKey, err = genlocalkey(sp.AuthenticationProtocol,
+	sp.SecretKey, err = passwordCache.LocalizedKey(sp.AuthenticationProtocol.HashType(),
 		sp.AuthenticationPassphrase,
 		sp.AuthoritativeEngineID)
 
@@ -550,6 +550,33 @@ func TestUSMFIPS140OnlyDigest(t *testing.T) {
 			x := &GoSNMP{Version: Version3, MsgFlags: AuthNoPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy()}
 			require.NotPanics(t, func() { _, err = x.UnmarshalTrap(bytes.Clone(data), false) })
 			assert.ErrorContains(t, err, "not allowed in FIPS 140-only mode")
+		})
+	}
+}
+
+// TestUSMShortPrivacyKey checks the error and the empty key InitSecurityKeys
+// leaves when the privacy key stays shorter than the cipher key, as it does
+// for an empty privacy passphrase.
+func TestUSMShortPrivacyKey(t *testing.T) {
+	tests := map[string]struct {
+		auth    SnmpV3AuthProtocol
+		priv    SnmpV3PrivProtocol
+		wantErr string
+	}{
+		"no extension": {auth: MD5, priv: AES, wantErr: "genlocalPrivKey: privProtocol: AES len(localPrivKey): 0, keylen: 16"},
+		"Blumenthal":   {auth: SHA, priv: AES256, wantErr: "genlocalPrivKey: privProtocol: AES256 len(localPrivKey): 20, keylen: 32"},
+		"Reeder":       {auth: SHA, priv: AES256C, wantErr: "genlocalPrivKey: privProtocol: AES256C len(localPrivKey): 0, keylen: 32"},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			sp := &UsmSecurityParameters{
+				AuthoritativeEngineID:    usmCharEngineID,
+				AuthenticationProtocol:   tc.auth,
+				AuthenticationPassphrase: "codec-auth-pass",
+				PrivacyProtocol:          tc.priv,
+			}
+			assert.EqualError(t, sp.InitSecurityKeys(), tc.wantErr)
+			assert.Equal(t, []byte{}, sp.PrivacyKey)
 		})
 	}
 }
