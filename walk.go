@@ -5,6 +5,7 @@
 package gosnmp
 
 import (
+	"cmp"
 	"fmt"
 	"strings"
 )
@@ -50,162 +51,176 @@ func (x *GoSNMP) WalkAll(rootOid string) (results []SnmpPDU, err error) {
 	return x.walkAll(GetNextRequest, rootOid)
 }
 
+// walk visits the subtree under rootOid: it asks the agent for the objects
+// after the root, then after the last name it received, with getRequestType
+// (GetNext or GetBulk), and passes each object in the subtree to walkFn until
+// an answer ends the walk. When the walk's first object lies outside the
+// subtree, the root is a leaf, and the walk gets it instead.
 func (x *GoSNMP) walk(getRequestType PDUType, rootOid string, walkFn WalkFunc) error {
-	// If no rootOid is provided, fall back to the 'internet' subtree (.1.3.6.1).
-	// This ensures visibility of both standard (e.g. MIB-2) and vendor-specific branches.
-	// It also guarantees the OID is valid for BER encoding:
-	// - RFC 2578 §7.1.3: OIDs must have at least two sub-identifiers
-	// - X.690 §8.19: the first two arcs are encoded as (40 * arc1 + arc2)
-	if rootOid == "" || rootOid == "." {
-		// IANA 'internet' subtree under ISO OID structure per X.660.
-		// See https://oidref.com/1.3.6.1
-		rootOid = ".1.3.6.1"
+	// AppOpt 'c': do not check that returned OIDs increase.
+	_, unchecked := x.AppOpts["c"]
+	w := walker{
+		x:               x,
+		root:            walkRoot(rootOid),
+		maxReps:         cmp.Or(x.MaxRepetitions, defaultMaxRepetitions),
+		checkIncreasing: !unchecked,
 	}
 
-	if !strings.HasPrefix(rootOid, ".") {
-		rootOid = string(".") + rootOid
-	}
-
-	oid := rootOid
-	requests := 0
-	maxReps := x.MaxRepetitions
-	if maxReps == 0 {
-		maxReps = defaultMaxRepetitions
-	}
-
-	// AppOpt 'c: do not check returned OIDs are increasing'
-	checkIncreasing := true
-	if x.AppOpts != nil {
-		if _, ok := x.AppOpts["c"]; ok {
-			if getRequestType == GetBulkRequest || getRequestType == GetNextRequest {
-				checkIncreasing = false
-			}
-		}
-	}
-
-RequestLoop:
-	for {
-		requests++
-
-		var response *SnmpPacket
-		var err error
-
-		switch getRequestType {
-		case GetBulkRequest:
-			response, err = x.GetBulk([]string{oid}, 0, maxReps)
-		case GetNextRequest:
-			response, err = x.GetNext([]string{oid})
-		case GetRequest:
-			response, err = x.Get([]string{oid})
-		default:
-			response, err = nil, fmt.Errorf("unsupported request type: %d", getRequestType)
-		}
-
+	oid := w.root
+	for requests := 1; ; requests++ {
+		response, err := w.request(getRequestType, oid)
 		if err != nil {
 			return err
 		}
-		if len(response.Variables) == 0 {
-			break RequestLoop
+		next, err := w.visit(response, oid, requests == 1, walkFn)
+		if err != nil {
+			return err
 		}
+		switch next {
+		case walkContinue:
+			oid = response.Variables[len(response.Variables)-1].Name
+		case walkGetRoot:
+			getRequestType = GetRequest
+		case walkDone:
+			if x.Logger.enabled() {
+				x.Logger.Printf("BulkWalk completed in %d requests", requests)
+			}
+			return nil
+		}
+	}
+}
 
-		switch response.Error {
-		case TooBig:
-			x.Logger.Print("Walk terminated with TooBig")
-			break RequestLoop
-		case NoSuchName:
-			x.Logger.Print("Walk terminated with NoSuchName")
-			break RequestLoop
-		case BadValue:
-			x.Logger.Print("Walk terminated with BadValue")
-			break RequestLoop
-		case ReadOnly:
-			x.Logger.Print("Walk terminated with ReadOnly")
-			break RequestLoop
-		case GenErr:
-			x.Logger.Print("Walk terminated with GenErr")
-			break RequestLoop
-		case NoAccess:
-			x.Logger.Print("Walk terminated with NoAccess")
-			break RequestLoop
-		case WrongType:
-			x.Logger.Print("Walk terminated with WrongType")
-			break RequestLoop
-		case WrongLength:
-			x.Logger.Print("Walk terminated with WrongLength")
-			break RequestLoop
-		case WrongEncoding:
-			x.Logger.Print("Walk terminated with WrongEncoding")
-			break RequestLoop
-		case WrongValue:
-			x.Logger.Print("Walk terminated with WrongValue")
-			break RequestLoop
-		case NoCreation:
-			x.Logger.Print("Walk terminated with NoCreation")
-			break RequestLoop
-		case InconsistentValue:
-			x.Logger.Print("Walk terminated with InconsistentValue")
-			break RequestLoop
-		case ResourceUnavailable:
-			x.Logger.Print("Walk terminated with ResourceUnavailable")
-			break RequestLoop
-		case CommitFailed:
-			x.Logger.Print("Walk terminated with CommitFailed")
-			break RequestLoop
-		case UndoFailed:
-			x.Logger.Print("Walk terminated with UndoFailed")
-			break RequestLoop
-		case AuthorizationError:
-			x.Logger.Print("Walk terminated with AuthorizationError")
-			break RequestLoop
-		case NotWritable:
-			x.Logger.Print("Walk terminated with NotWritable")
-			break RequestLoop
-		case InconsistentName:
-			x.Logger.Print("Walk terminated with InconsistentName")
-			break RequestLoop
-		case NoError:
+// walker holds what a walk fixes at its start. walkFn is not one of its
+// fields: it would escape to the heap with the client, and with it WalkAll's
+// closure and results.
+type walker struct {
+	x    *GoSNMP
+	root string
+	// maxReps is the GetBulk max-repetitions.
+	maxReps         uint32
+	checkIncreasing bool
+}
+
+// walkStep is what a walk does after an answer.
+type walkStep int
+
+const (
+	// walkContinue asks for the objects after the answer's last name.
+	walkContinue walkStep = iota
+	// walkGetRoot gets the root, a leaf.
+	walkGetRoot
+	// walkDone ends the walk.
+	walkDone
+)
+
+// walkRoot is the root of a walk asked for rootOid, with a leading dot. An
+// empty root or "." walks the 'internet' subtree .1.3.6.1 (IANA, under the
+// ISO OID structure of X.660; see https://oidref.com/1.3.6.1), which holds
+// both the standard (MIB-2) and the vendor branches and encodes as an OID:
+// RFC 2578 section 7.1.3 requires at least two sub-identifiers, and X.690
+// section 8.19 encodes the first two arcs as 40 * arc1 + arc2.
+func walkRoot(rootOid string) string {
+	if rootOid == "" || rootOid == "." {
+		return ".1.3.6.1"
+	}
+	if !strings.HasPrefix(rootOid, ".") {
+		return "." + rootOid
+	}
+	return rootOid
+}
+
+// request asks the agent for the objects after oid, or, with GetRequest, for
+// oid itself.
+func (w *walker) request(requestType PDUType, oid string) (*SnmpPacket, error) {
+	switch requestType {
+	case GetBulkRequest:
+		return w.x.GetBulk([]string{oid}, 0, w.maxReps)
+	case GetNextRequest:
+		return w.x.GetNext([]string{oid})
+	case GetRequest:
+		return w.x.Get([]string{oid})
+	}
+	return nil, fmt.Errorf("unsupported request type: %d", requestType)
+}
+
+// visit passes the objects of response that lie in the subtree to walkFn, in
+// order, and returns what the walk does next. oid is the name the request
+// asked for; firstAnswer marks the walk's first answer.
+func (w *walker) visit(response *SnmpPacket, oid string, firstAnswer bool, walkFn WalkFunc) (walkStep, error) {
+	x := w.x
+	// Known bug: an empty answer ends the walk with a nil error.
+	if len(response.Variables) == 0 {
+		return walkDone, nil
+	}
+	// Every error status RFC 3416 names ends the walk. Known bugs: it ends the
+	// walk with a nil error and the values so far, where net-snmp's snmpwalk
+	// fails for every status but noSuchName (the end of an SNMPv1 MIB); a
+	// status the RFC does not name is ignored and the answer walked.
+	switch status := response.Error; {
+	case status == NoError:
+		if x.Logger.enabled() {
 			x.Logger.Print("Walk completed with NoError")
 		}
-
-		for i, pdu := range response.Variables {
-			if pdu.Type == EndOfMibView || pdu.Type == NoSuchObject || pdu.Type == NoSuchInstance {
-				x.Logger.Printf("BulkWalk terminated with type 0x%x", pdu.Type)
-				break RequestLoop
-			}
-			if !strings.HasPrefix(pdu.Name, rootOid+".") {
-				// Not in the requested root range.
-				// if this is the first request, and the first variable in that request
-				// and this condition is triggered - the first result is out of range
-				// need to perform a regular get request
-				// this request has been too narrowly defined to be found with a getNext
-				// Issue #78 #93
-				if requests == 1 && i == 0 {
-					getRequestType = GetRequest
-					continue RequestLoop
-				} else if pdu.Name == rootOid && pdu.Type != NoSuchInstance {
-					// Call walk function if the pdu instance is found
-					// considering that the rootOid is a leafOid
-					if err := walkFn(pdu); err != nil {
-						return err
-					}
-				}
-				break RequestLoop
-			}
-
-			if checkIncreasing && oidCompare(oid, pdu.Name) >= 0 {
-				return fmt.Errorf("OID not increasing: %s >= %s", oid, pdu.Name)
-			}
-
-			// Report our pdu
-			if err := walkFn(pdu); err != nil {
-				return err
-			}
+	case status <= InconsistentName:
+		if x.Logger.enabled() {
+			x.Logger.Print("Walk terminated with " + status.String())
 		}
-		// Save last oid for next request
-		oid = response.Variables[len(response.Variables)-1].Name
+		return walkDone, nil
 	}
-	x.Logger.Printf("BulkWalk completed in %d requests", requests)
-	return nil
+
+	for i, pdu := range response.Variables {
+		// An exception value (noSuchObject, noSuchInstance, endOfMibView:
+		// RFC 3416 section 4.2) ends the walk.
+		if pdu.Type == EndOfMibView || pdu.Type == NoSuchObject || pdu.Type == NoSuchInstance {
+			if x.Logger.enabled() {
+				x.Logger.Printf("BulkWalk terminated with type 0x%x", pdu.Type)
+			}
+			return walkDone, nil
+		}
+		if !inSubtree(pdu.Name, w.root) {
+			return w.outside(pdu, firstAnswer && i == 0, walkFn)
+		}
+		// Known bug: each name is compared with the request's, not with the
+		// name before it, so a decrease inside one GetBulk answer passes.
+		if w.checkIncreasing && oidCompare(oid, pdu.Name) >= 0 {
+			return walkDone, fmt.Errorf("OID not increasing: %s >= %s", oid, pdu.Name)
+		}
+		if err := walkFn(pdu); err != nil {
+			return walkDone, err
+		}
+	}
+	return walkContinue, nil
+}
+
+// outside returns what the walk does at pdu, an object outside the subtree.
+// When pdu is the walk's first object (firstObject), the root is a leaf, and
+// the walk gets it; the answer to that Get names the root and, unless it is an
+// exception value, goes to walkFn. Any other object outside the subtree ends
+// the walk.
+func (w *walker) outside(pdu SnmpPDU, firstObject bool, walkFn WalkFunc) (walkStep, error) {
+	// Known bug: only a first object outside the subtree makes the root a
+	// leaf, so a leaf root that is the MIB's last object, answered with
+	// endOfMibView or SNMPv1's noSuchName, returns nothing (net-snmp's
+	// snmpwalk gets it after noSuchName).
+	if firstObject {
+		return walkGetRoot, nil
+	}
+	// Known bug: an answer naming the root in a GetNext or GetBulk walk goes
+	// to walkFn too, without the increasing check, and ends the walk.
+	if pdu.Name == w.root {
+		if err := walkFn(pdu); err != nil {
+			return walkDone, err
+		}
+	}
+	return walkDone, nil
+}
+
+// inSubtree reports whether name starts with root and a dot, as
+// strings.HasPrefix(name, root+".") does, without building the prefix. The
+// dot keeps a sibling arc out: walking .1.3.6.1.2.1.4.22.1.2.1 does not
+// return .1.3.6.1.2.1.4.22.1.2.115 (gosnmp/gosnmp#78, #93).
+func inSubtree(name, root string) bool {
+	return len(name) > len(root) && name[len(root)] == '.' && strings.HasPrefix(name, root)
 }
 
 func (x *GoSNMP) walkAll(getRequestType PDUType, rootOid string) (results []SnmpPDU, err error) {
