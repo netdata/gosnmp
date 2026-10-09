@@ -109,8 +109,9 @@ func (x *GoSNMP) testAuthentication(packet []byte, result *SnmpPacket, useRespon
 	}
 
 	// Engine discovery (RFC 3414 section 4): a message with an empty user name
-	// and engine ID is accepted without authentication, whatever its flags and
-	// variable bindings (the bindings are not decoded yet).
+	// and engine ID is accepted without authentication. Known bug: whatever its
+	// flags and variable bindings (the bindings are not decoded yet), so any
+	// message with an empty user name and engine ID skips the digest.
 	msgSecParams := result.SecurityParameters.usm()
 	if msgSecParams.UserName == "" && msgSecParams.AuthoritativeEngineID == "" {
 		return nil
@@ -148,6 +149,15 @@ func (x *GoSNMP) initPacket(packetOut *SnmpPacket) error {
 // does not know its engine ID, and derives the keys otherwise. Known bug: the
 // key derivation error is ignored when the engine ID is known.
 func (x *GoSNMP) negotiateInitialSecurityParameters(packetOut *SnmpPacket) error {
+	// mkSnmpPacket copies the client's version and security model into the
+	// packet; they differ here only when the client's Logger changed the client
+	// during send.
+	if x.Version != Version3 || packetOut.Version != Version3 {
+		return fmt.Errorf("negotiateInitialSecurityParameters called with non Version3 connection or packet")
+	}
+	if x.SecurityModel != packetOut.SecurityModel {
+		return fmt.Errorf("connection security model does not match security model defined in packet")
+	}
 	if discoveryPacket := packetOut.SecurityParameters.usm().discoveryRequired(); discoveryPacket != nil {
 		return x.discoverEngine(discoveryPacket, packetOut)
 	}
@@ -157,8 +167,10 @@ func (x *GoSNMP) negotiateInitialSecurityParameters(packetOut *SnmpPacket) error
 
 // discoverEngine runs engine discovery (RFC 3414 section 4): it sends
 // discoveryPacket and takes the agent's engine parameters from the answer into
-// the client and packetOut. Known bug: a discovery Report with another
-// security model fails the request instead of being discarded.
+// the client and packetOut. Known bugs: a discovery Report with another
+// security model fails the request instead of being discarded; an answer
+// without an engine ID is accepted, so the request goes out with an empty
+// engine ID (at authPriv it fails in the encoder for want of a privacy key).
 func (x *GoSNMP) discoverEngine(discoveryPacket, packetOut *SnmpPacket) error {
 	discoveryPacket.ContextName = x.ContextName
 	result, err := x.sendOneRequest(discoveryPacket)
@@ -193,6 +205,9 @@ func (x *GoSNMP) storeSecurityParameters(result *SnmpPacket) error {
 		return fmt.Errorf("connection security model does not match security model extracted from packet")
 	}
 
+	// Known bug: the context engine ID is taken only while the client has
+	// none, so it stays the old engine's after the client adopts a new engine
+	// ID.
 	if x.ContextEngineID == "" {
 		x.ContextEngineID = result.SecurityParameters.usm().AuthoritativeEngineID
 	}
