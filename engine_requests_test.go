@@ -720,3 +720,16 @@ func BenchmarkSendOneRequest(b *testing.B) {
 		}
 	}
 }
+
+// BenchmarkGet measures one SNMPv2c Get through send on the in-memory
+// transport.
+func BenchmarkGet(b *testing.B) {
+	c := newFakeTransport(nil, answer(sysDescr))
+	x := newEngineClient(b, nil, Version2c, c)
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := x.Get([]string{engineOID}); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
