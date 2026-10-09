@@ -163,7 +163,10 @@ type walkScenario struct {
 	// stopAfter, when set, makes walkFn return an error on that value.
 	stopAfter int
 	// all runs WalkAll or BulkWalkAll instead of Walk or BulkWalk.
-	all      bool
+	all bool
+	// onValue, when set, runs in walkFn at the n-th value, as user code
+	// that changes the client during the walk.
+	onValue  func(x *GoSNMP, n int)
 	knownBug string
 }
 
@@ -284,6 +287,22 @@ func walkScenarios() map[string]walkScenario {
 			root: walkIfDescr, bulk: true, all: true, setup: func(x *GoSNMP) { x.MaxRepetitions = 1 },
 			script: func(n int, _, _ *SnmpPacket) bool { return n > 2 },
 		},
+		// A name that extends the root's last arc lies outside the subtree.
+		"sibling-arc": {
+			root:   walkIfDescr,
+			script: onWalkRequest(4, varbinds(SnmpPDU{Name: walkIfDescr + "0.1", Type: OctetString, Value: []byte("sibling")})),
+		},
+
+		// User code changing the client during a walk: the walk keeps the
+		// max-repetitions and the AppOpts it started with.
+		"user-code/walkfn-sets-max-repetitions": {
+			root: walkIfDescr, bulk: true, setup: func(x *GoSNMP) { x.MaxRepetitions = 1 },
+			onValue: func(x *GoSNMP, _ int) { x.MaxRepetitions = 2 },
+		},
+		"user-code/walkfn-sets-app-opts-c": {
+			root: walkIfDescr, script: onWalkRequest(3, varbinds(ifDescr(0))),
+			onValue: func(x *GoSNMP, _ int) { x.AppOpts = map[string]any{"c": true} },
+		},
 	}
 
 	// Every error status the walk names, and one it does not. NoSuchName
@@ -357,6 +376,9 @@ func runWalkScenario(t *testing.T, sc walkScenario) string {
 			walkFn := func(vb SnmpPDU) error {
 				values++
 				tr.addf("walkFn: %s", describeVarbinds([]SnmpPDU{vb}))
+				if sc.onValue != nil {
+					sc.onValue(x, values)
+				}
 				if values == sc.stopAfter {
 					return errWalkFn
 				}
@@ -380,4 +402,32 @@ func runWalkScenario(t *testing.T, sc walkScenario) string {
 		tr.addf("known bug: %s", sc.knownBug)
 	}
 	return strings.Join(tr.lines, "\n")
+}
+
+// BenchmarkWalk runs WalkAll and BulkWalkAll, as the Netdata Agent's SNMP
+// collector does, over a 100-row table column on the in-memory agent.
+func BenchmarkWalk(b *testing.B) {
+	const root = ".1.3.6.1.4.1.99999.1.1.1.1.2.3.4"
+	mib := make([]SnmpPDU, 0, 101)
+	for i := range 100 {
+		mib = append(mib, SnmpPDU{Name: fmt.Sprintf("%s.%d", root, i+1), Type: Counter64, Value: uint64(i)})
+	}
+	mib = append(mib, SnmpPDU{Name: ".1.3.6.1.4.1.99999.1.1.1.1.2.3.5.1", Type: Integer, Value: 1})
+
+	for name, walkAll := range map[string]func(x *GoSNMP) ([]SnmpPDU, error){
+		"WalkAll":     func(x *GoSNMP) ([]SnmpPDU, error) { return x.WalkAll(root) },
+		"BulkWalkAll": func(x *GoSNMP) ([]SnmpPDU, error) { return x.BulkWalkAll(root) },
+	} {
+		b.Run(name, func(b *testing.B) {
+			agent := &mibAgent{mib: mib}
+			x := newEngineClient(b, nil, Version2c, newFakeTransport(nil, agent.handle))
+			b.ReportAllocs()
+			for b.Loop() {
+				vbs, err := walkAll(x)
+				if err != nil || len(vbs) != 100 {
+					b.Fatalf("%d values, error %v", len(vbs), err)
+				}
+			}
+		})
+	}
 }
