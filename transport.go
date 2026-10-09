@@ -129,8 +129,8 @@ const rxBufSize = 65535 // max size of IPv4 & IPv6 packet
 func (x *GoSNMP) receive() ([]byte, error) {
 	var n int
 	var err error
-	// If we are using UDP and unconnected socket, read the packet and
-	// disregard the source address.
+	// On a packet connection (UDP, connected or not), read a datagram; its
+	// source address is not checked.
 	if uconn, ok := x.Conn.(net.PacketConn); ok {
 		n, _, err = uconn.ReadFrom(x.rxBuf[:])
 	} else {
@@ -143,7 +143,8 @@ func (x *GoSNMP) receive() ([]byte, error) {
 	}
 
 	if n == rxBufSize {
-		// This should never happen unless we're using something like a unix domain socket.
+		// A read that fills the buffer may have cut the reply short: a datagram
+		// cannot be this large, a TCP stream can.
 		return nil, fmt.Errorf("response buffer too small")
 	}
 

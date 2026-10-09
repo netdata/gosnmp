@@ -44,7 +44,9 @@ const (
 // concurrent use: requests share its connection, receive buffer and deadline,
 // so run one request at a time, or give each goroutine its own GoSNMP.
 type GoSNMP struct {
-	// Conn is net connection to use, typically established using GoSNMP.Connect().
+	// Conn is the connection to the agent, opened by Connect. A Conn set
+	// without Connect cannot carry requests: the client then lacks its context
+	// and receive buffer.
 	Conn net.Conn
 
 	// Target is the agent's host name or IP address.
@@ -79,9 +81,9 @@ type GoSNMP struct {
 	// x.Logger = NewLogger(log.New(os.Stdout, "", 0))
 	Logger Logger
 
-	// Message hook methods allow passing in a functions at various points in the packet handling.
+	// Message hook methods allow passing in functions at various points in the packet handling.
 	// For example, this can be used to collect packet timing, add metrics, or implement tracing.
-
+	//
 	// PreSend is called before a packet is sent.
 	PreSend func(*GoSNMP)
 
@@ -91,14 +93,20 @@ type GoSNMP struct {
 	// OnRecv is called when a packet is received.
 	OnRecv func(*GoSNMP)
 
-	// OnRetry is called when a retry attempt is done.
+	// OnRetry is called after each failed attempt, before the next one, and
+	// also after the last one, when no attempt follows.
 	OnRetry func(*GoSNMP)
 
-	// OnFinish is called when the request completed.
+	// OnFinish is called each time an exchange (a request and the answer to
+	// it, after any retries) ends without an error: for SNMPv3 also after
+	// engine discovery and after a Report the client resynchronizes from,
+	// before the request is sent again. It is not called when an exchange
+	// fails.
 	OnFinish func(*GoSNMP)
 
 	// MaxOids is the maximum number of OIDs in a Get, GetNext or GetBulk
-	// request; Set does not check it. Zero means the MaxOids constant.
+	// request; Set does not check it. Connect replaces zero with the MaxOids
+	// constant.
 	MaxOids int
 
 	// MaxRepetitions sets the GETBULK max-repetitions used by BulkWalk*
@@ -167,11 +175,12 @@ type GoSNMP struct {
 	// Internal - we use to send packets if using unconnected socket.
 	uaddr *net.UDPAddr
 
-	// Internal - mutual exclusion allows us to idempotently perform operations
+	// mu serializes Close calls.
 	mu sync.Mutex
 }
 
-// Default connection settings
+// Default is a client with default settings, used by the examples. Like any
+// GoSNMP, it is not safe for concurrent use.
 //
 //nolint:gochecknoglobals
 var Default = &GoSNMP{
@@ -262,10 +271,6 @@ const (
 	NotWritable                          // The variable cannot be written or created.
 	InconsistentName                     // The name in a variable binding specifies a variable that does not exist.
 )
-
-//
-// Public Functions (main interface)
-//
 
 func (x *GoSNMP) validateParameters() error {
 	if x.Transport == "" {

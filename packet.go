@@ -112,8 +112,6 @@ func (packet *SnmpPacket) SafeString() string {
 	)
 }
 
-// -- Marshalling Logic --------------------------------------------------------
-
 // MarshalMsg marshalls a snmp packet, ready for sending across the wire
 func (packet *SnmpPacket) MarshalMsg() ([]byte, error) {
 	return packet.marshalMsg()

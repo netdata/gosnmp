@@ -363,8 +363,8 @@ func (e *exchange) answers(reply *SnmpPacket, earlierIDs []uint32) (bool, error)
 	return id == e.packet.RequestID || slices.Contains(earlierIDs, id) || id == 0, nil
 }
 
-// SNMPv3: User-based Security Model Report PDUs and
-// error types as per https://tools.ietf.org/html/rfc3414
+// The OIDs of the counters an SNMPv3 Report can carry: the User-based Security
+// Model's (RFC 3414) and message processing's (RFC 3412).
 const (
 	usmStatsUnsupportedSecLevels = ".1.3.6.1.6.3.15.1.1.1.0"
 	usmStatsNotInTimeWindows     = ".1.3.6.1.6.3.15.1.1.2.0"
@@ -377,6 +377,9 @@ const (
 	snmpUnknownPDUHandlers       = ".1.3.6.1.6.3.11.2.1.3.0"
 )
 
+// The errors of a request answered by a Report: one per counter in
+// reportKinds, and ErrUnknownReportPDU for a counter the library does not
+// know.
 var (
 	ErrDecryption            = errors.New("decryption error")
 	ErrInvalidMsgs           = errors.New("invalid messages")

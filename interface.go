@@ -41,21 +41,27 @@ type Handler interface {
 	// GetNext sends an SNMP GETNEXT request
 	GetNext(oids []string) (result *SnmpPacket, err error)
 
-	// Walk retrieves a subtree of values using GETNEXT - a request is made for each
-	// value, unlike BulkWalk which does this operation in batches. As the tree is
-	// walked walkFn is called for each new value. The function immediately returns
-	// an error if either there is an underlaying SNMP error (e.g. GetNext fails),
-	// or if walkFn returns an error.
+	// Walk walks the subtree under rootOid with GETNEXT requests, one per value,
+	// where BulkWalk asks for many at a time, calling walkFn for each value in it.
+	// An empty or "." rootOid walks .1.3.6.1; when the first answer lies outside
+	// the subtree, rootOid is taken for a leaf and fetched with a Get. It returns
+	// at once the error of a failed request or of walkFn, and an error for a name
+	// that is not after the requested one (unless AppOpts has "c"). An answer
+	// whose Error is TooBig through InconsistentName ends the walk without an
+	// error.
 	Walk(rootOid string, walkFn WalkFunc) error
 
 	// WalkAll is similar to Walk but returns a filled array of all values rather
 	// than using a callback function to stream results.
 	WalkAll(rootOid string) (results []SnmpPDU, err error)
 
-	// BulkWalk retrieves a subtree of values using GETBULK. As the tree is
-	// walked walkFn is called for each new value. The function immediately returns
-	// an error if either there is an underlaying SNMP error (e.g. GetBulk fails),
-	// or if walkFn returns an error.
+	// BulkWalk walks the subtree under rootOid with GETBULK requests, calling
+	// walkFn for each value in it. An empty or "." rootOid walks .1.3.6.1; when
+	// the first answer lies outside the subtree, rootOid is taken for a leaf and
+	// fetched with a Get. It returns at once the error of a failed request or of
+	// walkFn, and an error for a name that is not after the requested one (unless
+	// AppOpts has "c"). An answer whose Error is TooBig through InconsistentName
+	// ends the walk without an error.
 	BulkWalk(rootOid string, walkFn WalkFunc) error
 
 	// BulkWalkAll is similar to BulkWalk but returns a filled array of all values
@@ -261,7 +267,7 @@ func (x *snmpHandler) MaxRepetitions() uint32 {
 	return (x.GoSNMP.MaxRepetitions & 0x7FFFFFFF)
 }
 
-// SetMaxRepetitions wraps to 0 at max int32.
+// SetMaxRepetitions sets MaxRepetitions with its top bit cleared.
 func (x *snmpHandler) SetMaxRepetitions(maxRepetitions uint32) {
 	x.GoSNMP.MaxRepetitions = (maxRepetitions & 0x7FFFFFFF)
 }

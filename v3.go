@@ -99,6 +99,10 @@ func (packet *SnmpPacket) authenticate(msg []byte) ([]byte, error) {
 	return msg, nil
 }
 
+// testAuthentication verifies the digest of the SNMPv3 message packet, whose
+// header is decoded into result, for the engine's replies and for
+// UnmarshalTrap: with result's flags and security parameters when
+// useResponseSecurityParameters is set, with the client's otherwise.
 func (x *GoSNMP) testAuthentication(packet []byte, result *SnmpPacket, useResponseSecurityParameters bool) error {
 	if x.Version != Version3 {
 		return fmt.Errorf("testAuthentication called with non Version3 connection")
@@ -136,6 +140,8 @@ func (x *GoSNMP) testAuthentication(packet []byte, result *SnmpPacket, useRespon
 	return nil
 }
 
+// initPacket sets the privacy parameters (the salt) of an outgoing SNMPv3
+// packet when the client uses privacy, for the engine and SnmpEncodePacket.
 func (x *GoSNMP) initPacket(packetOut *SnmpPacket) error {
 	if x.MsgFlags&AuthPriv > AuthNoPriv {
 		return x.SecurityParameters.InitPacket(packetOut)
