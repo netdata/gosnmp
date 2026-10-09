@@ -1,0 +1,49 @@
+# SNMPv3 users of the end-to-end tests: snmp_users.sh creates them in snmpd, the tests use them.
+# One user per authentication x privacy protocol pair, named after the pair; "-" is no passphrase.
+# Protocol names are the library's SnmpV3AuthProtocol and SnmpV3PrivProtocol names, which snmpd's
+# createUser accepts as they are (AES192/AES256 extend the key as Blumenthal, AES192C/AES256C as Reeder).
+#
+# user auth authpass priv privpass
+noauth NoAuth - NoPriv -
+md5 MD5 md5-authpass NoPriv -
+md5-des MD5 md5-des-authpass DES md5-des-privpass
+md5-aes MD5 md5-aes-authpass AES md5-aes-privpass
+md5-aes192 MD5 md5-aes192-authpass AES192 md5-aes192-privpass
+md5-aes256 MD5 md5-aes256-authpass AES256 md5-aes256-privpass
+md5-aes192c MD5 md5-aes192c-authpass AES192C md5-aes192c-privpass
+md5-aes256c MD5 md5-aes256c-authpass AES256C md5-aes256c-privpass
+sha SHA sha-authpass NoPriv -
+sha-des SHA sha-des-authpass DES sha-des-privpass
+sha-aes SHA sha-aes-authpass AES sha-aes-privpass
+sha-aes192 SHA sha-aes192-authpass AES192 sha-aes192-privpass
+sha-aes256 SHA sha-aes256-authpass AES256 sha-aes256-privpass
+sha-aes192c SHA sha-aes192c-authpass AES192C sha-aes192c-privpass
+sha-aes256c SHA sha-aes256c-authpass AES256C sha-aes256c-privpass
+sha224 SHA224 sha224-authpass NoPriv -
+sha224-des SHA224 sha224-des-authpass DES sha224-des-privpass
+sha224-aes SHA224 sha224-aes-authpass AES sha224-aes-privpass
+sha224-aes192 SHA224 sha224-aes192-authpass AES192 sha224-aes192-privpass
+sha224-aes256 SHA224 sha224-aes256-authpass AES256 sha224-aes256-privpass
+sha224-aes192c SHA224 sha224-aes192c-authpass AES192C sha224-aes192c-privpass
+sha224-aes256c SHA224 sha224-aes256c-authpass AES256C sha224-aes256c-privpass
+sha256 SHA256 sha256-authpass NoPriv -
+sha256-des SHA256 sha256-des-authpass DES sha256-des-privpass
+sha256-aes SHA256 sha256-aes-authpass AES sha256-aes-privpass
+sha256-aes192 SHA256 sha256-aes192-authpass AES192 sha256-aes192-privpass
+sha256-aes256 SHA256 sha256-aes256-authpass AES256 sha256-aes256-privpass
+sha256-aes192c SHA256 sha256-aes192c-authpass AES192C sha256-aes192c-privpass
+sha256-aes256c SHA256 sha256-aes256c-authpass AES256C sha256-aes256c-privpass
+sha384 SHA384 sha384-authpass NoPriv -
+sha384-des SHA384 sha384-des-authpass DES sha384-des-privpass
+sha384-aes SHA384 sha384-aes-authpass AES sha384-aes-privpass
+sha384-aes192 SHA384 sha384-aes192-authpass AES192 sha384-aes192-privpass
+sha384-aes256 SHA384 sha384-aes256-authpass AES256 sha384-aes256-privpass
+sha384-aes192c SHA384 sha384-aes192c-authpass AES192C sha384-aes192c-privpass
+sha384-aes256c SHA384 sha384-aes256c-authpass AES256C sha384-aes256c-privpass
+sha512 SHA512 sha512-authpass NoPriv -
+sha512-des SHA512 sha512-des-authpass DES sha512-des-privpass
+sha512-aes SHA512 sha512-aes-authpass AES sha512-aes-privpass
+sha512-aes192 SHA512 sha512-aes192-authpass AES192 sha512-aes192-privpass
+sha512-aes256 SHA512 sha512-aes256-authpass AES256 sha512-aes256-privpass
+sha512-aes192c SHA512 sha512-aes192c-authpass AES192C sha512-aes192c-privpass
+sha512-aes256c SHA512 sha512-aes256c-authpass AES256C sha512-aes256c-privpass
