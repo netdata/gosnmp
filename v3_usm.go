@@ -172,16 +172,8 @@ type UsmSecurityParameters struct {
 	Logger Logger
 }
 
-func (sp *UsmSecurityParameters) getIdentifier() string {
-	return sp.UserName
-}
-
-func (sp *UsmSecurityParameters) getLogger() Logger {
-	return sp.Logger
-}
-
-func (sp *UsmSecurityParameters) setLogger(log Logger) {
-	sp.Logger = log
+func (sp *UsmSecurityParameters) usm() *UsmSecurityParameters {
+	return sp
 }
 
 // Description returns the user name, the engine ID in hex, the protocols and
@@ -283,10 +275,6 @@ func (sp *UsmSecurityParameters) Copy() SnmpV3SecurityParameters {
 	}
 }
 
-func (sp *UsmSecurityParameters) getDefaultContextEngineID() string {
-	return sp.AuthoritativeEngineID
-}
-
 // InitSecurityKeys initializes the Priv and Auth keys if needed
 func (sp *UsmSecurityParameters) InitSecurityKeys() error {
 	sp.mu.Lock()
@@ -329,29 +317,23 @@ func (sp *UsmSecurityParameters) initSecurityKeysNoLock() error {
 	return nil
 }
 
-func (sp *UsmSecurityParameters) setSecurityParameters(in SnmpV3SecurityParameters) error {
-	var insp *UsmSecurityParameters
-	var err error
-
+// setSecurityParameters adopts the engine ID, boots and time of in, deriving
+// new keys when the engine ID changes.
+func (sp *UsmSecurityParameters) setSecurityParameters(in *UsmSecurityParameters) error {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
 
-	if insp, err = castUsmSecParams(in); err != nil {
-		return err
-	}
-
-	if sp.AuthoritativeEngineID != insp.AuthoritativeEngineID {
-		sp.AuthoritativeEngineID = insp.AuthoritativeEngineID
+	if sp.AuthoritativeEngineID != in.AuthoritativeEngineID {
+		sp.AuthoritativeEngineID = in.AuthoritativeEngineID
 		sp.SecretKey = nil
 		sp.PrivacyKey = nil
 
-		err = sp.initSecurityKeysNoLock()
-		if err != nil {
+		if err := sp.initSecurityKeysNoLock(); err != nil {
 			return err
 		}
 	}
-	sp.AuthoritativeEngineBoots = insp.AuthoritativeEngineBoots
-	sp.AuthoritativeEngineTime = insp.AuthoritativeEngineTime
+	sp.AuthoritativeEngineBoots = in.AuthoritativeEngineBoots
+	sp.AuthoritativeEngineTime = in.AuthoritativeEngineTime
 
 	return nil
 }
@@ -421,14 +403,6 @@ func (sp *UsmSecurityParameters) init(log Logger) error {
 	}
 
 	return nil
-}
-
-func castUsmSecParams(secParams SnmpV3SecurityParameters) (*UsmSecurityParameters, error) {
-	s, ok := secParams.(*UsmSecurityParameters)
-	if !ok || s == nil {
-		return nil, fmt.Errorf("param SnmpV3SecurityParameters is not of type *UsmSecurityParameters")
-	}
-	return s, nil
 }
 
 var (
@@ -668,9 +642,9 @@ func (sp *UsmSecurityParameters) usmSetSalt(salt uint64, isAES bool) error {
 func (sp *UsmSecurityParameters) InitPacket(packet *SnmpPacket) error {
 	salt, isAES := sp.usmAllocateNewSalt()
 	if packet.MsgFlags&AuthPriv > AuthNoPriv {
-		s, err := castUsmSecParams(packet.SecurityParameters)
-		if err != nil {
-			return err
+		s := usmOf(packet.SecurityParameters)
+		if s == nil {
+			return errors.New("param SnmpV3SecurityParameters is not of type *UsmSecurityParameters")
 		}
 		return s.usmSetSalt(salt, isAES)
 	}
@@ -695,10 +669,6 @@ func (sp *UsmSecurityParameters) discoveryRequired() *SnmpPacket {
 		return blankPacket
 	}
 	return nil
-}
-
-func (sp *UsmSecurityParameters) calcPacketDigest(packet []byte) ([]byte, error) {
-	return calcPacketDigest(packet, sp)
 }
 
 // calcPacketDigest calculate authenticate digest for incoming messages (TRAP or
@@ -796,7 +766,7 @@ func (sp *UsmSecurityParameters) authenticate(packet []byte) error {
 	var msgDigest []byte
 	var err error
 
-	if msgDigest, err = sp.calcPacketDigest(packet); err != nil {
+	if msgDigest, err = calcPacketDigest(packet, sp); err != nil {
 		return err
 	}
 
@@ -813,12 +783,9 @@ func (sp *UsmSecurityParameters) authenticate(packet []byte) error {
 // determine whether a message is authentic
 func (sp *UsmSecurityParameters) isAuthentic(packetBytes []byte, packet *SnmpPacket) (bool, error) {
 	var msgDigest []byte
-	var packetSecParams *UsmSecurityParameters
 	var err error
 
-	if packetSecParams, err = castUsmSecParams(packet.SecurityParameters); err != nil {
-		return false, err
-	}
+	packetSecParams := packet.SecurityParameters.usm()
 
 	// Verify the username
 	if packetSecParams.UserName != sp.UserName {

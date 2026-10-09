@@ -395,7 +395,7 @@ func (x *GoSNMP) validateParameters() error {
 		if err != nil {
 			return err
 		}
-		err = x.SecurityParameters.init(x.Logger)
+		err = x.SecurityParameters.usm().init(x.Logger)
 		if err != nil {
 			return err
 		}

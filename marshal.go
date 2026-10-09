@@ -301,12 +301,8 @@ sendRetry:
 			}
 
 			if x.Version == Version3 {
-				useResponseSecurityParameters := false
-				if usp, ok := x.SecurityParameters.(*UsmSecurityParameters); ok {
-					if usp.AuthoritativeEngineID == "" {
-						useResponseSecurityParameters = true
-					}
-				}
+				usp := usmOf(x.SecurityParameters)
+				useResponseSecurityParameters := usp != nil && usp.AuthoritativeEngineID == ""
 				err = x.testAuthentication(resp, result, useResponseSecurityParameters)
 				if err != nil {
 					x.Logger.Printf("ERROR on Test Authentication on v3: %s", err)

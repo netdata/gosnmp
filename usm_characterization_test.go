@@ -643,6 +643,33 @@ func TestUSMSalts(t *testing.T) {
 			})
 		}
 	})
+	t.Run("packet without security parameters", func(t *testing.T) {
+		tests := map[string]struct {
+			pktSP   SnmpV3SecurityParameters
+			flags   SnmpV3MsgFlags
+			wantErr string
+		}{
+			"nil, privacy": {
+				flags: AuthPriv, wantErr: "param SnmpV3SecurityParameters is not of type *UsmSecurityParameters",
+			},
+			"typed nil, privacy": {
+				pktSP: (*UsmSecurityParameters)(nil), flags: AuthPriv,
+				wantErr: "param SnmpV3SecurityParameters is not of type *UsmSecurityParameters",
+			},
+			"nil, no privacy": {flags: AuthNoPriv},
+		}
+		for name, tc := range tests {
+			t.Run(name, func(t *testing.T) {
+				pkt := &SnmpPacket{Version: Version3, MsgFlags: tc.flags, SecurityParameters: tc.pktSP}
+				err := (&UsmSecurityParameters{PrivacyProtocol: AES}).InitPacket(pkt)
+				if tc.wantErr == "" {
+					assert.NoError(t, err)
+					return
+				}
+				assert.EqualError(t, err, tc.wantErr)
+			})
+		}
+	})
 	t.Run("GoSNMP starts the counter at a random value", func(t *testing.T) {
 		encode := func() string {
 			x := &GoSNMP{

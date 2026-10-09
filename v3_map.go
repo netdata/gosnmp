@@ -32,8 +32,8 @@ func (spm *SnmpV3SecurityParametersTable) Add(key string, sp SnmpV3SecurityParam
 	}
 
 	// If no logger is set for the security params (empty struct), use the one from the table
-	if (Logger{}) == sp.getLogger() {
-		sp.setLogger(spm.Logger)
+	if usp := sp.usm(); (Logger{}) == usp.Logger {
+		usp.Logger = spm.Logger
 	}
 
 	spm.table[key] = append(spm.table[key], sp)
