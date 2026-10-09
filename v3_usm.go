@@ -268,7 +268,9 @@ func (sp *UsmSecurityParameters) privacyKey() ([]byte, error) {
 }
 
 // setSecurityParameters adopts the engine ID, boots and time of in, deriving
-// new keys when the engine ID changes.
+// new keys when the engine ID changes. Known bug: the engine ID is adopted
+// before the keys are derived, so a failed derivation leaves it adopted
+// without keys, boots or time, and the next request skips the discovery.
 func (sp *UsmSecurityParameters) setSecurityParameters(in *UsmSecurityParameters) error {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()

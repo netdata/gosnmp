@@ -143,51 +143,44 @@ func (x *GoSNMP) initPacket(packetOut *SnmpPacket) error {
 	return nil
 }
 
-// http://tools.ietf.org/html/rfc2574#section-2.2.3 This code does not
-// check if the last message received was more than 150 seconds ago The
-// snmpds that this code was tested on emit an 'out of time window'
-// error with the new time and this code will retransmit when that is
-// received.
+// negotiateInitialSecurityParameters prepares packetOut's security parameters
+// before an SNMPv3 request: it discovers the agent's engine while the client
+// does not know its engine ID, and derives the keys otherwise. Known bug: the
+// key derivation error is ignored when the engine ID is known.
 func (x *GoSNMP) negotiateInitialSecurityParameters(packetOut *SnmpPacket) error {
-	if x.Version != Version3 || packetOut.Version != Version3 {
-		return fmt.Errorf("negotiateInitialSecurityParameters called with non Version3 connection or packet")
-	}
-
-	if x.SecurityModel != packetOut.SecurityModel {
-		return fmt.Errorf("connection security model does not match security model defined in packet")
-	}
-
 	if discoveryPacket := packetOut.SecurityParameters.usm().discoveryRequired(); discoveryPacket != nil {
-		discoveryPacket.ContextName = x.ContextName
-		result, err := x.sendOneRequest(discoveryPacket)
-		if err != nil {
-			// Some devices (e.g. Dell EMC switches) respond to discovery probes with
-			// usmStatsUnknownUserNames instead of usmStatsUnknownEngineIDs, yet still
-			// include valid engine parameters. Treat it as a valid discovery response.
-			if !errors.Is(err, ErrUnknownUsername) || result == nil {
-				return err
-			}
-			usp := usmOf(result.SecurityParameters)
-			if usp == nil || usp.AuthoritativeEngineID == "" {
-				return err
-			}
-		}
-
-		err = x.storeSecurityParameters(result)
-		if err != nil {
-			return err
-		}
-
-		err = x.updatePktSecurityParameters(packetOut)
-		if err != nil {
-			return err
-		}
-	} else {
-		// A key derivation error is ignored here.
-		_ = packetOut.SecurityParameters.InitSecurityKeys()
+		return x.discoverEngine(discoveryPacket, packetOut)
 	}
-
+	_ = packetOut.SecurityParameters.InitSecurityKeys()
 	return nil
+}
+
+// discoverEngine runs engine discovery (RFC 3414 section 4): it sends
+// discoveryPacket and takes the agent's engine parameters from the answer into
+// the client and packetOut. Known bug: a discovery Report with another
+// security model fails the request instead of being discarded.
+func (x *GoSNMP) discoverEngine(discoveryPacket, packetOut *SnmpPacket) error {
+	discoveryPacket.ContextName = x.ContextName
+	result, err := x.sendOneRequest(discoveryPacket)
+	if err != nil && !engineFoundDespiteUnknownUser(result, err) {
+		return err
+	}
+	if err = x.storeSecurityParameters(result); err != nil {
+		return err
+	}
+	return x.updatePktSecurityParameters(packetOut)
+}
+
+// engineFoundDespiteUnknownUser reports whether a discovery that failed with
+// ErrUnknownUsername still found the engine: some devices (e.g. Dell EMC
+// switches) answer discovery with usmStatsUnknownUserNames instead of
+// usmStatsUnknownEngineIDs, with valid engine parameters.
+func engineFoundDespiteUnknownUser(result *SnmpPacket, err error) bool {
+	if !errors.Is(err, ErrUnknownUsername) || result == nil {
+		return false
+	}
+	usp := usmOf(result.SecurityParameters)
+	return usp != nil && usp.AuthoritativeEngineID != ""
 }
 
 // save the connection security parameters after a request/response
