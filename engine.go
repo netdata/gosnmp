@@ -42,8 +42,9 @@ type attemptOutcome struct {
 // retrying up to x.Retries times. OnFinish runs when it succeeds.
 func (x *GoSNMP) sendOneRequest(packetOut *SnmpPacket) (*SnmpPacket, error) {
 	e := exchange{x: x, packet: packetOut, timeout: x.Timeout}
-	// The request IDs of the attempts before the current one. The slice lives
-	// in this frame, where it stays off the heap.
+	// The request IDs of the attempts before the current one. A local, not a
+	// field of exchange: for small Retries it stays on the stack, where a field
+	// would always escape to the heap.
 	earlierIDs := make([]uint32, 0, x.Retries+1)
 	var lastErr error
 	for n := 0; ; n++ {
@@ -121,6 +122,7 @@ func (e *exchange) attempt(earlierIDs []uint32) attemptOutcome {
 		return attemptOutcome{err: err}
 	}
 
+	e.packet.RequestID = x.nextRequestID()
 	// An encoding failure is not retried: another attempt would fail the same
 	// way.
 	outBuf, err := e.encode()
@@ -153,11 +155,10 @@ func (x *GoSNMP) attemptDeadline(timeout time.Duration) (deadline time.Time, byC
 	return deadline, false
 }
 
-// encode stamps the request with a new request ID and, for SNMPv3, a new
-// message ID and privacy parameters, and marshals it.
+// encode marshals the request, for SNMPv3 with a new message ID and privacy
+// parameters.
 func (e *exchange) encode() ([]byte, error) {
 	x, p := e.x, e.packet
-	p.RequestID = x.nextRequestID()
 	if x.Version == Version3 {
 		p.MsgID = x.nextMsgID()
 		if err := x.initPacket(p); err != nil {
@@ -213,10 +214,11 @@ func (e *exchange) await(earlierIDs []uint32) attemptOutcome {
 	}
 }
 
-// decode decodes a reply to the request: the header, for SNMPv3 the
+// decode decodes a reply to the request: the header, for an SNMPv3 client the
 // authentication and the scoped PDU, then the PDU.
 func (e *exchange) decode(resp []byte) (*SnmpPacket, error) {
 	x := e.x
+	// Known bug: a reply with an empty msgFlags keeps the request's flags.
 	reply := &SnmpPacket{Logger: x.Logger, MsgFlags: e.packet.MsgFlags}
 	if e.packet.SecurityParameters != nil {
 		reply.SecurityParameters = e.packet.SecurityParameters.Copy()
@@ -229,7 +231,10 @@ func (e *exchange) decode(resp []byte) (*SnmpPacket, error) {
 	}
 	if x.Version == Version3 {
 		// Until discovery has set the authoritative engine ID, the reply is
-		// checked with its own flags and the security parameters it carries.
+		// checked with its own flags and the security parameters it carries,
+		// afterwards with the client's. Known bug: an unauthenticated Report
+		// then fails the digest check and is discarded, and the caller never
+		// sees its error.
 		usp := usmOf(x.SecurityParameters)
 		fromReply := usp != nil && usp.AuthoritativeEngineID == ""
 		if err = x.testAuthentication(resp, reply, fromReply); err != nil {
@@ -250,9 +255,12 @@ func (e *exchange) decode(resp []byte) (*SnmpPacket, error) {
 
 // answers reports whether reply answers the request, and with which error: a
 // reply answers with the current attempt's request ID or one of earlierIDs.
-// Known bugs: an empty reply and a Report answer before their request ID is
-// checked, request ID 0 answers any request, and the reply's version and PDU
-// type are not checked.
+// Known bugs: nothing else of the reply is compared with the request (its
+// version, PDU type and msgID, nor the security model, level, user, engine ID
+// and context of RFC 3412 section 7.2 step 12 b); an empty reply and a Report
+// answer before their request ID is checked; request ID 0 answers any request;
+// a Report counts only with exactly one varbind, so one with more is returned
+// as a successful reply.
 func (e *exchange) answers(reply *SnmpPacket, earlierIDs []uint32) (bool, error) {
 	if reply.Error == NoError && len(reply.Variables) < 1 {
 		e.x.Logger.Printf("ERROR on UnmarshalPayload on v3: Empty result")
@@ -271,11 +279,11 @@ func (e *exchange) answers(reply *SnmpPacket, earlierIDs []uint32) (bool, error)
 
 // reportErrors maps the counter an SNMPv3 Report carries (the USM counters of
 // RFC 3414, the message processing counters of RFC 3412) to the request's
-// error. A Report is a Report PDU with one varbind, the counter of the error
-// the agent detected; its request ID is the request's, or 0 when the agent
+// error. The agent puts the counter of the error it detected in the Report's
+// varbinds; the Report's request ID is the request's, or 0 when the agent
 // could not read it. Reports about the time window and an unknown engine ID
-// give no error: the caller takes the engine parameters they carry, and send
-// sends the request again.
+// give no error: the caller takes the engine parameters they carry, and send,
+// when it is the caller, sends the request again.
 var reportErrors = map[string]error{ //nolint:gochecknoglobals // a read-only table
 	usmStatsUnsupportedSecLevels: ErrUnknownSecurityLevel,
 	usmStatsNotInTimeWindows:     nil,
