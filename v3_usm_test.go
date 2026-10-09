@@ -79,7 +79,7 @@ func TestIsAuthenticWrongUsername(t *testing.T) {
 		Logger:                   NewLogger(log.New(io.Discard, "", 0)),
 	}
 
-	sp.SecretKey, err = genlocalkey(sp.AuthenticationProtocol,
+	sp.SecretKey, err = passwordCache.LocalizedKey(sp.AuthenticationProtocol.HashType(),
 		sp.AuthenticationPassphrase,
 		sp.AuthoritativeEngineID)
 
@@ -119,7 +119,7 @@ func TestAuthenticationSHA224(t *testing.T) {
 		PrivacyKey:               nil,
 	}
 
-	sp.SecretKey, err = genlocalkey(sp.AuthenticationProtocol,
+	sp.SecretKey, err = passwordCache.LocalizedKey(sp.AuthenticationProtocol.HashType(),
 		sp.AuthenticationPassphrase,
 		sp.AuthoritativeEngineID)
 
@@ -154,7 +154,7 @@ func TestIsAuthenticSHA224(t *testing.T) {
 		Logger:                   NewLogger(log.New(io.Discard, "", 0)),
 	}
 
-	sp.SecretKey, err = genlocalkey(sp.AuthenticationProtocol,
+	sp.SecretKey, err = passwordCache.LocalizedKey(sp.AuthenticationProtocol.HashType(),
 		sp.AuthenticationPassphrase,
 		sp.AuthoritativeEngineID)
 
@@ -221,7 +221,7 @@ func TestAuthenticationSHA512(t *testing.T) {
 		Logger:                   NewLogger(log.New(io.Discard, "", 0)),
 	}
 
-	sp.SecretKey, err = genlocalkey(sp.AuthenticationProtocol,
+	sp.SecretKey, err = passwordCache.LocalizedKey(sp.AuthenticationProtocol.HashType(),
 		sp.AuthenticationPassphrase,
 		sp.AuthoritativeEngineID)
 
@@ -256,7 +256,7 @@ func TestIsAuthenticSHA512(t *testing.T) {
 		PrivacyKey:               nil,
 	}
 
-	sp.SecretKey, err = genlocalkey(sp.AuthenticationProtocol,
+	sp.SecretKey, err = passwordCache.LocalizedKey(sp.AuthenticationProtocol.HashType(),
 		sp.AuthenticationPassphrase,
 		sp.AuthoritativeEngineID)
 

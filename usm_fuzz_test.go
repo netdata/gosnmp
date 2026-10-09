@@ -210,19 +210,19 @@ func v3DecodeKnownPanic(receiver string, p usmFuzzPair, data []byte, v any, stac
 	case "(*UsmSecurityParameters).unmarshal":
 		var n, c int
 		if _, err := fmt.Sscanf(msg, "runtime error: slice bounds out of range [:%d] with capacity %d", &n, &c); err == nil &&
-			n == 2+p.auth.spec().macLen && c < n {
+			n == 2+p.auth.spec().MACLen && c < n {
 			return "USM unmarshal zeroes the digest past the end of the input"
 		}
 
-	// DES decryption indexes the privacy parameters as 8 octets and the
-	// privacy key as 16 (key and pre-IV) without checking their lengths, so
-	// it fails at the first missing octet (index equal to the length) or
-	// slicing the pre-IV off a key shorter than 8 octets. The key is shorter
-	// when it was never derived (SnmpDecodePacket derives keys only for a new
-	// engine ID) or derived from an empty passphrase (hMAC drops the error).
+	// The DES IV indexes the privacy parameters as 8 octets and the privacy
+	// key as 16 (key and pre-IV) without checking their lengths, so it fails
+	// at the first missing octet (index equal to the length) or slicing the
+	// pre-IV off a key shorter than 8 octets. The key is shorter when it was
+	// never derived (SnmpDecodePacket derives keys only for a new engine ID)
+	// or derived from an empty passphrase (localization drops the error).
 	// TestUSMTrapUnauthenticated pins the paths that decrypt without checking
 	// a digest.
-	case "(*UsmSecurityParameters).decryptPacket":
+	case "github.com/netdata/gosnmp/internal/usm.desIV":
 		if p.priv != DES {
 			break
 		}
