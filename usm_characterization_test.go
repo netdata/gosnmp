@@ -228,13 +228,25 @@ type v3Message struct {
 
 func splitV3Message(t testing.TB, data []byte) v3Message {
 	t.Helper()
+	m, err := parseV3Message(data)
+	require.NoError(t, err)
+	return m
+}
 
+// parseV3Message splits an SNMPv3 message into its parts, without decoding
+// the field contents.
+func parseV3Message(data []byte) (v3Message, error) {
+	var m v3Message
+	var err error
 	next := func(r *ber.Reader) (byte, []byte) {
-		tag, content, err := r.Next()
-		require.NoError(t, err)
+		if err != nil {
+			return 0, nil
+		}
+		var tag byte
+		var content []byte
+		tag, content, err = r.Next()
 		return tag, content
 	}
-	var m v3Message
 	r := ber.NewReader(data)
 	_, body := next(&r)
 	mr := ber.NewReader(body)
@@ -248,7 +260,7 @@ func splitV3Message(t testing.TB, data []byte) v3Message {
 	for i := range m.usm {
 		m.usmTags[i], m.usm[i] = next(&fr)
 	}
-	return m
+	return m, err
 }
 
 func (m v3Message) bytes() []byte {
