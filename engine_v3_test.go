@@ -76,19 +76,22 @@ func otherKey(p *SnmpPacket) {
 	usp.PrivacyKey = bytes.Repeat([]byte{0x5a}, len(usp.PrivacyKey))
 }
 
-// emptyMsgFlags gives an encoded answer an empty msgFlags OCTET STRING.
-func emptyMsgFlags(m *v3Message) {
-	r := ber.NewReader(m.header)
-	var fields [][]byte
-	for r.Len() > 0 {
-		tag, content, err := r.Next()
-		if err != nil {
-			panic(err)
+// msgFlagsOctets gives an encoded answer a msgFlags OCTET STRING of the
+// octets, none for an empty one.
+func msgFlagsOctets(octets ...byte) func(m *v3Message) {
+	return func(m *v3Message) {
+		r := ber.NewReader(m.header)
+		var fields [][]byte
+		for r.Len() > 0 {
+			tag, content, err := r.Next()
+			if err != nil {
+				panic(err)
+			}
+			fields = append(fields, tlv(tag, content))
 		}
-		fields = append(fields, tlv(tag, content))
+		fields[2] = tlv(byte(OctetString), octets)
+		m.header = bytes.Join(fields, nil)
 	}
-	fields[2] = tlv(byte(OctetString))
-	m.header = bytes.Join(fields, nil)
 }
 
 // snmpUnknownContexts is the counter of RFC 3413 (SNMP-TARGET-MIB) a command
@@ -141,6 +144,30 @@ func (l funcLogger) Printf(format string, v ...any) { l(fmt.Sprintf(format, v...
 func fromOtherEngine(p *SnmpPacket) {
 	p.SecurityParameters.usm().AuthoritativeEngineID = agentOtherEngineID
 	p.ContextEngineID = agentOtherEngineID
+}
+
+// otherEngineTime gives an answer engine boots and time the agent does not
+// have.
+func otherEngineTime(p *SnmpPacket) {
+	usp := p.SecurityParameters.usm()
+	usp.AuthoritativeEngineBoots, usp.AuthoritativeEngineTime = 99, 5
+}
+
+// timeJump moves the agent's engine time ten days ahead with its boots
+// unchanged, leaving the client's engine time far behind.
+func timeJump(a *fakeV3Agent) { a.timeBase += 886000 }
+
+// unauthenticatedTimeWindow makes the agent answer a request outside its time
+// window with a notInTimeWindow Report at noAuthNoPriv that carries its engine
+// boots and time, as some devices (UniFi access points) do against RFC 3414
+// section 3.2 step 7 a; edit, when set, changes each such Report.
+func unauthenticatedTimeWindow(a *fakeV3Agent, edit func(*SnmpPacket)) {
+	a.script = func(_ int, req agentRequest) (agentAnswer, bool) {
+		if req.boots == a.boots && absDiff(req.engineTime, a.engineTime()) <= agentTimeWindow {
+			return agentAnswer{}, false
+		}
+		return agentAnswer{report: usmStatsNotInTimeWindows, why: "not in time window, unauthenticated", edit: edit}, true
+	}
 }
 
 // onRequest scripts the answer to request n only.
@@ -207,7 +234,7 @@ func v3Scenarios() map[string]v3Scenario {
 		},
 		"discovery/empty-msg-flags": {
 			user: "codec-md5", script: onRequest(1, agentAnswer{
-				report: usmStatsUnknownEngineIDs, why: "discovery Report with an empty msgFlags", raw: emptyMsgFlags,
+				report: usmStatsUnknownEngineIDs, why: "discovery Report with an empty msgFlags", raw: msgFlagsOctets(),
 			}),
 			knownBug: "a reply with an empty msgFlags is accepted and carries the request's flags (RFC 3412 section 6: one octet)",
 		},
@@ -264,6 +291,81 @@ func v3Scenarios() map[string]v3Scenario {
 			}),
 			knownBug: "the retransmission's error is replaced by ErrNotInTimeWindow",
 		},
+
+		// Reports without authentication to an authenticated request: from
+		// agents that send notInTimeWindow so, and ones that must not be
+		// acted on.
+		"unauthenticated-report/time-jump/md5": {user: "codec-md5", run: getThrice(func(a *fakeV3Agent) {
+			timeJump(a)
+			unauthenticatedTimeWindow(a, nil)
+		})},
+		"unauthenticated-report/time-jump/sha-aes": {user: "codec-sha-aes", run: getTwice(func(a *fakeV3Agent) {
+			timeJump(a)
+			unauthenticatedTimeWindow(a, nil)
+		})},
+		"unauthenticated-report/time-jump/sha256-des": {user: "codec-sha256-des", run: getTwice(func(a *fakeV3Agent) {
+			timeJump(a)
+			unauthenticatedTimeWindow(a, nil)
+		})},
+		"unauthenticated-report/reboot/sha-aes": {user: "codec-sha-aes", run: getTwice(func(a *fakeV3Agent) {
+			a.reboot()
+			unauthenticatedTimeWindow(a, nil)
+		})},
+		"unauthenticated-report/engine-id-differs": {user: "codec-md5", run: getTwice(func(a *fakeV3Agent) {
+			timeJump(a)
+			unauthenticatedTimeWindow(a, fromOtherEngine)
+		})},
+		"unauthenticated-report/always": {user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+			return agentAnswer{report: usmStatsNotInTimeWindows, why: "always not in time window, unauthenticated"}, n > 1
+		}},
+		"unauthenticated-report/forged-time": {user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+			switch {
+			case n == 2:
+				return agentAnswer{report: usmStatsNotInTimeWindows, why: "forged, unauthenticated", edit: otherEngineTime}, true
+			case n > 2:
+				return agentAnswer{drop: true, why: "silent after the Report"}, true
+			}
+			return agentAnswer{}, false
+		}},
+		"unauthenticated-report/forged-time-answered": {user: "codec-md5", script: onRequest(2, agentAnswer{
+			report: usmStatsNotInTimeWindows, why: "forged, unauthenticated", edit: otherEngineTime,
+		})},
+		"unauthenticated-report/other-msg-id": {user: "codec-md5", script: onRequest(2, agentAnswer{
+			report: usmStatsUnknownUserNames, why: "unauthenticated, for another message",
+			edit: func(p *SnmpPacket) { p.MsgID += 100 },
+		})},
+		"unauthenticated-report/earlier-attempt": {user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+			switch n {
+			case 2:
+				return agentAnswer{drop: true, why: "no answer"}, true
+			case 3:
+				return agentAnswer{
+					report: usmStatsUnknownUserNames, why: "unauthenticated, with the msgID of the first attempt",
+					edit: func(p *SnmpPacket) { p.MsgID-- },
+				}, true
+			}
+			return agentAnswer{}, false
+		}},
+		"unauthenticated-report/unknown-engine-other-msg-id": {user: "codec-md5", script: onRequest(2, agentAnswer{
+			report: usmStatsUnknownEngineIDs, why: "unauthenticated, from the other engine, for another message",
+			edit: func(p *SnmpPacket) {
+				fromOtherEngine(p)
+				p.MsgID += 100
+			},
+		})},
+		"unauthenticated-report/encrypted": {user: "codec-sha-aes", script: onRequest(2, agentAnswer{
+			report: usmStatsUnknownUserNames, level: AuthPriv, why: "encrypted, msgFlags rewritten to noAuthNoPriv",
+			raw: msgFlagsOctets(byte(NoAuthNoPriv)),
+		})},
+		"unauthenticated-report/two-varbinds": {user: "codec-md5", script: onRequest(2, agentAnswer{
+			report: usmStatsUnknownUserNames, why: "unauthenticated, two varbinds",
+			edit: func(p *SnmpPacket) { p.Variables = append(p.Variables, sysDescr) },
+		})},
+		"unauthenticated-report/empty": {user: "codec-md5", script: onRequest(2, agentAnswer{
+			report: usmStatsUnknownUserNames, why: "unauthenticated, no varbinds",
+			edit: func(p *SnmpPacket) { p.Variables = nil },
+		})},
+
 		"time-window/silence-over-150s": {
 			user: "codec-md5", run: getAfter(200*time.Second, nil),
 			knownBug: "the client sends the engine time of the last message, not the current one (RFC 3414 section 3.1 step 6 a), so a request after 150 s of silence is first answered with notInTimeWindow",
@@ -418,6 +520,10 @@ func v3Scenarios() map[string]v3Scenario {
 			user: "codec-md5", run: getTwice(func(a *fakeV3Agent) { a.setEngineID(agentOtherEngineID) }),
 			knownBug: "the unauthenticated unknownEngineID Report fails the digest check and is discarded, so the client never adopts the engine ID",
 		},
+		"engine-change/sha-aes": {
+			user: "codec-sha-aes", run: getTwice(func(a *fakeV3Agent) { a.setEngineID(agentOtherEngineID) }),
+			knownBug: "the unauthenticated unknownEngineID Report fails the digest check and is discarded, so the client never adopts the engine ID",
+		},
 		"engine-change/noauth": {
 			user: "codec-noauth", run: getThrice(func(a *fakeV3Agent) { a.setEngineID(agentOtherEngineID) }),
 			knownBug: "the context engine ID stays the old engine's after the client adopts a new engine ID",
@@ -550,7 +656,7 @@ func v3Scenarios() map[string]v3Scenario {
 		})},
 		"answer/empty-msg-flags": {
 			user: "codec-noauth", script: onRequest(2, agentAnswer{
-				why: "GetResponse with an empty msgFlags", raw: emptyMsgFlags,
+				why: "GetResponse with an empty msgFlags", raw: msgFlagsOctets(),
 			}),
 			knownBug: "a reply with an empty msgFlags is accepted and carries the request's flags (RFC 3412 section 6: one octet)",
 		},

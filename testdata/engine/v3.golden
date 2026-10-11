@@ -1241,6 +1241,58 @@
 20s   client after: engine="\x80\x00\x1f\x88\x04codec-other" boots=7 time=1020 keys=none context engine="\x80\x00\x1f\x88\x04codec-agent"
 20s   known bug: the context engine ID stays the old engine's after the client adopts a new engine ID
 
+== v3/engine-change/sha-aes
+0s    client: user="codec-sha-aes" authPriv+reportable timeout=1s retries=2
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 3 msgID=2001 noAuthNoPriv+reportable user="" engine="" boots=0 time=0 context=""/"" GetRequest id=1001 []
+0s    agent: answers #1 with Report id=1001 msgID=2001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1] at noAuthNoPriv (unknown engine ID)
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2001 noAuthNoPriv user="" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 3 msgID=2002 authPriv+reportable user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 salt=0000000000000102 encrypted
+0s    agent: #2 decrypts to context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent: answers #2 with GetResponse id=1002 msgID=2002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"] at authPriv (request accepted)
+0s    agent answers #2 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2002 authPriv user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 salt=0000000000000001 encrypted
+0s    hook OnRecv
+0s    hook OnFinish
+10s   deadline +1s
+10s   hook PreSend
+10s   write #3: 3 msgID=2003 authPriv+reportable user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 salt=0000000000000103 encrypted
+10s   agent: answers #3 with Report id=0 msgID=2003 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:2] at noAuthNoPriv (unknown engine ID)
+10s   agent answers #3 after 0s
+10s   hook OnSent
+10s   read from 127.0.0.2:161: 3 msgID=2003 noAuthNoPriv user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-other" boots=7 time=1010 context="\x80\x00\x1f\x88\x04codec-other"/"" Report id=0 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:2]
+10s   hook OnRecv
+10s   hook OnRetry
+10s   deadline +1s
+10s   hook PreSend
+10s   write #4: 3 msgID=2004 authPriv+reportable user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 salt=0000000000000104 encrypted
+10s   agent: answers #4 with Report id=0 msgID=2004 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:3] at noAuthNoPriv (unknown engine ID)
+10s   agent answers #4 after 0s
+10s   hook OnSent
+10s   read from 127.0.0.2:161: 3 msgID=2004 noAuthNoPriv user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-other" boots=7 time=1010 context="\x80\x00\x1f\x88\x04codec-other"/"" Report id=0 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:3]
+10s   hook OnRecv
+10s   hook OnRetry
+10s   deadline +1s
+10s   hook PreSend
+10s   write #5: 3 msgID=2005 authPriv+reportable user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 salt=0000000000000105 encrypted
+10s   agent: answers #5 with Report id=0 msgID=2005 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:4] at noAuthNoPriv (unknown engine ID)
+10s   agent answers #5 after 0s
+10s   hook OnSent
+10s   read from 127.0.0.2:161: 3 msgID=2005 noAuthNoPriv user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-other" boots=7 time=1010 context="\x80\x00\x1f\x88\x04codec-other"/"" Report id=0 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:4]
+10s   hook OnRecv
+10s   hook OnRetry
+10s   result: packet nil, error "incoming packet is not authentic, discarding" *errors.errorString
+10s   client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
+10s   known bug: the unauthenticated unknownEngineID Report fails the digest check and is discarded, so the client never adopts the engine ID
+
 == v3/engine-change/sha-aes-answered-from-new-engine
 0s    client: user="codec-sha-aes" authPriv+reportable timeout=1s retries=2
 0s    deadline +1s
@@ -2790,6 +2842,607 @@
 3m20s result: packet 3 msgID=2004 authNoPriv GetResponse id=1004 context="\x80\x00\x1f\x88\x04codec-agent"/"" usm="codec-md5"/"\x80\x00\x1f\x88\x04codec-agent"/7/1200 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 3m20s client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1200 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
 3m20s known bug: the client sends the engine time of the last message, not the current one (RFC 3414 section 3.1 step 6 a), so a request after 150 s of silence is first answered with notInTimeWindow
+
+== v3/unauthenticated-report/always
+0s    client: user="codec-md5" authNoPriv+reportable timeout=1s retries=2
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 3 msgID=2001 noAuthNoPriv+reportable user="" engine="" boots=0 time=0 context=""/"" GetRequest id=1001 []
+0s    agent: answers #1 with Report id=1001 msgID=2001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1] at noAuthNoPriv (unknown engine ID)
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2001 noAuthNoPriv user="" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 3 msgID=2002 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent: answers #2 with Report id=1002 msgID=2002 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:1] at noAuthNoPriv (always not in time window, unauthenticated)
+0s    agent answers #2 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2002 noAuthNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1002 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:1]
+0s    hook OnRecv
+0s    hook OnRetry
+0s    deadline +1s
+0s    hook PreSend
+0s    write #3: 3 msgID=2003 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+0s    agent: answers #3 with Report id=1003 msgID=2003 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:2] at noAuthNoPriv (always not in time window, unauthenticated)
+0s    agent answers #3 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2003 noAuthNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1003 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:2]
+0s    hook OnRecv
+0s    hook OnRetry
+0s    deadline +1s
+0s    hook PreSend
+0s    write #4: 3 msgID=2004 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1004 [.1.3.6.1.2.1.1.1.0]
+0s    agent: answers #4 with Report id=1004 msgID=2004 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:3] at noAuthNoPriv (always not in time window, unauthenticated)
+0s    agent answers #4 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2004 noAuthNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1004 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:3]
+0s    hook OnRecv
+0s    hook OnRetry
+0s    result: packet nil, error "incoming packet is not authentic, discarding" *errors.errorString
+0s    client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
+
+== v3/unauthenticated-report/earlier-attempt
+0s    client: user="codec-md5" authNoPriv+reportable timeout=1s retries=2
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 3 msgID=2001 noAuthNoPriv+reportable user="" engine="" boots=0 time=0 context=""/"" GetRequest id=1001 []
+0s    agent: answers #1 with Report id=1001 msgID=2001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1] at noAuthNoPriv (unknown engine ID)
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2001 noAuthNoPriv user="" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 3 msgID=2002 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent: drops #2 (no answer)
+0s    hook OnSent
+1s    read from 127.0.0.2:161: deadline
+1s    hook OnRetry
+1s    deadline +1s
+1s    hook PreSend
+1s    write #3: 3 msgID=2003 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+1s    agent: answers #3 with Report id=1003 msgID=2002 [.1.3.6.1.6.3.15.1.1.3.0=Counter32:1] at noAuthNoPriv (unauthenticated, with the msgID of the first attempt)
+1s    agent answers #3 after 0s
+1s    hook OnSent
+1s    read from 127.0.0.2:161: 3 msgID=2002 noAuthNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1001 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1003 [.1.3.6.1.6.3.15.1.1.3.0=Counter32:1]
+1s    hook OnRecv
+1s    hook OnRetry
+1s    deadline +1s
+1s    hook PreSend
+1s    write #4: 3 msgID=2004 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1004 [.1.3.6.1.2.1.1.1.0]
+1s    agent: answers #4 with GetResponse id=1004 msgID=2004 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"] at authNoPriv (request accepted)
+1s    agent answers #4 after 0s
+1s    hook OnSent
+1s    read from 127.0.0.2:161: 3 msgID=2004 authNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1001 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetResponse id=1004 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+1s    hook OnRecv
+1s    hook OnFinish
+1s    result: packet 3 msgID=2004 authNoPriv GetResponse id=1004 context="\x80\x00\x1f\x88\x04codec-agent"/"" usm="codec-md5"/"\x80\x00\x1f\x88\x04codec-agent"/7/1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+1s    client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1001 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
+
+== v3/unauthenticated-report/empty
+0s    client: user="codec-md5" authNoPriv+reportable timeout=1s retries=2
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 3 msgID=2001 noAuthNoPriv+reportable user="" engine="" boots=0 time=0 context=""/"" GetRequest id=1001 []
+0s    agent: answers #1 with Report id=1001 msgID=2001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1] at noAuthNoPriv (unknown engine ID)
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2001 noAuthNoPriv user="" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 3 msgID=2002 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent: answers #2 with Report id=1002 msgID=2002 [] at noAuthNoPriv (unauthenticated, no varbinds)
+0s    agent answers #2 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2002 noAuthNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1002 []
+0s    hook OnRecv
+0s    hook OnRetry
+0s    deadline +1s
+0s    hook PreSend
+0s    write #3: 3 msgID=2003 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+0s    agent: answers #3 with GetResponse id=1003 msgID=2003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"] at authNoPriv (request accepted)
+0s    agent answers #3 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2003 authNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetResponse id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 3 msgID=2003 authNoPriv GetResponse id=1003 context="\x80\x00\x1f\x88\x04codec-agent"/"" usm="codec-md5"/"\x80\x00\x1f\x88\x04codec-agent"/7/1000 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
+
+== v3/unauthenticated-report/encrypted
+0s    client: user="codec-sha-aes" authPriv+reportable timeout=1s retries=2
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 3 msgID=2001 noAuthNoPriv+reportable user="" engine="" boots=0 time=0 context=""/"" GetRequest id=1001 []
+0s    agent: answers #1 with Report id=1001 msgID=2001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1] at noAuthNoPriv (unknown engine ID)
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2001 noAuthNoPriv user="" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 3 msgID=2002 authPriv+reportable user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 salt=0000000000000102 encrypted
+0s    agent: #2 decrypts to context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent: answers #2 with Report id=1002 msgID=2002 [.1.3.6.1.6.3.15.1.1.3.0=Counter32:1] at authPriv (encrypted, msgFlags rewritten to noAuthNoPriv)
+0s    agent answers #2 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2002 noAuthNoPriv user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 salt=0000000000000001 encrypted
+0s    hook OnRecv
+0s    hook OnRetry
+0s    deadline +1s
+0s    hook PreSend
+0s    write #3: 3 msgID=2003 authPriv+reportable user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 salt=0000000000000103 encrypted
+0s    agent: #3 decrypts to context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+0s    agent: answers #3 with GetResponse id=1003 msgID=2003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"] at authPriv (request accepted)
+0s    agent answers #3 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2003 authPriv user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 salt=0000000000000002 encrypted
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 3 msgID=2003 authPriv GetResponse id=1003 context="\x80\x00\x1f\x88\x04codec-agent"/"" usm="codec-sha-aes"/"\x80\x00\x1f\x88\x04codec-agent"/7/1000 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
+
+== v3/unauthenticated-report/engine-id-differs
+0s    client: user="codec-md5" authNoPriv+reportable timeout=1s retries=2
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 3 msgID=2001 noAuthNoPriv+reportable user="" engine="" boots=0 time=0 context=""/"" GetRequest id=1001 []
+0s    agent: answers #1 with Report id=1001 msgID=2001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1] at noAuthNoPriv (unknown engine ID)
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2001 noAuthNoPriv user="" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 3 msgID=2002 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent: answers #2 with GetResponse id=1002 msgID=2002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"] at authNoPriv (request accepted)
+0s    agent answers #2 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2002 authNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+10s   deadline +1s
+10s   hook PreSend
+10s   write #3: 3 msgID=2003 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+10s   agent: answers #3 with Report id=1003 msgID=2003 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:1] at noAuthNoPriv (not in time window, unauthenticated)
+10s   agent answers #3 after 0s
+10s   hook OnSent
+10s   read from 127.0.0.2:161: 3 msgID=2003 noAuthNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-other" boots=7 time=887010 context="\x80\x00\x1f\x88\x04codec-other"/"" Report id=1003 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:1]
+10s   hook OnRecv
+10s   hook OnRetry
+10s   deadline +1s
+10s   hook PreSend
+10s   write #4: 3 msgID=2004 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1004 [.1.3.6.1.2.1.1.1.0]
+10s   agent: answers #4 with Report id=1004 msgID=2004 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:2] at noAuthNoPriv (not in time window, unauthenticated)
+10s   agent answers #4 after 0s
+10s   hook OnSent
+10s   read from 127.0.0.2:161: 3 msgID=2004 noAuthNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-other" boots=7 time=887010 context="\x80\x00\x1f\x88\x04codec-other"/"" Report id=1004 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:2]
+10s   hook OnRecv
+10s   hook OnRetry
+10s   deadline +1s
+10s   hook PreSend
+10s   write #5: 3 msgID=2005 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1005 [.1.3.6.1.2.1.1.1.0]
+10s   agent: answers #5 with Report id=1005 msgID=2005 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:3] at noAuthNoPriv (not in time window, unauthenticated)
+10s   agent answers #5 after 0s
+10s   hook OnSent
+10s   read from 127.0.0.2:161: 3 msgID=2005 noAuthNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-other" boots=7 time=887010 context="\x80\x00\x1f\x88\x04codec-other"/"" Report id=1005 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:3]
+10s   hook OnRecv
+10s   hook OnRetry
+10s   result: packet nil, error "incoming packet is not authentic, discarding" *errors.errorString
+10s   client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
+
+== v3/unauthenticated-report/forged-time
+0s    client: user="codec-md5" authNoPriv+reportable timeout=1s retries=2
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 3 msgID=2001 noAuthNoPriv+reportable user="" engine="" boots=0 time=0 context=""/"" GetRequest id=1001 []
+0s    agent: answers #1 with Report id=1001 msgID=2001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1] at noAuthNoPriv (unknown engine ID)
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2001 noAuthNoPriv user="" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 3 msgID=2002 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent: answers #2 with Report id=1002 msgID=2002 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:1] at noAuthNoPriv (forged, unauthenticated)
+0s    agent answers #2 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2002 noAuthNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=99 time=5 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1002 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:1]
+0s    hook OnRecv
+0s    hook OnRetry
+0s    deadline +1s
+0s    hook PreSend
+0s    write #3: 3 msgID=2003 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+0s    agent: drops #3 (silent after the Report)
+0s    hook OnSent
+1s    read from 127.0.0.2:161: deadline
+1s    hook OnRetry
+1s    deadline +1s
+1s    hook PreSend
+1s    write #4: 3 msgID=2004 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1004 [.1.3.6.1.2.1.1.1.0]
+1s    agent: drops #4 (silent after the Report)
+1s    hook OnSent
+2s    read from 127.0.0.2:161: deadline
+2s    hook OnRetry
+2s    result: packet nil, error "request timeout (after 2 retries)" *errors.errorString
+2s    client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
+
+== v3/unauthenticated-report/forged-time-answered
+0s    client: user="codec-md5" authNoPriv+reportable timeout=1s retries=2
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 3 msgID=2001 noAuthNoPriv+reportable user="" engine="" boots=0 time=0 context=""/"" GetRequest id=1001 []
+0s    agent: answers #1 with Report id=1001 msgID=2001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1] at noAuthNoPriv (unknown engine ID)
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2001 noAuthNoPriv user="" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 3 msgID=2002 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent: answers #2 with Report id=1002 msgID=2002 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:1] at noAuthNoPriv (forged, unauthenticated)
+0s    agent answers #2 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2002 noAuthNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=99 time=5 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1002 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:1]
+0s    hook OnRecv
+0s    hook OnRetry
+0s    deadline +1s
+0s    hook PreSend
+0s    write #3: 3 msgID=2003 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+0s    agent: answers #3 with GetResponse id=1003 msgID=2003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"] at authNoPriv (request accepted)
+0s    agent answers #3 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2003 authNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetResponse id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 3 msgID=2003 authNoPriv GetResponse id=1003 context="\x80\x00\x1f\x88\x04codec-agent"/"" usm="codec-md5"/"\x80\x00\x1f\x88\x04codec-agent"/7/1000 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
+
+== v3/unauthenticated-report/other-msg-id
+0s    client: user="codec-md5" authNoPriv+reportable timeout=1s retries=2
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 3 msgID=2001 noAuthNoPriv+reportable user="" engine="" boots=0 time=0 context=""/"" GetRequest id=1001 []
+0s    agent: answers #1 with Report id=1001 msgID=2001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1] at noAuthNoPriv (unknown engine ID)
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2001 noAuthNoPriv user="" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 3 msgID=2002 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent: answers #2 with Report id=1002 msgID=2102 [.1.3.6.1.6.3.15.1.1.3.0=Counter32:1] at noAuthNoPriv (unauthenticated, for another message)
+0s    agent answers #2 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2102 noAuthNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1002 [.1.3.6.1.6.3.15.1.1.3.0=Counter32:1]
+0s    hook OnRecv
+0s    hook OnRetry
+0s    deadline +1s
+0s    hook PreSend
+0s    write #3: 3 msgID=2003 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+0s    agent: answers #3 with GetResponse id=1003 msgID=2003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"] at authNoPriv (request accepted)
+0s    agent answers #3 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2003 authNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetResponse id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 3 msgID=2003 authNoPriv GetResponse id=1003 context="\x80\x00\x1f\x88\x04codec-agent"/"" usm="codec-md5"/"\x80\x00\x1f\x88\x04codec-agent"/7/1000 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
+
+== v3/unauthenticated-report/reboot/sha-aes
+0s    client: user="codec-sha-aes" authPriv+reportable timeout=1s retries=2
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 3 msgID=2001 noAuthNoPriv+reportable user="" engine="" boots=0 time=0 context=""/"" GetRequest id=1001 []
+0s    agent: answers #1 with Report id=1001 msgID=2001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1] at noAuthNoPriv (unknown engine ID)
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2001 noAuthNoPriv user="" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 3 msgID=2002 authPriv+reportable user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 salt=0000000000000102 encrypted
+0s    agent: #2 decrypts to context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent: answers #2 with GetResponse id=1002 msgID=2002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"] at authPriv (request accepted)
+0s    agent answers #2 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2002 authPriv user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 salt=0000000000000001 encrypted
+0s    hook OnRecv
+0s    hook OnFinish
+10s   deadline +1s
+10s   hook PreSend
+10s   write #3: 3 msgID=2003 authPriv+reportable user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 salt=0000000000000103 encrypted
+10s   agent: #3 decrypts to context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+10s   agent: answers #3 with Report id=1003 msgID=2003 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:1] at noAuthNoPriv (not in time window, unauthenticated)
+10s   agent answers #3 after 0s
+10s   hook OnSent
+10s   read from 127.0.0.2:161: 3 msgID=2003 noAuthNoPriv user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-agent" boots=8 time=0 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1003 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:1]
+10s   hook OnRecv
+10s   hook OnRetry
+10s   deadline +1s
+10s   hook PreSend
+10s   write #4: 3 msgID=2004 authPriv+reportable user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 salt=0000000000000104 encrypted
+10s   agent: #4 decrypts to context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1004 [.1.3.6.1.2.1.1.1.0]
+10s   agent: answers #4 with Report id=1004 msgID=2004 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:2] at noAuthNoPriv (not in time window, unauthenticated)
+10s   agent answers #4 after 0s
+10s   hook OnSent
+10s   read from 127.0.0.2:161: 3 msgID=2004 noAuthNoPriv user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-agent" boots=8 time=0 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1004 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:2]
+10s   hook OnRecv
+10s   hook OnRetry
+10s   deadline +1s
+10s   hook PreSend
+10s   write #5: 3 msgID=2005 authPriv+reportable user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 salt=0000000000000105 encrypted
+10s   agent: #5 decrypts to context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1005 [.1.3.6.1.2.1.1.1.0]
+10s   agent: answers #5 with Report id=1005 msgID=2005 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:3] at noAuthNoPriv (not in time window, unauthenticated)
+10s   agent answers #5 after 0s
+10s   hook OnSent
+10s   read from 127.0.0.2:161: 3 msgID=2005 noAuthNoPriv user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-agent" boots=8 time=0 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1005 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:3]
+10s   hook OnRecv
+10s   hook OnRetry
+10s   result: packet nil, error "incoming packet is not authentic, discarding" *errors.errorString
+10s   client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
+
+== v3/unauthenticated-report/time-jump/md5
+0s    client: user="codec-md5" authNoPriv+reportable timeout=1s retries=2
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 3 msgID=2001 noAuthNoPriv+reportable user="" engine="" boots=0 time=0 context=""/"" GetRequest id=1001 []
+0s    agent: answers #1 with Report id=1001 msgID=2001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1] at noAuthNoPriv (unknown engine ID)
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2001 noAuthNoPriv user="" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 3 msgID=2002 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent: answers #2 with GetResponse id=1002 msgID=2002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"] at authNoPriv (request accepted)
+0s    agent answers #2 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2002 authNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+10s   deadline +1s
+10s   hook PreSend
+10s   write #3: 3 msgID=2003 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+10s   agent: answers #3 with Report id=1003 msgID=2003 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:1] at noAuthNoPriv (not in time window, unauthenticated)
+10s   agent answers #3 after 0s
+10s   hook OnSent
+10s   read from 127.0.0.2:161: 3 msgID=2003 noAuthNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=887010 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1003 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:1]
+10s   hook OnRecv
+10s   hook OnRetry
+10s   deadline +1s
+10s   hook PreSend
+10s   write #4: 3 msgID=2004 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1004 [.1.3.6.1.2.1.1.1.0]
+10s   agent: answers #4 with Report id=1004 msgID=2004 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:2] at noAuthNoPriv (not in time window, unauthenticated)
+10s   agent answers #4 after 0s
+10s   hook OnSent
+10s   read from 127.0.0.2:161: 3 msgID=2004 noAuthNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=887010 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1004 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:2]
+10s   hook OnRecv
+10s   hook OnRetry
+10s   deadline +1s
+10s   hook PreSend
+10s   write #5: 3 msgID=2005 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1005 [.1.3.6.1.2.1.1.1.0]
+10s   agent: answers #5 with Report id=1005 msgID=2005 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:3] at noAuthNoPriv (not in time window, unauthenticated)
+10s   agent answers #5 after 0s
+10s   hook OnSent
+10s   read from 127.0.0.2:161: 3 msgID=2005 noAuthNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=887010 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1005 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:3]
+10s   hook OnRecv
+10s   hook OnRetry
+10s   second Get: packet nil, error "incoming packet is not authentic, discarding" *errors.errorString
+20s   deadline +1s
+20s   hook PreSend
+20s   write #6: 3 msgID=2006 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1006 [.1.3.6.1.2.1.1.1.0]
+20s   agent: answers #6 with Report id=1006 msgID=2006 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:4] at noAuthNoPriv (not in time window, unauthenticated)
+20s   agent answers #6 after 0s
+20s   hook OnSent
+20s   read from 127.0.0.2:161: 3 msgID=2006 noAuthNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=887020 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1006 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:4]
+20s   hook OnRecv
+20s   hook OnRetry
+20s   deadline +1s
+20s   hook PreSend
+20s   write #7: 3 msgID=2007 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1007 [.1.3.6.1.2.1.1.1.0]
+20s   agent: answers #7 with Report id=1007 msgID=2007 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:5] at noAuthNoPriv (not in time window, unauthenticated)
+20s   agent answers #7 after 0s
+20s   hook OnSent
+20s   read from 127.0.0.2:161: 3 msgID=2007 noAuthNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=887020 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1007 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:5]
+20s   hook OnRecv
+20s   hook OnRetry
+20s   deadline +1s
+20s   hook PreSend
+20s   write #8: 3 msgID=2008 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1008 [.1.3.6.1.2.1.1.1.0]
+20s   agent: answers #8 with Report id=1008 msgID=2008 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:6] at noAuthNoPriv (not in time window, unauthenticated)
+20s   agent answers #8 after 0s
+20s   hook OnSent
+20s   read from 127.0.0.2:161: 3 msgID=2008 noAuthNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=887020 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1008 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:6]
+20s   hook OnRecv
+20s   hook OnRetry
+20s   result: packet nil, error "incoming packet is not authentic, discarding" *errors.errorString
+20s   client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
+
+== v3/unauthenticated-report/time-jump/sha-aes
+0s    client: user="codec-sha-aes" authPriv+reportable timeout=1s retries=2
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 3 msgID=2001 noAuthNoPriv+reportable user="" engine="" boots=0 time=0 context=""/"" GetRequest id=1001 []
+0s    agent: answers #1 with Report id=1001 msgID=2001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1] at noAuthNoPriv (unknown engine ID)
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2001 noAuthNoPriv user="" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 3 msgID=2002 authPriv+reportable user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 salt=0000000000000102 encrypted
+0s    agent: #2 decrypts to context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent: answers #2 with GetResponse id=1002 msgID=2002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"] at authPriv (request accepted)
+0s    agent answers #2 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2002 authPriv user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 salt=0000000000000001 encrypted
+0s    hook OnRecv
+0s    hook OnFinish
+10s   deadline +1s
+10s   hook PreSend
+10s   write #3: 3 msgID=2003 authPriv+reportable user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 salt=0000000000000103 encrypted
+10s   agent: #3 decrypts to context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+10s   agent: answers #3 with Report id=1003 msgID=2003 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:1] at noAuthNoPriv (not in time window, unauthenticated)
+10s   agent answers #3 after 0s
+10s   hook OnSent
+10s   read from 127.0.0.2:161: 3 msgID=2003 noAuthNoPriv user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=887010 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1003 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:1]
+10s   hook OnRecv
+10s   hook OnRetry
+10s   deadline +1s
+10s   hook PreSend
+10s   write #4: 3 msgID=2004 authPriv+reportable user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 salt=0000000000000104 encrypted
+10s   agent: #4 decrypts to context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1004 [.1.3.6.1.2.1.1.1.0]
+10s   agent: answers #4 with Report id=1004 msgID=2004 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:2] at noAuthNoPriv (not in time window, unauthenticated)
+10s   agent answers #4 after 0s
+10s   hook OnSent
+10s   read from 127.0.0.2:161: 3 msgID=2004 noAuthNoPriv user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=887010 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1004 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:2]
+10s   hook OnRecv
+10s   hook OnRetry
+10s   deadline +1s
+10s   hook PreSend
+10s   write #5: 3 msgID=2005 authPriv+reportable user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 salt=0000000000000105 encrypted
+10s   agent: #5 decrypts to context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1005 [.1.3.6.1.2.1.1.1.0]
+10s   agent: answers #5 with Report id=1005 msgID=2005 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:3] at noAuthNoPriv (not in time window, unauthenticated)
+10s   agent answers #5 after 0s
+10s   hook OnSent
+10s   read from 127.0.0.2:161: 3 msgID=2005 noAuthNoPriv user="codec-sha-aes" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=887010 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1005 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:3]
+10s   hook OnRecv
+10s   hook OnRetry
+10s   result: packet nil, error "incoming packet is not authentic, discarding" *errors.errorString
+10s   client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
+
+== v3/unauthenticated-report/time-jump/sha256-des
+0s    client: user="codec-sha256-des" authPriv+reportable timeout=1s retries=2
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 3 msgID=2001 noAuthNoPriv+reportable user="" engine="" boots=0 time=0 context=""/"" GetRequest id=1001 []
+0s    agent: answers #1 with Report id=1001 msgID=2001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1] at noAuthNoPriv (unknown engine ID)
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2001 noAuthNoPriv user="" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 3 msgID=2002 authPriv+reportable user="codec-sha256-des" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 salt=0000000700000102 encrypted
+0s    agent: #2 decrypts to context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent: answers #2 with GetResponse id=1002 msgID=2002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"] at authPriv (request accepted)
+0s    agent answers #2 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2002 authPriv user="codec-sha256-des" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 salt=0000000700000001 encrypted
+0s    hook OnRecv
+0s    hook OnFinish
+10s   deadline +1s
+10s   hook PreSend
+10s   write #3: 3 msgID=2003 authPriv+reportable user="codec-sha256-des" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 salt=0000000700000103 encrypted
+10s   agent: #3 decrypts to context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+10s   agent: answers #3 with Report id=1003 msgID=2003 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:1] at noAuthNoPriv (not in time window, unauthenticated)
+10s   agent answers #3 after 0s
+10s   hook OnSent
+10s   read from 127.0.0.2:161: 3 msgID=2003 noAuthNoPriv user="codec-sha256-des" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=887010 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1003 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:1]
+10s   hook OnRecv
+10s   hook OnRetry
+10s   deadline +1s
+10s   hook PreSend
+10s   write #4: 3 msgID=2004 authPriv+reportable user="codec-sha256-des" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 salt=0000000700000104 encrypted
+10s   agent: #4 decrypts to context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1004 [.1.3.6.1.2.1.1.1.0]
+10s   agent: answers #4 with Report id=1004 msgID=2004 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:2] at noAuthNoPriv (not in time window, unauthenticated)
+10s   agent answers #4 after 0s
+10s   hook OnSent
+10s   read from 127.0.0.2:161: 3 msgID=2004 noAuthNoPriv user="codec-sha256-des" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=887010 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1004 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:2]
+10s   hook OnRecv
+10s   hook OnRetry
+10s   deadline +1s
+10s   hook PreSend
+10s   write #5: 3 msgID=2005 authPriv+reportable user="codec-sha256-des" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 salt=0000000700000105 encrypted
+10s   agent: #5 decrypts to context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1005 [.1.3.6.1.2.1.1.1.0]
+10s   agent: answers #5 with Report id=1005 msgID=2005 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:3] at noAuthNoPriv (not in time window, unauthenticated)
+10s   agent answers #5 after 0s
+10s   hook OnSent
+10s   read from 127.0.0.2:161: 3 msgID=2005 noAuthNoPriv user="codec-sha256-des" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=887010 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1005 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:3]
+10s   hook OnRecv
+10s   hook OnRetry
+10s   result: packet nil, error "incoming packet is not authentic, discarding" *errors.errorString
+10s   client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
+
+== v3/unauthenticated-report/two-varbinds
+0s    client: user="codec-md5" authNoPriv+reportable timeout=1s retries=2
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 3 msgID=2001 noAuthNoPriv+reportable user="" engine="" boots=0 time=0 context=""/"" GetRequest id=1001 []
+0s    agent: answers #1 with Report id=1001 msgID=2001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1] at noAuthNoPriv (unknown engine ID)
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2001 noAuthNoPriv user="" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 3 msgID=2002 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent: answers #2 with Report id=1002 msgID=2002 [.1.3.6.1.6.3.15.1.1.3.0=Counter32:1 .1.3.6.1.2.1.1.1.0=OctetString:"codec agent"] at noAuthNoPriv (unauthenticated, two varbinds)
+0s    agent answers #2 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2002 noAuthNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1002 [.1.3.6.1.6.3.15.1.1.3.0=Counter32:1 .1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnRetry
+0s    deadline +1s
+0s    hook PreSend
+0s    write #3: 3 msgID=2003 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+0s    agent: answers #3 with GetResponse id=1003 msgID=2003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"] at authNoPriv (request accepted)
+0s    agent answers #3 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2003 authNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetResponse id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 3 msgID=2003 authNoPriv GetResponse id=1003 context="\x80\x00\x1f\x88\x04codec-agent"/"" usm="codec-md5"/"\x80\x00\x1f\x88\x04codec-agent"/7/1000 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
+
+== v3/unauthenticated-report/unknown-engine-other-msg-id
+0s    client: user="codec-md5" authNoPriv+reportable timeout=1s retries=2
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 3 msgID=2001 noAuthNoPriv+reportable user="" engine="" boots=0 time=0 context=""/"" GetRequest id=1001 []
+0s    agent: answers #1 with Report id=1001 msgID=2001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1] at noAuthNoPriv (unknown engine ID)
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2001 noAuthNoPriv user="" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 3 msgID=2002 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent: answers #2 with Report id=1002 msgID=2102 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:2] at noAuthNoPriv (unauthenticated, from the other engine, for another message)
+0s    agent answers #2 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2102 noAuthNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-other" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-other"/"" Report id=1002 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:2]
+0s    hook OnRecv
+0s    hook OnRetry
+0s    deadline +1s
+0s    hook PreSend
+0s    write #3: 3 msgID=2003 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+0s    agent: answers #3 with GetResponse id=1003 msgID=2003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"] at authNoPriv (request accepted)
+0s    agent answers #3 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2003 authNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetResponse id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 3 msgID=2003 authNoPriv GetResponse id=1003 context="\x80\x00\x1f\x88\x04codec-agent"/"" usm="codec-md5"/"\x80\x00\x1f\x88\x04codec-agent"/7/1000 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
 
 == v3/unknown-engine-report/noauth-always
 0s    client: user="codec-noauth" noAuthNoPriv+reportable timeout=1s retries=2
