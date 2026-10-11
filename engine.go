@@ -67,10 +67,11 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 
 	// Resynchronize: send the request again, with the engine parameters the
 	// client stored from an authenticated Report, or with those of an
-	// unauthenticated one in the request only: the answer brings the agent's,
-	// which the client stores. The retransmission's result goes into the named
-	// result, which a recovered panic returns; a resync Report answering it
-	// ends the request with its error.
+	// unauthenticated one in the request only, when mayLend allows it: the
+	// answer brings the agent's, which the client stores. A Report that cannot
+	// resynchronize the request ends it with its error. The retransmission's
+	// result goes into the named result, which a recovered panic returns; a
+	// resync Report answering it ends the request with its error.
 	if x.Logger.enabled() {
 		x.Logger.Print("WARNING detected " + kind.name + " ERROR")
 	}
@@ -79,6 +80,8 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 			x.Logger.Printf("ERROR updatePktSecurityParameters error: %s", err)
 			return nil, err
 		}
+	} else if !x.mayLend(packetOut, kind) {
+		return result, kind.err
 	} else if err = x.lendEngineParameters(packetOut, result, kind); err != nil {
 		x.Logger.Printf("ERROR lendEngineParameters error: %s", err)
 		return nil, err
@@ -459,8 +462,8 @@ type reportKind struct {
 	err error
 	// resync marks the Reports that say the request's engine ID or time is
 	// out of date: they answer without err, and send, when it is the caller,
-	// sends the request again with the engine parameters they carry and
-	// returns err when a resync Report answers that too.
+	// sends the request again with the engine parameters they carry, or
+	// returns err when it may not or when a resync Report answers that too.
 	resync bool
 	// namesEngine marks the Report that names the engine ID the request
 	// should have had (RFC 3414 section 3.2 step 3): a resend takes the

@@ -91,6 +91,31 @@ func (x *GoSNMP) settleReply(packetOut, reply *SnmpPacket, err error) (kind repo
 	return kind, true, err
 }
 
+// mayLend reports whether a resync Report of kind that the client did not store
+// may lend its engine parameters to the resend of packetOut. A request without
+// authentication carries no signature to misuse. An authenticated request is
+// signed with what the Report names, so it takes them only as a read request,
+// whose copy an on-path sender could replay only as that read later (RFC 3414
+// section 3.2 step 7 a accepts a time within 150 s of the agent's), and an
+// engine ID only while the client has none (discovery, section 4): afterwards
+// the request would be signed for another engine with the same credentials
+// (section 1.5.2).
+func (x *GoSNMP) mayLend(packetOut *SnmpPacket, kind reportKind) bool {
+	if packetOut.MsgFlags&AuthNoPriv == 0 {
+		return true
+	}
+	switch packetOut.PDUType {
+	case GetRequest, GetNextRequest, GetBulkRequest:
+	default:
+		return false
+	}
+	if !kind.namesEngine {
+		return true
+	}
+	usp := usmOf(x.SecurityParameters)
+	return usp == nil || usp.AuthoritativeEngineID == ""
+}
+
 // lendEngineParameters puts the engine parameters of report, a resync Report
 // the client does not store, into packetOut only, for one resend: the engine
 // ID, boots and time of a Report that names the engine (the packet's keys are

@@ -696,13 +696,15 @@ func v3Scenarios() map[string]v3Scenario {
 				return agentAnswer{}, false
 			},
 		},
+		// Once the client has an engine ID it does not take another from an
+		// unauthenticated Report (RFC 3414 section 1.5.2; net-snmp neither):
+		// the request ends with ErrUnknownEngineID, and an application that
+		// expects a replaced device clears the engine ID to rediscover.
 		"engine-change": {
 			user: "codec-md5", run: getTwice(func(a *fakeV3Agent) { a.setEngineID(agentOtherEngineID) }),
-			knownBug: "the context engine ID stays the old engine's after the client adopts a new engine ID",
 		},
 		"engine-change/sha-aes": {
 			user: "codec-sha-aes", run: getTwice(func(a *fakeV3Agent) { a.setEngineID(agentOtherEngineID) }),
-			knownBug: "the context engine ID stays the old engine's after the client adopts a new engine ID",
 		},
 		"engine-change/noauth": {
 			user: "codec-noauth", run: getThrice(func(a *fakeV3Agent) { a.setEngineID(agentOtherEngineID) }),
