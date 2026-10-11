@@ -622,6 +622,35 @@ func v3Scenarios() map[string]v3Scenario {
 			},
 			knownBug: "a discovery answer without an engine ID is accepted, and the request goes out with an empty engine ID",
 		},
+		// Without a key the client cannot authenticate: a reply signed with the
+		// empty key must not verify.
+		"empty-key/after-discovery-without-engine-id": {
+			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				switch n {
+				case 1:
+					return agentAnswer{report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID}, true
+				case 2:
+					return agentAnswer{level: AuthNoPriv, why: "forged, signed with the empty key", edit: func(p *SnmpPacket) {
+						withoutEngineID(p)
+						usp := p.SecurityParameters.usm()
+						usp.SecretKey = []byte{}
+						usp.AuthoritativeEngineBoots, usp.AuthoritativeEngineTime = 99, 5
+						p.Variables = []SnmpPDU{{Name: engineOID, Type: OctetString, Value: []byte("forged")}}
+					}}, true
+				}
+				return agentAnswer{}, false
+			},
+		},
+		"empty-key/key-only-user-empty-passphrase": {
+			user: "codec-md5", creds: &agentUser{auth: MD5, authPass: ""},
+			setup: func(_ *GoSNMP, sp *UsmSecurityParameters) { sp.SecretKey = bytes.Repeat([]byte{0x11}, 16) },
+			script: onRequest(2, agentAnswer{level: AuthNoPriv, why: "forged, signed with the empty key", edit: func(p *SnmpPacket) {
+				usp := p.SecurityParameters.usm()
+				usp.AuthenticationProtocol, usp.SecretKey = MD5, []byte{}
+				usp.AuthoritativeEngineBoots, usp.AuthoritativeEngineTime = 99, 5
+				p.Variables = []SnmpPDU{{Name: engineOID, Type: OctetString, Value: []byte("forged")}}
+			}}),
+		},
 		"discovery/report-without-engine-id/sha256-des": {
 			user: "codec-sha256-des", script: onRequest(1, agentAnswer{
 				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
