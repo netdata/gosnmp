@@ -13,7 +13,6 @@ import (
 	"net"
 	"runtime"
 	"strings"
-	"sync/atomic"
 	"time"
 )
 
@@ -209,14 +208,13 @@ sendRetry:
 			return nil, err
 		}
 
-		// Request ID is an atomic counter that wraps to 0 at max int32.
-		reqID := (atomic.AddUint32(&x.requestID, 1) & 0x7FFFFFFF)
+		reqID := x.nextRequestID()
 		allReqIDs = append(allReqIDs, reqID)
 
 		packetOut.RequestID = reqID
 
 		if x.Version == Version3 {
-			msgID := (atomic.AddUint32(&x.msgID, 1) & 0x7FFFFFFF)
+			msgID := x.nextMsgID()
 
 			// allMsgIDs = append(allMsgIDs, msgID) // unused
 
