@@ -59,6 +59,24 @@ func getAfter(d time.Duration, between func(a *fakeV3Agent)) func(x *GoSNMP, a *
 	}
 }
 
+// getThen runs a Get, then between applies a change to the agent 10 s later,
+// then runs second, whose result it returns.
+func getThen(between func(a *fakeV3Agent), second func(x *GoSNMP) (*SnmpPacket, error)) func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+	return func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+		if _, err := x.Get([]string{engineOID}); err != nil {
+			return nil, fmt.Errorf("first Get: %w", err)
+		}
+		time.Sleep(10 * time.Second)
+		between(a)
+		return second(x)
+	}
+}
+
+// setEngineOID sets engineOID: a request that changes the agent.
+func setEngineOID(x *GoSNMP) (*SnmpPacket, error) {
+	return x.Set([]SnmpPDU{{Name: engineOID, Type: OctetString, Value: "codec"}})
+}
+
 // getThrice runs three Gets 10 s apart, applying between to the agent before
 // the second; it records the second Get's result and returns the third's.
 func getThrice(between func(a *fakeV3Agent)) func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
@@ -349,6 +367,24 @@ func v3Scenarios() map[string]v3Scenario {
 			a.reboot()
 			unauthenticatedTimeWindow(a, nil)
 		})},
+		"unauthenticated-report/time-jump/getnext": {user: "codec-md5", run: getThen(func(a *fakeV3Agent) {
+			timeJump(a)
+			unauthenticatedTimeWindow(a, nil)
+		}, func(x *GoSNMP) (*SnmpPacket, error) { return x.GetNext([]string{engineOID}) })},
+		"unauthenticated-report/time-jump/getbulk": {user: "codec-md5", run: getThen(func(a *fakeV3Agent) {
+			timeJump(a)
+			unauthenticatedTimeWindow(a, nil)
+		}, func(x *GoSNMP) (*SnmpPacket, error) { return x.GetBulk([]string{engineOID}, 0, 2) })},
+		"unauthenticated-report/time-jump/set": {user: "codec-md5", run: getThen(func(a *fakeV3Agent) {
+			timeJump(a)
+			unauthenticatedTimeWindow(a, nil)
+		}, setEngineOID)},
+		"unauthenticated-report/noauth-set": {user: "codec-noauth", script: onRequest(2, agentAnswer{
+			report: usmStatsNotInTimeWindows, why: "not in time window", edit: func(p *SnmpPacket) {
+				p.SecurityParameters.usm().AuthoritativeEngineTime += 7
+			},
+		}), run: func(x *GoSNMP, _ *fakeV3Agent) (*SnmpPacket, error) { return setEngineOID(x) }},
+		"reboot/set": {user: "codec-md5", run: getThen(func(a *fakeV3Agent) { a.reboot() }, setEngineOID)},
 		"unauthenticated-report/engine-id-differs": {user: "codec-md5", run: getTwice(func(a *fakeV3Agent) {
 			timeJump(a)
 			unauthenticatedTimeWindow(a, fromOtherEngine)
