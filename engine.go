@@ -358,10 +358,12 @@ func (e *exchange) decode(resp []byte) (*SnmpPacket, error) {
 // 3414 section 3.2: it cannot authenticate to an unknown engine ID or user),
 // and some agents even notInTimeWindow, which step 7 a sends at authNoPriv.
 // Only a plaintext scoped PDU is read, so nothing unauthenticated is
-// decrypted, and only a Report of the request's security model that
-// reportKindOf maps is kept.
+// decrypted, and only a Report at noAuthNoPriv (privacy without
+// authentication is invalid, RFC 3412 section 7.2) of the request's security
+// model that reportKindOf maps is kept.
 func (e *exchange) unauthenticatedReport(resp []byte, cursor int, reply *SnmpPacket) bool {
-	if !withoutAuthentication(e.packet, reply) || reply.SecurityModel != e.packet.SecurityModel ||
+	if !withoutAuthentication(e.packet, reply) || reply.MsgFlags&AuthPriv != NoAuthNoPriv ||
+		reply.SecurityModel != e.packet.SecurityModel ||
 		cursor >= len(resp) || PDUType(resp[cursor]) != Sequence {
 		return false
 	}
@@ -374,10 +376,9 @@ func (e *exchange) unauthenticatedReport(resp []byte, cursor int, reply *SnmpPac
 }
 
 // withoutAuthentication reports whether reply, an answer to request, comes
-// without the authentication the request asked for, at noAuthNoPriv (privacy
-// without authentication is invalid, RFC 3412 section 7.2).
+// without the authentication the request asked for.
 func withoutAuthentication(request, reply *SnmpPacket) bool {
-	return request.MsgFlags&AuthNoPriv != 0 && reply.MsgFlags&AuthPriv == NoAuthNoPriv
+	return request.MsgFlags&AuthNoPriv != 0 && reply.MsgFlags&AuthNoPriv == 0
 }
 
 // authenticated reports whether the digest of reply, an answer to request,
