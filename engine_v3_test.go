@@ -997,6 +997,26 @@ func v3Scenarios() map[string]v3Scenario {
 		"answer/other-version/noauth": {
 			user: "codec-noauth", script: onRequest(2, agentAnswer{why: "SNMPv2c GetResponse", edit: asV2c}),
 		},
+		// A request sent back unchanged carries the client's own msgID,
+		// request ID and, when authenticated, its own digest and ciphertext.
+		"answer/reflected-request/noauth": {
+			user: "codec-noauth", script: onRequest(2, agentAnswer{reflect: true, why: "the request sent back"}),
+			knownBug: "the reply's PDU type is not checked: the client takes its own request, sent back unchanged, as the answer",
+		},
+		"answer/reflected-request/md5": {
+			user: "codec-md5", script: onRequest(2, agentAnswer{reflect: true, why: "the request sent back"}),
+			knownBug: "the reply's PDU type is not checked: the client takes its own request, sent back unchanged, as the answer",
+		},
+		"answer/reflected-request/md5-set": {
+			user: "codec-md5", script: onRequest(2, agentAnswer{reflect: true, why: "the request sent back"}),
+			run:      func(x *GoSNMP, _ *fakeV3Agent) (*SnmpPacket, error) { return setEngineOID(x) },
+			knownBug: "the reply's PDU type is not checked: the client takes its own request, sent back unchanged, as the answer",
+		},
+		"answer/reflected-request/sha-aes-set": {
+			user: "codec-sha-aes", script: onRequest(2, agentAnswer{reflect: true, why: "the request sent back"}),
+			run:      func(x *GoSNMP, _ *fakeV3Agent) (*SnmpPacket, error) { return setEngineOID(x) },
+			knownBug: "the reply's PDU type is not checked: the client takes its own request, sent back unchanged, as the answer",
+		},
 		// An SNMPv2c message whose body reads as a scoped PDU, with the
 		// request's request ID, does not answer an SNMPv3 request.
 		"answer/other-version/noauth-scoped-body": {

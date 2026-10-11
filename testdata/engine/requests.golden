@@ -456,6 +456,20 @@
 3s    result: packet nil, error "request timeout (after 2 retries)" *errors.errorString
 3s    client after: retries=2 next request id=1004
 
+== requests/answer/reflected-request
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0], no error
+0s    client after: retries=2 next request id=1002
+0s    known bug: the reply's PDU type is not checked: the client takes its own request, sent back unchanged, as the answer
+
 == requests/answer/report
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s

@@ -75,7 +75,10 @@ type agentAnswer struct {
 	raw    func(*v3Message)       // edits the encoded answer, after edit
 	encode func(v3Message) []byte // encodes the answer after raw, instead of v3Message.bytes
 	drop   bool                   // no answer
-	why    string
+	// reflect sends the request back unchanged instead of an answer, as a
+	// loop or an on-path sender does.
+	reflect bool
+	why     string
 }
 
 const (
@@ -177,6 +180,10 @@ func (a *fakeV3Agent) handle(n int, data []byte) []agentReply {
 	if ans.drop {
 		a.tr.addf("agent: drops #%d (%s)", n, ans.why)
 		return nil
+	}
+	if ans.reflect {
+		a.tr.addf("agent: reflects #%d unchanged (%s)", n, ans.why)
+		return []agentReply{{data: bytes.Clone(data)}}
 	}
 
 	out := a.answer(req, ans)

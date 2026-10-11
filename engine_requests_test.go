@@ -311,6 +311,10 @@ func engineScenarios() map[string]engineScenario {
 			agent:    answerWith(func(p *SnmpPacket) { p.PDUType = GetRequest }, sysDescr),
 			knownBug: "the reply's PDU type is not checked",
 		},
+		"answer/reflected-request": {
+			agent:    func(_ int, req []byte) []agentReply { return []agentReply{{data: bytes.Clone(req)}} },
+			knownBug: "the reply's PDU type is not checked: the client takes its own request, sent back unchanged, as the answer",
+		},
 		"answer/report": {
 			agent:    answerWith(func(p *SnmpPacket) { p.PDUType = Report }, sysDescr),
 			knownBug: "the reply's PDU type is not checked",
