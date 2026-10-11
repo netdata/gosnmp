@@ -16,10 +16,11 @@ import (
 )
 
 // send runs a request: for SNMPv3 it first discovers the agent's engine or
-// derives the keys, then sends the request, and sends it once more when the
-// answer is a Report that resynchronizes the client with the agent's engine.
-// Every result it returns passes through its named results, which the
-// recover below returns when a panic, user code's included, ends the request.
+// derives the keys, then sends the request, stores the engine parameters the
+// answer carries, and sends the request once more when the answer is a Report
+// that resynchronizes the client with the agent's engine. Every result it
+// returns passes through its named results, which the recover below returns
+// when a panic, user code's included, ends the request.
 func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 	// Known bug: a panic becomes the request's error, with the stacks of all
 	// goroutines in its text (8 KB, NUL-padded), and the result the request had
@@ -56,49 +57,40 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 
 	result, err = x.sendOneRequest(packetOut)
 	if err != nil {
-		// Known bug: the engine boots and time of an authenticated error Report
-		// are not stored.
 		x.Logger.Printf("SEND Error on the first Request Error: %s", err)
-		return result, err
 	}
-	if result.Version != Version3 {
-		return result, nil
-	}
-
-	if x.Logger.enabled() {
-		x.Logger.Printf("SEND STORE SECURITY PARAMS from result: %s", result.SecurityParameters.SafeString())
-	}
-	err = x.storeSecurityParameters(result)
-	kind, ok := reportKindOf(result)
-	if !ok || !kind.resync {
-		// Known bug: a reply with another security model is returned together
-		// with the store error.
+	var kind reportKind
+	var stored bool
+	if kind, stored, err = x.settleReply(packetOut, result, err); !kind.resync {
 		return result, err
 	}
 
-	// Resynchronize: send the request again with the engine ID or time the
-	// client stored from the Report. The retransmission's result goes into the
-	// named result, which a recovered panic returns. Known bugs: the store
-	// error is dropped, so a Report with another security model is acted on
-	// instead of being discarded; a failed retransmission returns the first
-	// Report's error instead of its own; a resync Report answering the
-	// retransmission is returned with a nil error; the engine boots and time of
-	// the answer to the retransmission are not stored.
+	// Resynchronize: send the request again, with the engine parameters the
+	// client stored from an authenticated Report, or with those of an
+	// unauthenticated one in the request only: the authenticated answer brings
+	// the agent's, which the client stores. The retransmission's result goes
+	// into the named result, which a recovered panic returns; a resync Report
+	// answering it ends the request with its error.
 	if x.Logger.enabled() {
 		x.Logger.Print("WARNING detected " + kind.name + " ERROR")
 	}
-	if err = x.updatePktSecurityParameters(packetOut); err != nil {
-		x.Logger.Printf("ERROR updatePktSecurityParameters error: %s", err)
+	if stored {
+		if err = x.updatePktSecurityParameters(packetOut); err != nil {
+			x.Logger.Printf("ERROR updatePktSecurityParameters error: %s", err)
+			return nil, err
+		}
+	} else if err = x.lendEngineParameters(packetOut, result, kind); err != nil {
+		x.Logger.Printf("ERROR lendEngineParameters error: %s", err)
 		return nil, err
 	}
 	result, err = x.sendOneRequest(packetOut)
-	if err != nil {
-		if x.Logger.enabled() {
-			x.Logger.Printf("ERROR "+kind.name+" retransmit error: %s", err)
-		}
+	if err != nil && x.Logger.enabled() {
+		x.Logger.Printf("ERROR "+kind.name+" retransmit error: %s", err)
+	}
+	if kind, _, err = x.settleReply(packetOut, result, err); kind.resync {
 		return result, kind.err
 	}
-	return result, nil
+	return result, err
 }
 
 // exchange is one request on its way through the attempts sendOneRequest
@@ -125,14 +117,19 @@ type attemptOutcome struct {
 	retry bool
 }
 
+// sentIDs are the request ID and the msgID an attempt sent the request with.
+type sentIDs struct {
+	requestID, msgID uint32
+}
+
 // sendOneRequest sends packetOut and returns the reply that answers it,
 // retrying up to x.Retries times. OnFinish runs when it succeeds.
 func (x *GoSNMP) sendOneRequest(packetOut *SnmpPacket) (*SnmpPacket, error) {
 	e := exchange{x: x, packet: packetOut, timeout: x.Timeout}
-	// The request IDs of the attempts before the current one. A local, not a
-	// field of exchange: for small Retries it stays on the stack, where a field
-	// would always escape to the heap.
-	earlierIDs := make([]uint32, 0, x.Retries+1)
+	// The IDs of the attempts before the current one. A local, not a field of
+	// exchange: for small Retries it stays on the stack, where a field would
+	// always escape to the heap.
+	earlier := make([]sentIDs, 0, x.Retries+1)
 	var lastErr error
 	for n := 0; ; n++ {
 		if n > 0 {
@@ -140,11 +137,11 @@ func (x *GoSNMP) sendOneRequest(packetOut *SnmpPacket) (*SnmpPacket, error) {
 				return nil, err
 			}
 		}
-		out := e.attempt(earlierIDs)
+		out := e.attempt(earlier)
 		if out.retry {
 			// An attempt asks for a retry only after it has stamped the
-			// packet with its request ID.
-			earlierIDs = append(earlierIDs, packetOut.RequestID)
+			// packet with its IDs.
+			earlier = append(earlier, sentIDs{packetOut.RequestID, packetOut.MsgID})
 			lastErr = out.err
 			continue
 		}
@@ -194,9 +191,9 @@ func isTimeout(err error) bool {
 }
 
 // attempt sends the request once and reads until a reply answers it or the
-// attempt's deadline passes. A reply to an earlier attempt, whose request ID
-// is one of earlierIDs, answers it too.
-func (e *exchange) attempt(earlierIDs []uint32) attemptOutcome {
+// attempt's deadline passes. A reply to an earlier attempt, one of earlier,
+// answers it too.
+func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
 	x := e.x
 	// Known bug: a client given a Conn without Connect has no Context, and this
 	// panics (send recovers it).
@@ -229,7 +226,7 @@ func (e *exchange) attempt(earlierIDs []uint32) attemptOutcome {
 	if x.OnSent != nil {
 		x.OnSent(x)
 	}
-	return e.await(earlierIDs)
+	return e.await(earlier)
 }
 
 // attemptDeadline returns when an attempt with timeout ends: after the
@@ -263,7 +260,7 @@ func (e *exchange) encode() ([]byte, error) {
 // await reads replies until one answers the request. Known bug: it does not
 // watch the context, so a cancellation is noticed only when the attempt's
 // deadline passes, and in the last attempt it ends as a request timeout.
-func (e *exchange) await(earlierIDs []uint32) attemptOutcome {
+func (e *exchange) await(earlier []sentIDs) attemptOutcome {
 	x := e.x
 	for {
 		if x.Logger.enabled() {
@@ -294,7 +291,7 @@ func (e *exchange) await(earlierIDs []uint32) attemptOutcome {
 			// is sent again at once, instead of reading on.
 			return attemptOutcome{err: err, retry: true}
 		}
-		if answered, err := e.answers(reply, earlierIDs); answered {
+		if answered, err := e.answers(reply, earlier); answered {
 			return attemptOutcome{packet: reply, err: err}
 		}
 		x.Logger.Print("ERROR out of order")
@@ -320,8 +317,8 @@ func (e *exchange) decode(resp []byte) (*SnmpPacket, error) {
 		// Until discovery has set the authoritative engine ID, the reply is
 		// checked with its own flags and the security parameters it carries,
 		// with the engine discovery exception, afterwards with the client's and
-		// without it. Known bug: an unauthenticated Report then fails the digest
-		// check and is discarded, and the caller never sees its error.
+		// without it, so a Report the agent sends without authentication fails
+		// the digest check.
 		usp := usmOf(x.SecurityParameters)
 		fromReply := usp != nil && usp.AuthoritativeEngineID == ""
 		if fromReply {
@@ -330,6 +327,9 @@ func (e *exchange) decode(resp []byte) (*SnmpPacket, error) {
 			err = x.verifyDigest(resp, reply, false)
 		}
 		if err != nil {
+			if e.unauthenticatedReport(resp, cursor, reply) {
+				return reply, nil
+			}
 			x.Logger.Printf("ERROR on Test Authentication on v3: %s", err)
 			return nil, err
 		}
@@ -345,27 +345,78 @@ func (e *exchange) decode(resp []byte) (*SnmpPacket, error) {
 	return reply, nil
 }
 
+// unauthenticatedReport reports whether resp, a reply that failed the digest
+// check, is a Report the agent sent without the authentication the request
+// asked for, and decodes it into reply. An agent sends most Reports so (RFC
+// 3414 section 3.2: it cannot authenticate to an unknown engine ID or user),
+// and some agents even notInTimeWindow, which step 7 a sends at authNoPriv.
+// Only a plaintext scoped PDU is read, so nothing unauthenticated is
+// decrypted, and only a Report of the request's security model that
+// reportKindOf maps is kept.
+func (e *exchange) unauthenticatedReport(resp []byte, cursor int, reply *SnmpPacket) bool {
+	if !withoutAuthentication(e.packet, reply) || reply.SecurityModel != e.packet.SecurityModel ||
+		cursor >= len(resp) || PDUType(resp[cursor]) != Sequence {
+		return false
+	}
+	resp, cursor, err := unmarshalScopedPDU(resp, cursor, reply)
+	if err != nil || unmarshalPayload(resp, cursor, reply) != nil {
+		return false
+	}
+	_, ok := reportKindOf(reply)
+	return ok
+}
+
+// withoutAuthentication reports whether reply, an answer to request, comes
+// without the authentication the request asked for.
+func withoutAuthentication(request, reply *SnmpPacket) bool {
+	return request.MsgFlags&AuthNoPriv != 0 && reply.MsgFlags&AuthNoPriv == 0
+}
+
+// authenticated reports whether the digest of reply, an answer to request,
+// was checked: both ask for authentication. Known bug: while the client has
+// no engine ID, the engine discovery exception of testAuthentication skips
+// the check for a reply with an empty user name and engine ID.
+func authenticated(request, reply *SnmpPacket) bool {
+	return request.MsgFlags&AuthNoPriv != 0 && reply.MsgFlags&AuthNoPriv != 0
+}
+
 // answers reports whether reply answers the request, and with which error: a
-// reply answers with the current attempt's request ID or one of earlierIDs;
-// a Report gives its kind's error, none for a resync Report. Known bugs:
-// nothing else of the reply is compared with the request (its version, PDU
-// type and msgID, nor the security model, level, user, engine ID and context
-// of RFC 3412 section 7.2 step 12 b); an empty reply without an error status
-// and a Report answer before their request ID is checked; request ID 0 answers
-// any request.
-func (e *exchange) answers(reply *SnmpPacket, earlierIDs []uint32) (bool, error) {
+// reply answers with the request ID of the current or an earlier attempt; a
+// Report gives its kind's error, none for a resync Report, and one without
+// the authentication the request asked for answers only with the msgID of the
+// current or an earlier attempt. Known bugs: nothing else of the reply is
+// compared with the request (its version, PDU type and the msgID of any other
+// reply, nor the security model, level, user, engine ID and context of RFC
+// 3412 section 7.2 step 12 b); an empty reply without an error status and a
+// Report answer before their request ID is checked; request ID 0 answers any
+// request.
+func (e *exchange) answers(reply *SnmpPacket, earlier []sentIDs) (bool, error) {
 	if reply.Error == NoError && len(reply.Variables) < 1 {
 		e.x.Logger.Print("Empty result: the reply answers the request")
 		return true, nil
 	}
 	if kind, ok := reportKindOf(reply); ok {
+		if withoutAuthentication(e.packet, reply) && !e.sentWithMsgID(reply.MsgID, earlier) {
+			return false, nil
+		}
 		if kind.resync {
 			return true, nil
 		}
 		return true, kind.err
 	}
-	id := reply.RequestID
-	return id == e.packet.RequestID || slices.Contains(earlierIDs, id) || id == 0, nil
+	return e.sentWithRequestID(reply.RequestID, earlier) || reply.RequestID == 0, nil
+}
+
+// sentWithRequestID reports whether the current or an earlier attempt sent
+// the request with id.
+func (e *exchange) sentWithRequestID(id uint32, earlier []sentIDs) bool {
+	return id == e.packet.RequestID || slices.ContainsFunc(earlier, func(s sentIDs) bool { return s.requestID == id })
+}
+
+// sentWithMsgID reports whether the current or an earlier attempt sent the
+// request with msgID.
+func (e *exchange) sentWithMsgID(msgID uint32, earlier []sentIDs) bool {
+	return msgID == e.packet.MsgID || slices.ContainsFunc(earlier, func(s sentIDs) bool { return s.msgID == msgID })
 }
 
 // The OIDs of the counters an SNMPv3 Report can carry: the User-based Security
@@ -402,10 +453,14 @@ type reportKind struct {
 	// err is the request's error.
 	err error
 	// resync marks the Reports that say the request's engine ID or time is
-	// out of date: they answer without err, the caller takes the engine
-	// parameters they carry, and send, when it is the caller, sends the request
-	// again and returns err only if that fails.
+	// out of date: they answer without err, and send, when it is the caller,
+	// sends the request again with the engine parameters they carry and
+	// returns err when a resync Report answers that too.
 	resync bool
+	// namesEngine marks the Report that names the engine ID the request
+	// should have had (RFC 3414 section 3.2 step 3): a resend takes the
+	// Report's engine ID along with its boots and time.
+	namesEngine bool
 	// name names a resync Report in log lines.
 	name string
 }
@@ -416,7 +471,7 @@ var reportKinds = map[string]reportKind{ //nolint:gochecknoglobals // a read-onl
 	usmStatsUnsupportedSecLevels: {err: ErrUnknownSecurityLevel},
 	usmStatsNotInTimeWindows:     {err: ErrNotInTimeWindow, resync: true, name: "out-of-time-window"},
 	usmStatsUnknownUserNames:     {err: ErrUnknownUsername},
-	usmStatsUnknownEngineIDs:     {err: ErrUnknownEngineID, resync: true, name: "unknown engine id"},
+	usmStatsUnknownEngineIDs:     {err: ErrUnknownEngineID, resync: true, namesEngine: true, name: "unknown engine id"},
 	usmStatsWrongDigests:         {err: ErrWrongDigest},
 	usmStatsDecryptionErrors:     {err: ErrDecryption},
 	snmpUnknownSecurityModels:    {err: ErrUnknownSecurityModels},

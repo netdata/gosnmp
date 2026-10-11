@@ -296,6 +296,16 @@ func (sp *UsmSecurityParameters) setSecurityParameters(in *UsmSecurityParameters
 	return nil
 }
 
+// setEngineTime takes the engine boots and time of in; the engine ID and the
+// keys stay.
+func (sp *UsmSecurityParameters) setEngineTime(in *UsmSecurityParameters) {
+	sp.mu.Lock()
+	defer sp.mu.Unlock()
+
+	sp.AuthoritativeEngineBoots = in.AuthoritativeEngineBoots
+	sp.AuthoritativeEngineTime = in.AuthoritativeEngineTime
+}
+
 var (
 	errAuthProtocolRequired = errors.New("securityParameters.AuthenticationProtocol is required")
 	errPrivProtocolRequired = errors.New("securityParameters.PrivacyProtocol is required")

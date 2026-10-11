@@ -363,7 +363,7 @@
 0s    read from 127.0.0.2:161: 3 msgID=7 noAuthNoPriv user="public" engine="" boots=0 time=0 scoped PDU not decodable
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet nil, error "updatePktSecurityParameters called with non Version3 connection or packet" *errors.errorString
+0s    result: packet nil, error "lendEngineParameters called with non Version3 connection or packet" *errors.errorString
 0s    client after: retries=2 next request id=1002
 
 == requests/answer/report

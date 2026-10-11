@@ -291,14 +291,14 @@ func v3Scenarios() map[string]v3Scenario {
 			user: "codec-md5", setup: func(_ *GoSNMP, sp *UsmSecurityParameters) {
 				sp.AuthoritativeEngineID = agentOtherEngineID
 			},
-			knownBug: "the unauthenticated unknownEngineID Report fails the digest check and is discarded, so the client never adopts the engine ID",
 		},
 
 		// The agent changes between two requests.
 		"reboot": {user: "codec-sha-aes", run: getTwice(func(a *fakeV3Agent) { a.reboot() })},
 		// RFC 3414 section 3.2 step 7 sends notInTimeWindow at authNoPriv and
-		// takes the engine time only from authentic messages: discarding an
-		// unauthenticated one conforms.
+		// takes the engine time only from authentic messages: the client sends
+		// the request once more with the boots and time of an unauthenticated
+		// one and stores the authenticated answer's.
 		"reboot/unauthenticated-report": {user: "codec-md5", run: getTwice(func(a *fakeV3Agent) {
 			a.reboot()
 			a.script = func(_ int, req agentRequest) (agentAnswer, bool) {
@@ -318,7 +318,6 @@ func v3Scenarios() map[string]v3Scenario {
 					return agentAnswer{}, false
 				}
 			}),
-			knownBug: "the retransmission's error is replaced by ErrNotInTimeWindow",
 		},
 
 		// Reports without authentication to an authenticated request: from
@@ -459,7 +458,6 @@ func v3Scenarios() map[string]v3Scenario {
 			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
 				return agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "always not in time window"}, n > 1
 			},
-			knownBug: "a notInTimeWindow Report answering the resynchronized retransmission is returned with a nil error",
 		},
 		// Discovery answered by a Report without an engine ID.
 		"discovery/report-without-engine-id/md5": {
@@ -467,6 +465,25 @@ func v3Scenarios() map[string]v3Scenario {
 				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
 			}),
 			knownBug: "a discovery answer without an engine ID is accepted, and the request goes out with an empty engine ID",
+		},
+		"discovery/report-without-engine-id/then-forged-empty-identity": {
+			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				switch n {
+				case 1:
+					return agentAnswer{report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID}, true
+				case 2:
+					return agentAnswer{
+						report: usmStatsUnknownUserNames, level: AuthNoPriv, why: "Report signed with another key, without a user name and engine ID",
+						edit: func(p *SnmpPacket) {
+							forgeReport(p)
+							usp := p.SecurityParameters.usm()
+							usp.UserName, usp.AuthoritativeEngineID = "", ""
+						},
+					}, true
+				}
+				return agentAnswer{}, false
+			},
+			knownBug: "while the client has no engine ID, the engine discovery exception accepts a reply with an empty user name and engine ID without its digest",
 		},
 		"discovery/report-without-engine-id/sha256-des": {
 			user: "codec-sha256-des", script: onRequest(1, agentAnswer{
@@ -563,7 +580,6 @@ func v3Scenarios() map[string]v3Scenario {
 				}
 				return agentAnswer{}, false
 			},
-			knownBug: "the retransmission's error is replaced by ErrNotInTimeWindow",
 		},
 		"resync/report-for-other-request-id": {
 			user: "codec-md5", script: onRequest(2, agentAnswer{
@@ -585,7 +601,6 @@ func v3Scenarios() map[string]v3Scenario {
 				}
 				return agentAnswer{}, false
 			},
-			knownBug: "the retransmission's error is replaced by ErrNotInTimeWindow, and the engine boots and time of its answer are not stored",
 		},
 		"resync/retransmission-answer-time": {
 			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
@@ -599,15 +614,14 @@ func v3Scenarios() map[string]v3Scenario {
 				}
 				return agentAnswer{}, false
 			},
-			knownBug: "the engine boots and time of the answer to the retransmission are not stored",
 		},
 		"engine-change": {
 			user: "codec-md5", run: getTwice(func(a *fakeV3Agent) { a.setEngineID(agentOtherEngineID) }),
-			knownBug: "the unauthenticated unknownEngineID Report fails the digest check and is discarded, so the client never adopts the engine ID",
+			knownBug: "the context engine ID stays the old engine's after the client adopts a new engine ID",
 		},
 		"engine-change/sha-aes": {
 			user: "codec-sha-aes", run: getTwice(func(a *fakeV3Agent) { a.setEngineID(agentOtherEngineID) }),
-			knownBug: "the unauthenticated unknownEngineID Report fails the digest check and is discarded, so the client never adopts the engine ID",
+			knownBug: "the context engine ID stays the old engine's after the client adopts a new engine ID",
 		},
 		"engine-change/noauth": {
 			user: "codec-noauth", run: getThrice(func(a *fakeV3Agent) { a.setEngineID(agentOtherEngineID) }),
@@ -623,13 +637,11 @@ func v3Scenarios() map[string]v3Scenario {
 				}
 				return agentAnswer{}, false
 			},
-			knownBug: "the retransmission's error is replaced by ErrUnknownEngineID",
 		},
 		"unknown-engine-report/noauth-always": {
 			user: "codec-noauth", script: func(n int, _ agentRequest) (agentAnswer, bool) {
 				return agentAnswer{report: usmStatsUnknownEngineIDs, why: "always unknown engine ID, from the other engine", edit: fromOtherEngine}, n > 1
 			},
-			knownBug: "an unknownEngineID Report answering the retransmission is returned with a nil error",
 		},
 		"engine-change/sha-aes-answered-from-new-engine": {
 			user: "codec-sha-aes", run: getThrice(func(a *fakeV3Agent) {
@@ -661,20 +673,16 @@ func v3Scenarios() map[string]v3Scenario {
 			user: "codec-sha256-des", creds: &agentUser{
 				auth: SHA256, authPass: "codec-sha256-pass", priv: AES, privPass: "codec-des-pass",
 			},
-			knownBug: "the unauthenticated decryptionErrors Report fails the digest check and is discarded: the caller never sees ErrDecryption",
 		},
 		"wrong-passphrase": {
 			user: "codec-md5", creds: &agentUser{auth: MD5, authPass: "codec-wrong-pass", priv: NoPriv},
-			knownBug: "the unauthenticated wrongDigest Report fails the digest check and is discarded: the caller never sees ErrWrongDigest",
 		},
 		"unknown-user/noauth": {user: "codec-nobody", creds: &agentUser{auth: NoAuth, priv: NoPriv}},
 		"unknown-user/auth": {
 			user: "codec-nobody", creds: &agentUser{auth: MD5, authPass: "codec-md5-pass", priv: NoPriv},
-			knownBug: "the unauthenticated unknownUserName Report fails the digest check and is discarded: the caller never sees ErrUnknownUsername",
 		},
 		"unsupported-level": {
 			user: "codec-md5", creds: &agentUser{auth: MD5, authPass: "codec-md5-pass", priv: AES, privPass: "codec-aes-pass"},
-			knownBug: "the unauthenticated unsupportedSecLevel Report fails the digest check and is discarded",
 		},
 
 		// Answers that do not match the request.
@@ -794,7 +802,6 @@ func v3Scenarios() map[string]v3Scenario {
 			user: "codec-md5", run: getTwice(nil), script: onRequest(3, agentAnswer{
 				report: snmpUnknownContexts, level: AuthNoPriv, why: "authenticated unknown context Report 10 s later",
 			}),
-			knownBug: "the engine boots and time of an authenticated error Report are not stored (RFC 3414 section 3.2 step 7 b)",
 		},
 		"report-later/noauth-other-engine": {user: "codec-noauth", run: getTwice(nil), script: onRequest(3, agentAnswer{
 			report: usmStatsUnknownUserNames, why: "unauthenticated Report from another engine ID 10 s later",
@@ -827,20 +834,17 @@ func v3Scenarios() map[string]v3Scenario {
 				report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "Report with security model 2",
 				edit: func(p *SnmpPacket) { p.SecurityModel = 2 },
 			}),
-			knownBug: "a Report with another security model is acted on, the request sent again, instead of being discarded (RFC 3412 section 7.2 step 4)",
+			knownBug: "a Report with another security model ends the request with the model mismatch error instead of being discarded (RFC 3412 section 7.2 step 4)",
 		},
 	}
 
 	// Every Report counter after discovery, unauthenticated to a
 	// noAuthNoPriv and to an authNoPriv user, and authenticated to an
-	// authNoPriv user. An unauthenticated notInTimeWindow Report is
-	// discarded by RFC 3414 section 3.2 step 7.
+	// authNoPriv user.
 	for name, oid := range reportOIDs {
-		unauth := v3Scenario{user: "codec-md5", script: onRequest(2, agentAnswer{report: oid, why: "scripted Report, unauthenticated"})}
-		if oid != usmStatsNotInTimeWindows {
-			unauth.knownBug = "an unauthenticated Report fails the digest check and is discarded: the caller never sees its error"
+		scenarios["report/md5-unauthenticated/"+name] = v3Scenario{
+			user: "codec-md5", script: onRequest(2, agentAnswer{report: oid, why: "scripted Report, unauthenticated"}),
 		}
-		scenarios["report/md5-unauthenticated/"+name] = unauth
 		scenarios["report/noauth/"+name] = v3Scenario{user: "codec-noauth", script: onRequest(2, agentAnswer{report: oid, why: "scripted Report"})}
 		scenarios["report/md5/"+name] = v3Scenario{user: "codec-md5", script: onRequest(2, agentAnswer{report: oid, level: AuthNoPriv, why: "scripted Report"})}
 	}

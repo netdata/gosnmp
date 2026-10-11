@@ -60,6 +60,61 @@ func engineFoundDespiteUnknownUser(result *SnmpPacket, err error) bool {
 	return usp != nil && usp.AuthoritativeEngineID != ""
 }
 
+// settleReply stores the engine parameters an SNMPv3 reply to packetOut
+// carries, and returns the reply's Report kind (zero for another reply),
+// whether its parameters were stored, and the error the request ends with
+// unless kind asks for a resync: err, or the store's. A reply that is not
+// SNMPv3 is not stored, nor is an unauthenticated Report: RFC 3414 section 3.2
+// step 7 takes the engine boots and time from authenticated messages only,
+// and discovery, which takes the engine ID from an unauthenticated Report
+// (section 4), is discoverEngine's. Known bug: a reply with another security
+// model ends the request with the store error instead of being discarded (RFC
+// 3412 section 7.2 step 4).
+func (x *GoSNMP) settleReply(packetOut, reply *SnmpPacket, err error) (kind reportKind, stored bool, _ error) {
+	if reply == nil || reply.Version != Version3 {
+		return reportKind{}, false, err
+	}
+	kind, isReport := reportKindOf(reply)
+	if isReport && !authenticated(packetOut, reply) {
+		return kind, false, err
+	}
+	if x.Logger.enabled() {
+		x.Logger.Printf("SEND STORE SECURITY PARAMS from result: %s", reply.SecurityParameters.SafeString())
+	}
+	if storeErr := x.storeSecurityParameters(reply); storeErr != nil {
+		return reportKind{}, false, storeErr
+	}
+	return kind, true, err
+}
+
+// lendEngineParameters puts the engine parameters of report, a resync Report
+// the client does not store, into packetOut only, for one resend: the engine
+// ID, boots and time of a Report that names the engine (the packet's keys are
+// localized to that engine ID, and the engine ID becomes the context engine
+// ID when the packet has none), the boots and time of another (RFC 3414
+// section 3.2 checks the engine ID before the time window). The client takes
+// the agent's from the authenticated answer.
+func (x *GoSNMP) lendEngineParameters(packetOut, report *SnmpPacket, kind reportKind) error {
+	if x.Version != Version3 || packetOut.Version != Version3 {
+		return fmt.Errorf("lendEngineParameters called with non Version3 connection or packet")
+	}
+	if x.SecurityModel != packetOut.SecurityModel {
+		return fmt.Errorf("connection security model does not match security model defined in packet")
+	}
+	from := report.SecurityParameters.usm()
+	if !kind.namesEngine {
+		packetOut.SecurityParameters.usm().setEngineTime(from)
+		return nil
+	}
+	if err := packetOut.SecurityParameters.usm().setSecurityParameters(from); err != nil {
+		return err
+	}
+	if packetOut.ContextEngineID == "" {
+		packetOut.ContextEngineID = from.AuthoritativeEngineID
+	}
+	return nil
+}
+
 // save the connection security parameters after a request/response
 func (x *GoSNMP) storeSecurityParameters(result *SnmpPacket) error {
 	if x.Version != Version3 || result.Version != Version3 {
