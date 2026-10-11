@@ -501,7 +501,7 @@ func v3Scenarios() map[string]v3Scenario {
 				}
 				return agentAnswer{}, false
 			},
-			knownBug: "while the client has no engine ID, the engine discovery exception accepts a reply with an empty user name and engine ID without its digest",
+			knownBug: "while the client has no engine ID, the engine discovery exception accepts a reply with an empty user name and engine ID without its digest, and stores its engine boots and time",
 		},
 		"discovery/report-without-engine-id/sha256-des": {
 			user: "codec-sha256-des", script: onRequest(1, agentAnswer{

@@ -63,13 +63,14 @@ func engineFoundDespiteUnknownUser(result *SnmpPacket, err error) bool {
 // settleReply stores the engine parameters an SNMPv3 reply to packetOut
 // carries, and returns the reply's Report kind (zero for another reply),
 // whether its parameters were stored, and the error the request ends with
-// unless kind asks for a resync: err, or the store's. A reply that is not
-// SNMPv3 is not stored, nor is an unauthenticated Report: RFC 3414 section 3.2
-// step 7 takes the engine boots and time from authenticated messages only,
-// and discovery, which takes the engine ID from an unauthenticated Report
-// (section 4), is discoverEngine's. Known bug: a reply with another security
-// model ends the request with the store error instead of being discarded (RFC
-// 3412 section 7.2 step 4).
+// unless kind asks for a resync: err, or the store's for a reply other than
+// an error Report. A reply that is not SNMPv3 is not stored, nor is an
+// unauthenticated Report, whatever the session's security level: RFC 3414
+// section 3.2 step 7 takes the engine boots and time from authenticated
+// messages only, and discovery, which takes the engine ID from an
+// unauthenticated Report (section 4), is discoverEngine's. A noAuthNoPriv
+// session stores the parameters of its other replies. Known bug: a reply with
+// another security model is not discarded (RFC 3412 section 7.2 step 4).
 func (x *GoSNMP) settleReply(packetOut, reply *SnmpPacket, err error) (kind reportKind, stored bool, _ error) {
 	if reply == nil || reply.Version != Version3 {
 		return reportKind{}, false, err
@@ -82,6 +83,9 @@ func (x *GoSNMP) settleReply(packetOut, reply *SnmpPacket, err error) (kind repo
 		x.Logger.Printf("SEND STORE SECURITY PARAMS from result: %s", reply.SecurityParameters.SafeString())
 	}
 	if storeErr := x.storeSecurityParameters(reply); storeErr != nil {
+		if isReport && !kind.resync {
+			return kind, false, err
+		}
 		return reportKind{}, false, storeErr
 	}
 	return kind, true, err

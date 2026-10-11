@@ -67,10 +67,10 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 
 	// Resynchronize: send the request again, with the engine parameters the
 	// client stored from an authenticated Report, or with those of an
-	// unauthenticated one in the request only: the authenticated answer brings
-	// the agent's, which the client stores. The retransmission's result goes
-	// into the named result, which a recovered panic returns; a resync Report
-	// answering it ends the request with its error.
+	// unauthenticated one in the request only: the answer brings the agent's,
+	// which the client stores. The retransmission's result goes into the named
+	// result, which a recovered panic returns; a resync Report answering it
+	// ends the request with its error.
 	if x.Logger.enabled() {
 		x.Logger.Print("WARNING detected " + kind.name + " ERROR")
 	}
@@ -126,10 +126,12 @@ type sentIDs struct {
 // retrying up to x.Retries times. OnFinish runs when it succeeds.
 func (x *GoSNMP) sendOneRequest(packetOut *SnmpPacket) (*SnmpPacket, error) {
 	e := exchange{x: x, packet: packetOut, timeout: x.Timeout}
-	// The IDs of the attempts before the current one. A local, not a field of
-	// exchange: for small Retries it stays on the stack, where a field would
-	// always escape to the heap.
-	earlier := make([]sentIDs, 0, x.Retries+1)
+	// The IDs of the attempts before the current one, in a local array, not a
+	// field of exchange, so that eight of them stay on the stack: a field
+	// would always escape to the heap, and a slice made for x.Retries+1 of
+	// them escapes beyond 32 bytes.
+	var sent [8]sentIDs
+	earlier := sent[:0]
 	var lastErr error
 	for n := 0; ; n++ {
 		if n > 0 {
@@ -315,16 +317,18 @@ func (e *exchange) decode(resp []byte) (*SnmpPacket, error) {
 	}
 	if x.Version == Version3 {
 		// Until discovery has set the authoritative engine ID, the reply is
-		// checked with its own flags and the security parameters it carries,
-		// with the engine discovery exception, afterwards with the client's and
-		// without it, so a Report the agent sends without authentication fails
-		// the digest check.
+		// checked with its own flags and user, with the engine discovery
+		// exception, afterwards with the request's and without it, so a Report
+		// the agent sends without authentication fails the digest check. The
+		// keys are derived for the engine ID the reply carries. Known bug: that
+		// engine ID is not compared with the request's (RFC 3412 section 7.2
+		// step 12 b).
 		usp := usmOf(x.SecurityParameters)
 		fromReply := usp != nil && usp.AuthoritativeEngineID == ""
 		if fromReply {
 			err = x.testAuthentication(resp, reply, true)
 		} else {
-			err = x.verifyDigest(resp, reply, false)
+			err = verifyDigest(resp, reply, e.packet.MsgFlags, e.packet.SecurityParameters.usm())
 		}
 		if err != nil {
 			if e.unauthenticatedReport(resp, cursor, reply) {
@@ -367,9 +371,10 @@ func (e *exchange) unauthenticatedReport(resp []byte, cursor int, reply *SnmpPac
 }
 
 // withoutAuthentication reports whether reply, an answer to request, comes
-// without the authentication the request asked for.
+// without the authentication the request asked for, at noAuthNoPriv (privacy
+// without authentication is invalid, RFC 3412 section 7.2).
 func withoutAuthentication(request, reply *SnmpPacket) bool {
-	return request.MsgFlags&AuthNoPriv != 0 && reply.MsgFlags&AuthNoPriv == 0
+	return request.MsgFlags&AuthNoPriv != 0 && reply.MsgFlags&AuthPriv == NoAuthNoPriv
 }
 
 // authenticated reports whether the digest of reply, an answer to request,
