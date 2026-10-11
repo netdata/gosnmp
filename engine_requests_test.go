@@ -298,7 +298,6 @@ func engineScenarios() map[string]engineScenario {
 				}
 				return []agentReply{{data: b}}
 			},
-			knownBug: "a reply with request ID 0 is accepted for any request, even a v1 Trap",
 		},
 		"answer/empty": {agent: answerWith(nil)},
 		"answer/empty-wrong-id": {
@@ -308,16 +307,13 @@ func engineScenarios() map[string]engineScenario {
 		"answer/empty-with-error-status-wrong-id": {agent: answerWith(func(p *SnmpPacket) { p.RequestID += 100; p.Error = GenErr })},
 		"answer/error-status":                     {agent: answerWith(func(p *SnmpPacket) { p.Error, p.ErrorIndex = NoSuchName, 1 }, SnmpPDU{Name: engineOID, Type: Null})},
 		"answer/not-a-response": {
-			agent:    answerWith(func(p *SnmpPacket) { p.PDUType = GetRequest }, sysDescr),
-			knownBug: "the reply's PDU type is not checked",
+			agent: answerWith(func(p *SnmpPacket) { p.PDUType = GetRequest }, sysDescr),
 		},
 		"answer/reflected-request": {
-			agent:    func(_ int, req []byte) []agentReply { return []agentReply{{data: bytes.Clone(req)}} },
-			knownBug: "the reply's PDU type is not checked: the client takes its own request, sent back unchanged, as the answer",
+			agent: func(_ int, req []byte) []agentReply { return []agentReply{{data: bytes.Clone(req)}} },
 		},
 		"answer/report": {
-			agent:    answerWith(func(p *SnmpPacket) { p.PDUType = Report }, sysDescr),
-			knownBug: "the reply's PDU type is not checked",
+			agent: answerWith(func(p *SnmpPacket) { p.PDUType = Report }, sysDescr),
 		},
 		"answer/unknown-pdu-type": {
 			agent: answerRaw(func(r []byte) []byte {

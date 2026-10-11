@@ -400,29 +400,34 @@ func (e *exchange) unauthenticatedReport(resp []byte, cursor int, reply *SnmpPac
 // answers reports whether reply answers the request, and with which error. An
 // SNMPv3 request is answered only by an SNMPv3 reply with the msgID of its
 // current or an earlier attempt, and an SNMPv3 reply answers no other request
-// (RFC 3412 section 7.2 step 10). A Report then answers with its kind's error,
-// none for a resync Report; another reply with the request ID of the current
-// or an earlier attempt. Known bugs: nothing else of the reply is compared
-// with the request (its PDU type, the SNMPv1 and SNMPv2c versions, the
+// (RFC 3412 section 7.2 step 10). A Report that reportKindOf maps then answers
+// with its kind's error, none for a resync Report; any other reply only as a
+// Response (GetResponse), with the request ID of the current or an earlier
+// attempt: a request sent back unchanged carries the client's own IDs and
+// digest, and other PDUs answer no request. Known bugs: nothing else of the
+// reply is compared with the request (the SNMPv1 and SNMPv2c versions, the
 // security model, level and context of RFC 3412 section 7.2 step 12 b, nor,
 // for a request without authentication, the user and engine ID); an empty
-// reply without an error status answers before its request ID is checked;
-// request ID 0 answers any request.
+// Response without an error status answers before its request ID is checked;
+// a Response with request ID 0 answers any request.
 func (e *exchange) answers(reply *SnmpPacket, earlier []sentIDs) (bool, error) {
 	if reply.Version == Version3 || e.packet.Version == Version3 {
 		if reply.Version != e.packet.Version || !e.sentWithMsgID(reply.MsgID, earlier) {
 			return false, nil
 		}
 	}
-	if reply.Error == NoError && len(reply.Variables) < 1 {
-		e.x.Logger.Print("Empty result: the reply answers the request")
-		return true, nil
-	}
 	if kind, ok := reportKindOf(reply); ok {
 		if kind.resync {
 			return true, nil
 		}
 		return true, kind.err
+	}
+	if reply.PDUType != GetResponse {
+		return false, nil
+	}
+	if reply.Error == NoError && len(reply.Variables) < 1 {
+		e.x.Logger.Print("Empty result: the reply answers the request")
+		return true, nil
 	}
 	return e.sentWithRequestID(reply.RequestID, earlier) || reply.RequestID == 0, nil
 }
