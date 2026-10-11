@@ -714,7 +714,7 @@ func v3Scenarios() map[string]v3Scenario {
 				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
 			}),
 			run:      onLogging("SEND END NEGOTIATE SECURITY PARAMS", func(x *GoSNMP) { x.Version = Version2c }),
-			knownBug: "a Logger that changes the client's version after the negotiation makes encode skip the key check: the request goes out signed with the empty key, with msgID 0",
+			knownBug: "a discovery answer without an engine ID is accepted, and an authenticated request then fails for want of a key localized to an engine ID",
 		},
 		"hooks/logger-panics-after-failed-retransmission": {
 			user: "codec-noauth", script: func(n int, _ agentRequest) (agentAnswer, bool) {

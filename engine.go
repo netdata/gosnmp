@@ -253,13 +253,15 @@ func (x *GoSNMP) attemptDeadline(timeout time.Duration) (deadline time.Time, byC
 // parameters.
 func (e *exchange) encode() ([]byte, error) {
 	x, p := e.x, e.packet
+	// An authenticated request is signed with the user's key localized to the
+	// agent's engine ID, and its answer checked with it; without one, anyone
+	// could sign either. The check follows the packet, as the signature does
+	// (SnmpPacket.authenticate).
+	if usp := usmOf(p.SecurityParameters); p.Version == Version3 && p.MsgFlags&AuthNoPriv != 0 &&
+		(usp == nil || len(usp.SecretKey) == 0) {
+		return nil, errAuthKeyRequired
+	}
 	if x.Version == Version3 {
-		// An authenticated request is signed with the user's key localized to
-		// the agent's engine ID, and its answer checked with it; without one,
-		// anyone could sign either.
-		if usp := usmOf(p.SecurityParameters); p.MsgFlags&AuthNoPriv != 0 && (usp == nil || len(usp.SecretKey) == 0) {
-			return nil, errAuthKeyRequired
-		}
 		p.MsgID = x.nextMsgID()
 		if err := x.initPacket(p); err != nil {
 			return nil, err
