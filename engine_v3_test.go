@@ -698,6 +698,15 @@ func v3Scenarios() map[string]v3Scenario {
 			user: "codec-md5",
 			run:  onLogging("SEND INIT", func(x *GoSNMP) { x.Version = Version2c }),
 		},
+		// After a discovery answer without an engine ID the client has no key;
+		// the packet stays SNMPv3 when the Logger changes the client's version.
+		"hooks/logger-changes-version-after-negotiation": {
+			user: "codec-md5", script: onRequest(1, agentAnswer{
+				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
+			}),
+			run:      onLogging("SEND END NEGOTIATE SECURITY PARAMS", func(x *GoSNMP) { x.Version = Version2c }),
+			knownBug: "a Logger that changes the client's version after the negotiation makes encode skip the key check: the request goes out signed with the empty key, with msgID 0",
+		},
 		"hooks/logger-panics-after-failed-retransmission": {
 			user: "codec-noauth", script: func(n int, _ agentRequest) (agentAnswer, bool) {
 				switch n {
