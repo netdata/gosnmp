@@ -164,6 +164,25 @@ func fromOtherEngine(p *SnmpPacket) {
 	p.ContextEngineID = agentOtherEngineID
 }
 
+// signedByOtherEngine makes an answer come from the agent's other engine ID,
+// signed with the user's key localized to it: another agent with the same
+// credentials.
+func signedByOtherEngine(p *SnmpPacket) {
+	fromOtherEngine(p)
+	usp := p.SecurityParameters.usm()
+	creds := agentCreds[usp.UserName]
+	other := &UsmSecurityParameters{
+		UserName:                 usp.UserName,
+		AuthenticationProtocol:   creds.auth,
+		AuthenticationPassphrase: creds.authPass,
+		AuthoritativeEngineID:    agentOtherEngineID,
+	}
+	if err := other.InitSecurityKeys(); err != nil {
+		panic(err)
+	}
+	usp.SecretKey = other.SecretKey
+}
+
 // otherEngineTime gives an answer engine boots and time the agent does not
 // have.
 func otherEngineTime(p *SnmpPacket) {
@@ -486,6 +505,19 @@ func v3Scenarios() map[string]v3Scenario {
 				return x.Get([]string{engineOID})
 			},
 		},
+		// A Report another agent with the same credentials sent, for another
+		// message or with the request's msgID, followed by two Gets.
+		"answer/other-agent-report/other-message": {user: "codec-md5", run: getThrice(nil), script: onRequest(2, agentAnswer{
+			report: snmpUnknownContexts, level: AuthNoPriv, why: "signed by another agent with the same credentials, for another message",
+			edit: func(p *SnmpPacket) {
+				signedByOtherEngine(p)
+				p.MsgID += 100
+			},
+		})},
+		"answer/other-agent-report/same-message": {user: "codec-md5", run: getThrice(nil), script: onRequest(2, agentAnswer{
+			report: snmpUnknownContexts, level: AuthNoPriv, why: "signed by another agent with the same credentials",
+			edit: signedByOtherEngine,
+		})},
 		"answer/forged-report/empty-identity": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			report: usmStatsUnknownUserNames, level: AuthNoPriv, why: "Report signed with another key, without a user name and engine ID",
 			edit: func(p *SnmpPacket) {
