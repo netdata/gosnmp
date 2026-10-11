@@ -533,6 +533,12 @@ func v3Scenarios() map[string]v3Scenario {
 			report: snmpUnknownContexts, level: AuthNoPriv, why: "signed by another agent with the same credentials",
 			edit: signedByOtherEngine,
 		})},
+		// A reply naming another engine ID is not the request's answer, even
+		// when the request's key signs it.
+		"answer/other-engine-id-request-key": {user: "codec-md5", run: getThrice(nil), script: onRequest(2, agentAnswer{
+			level: AuthNoPriv, why: "names the other engine ID, signed with the user's key localized to the agent's",
+			edit: fromOtherEngine,
+		})},
 		"answer/forged-report/empty-identity": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			report: usmStatsUnknownUserNames, level: AuthNoPriv, why: "Report signed with another key, without a user name and engine ID",
 			edit: func(p *SnmpPacket) {
