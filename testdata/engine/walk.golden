@@ -302,6 +302,20 @@
 0s    result: error "OID not increasing: .1.3.6.1.2.1.1.1.0 >= .1.3.6.1.2.1.1.1.0" *errors.errorString
 0s    known bug: an error status the walk does not name is ignored and the varbinds walked
 
+== walk/error-status/19-unknown-empty
+0s    client: 2c root=".1.3.6.1.2.1.1" bulk=false max-repetitions=0
+0s    deadline +1s
+0s    write #1: 2c "public" GetNextRequest id=1001 [.1.3.6.1.2.1.1]
+0s    agent answers #1 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    walkFn: [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    deadline +1s
+0s    write #2: 2c "public" GetNextRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #2 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 error=SNMPError(19) index=0 []
+0s    result: no error
+0s    known bug: an empty response ends the walk with a nil error
+
 == walk/error-status/2-NoSuchName
 0s    client: 2c root=".1.3.6.1.2.1.1" bulk=false max-repetitions=0
 0s    deadline +1s
@@ -470,6 +484,24 @@
 0s    walkFn: [.1.3.6.1.2.1.1.5.0=OctetString:"codec-host"]
 0s    result: no error
 
+== walk/leaf/get-answer-in-subtree
+0s    client: 2c root=".1.3.6.1.2.1.1.5.0" bulk=false max-repetitions=0
+0s    deadline +1s
+0s    write #1: 2c "public" GetNextRequest id=1001 [.1.3.6.1.2.1.1.5.0]
+0s    agent answers #1 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo"]
+0s    deadline +1s
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.5.0]
+0s    agent answers #2 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.5.0.1=OctetString:"inside"]
+0s    walkFn: [.1.3.6.1.2.1.1.5.0.1=OctetString:"inside"]
+0s    deadline +1s
+0s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.5.0.1]
+0s    agent answers #3 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1003 [.1.3.6.1.2.1.1.5.0.1=NoSuchObject:<nil>]
+0s    result: no error
+0s    known bug: after the leaf fallback the walk keeps sending Gets: an answer inside the subtree is walked and the walk gets the next name (net-snmp's snmpwalk makes one Get)
+
 == walk/leaf/last-object
 0s    client: 2c root=".1.3.6.1.4.1.99.1.0" bulk=false max-repetitions=0
 0s    deadline +1s
@@ -510,6 +542,18 @@
 0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.7.0]
 0s    agent answers #2 after 0s
 0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.7.0=NoSuchObject:<nil>]
+0s    result: no error
+
+== walk/leaf/root-echo
+0s    client: 2c root=".1.3.6.1.2.1.1" bulk=false max-repetitions=0
+0s    deadline +1s
+0s    write #1: 2c "public" GetNextRequest id=1001 [.1.3.6.1.2.1.1]
+0s    agent answers #1 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1=Integer:1]
+0s    deadline +1s
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1]
+0s    agent answers #2 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1=NoSuchInstance:<nil>]
 0s    result: no error
 
 == walk/leaf/v1
@@ -647,6 +691,39 @@
 0s    write #5: 2c "public" GetBulkRequest id=1005 nonRepeaters=0 maxRepetitions=1 [.1.3.6.1.2.1.2.2.1.2.10]
 0s    agent answers #5 after 0s
 0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1005 [.1.3.6.1.4.1.99.1.0=Integer:7]
+0s    result: no error
+
+== walk/not-increasing/app-opts-c-nil
+0s    client: 2c root=".1.3.6.1.2.1.2.2.1.2" bulk=false max-repetitions=0
+0s    deadline +1s
+0s    write #1: 2c "public" GetNextRequest id=1001 [.1.3.6.1.2.1.2.2.1.2]
+0s    agent answers #1 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo"]
+0s    walkFn: [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo"]
+0s    deadline +1s
+0s    write #2: 2c "public" GetNextRequest id=1002 [.1.3.6.1.2.1.2.2.1.2.1]
+0s    agent answers #2 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.2.2.1.2.2=OctetString:"eth0"]
+0s    walkFn: [.1.3.6.1.2.1.2.2.1.2.2=OctetString:"eth0"]
+0s    deadline +1s
+0s    write #3: 2c "public" GetNextRequest id=1003 [.1.3.6.1.2.1.2.2.1.2.2]
+0s    agent answers #3 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1003 [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo"]
+0s    walkFn: [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo"]
+0s    deadline +1s
+0s    write #4: 2c "public" GetNextRequest id=1004 [.1.3.6.1.2.1.2.2.1.2.1]
+0s    agent answers #4 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1004 [.1.3.6.1.2.1.2.2.1.2.2=OctetString:"eth0"]
+0s    walkFn: [.1.3.6.1.2.1.2.2.1.2.2=OctetString:"eth0"]
+0s    deadline +1s
+0s    write #5: 2c "public" GetNextRequest id=1005 [.1.3.6.1.2.1.2.2.1.2.2]
+0s    agent answers #5 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1005 [.1.3.6.1.2.1.2.2.1.2.10=OctetString:"eth1"]
+0s    walkFn: [.1.3.6.1.2.1.2.2.1.2.10=OctetString:"eth1"]
+0s    deadline +1s
+0s    write #6: 2c "public" GetNextRequest id=1006 [.1.3.6.1.2.1.2.2.1.2.10]
+0s    agent answers #6 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1006 [.1.3.6.1.4.1.99.1.0=Integer:7]
 0s    result: no error
 
 == walk/not-increasing/bulk-inside-response
@@ -821,6 +898,29 @@
 0s    walkFn: [.1.3.6.1.2.1.2.2.1.2.10=OctetString:"eth1"]
 0s    result: no error
 
+== walk/sibling-arc
+0s    client: 2c root=".1.3.6.1.2.1.2.2.1.2" bulk=false max-repetitions=0
+0s    deadline +1s
+0s    write #1: 2c "public" GetNextRequest id=1001 [.1.3.6.1.2.1.2.2.1.2]
+0s    agent answers #1 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo"]
+0s    walkFn: [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo"]
+0s    deadline +1s
+0s    write #2: 2c "public" GetNextRequest id=1002 [.1.3.6.1.2.1.2.2.1.2.1]
+0s    agent answers #2 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.2.2.1.2.2=OctetString:"eth0"]
+0s    walkFn: [.1.3.6.1.2.1.2.2.1.2.2=OctetString:"eth0"]
+0s    deadline +1s
+0s    write #3: 2c "public" GetNextRequest id=1003 [.1.3.6.1.2.1.2.2.1.2.2]
+0s    agent answers #3 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1003 [.1.3.6.1.2.1.2.2.1.2.10=OctetString:"eth1"]
+0s    walkFn: [.1.3.6.1.2.1.2.2.1.2.10=OctetString:"eth1"]
+0s    deadline +1s
+0s    write #4: 2c "public" GetNextRequest id=1004 [.1.3.6.1.2.1.2.2.1.2.10]
+0s    agent answers #4 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1004 [.1.3.6.1.2.1.2.2.1.20.1=OctetString:"sibling"]
+0s    result: no error
+
 == walk/subtree
 0s    client: 2c root=".1.3.6.1.2.1.1" bulk=false max-repetitions=0
 0s    deadline +1s
@@ -910,6 +1010,47 @@
 0s    walkFn: [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo"]
 0s    walkFn: [.1.3.6.1.2.1.2.2.1.2.2=OctetString:"eth0"]
 0s    walkFn: [.1.3.6.1.2.1.2.2.1.2.10=OctetString:"eth1"]
+0s    result: no error
+
+== walk/user-code/walkfn-sets-app-opts-c
+0s    client: 2c root=".1.3.6.1.2.1.2.2.1.2" bulk=false max-repetitions=0
+0s    deadline +1s
+0s    write #1: 2c "public" GetNextRequest id=1001 [.1.3.6.1.2.1.2.2.1.2]
+0s    agent answers #1 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo"]
+0s    walkFn: [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo"]
+0s    deadline +1s
+0s    write #2: 2c "public" GetNextRequest id=1002 [.1.3.6.1.2.1.2.2.1.2.1]
+0s    agent answers #2 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.2.2.1.2.2=OctetString:"eth0"]
+0s    walkFn: [.1.3.6.1.2.1.2.2.1.2.2=OctetString:"eth0"]
+0s    deadline +1s
+0s    write #3: 2c "public" GetNextRequest id=1003 [.1.3.6.1.2.1.2.2.1.2.2]
+0s    agent answers #3 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1003 [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo"]
+0s    result: error "OID not increasing: .1.3.6.1.2.1.2.2.1.2.2 >= .1.3.6.1.2.1.2.2.1.2.1" *errors.errorString
+
+== walk/user-code/walkfn-sets-max-repetitions
+0s    client: 2c root=".1.3.6.1.2.1.2.2.1.2" bulk=true max-repetitions=1
+0s    deadline +1s
+0s    write #1: 2c "public" GetBulkRequest id=1001 nonRepeaters=0 maxRepetitions=1 [.1.3.6.1.2.1.2.2.1.2]
+0s    agent answers #1 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo"]
+0s    walkFn: [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo"]
+0s    deadline +1s
+0s    write #2: 2c "public" GetBulkRequest id=1002 nonRepeaters=0 maxRepetitions=1 [.1.3.6.1.2.1.2.2.1.2.1]
+0s    agent answers #2 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.2.2.1.2.2=OctetString:"eth0"]
+0s    walkFn: [.1.3.6.1.2.1.2.2.1.2.2=OctetString:"eth0"]
+0s    deadline +1s
+0s    write #3: 2c "public" GetBulkRequest id=1003 nonRepeaters=0 maxRepetitions=1 [.1.3.6.1.2.1.2.2.1.2.2]
+0s    agent answers #3 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1003 [.1.3.6.1.2.1.2.2.1.2.10=OctetString:"eth1"]
+0s    walkFn: [.1.3.6.1.2.1.2.2.1.2.10=OctetString:"eth1"]
+0s    deadline +1s
+0s    write #4: 2c "public" GetBulkRequest id=1004 nonRepeaters=0 maxRepetitions=1 [.1.3.6.1.2.1.2.2.1.2.10]
+0s    agent answers #4 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1004 [.1.3.6.1.4.1.99.1.0=Integer:7]
 0s    result: no error
 
 == walk/v1-bulk
