@@ -490,6 +490,21 @@ func v3Scenarios() map[string]v3Scenario {
 			}
 			return agentAnswer{}, false
 		}},
+		"unauthenticated-report/version-changed-by-hook": {
+			user:   "codec-md5",
+			script: onRequest(2, agentAnswer{report: usmStatsNotInTimeWindows, why: "not in time window, unauthenticated"}),
+			run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+				onFinish, calls := x.OnFinish, 0
+				x.OnFinish = func(x *GoSNMP) {
+					onFinish(x)
+					if calls++; calls == 2 {
+						x.Version = Version2c
+						a.tr.addf("hook OnFinish sets the client's version to 2c")
+					}
+				}
+				return x.Get([]string{engineOID})
+			},
+		},
 		"unauthenticated-report/security-model-changed-by-hook": {
 			user:   "codec-md5",
 			script: onRequest(2, agentAnswer{report: usmStatsNotInTimeWindows, why: "not in time window, unauthenticated"}),
@@ -851,6 +866,13 @@ func v3Scenarios() map[string]v3Scenario {
 			}),
 			knownBug: "the reply's msgID is not checked",
 		},
+		"answer/empty-other-message": {user: "codec-md5", script: onRequest(2, agentAnswer{
+			level: AuthNoPriv, why: "empty GetResponse for another message",
+			edit: func(p *SnmpPacket) {
+				p.Variables = nil
+				p.MsgID += 100
+			},
+		})},
 		"answer/wrong-request-id": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			level: AuthNoPriv, edit: func(p *SnmpPacket) { p.RequestID += 100 }, why: "GetResponse for another request",
 		})},

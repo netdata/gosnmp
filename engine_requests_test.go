@@ -80,11 +80,11 @@ var errEngineCause = errors.New("engine test cause")
 // msgData is the Report PDU itself, without the scoped PDU around it, so that
 // a v1/v2c client reads it as the PDU after the SNMPv3 header.
 func bareV3Report(req []byte, counter string) []byte {
-	return bareV3Answer(req, Report, SnmpPDU{Name: counter, Type: Counter32, Value: uint32(1)})
+	return bareV3Answer(req, 7, Report, SnmpPDU{Name: counter, Type: Counter32, Value: uint32(1)})
 }
 
-// bareV3Answer is bareV3Report for a PDU of type pduType with vbs.
-func bareV3Answer(req []byte, pduType PDUType, vbs ...SnmpPDU) []byte {
+// bareV3Answer is bareV3Report with msgID for a PDU of type pduType with vbs.
+func bareV3Answer(req []byte, msgID uint32, pduType PDUType, vbs ...SnmpPDU) []byte {
 	in, err := decodeMessage(req)
 	if err != nil {
 		panic(fmt.Sprintf("agent cannot decode the request: %v", err))
@@ -92,7 +92,7 @@ func bareV3Answer(req []byte, pduType PDUType, vbs ...SnmpPDU) []byte {
 	out := &SnmpPacket{
 		Version: Version3, MsgFlags: NoAuthNoPriv, SecurityModel: UserSecurityModel,
 		SecurityParameters: &UsmSecurityParameters{UserName: "public"},
-		PDUType:            pduType, RequestID: in.RequestID, MsgID: 7,
+		PDUType:            pduType, RequestID: in.RequestID, MsgID: msgID,
 		Variables: vbs,
 	}
 	b, err := out.marshalMsg()
@@ -344,9 +344,15 @@ func engineScenarios() map[string]engineScenario {
 			},
 			knownBug: "an SNMPv3 message answers an SNMPv2c request, though RFC 3412 hands each message to the model of its own version",
 		},
+		"answer/other-version-v3-msg-id-zero": {
+			agent: func(_ int, req []byte) []agentReply {
+				return []agentReply{{data: bareV3Answer(req, 0, Report, SnmpPDU{Name: usmStatsUnknownUserNames, Type: Counter32, Value: uint32(1)})}}
+			},
+			knownBug: "an SNMPv3 message answers an SNMPv2c request, though RFC 3412 hands each message to the model of its own version",
+		},
 		"answer/other-version-v3-get-response": {
 			agent: func(_ int, req []byte) []agentReply {
-				return []agentReply{{data: bareV3Answer(req, GetResponse, sysDescr)}}
+				return []agentReply{{data: bareV3Answer(req, 7, GetResponse, sysDescr)}}
 			},
 			knownBug: "an SNMPv3 message answers an SNMPv2c request, though RFC 3412 hands each message to the model of its own version",
 		},
