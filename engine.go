@@ -319,12 +319,17 @@ func (e *exchange) decode(resp []byte) (*SnmpPacket, error) {
 	if x.Version == Version3 {
 		// Until discovery has set the authoritative engine ID, the reply is
 		// checked with its own flags and the security parameters it carries,
-		// afterwards with the client's. Known bug: an unauthenticated Report
-		// then fails the digest check and is discarded, and the caller never
-		// sees its error.
+		// with the engine discovery exception, afterwards with the client's and
+		// without it. Known bug: an unauthenticated Report then fails the digest
+		// check and is discarded, and the caller never sees its error.
 		usp := usmOf(x.SecurityParameters)
 		fromReply := usp != nil && usp.AuthoritativeEngineID == ""
-		if err = x.testAuthentication(resp, reply, fromReply); err != nil {
+		if fromReply {
+			err = x.testAuthentication(resp, reply, true)
+		} else {
+			err = x.verifyDigest(resp, reply, false)
+		}
+		if err != nil {
 			x.Logger.Printf("ERROR on Test Authentication on v3: %s", err)
 			return nil, err
 		}

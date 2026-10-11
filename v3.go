@@ -100,25 +100,31 @@ func (packet *SnmpPacket) authenticate(msg []byte) ([]byte, error) {
 }
 
 // testAuthentication verifies the digest of the SNMPv3 message packet, whose
-// header is decoded into result, for the engine's replies and for
-// UnmarshalTrap: with result's flags and security parameters when
-// useResponseSecurityParameters is set, with the client's otherwise.
+// header is decoded into result, as verifyDigest does, except for engine
+// discovery (RFC 3414 section 4): a message with an empty user name and engine
+// ID is accepted without authentication. For the engine's replies while the
+// client has no engine ID, and for UnmarshalTrap. Known bug: whatever its
+// flags and variable bindings (the bindings are not decoded yet), so any such
+// message skips the digest.
 func (x *GoSNMP) testAuthentication(packet []byte, result *SnmpPacket, useResponseSecurityParameters bool) error {
 	if x.Version != Version3 {
 		return fmt.Errorf("testAuthentication called with non Version3 connection")
 	}
-	msgFlags := x.MsgFlags
-	if useResponseSecurityParameters {
-		msgFlags = result.MsgFlags
-	}
-
-	// Engine discovery (RFC 3414 section 4): a message with an empty user name
-	// and engine ID is accepted without authentication. Known bug: whatever its
-	// flags and variable bindings (the bindings are not decoded yet), so any
-	// message with an empty user name and engine ID skips the digest.
 	msgSecParams := result.SecurityParameters.usm()
 	if msgSecParams.UserName == "" && msgSecParams.AuthoritativeEngineID == "" {
 		return nil
+	}
+	return x.verifyDigest(packet, result, useResponseSecurityParameters)
+}
+
+// verifyDigest verifies the digest of the SNMPv3 message packet, whose header
+// is decoded into result, when the flags ask for authentication: with result's
+// flags and security parameters when useResponseSecurityParameters is set,
+// with the client's otherwise.
+func (x *GoSNMP) verifyDigest(packet []byte, result *SnmpPacket, useResponseSecurityParameters bool) error {
+	msgFlags := x.MsgFlags
+	if useResponseSecurityParameters {
+		msgFlags = result.MsgFlags
 	}
 
 	if msgFlags&AuthNoPriv > 0 {

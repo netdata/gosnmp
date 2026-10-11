@@ -244,7 +244,6 @@ func v3Scenarios() map[string]v3Scenario {
 					usp.UserName, usp.AuthoritativeEngineID = "", ""
 				},
 			}),
-			knownBug: "the engine discovery exception accepts any message with an empty user name and engine ID without its digest",
 		},
 		"discovery/unknown-user-names-report": {user: "codec-md5", script: onRequest(1, agentAnswer{
 			report: usmStatsUnknownUserNames, why: "answers discovery like some devices",
