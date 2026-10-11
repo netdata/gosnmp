@@ -10,9 +10,7 @@ import (
 	"time"
 )
 
-// newTestGoSNMP is only used in tests.
-//
-
+// newTestGoSNMP returns an unconnected SNMPv2c client that discards its log.
 func newTestGoSNMP() *GoSNMP {
 	return &GoSNMP{
 		Port:               161,
@@ -27,9 +25,8 @@ func newTestGoSNMP() *GoSNMP {
 	}
 }
 
-// newTestGoSNMPv3 is only used in tests.
-//
-
+// newTestGoSNMPv3 returns an unconnected SNMPv3 client of the User-based
+// Security Model with msgFlags and sp.
 func newTestGoSNMPv3(msgFlags SnmpV3MsgFlags, sp SnmpV3SecurityParameters) *GoSNMP {
 	gs := newTestGoSNMP()
 	gs.Version = Version3

@@ -18,10 +18,13 @@ import (
 // by the Walk function.  If an error is returned processing stops.
 type WalkFunc func(dataUnit SnmpPDU) error
 
-// BulkWalk retrieves a subtree of values using GETBULK. As the tree is
-// walked walkFn is called for each new value. The function immediately returns
-// an error if either there is an underlaying SNMP error (e.g. GetBulk fails),
-// or if walkFn returns an error.
+// BulkWalk walks the subtree under rootOid with GETBULK requests, calling
+// walkFn for each value in it. An empty or "." rootOid walks .1.3.6.1; when
+// the first value of the first answer lies outside the subtree, rootOid is
+// taken for a leaf and fetched with a Get. It returns at once the error of a
+// failed request or of walkFn, and an error for a name in the subtree that is
+// not after the requested one (unless AppOpts has "c"). An answer whose Error
+// is TooBig through InconsistentName ends the walk without an error.
 func (x *GoSNMP) BulkWalk(rootOid string, walkFn WalkFunc) error {
 	return x.walk(GetBulkRequest, rootOid, walkFn)
 }
@@ -34,11 +37,14 @@ func (x *GoSNMP) BulkWalkAll(rootOid string) (results []SnmpPDU, err error) {
 	return x.walkAll(GetBulkRequest, rootOid)
 }
 
-// Walk retrieves a subtree of values using GETNEXT - a request is made for each
-// value, unlike BulkWalk which does this operation in batches. As the tree is
-// walked walkFn is called for each new value. The function immediately returns
-// an error if either there is an underlaying SNMP error (e.g. GetNext fails),
-// or if walkFn returns an error.
+// Walk walks the subtree under rootOid with GETNEXT requests, one per value,
+// where BulkWalk asks for many at a time, calling walkFn for each value in it.
+// An empty or "." rootOid walks .1.3.6.1; when the first value of the first
+// answer lies outside the subtree, rootOid is taken for a leaf and fetched
+// with a Get. It returns at once the error of a failed request or of walkFn,
+// and an error for a name in the subtree that is not after the requested one
+// (unless AppOpts has "c"). An answer whose Error is TooBig through
+// InconsistentName ends the walk without an error.
 func (x *GoSNMP) Walk(rootOid string, walkFn WalkFunc) error {
 	return x.walk(GetNextRequest, rootOid, walkFn)
 }
@@ -86,7 +92,7 @@ func (x *GoSNMP) walk(getRequestType PDUType, rootOid string, walkFn WalkFunc) e
 			getRequestType = GetRequest
 		case walkDone:
 			if x.Logger.enabled() {
-				x.Logger.Printf("BulkWalk completed in %d requests", requests)
+				x.Logger.Printf("Walk completed in %d requests", requests)
 			}
 			return nil
 		}
@@ -160,12 +166,7 @@ func (w *walker) visit(response *SnmpPacket, oid string, firstAnswer bool, walkF
 	// net-snmp's snmpwalk fails for every status but noSuchName (the end of an
 	// SNMPv1 MIB); a status the RFC does not name is ignored and the answer
 	// walked.
-	switch status := response.Error; {
-	case status == NoError:
-		if x.Logger.enabled() {
-			x.Logger.Print("Walk completed with NoError")
-		}
-	case status >= TooBig && status <= InconsistentName:
+	if status := response.Error; status >= TooBig && status <= InconsistentName {
 		if x.Logger.enabled() {
 			x.Logger.Print("Walk terminated with " + status.String())
 		}
@@ -181,7 +182,7 @@ func (w *walker) visit(response *SnmpPacket, oid string, firstAnswer bool, walkF
 		// noSuchName).
 		if pdu.Type == EndOfMibView || pdu.Type == NoSuchObject || pdu.Type == NoSuchInstance {
 			if x.Logger.enabled() {
-				x.Logger.Printf("BulkWalk terminated with type 0x%x", pdu.Type)
+				x.Logger.Print("Walk terminated with " + pdu.Type.String())
 			}
 			return walkDone, nil
 		}

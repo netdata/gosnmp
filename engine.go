@@ -6,6 +6,7 @@ package gosnmp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"runtime"
@@ -328,12 +329,12 @@ func (e *exchange) decode(resp []byte) (*SnmpPacket, error) {
 			return nil, err
 		}
 		if resp, cursor, err = unmarshalScopedPDU(resp, cursor, reply); err != nil {
-			x.Logger.Printf("ERROR on decryptPacket on v3: %s", err)
+			x.Logger.Printf("ERROR on the scoped PDU on v3: %s", err)
 			return nil, err
 		}
 	}
 	if err = unmarshalPayload(resp, cursor, reply); err != nil {
-		x.Logger.Printf("ERROR on UnmarshalPayload on v3: %s", err)
+		x.Logger.Printf("ERROR on UnmarshalPayload: %s", err)
 		return nil, err
 	}
 	return reply, nil
@@ -349,7 +350,7 @@ func (e *exchange) decode(resp []byte) (*SnmpPacket, error) {
 // any request.
 func (e *exchange) answers(reply *SnmpPacket, earlierIDs []uint32) (bool, error) {
 	if reply.Error == NoError && len(reply.Variables) < 1 {
-		e.x.Logger.Printf("ERROR on UnmarshalPayload on v3: Empty result")
+		e.x.Logger.Print("Empty result: the reply answers the request")
 		return true, nil
 	}
 	if kind, ok := reportKindOf(reply); ok {
@@ -361,6 +362,35 @@ func (e *exchange) answers(reply *SnmpPacket, earlierIDs []uint32) (bool, error)
 	id := reply.RequestID
 	return id == e.packet.RequestID || slices.Contains(earlierIDs, id) || id == 0, nil
 }
+
+// The OIDs of the counters an SNMPv3 Report can carry: the User-based Security
+// Model's (RFC 3414) and message processing's (RFC 3412).
+const (
+	usmStatsUnsupportedSecLevels = ".1.3.6.1.6.3.15.1.1.1.0"
+	usmStatsNotInTimeWindows     = ".1.3.6.1.6.3.15.1.1.2.0"
+	usmStatsUnknownUserNames     = ".1.3.6.1.6.3.15.1.1.3.0"
+	usmStatsUnknownEngineIDs     = ".1.3.6.1.6.3.15.1.1.4.0"
+	usmStatsWrongDigests         = ".1.3.6.1.6.3.15.1.1.5.0"
+	usmStatsDecryptionErrors     = ".1.3.6.1.6.3.15.1.1.6.0"
+	snmpUnknownSecurityModels    = ".1.3.6.1.6.3.11.2.1.1.0"
+	snmpInvalidMsgs              = ".1.3.6.1.6.3.11.2.1.2.0"
+	snmpUnknownPDUHandlers       = ".1.3.6.1.6.3.11.2.1.3.0"
+)
+
+// The errors of a request answered by a Report: one per Report counter the
+// library knows, and ErrUnknownReportPDU for any other counter.
+var (
+	ErrDecryption            = errors.New("decryption error")
+	ErrInvalidMsgs           = errors.New("invalid messages")
+	ErrNotInTimeWindow       = errors.New("not in time window")
+	ErrUnknownEngineID       = errors.New("unknown engine id")
+	ErrUnknownPDUHandlers    = errors.New("unknown pdu handlers")
+	ErrUnknownReportPDU      = errors.New("unknown report pdu")
+	ErrUnknownSecurityLevel  = errors.New("unknown security level")
+	ErrUnknownSecurityModels = errors.New("unknown security models")
+	ErrUnknownUsername       = errors.New("unknown username")
+	ErrWrongDigest           = errors.New("wrong digest")
+)
 
 // reportKind is what the counter an SNMPv3 Report carries means to a request.
 type reportKind struct {

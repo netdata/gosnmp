@@ -31,10 +31,9 @@ func (x *GoSNMP) ConnectIPv6() error {
 	return x.connect("6")
 }
 
-// Close closes the underlaying connection.
-//
-// This method is safe to call multiple times and from concurrent goroutines.
-// Only the first call will close the connection; subsequent calls are no-ops.
+// Close closes the connection. Only the first call closes it; later calls,
+// and calls from other goroutines at the same time, return nil. Like the rest
+// of GoSNMP, Close is not safe to call while a request is running.
 func (x *GoSNMP) Close() error {
 	x.mu.Lock()
 	defer x.mu.Unlock()
@@ -121,12 +120,17 @@ func (x *GoSNMP) write(b []byte) error {
 	return err
 }
 
-// receive response from network and read into a byte array
+const rxBufSize = 65535 // max size of IPv4 & IPv6 packet
+
+// receive reads one reply from the connection. Known bugs: a client given a
+// Conn without Connect has no receive buffer, and this panics (send recovers
+// it); a TCP reply is taken from a single Read, so a reply split over several
+// reads fails to decode.
 func (x *GoSNMP) receive() ([]byte, error) {
 	var n int
 	var err error
-	// If we are using UDP and unconnected socket, read the packet and
-	// disregard the source address.
+	// On a packet connection (UDP, connected or not), read a datagram; its
+	// source address is not checked.
 	if uconn, ok := x.Conn.(net.PacketConn); ok {
 		n, _, err = uconn.ReadFrom(x.rxBuf[:])
 	} else {
@@ -139,7 +143,8 @@ func (x *GoSNMP) receive() ([]byte, error) {
 	}
 
 	if n == rxBufSize {
-		// This should never happen unless we're using something like a unix domain socket.
+		// A read that fills the buffer may have cut the reply short: a datagram
+		// cannot be this large, a TCP stream can.
 		return nil, fmt.Errorf("response buffer too small")
 	}
 

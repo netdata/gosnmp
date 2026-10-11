@@ -216,7 +216,11 @@ func engineScenarios() map[string]engineScenario {
 		"get/no-conn": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.Conn = nil }},
 		"conn-without-connect": {
 			agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.Context, x.rxBuf = nil, nil },
-			knownBug: "a client given a Conn without Connect has no Context and no receive buffer: send recovers the nil dereference into an error",
+			knownBug: "a client given a Conn without Connect has no Context and no receive buffer: the missing Context panics before the write, and send recovers the nil dereference into an error",
+		},
+		"conn-without-receive-buffer": {
+			agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.rxBuf = nil },
+			knownBug: "a client given a Conn and a Context without Connect has no receive buffer: the read after the write panics, and send recovers the nil dereference into an error",
 		},
 		"custom-conn": {shape: shapeStream, agent: answer(sysDescr)},
 

@@ -21,10 +21,10 @@ import (
 )
 
 const (
-	// MaxOids is the maximum number of OIDs permitted in a single call,
-	// otherwise error. MaxOids too high can cause remote devices to fail
-	// strangely. 60 seems to be a common value that works, but you will want
-	// to change this in the GoSNMP struct
+	// MaxOids is the default of GoSNMP.MaxOids, the maximum number of OIDs in
+	// a Get, GetNext or GetBulk request. MaxOids too high can cause remote
+	// devices to fail strangely. 60 seems to be a common value that works;
+	// set GoSNMP.MaxOids to change it.
 	MaxOids = 60
 
 	// Max oid sub-identifier value
@@ -39,12 +39,17 @@ const (
 	tcp = "tcp"
 )
 
-// GoSNMP represents GoSNMP library state.
+// GoSNMP is an SNMP client: its exported fields configure it, Connect opens
+// its connection, and its methods send requests. A GoSNMP is not safe for
+// concurrent use: requests share its connection, receive buffer and deadline,
+// so run one request at a time, or give each goroutine its own GoSNMP.
 type GoSNMP struct {
-	// Conn is net connection to use, typically established using GoSNMP.Connect().
+	// Conn is the connection to the agent, opened by Connect. A Conn set
+	// without Connect cannot carry requests: the client then lacks its receive
+	// buffer, and its context unless Context is set.
 	Conn net.Conn
 
-	// Target is an ipv4 address.
+	// Target is the agent's host name or IP address.
 	Target string
 
 	// Port is a port.
@@ -76,11 +81,9 @@ type GoSNMP struct {
 	// x.Logger = NewLogger(log.New(os.Stdout, "", 0))
 	Logger Logger
 
-	// Message hook methods allow passing in a functions at various points in the packet handling.
+	// Message hook methods allow passing in functions at various points in the packet handling.
 	// For example, this can be used to collect packet timing, add metrics, or implement tracing.
-	/*
-
-	 */
+	//
 	// PreSend is called before a packet is sent.
 	PreSend func(*GoSNMP)
 
@@ -90,14 +93,24 @@ type GoSNMP struct {
 	// OnRecv is called when a packet is received.
 	OnRecv func(*GoSNMP)
 
-	// OnRetry is called when a retry attempt is done.
+	// OnRetry is called after each attempt that fails in a way another attempt
+	// may cure (a write or read error, a timeout, an undecodable reply, a TCP
+	// connection the agent closed and the client reopened), before the next
+	// one, and also after the last such attempt, when no attempt follows. An
+	// encoding, deadline-setting or context error, or a failed TCP reconnect,
+	// ends the request without it.
 	OnRetry func(*GoSNMP)
 
-	// OnFinish is called when the request completed.
+	// OnFinish is called each time an exchange (a request and the answer to
+	// it, after any retries) ends without an error, including one answered by
+	// a Report the client resynchronizes from (unknownEngineID, the usual answer
+	// to SNMPv3 engine discovery, or notInTimeWindow). It is not called when an
+	// exchange fails.
 	OnFinish func(*GoSNMP)
 
-	// MaxOids is the maximum number of oids allowed in a Get().
-	// (default: MaxOids)
+	// MaxOids is the maximum number of OIDs in a Get, GetNext or GetBulk
+	// request; Set does not check it. Connect replaces zero with the MaxOids
+	// constant.
 	MaxOids int
 
 	// MaxRepetitions sets the GETBULK max-repetitions used by BulkWalk*
@@ -166,11 +179,12 @@ type GoSNMP struct {
 	// Internal - we use to send packets if using unconnected socket.
 	uaddr *net.UDPAddr
 
-	// Internal - mutual exclusion allows us to idempotently perform operations
+	// mu serializes Close calls.
 	mu sync.Mutex
 }
 
-// Default connection settings
+// Default is a client with default settings, used by the examples. Like any
+// GoSNMP, it is not safe for concurrent use.
 //
 //nolint:gochecknoglobals
 var Default = &GoSNMP{
@@ -261,10 +275,6 @@ const (
 	NotWritable                          // The variable cannot be written or created.
 	InconsistentName                     // The name in a variable binding specifies a variable that does not exist.
 )
-
-//
-// Public Functions (main interface)
-//
 
 func (x *GoSNMP) validateParameters() error {
 	if x.Transport == "" {
