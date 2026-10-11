@@ -67,7 +67,7 @@
 2s    hook OnRecv
 3s    read from 127.0.0.2:161: deadline
 3s    hook OnRetry
-3s    result: packet nil, error "request timeout (after 2 retries)"
+3s    result: packet nil, error "request timeout (after 2 retries)" *errors.errorString
 3s    client after: retries=2 next request id=1004
 
 == requests/answer/empty-wrong-id
@@ -144,7 +144,7 @@
 0s    read from 127.0.0.2:161: 4 octets, not decodable (error verifying packet sanity: TLV length exceeds the remaining input)
 0s    hook OnRecv
 0s    hook OnRetry
-0s    result: packet nil, error "error verifying packet sanity: TLV length exceeds the remaining input"
+0s    result: packet nil, error "error verifying packet sanity: TLV length exceeds the remaining input" *fmt.wrapError
 0s    client after: retries=2 next request id=1004
 
 == requests/answer/garbage-then-valid
@@ -202,6 +202,31 @@
 1.5s  hook OnFinish
 1.5s  result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 1.5s  client after: retries=2 next request id=1003
+
+== requests/answer/late-by-two-attempts
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #1 after 2.5s
+0s    hook OnSent
+1s    read from 127.0.0.2:161: deadline
+1s    hook OnRetry
+1s    deadline +1s
+1s    hook PreSend
+1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+1s    hook OnSent
+2s    read from 127.0.0.2:161: deadline
+2s    hook OnRetry
+2s    deadline +1s
+2s    hook PreSend
+2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+2s    hook OnSent
+2.5s  read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+2.5s  hook OnRecv
+2.5s  hook OnFinish
+2.5s  result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+2.5s  client after: retries=2 next request id=1004
 
 == requests/answer/late-reply-read-by-next-request
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -274,6 +299,47 @@
 0s    client after: retries=2 next request id=1002
 0s    known bug: a reply of another SNMP version is accepted, though RFC 3412 hands each message to the model of its own version
 
+== requests/answer/other-version-v3
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=0 noAuthNoPriv user="public" engine="" boots=0 time=0 context=""/"" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnRetry
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #2 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=0 noAuthNoPriv user="public" engine="" boots=0 time=0 context=""/"" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnRetry
+0s    deadline +1s
+0s    hook PreSend
+0s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #3 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=0 noAuthNoPriv user="public" engine="" boots=0 time=0 context=""/"" GetResponse id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnRetry
+0s    result: packet nil, error "unknown PDUType 0x53657175656e6365" *errors.errorString
+0s    client after: retries=2 next request id=1004
+
+== requests/answer/other-version-v3-report
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=7 noAuthNoPriv user="public" engine="" boots=0 time=0 encrypted
+0s    hook OnRecv
+0s    result: packet 3 msgID=7 noAuthNoPriv Report id=1001 context=""/"" usm="public"/""/0/0 [.1.3.6.1.6.3.15.1.1.3.0=Counter32:1], error "unknown username" *errors.errorString (equals ErrUnknownUsername)
+0s    client after: retries=2 next request id=1002
+
 == requests/answer/report
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
@@ -318,7 +384,7 @@
 0s    read: 10 octets, not decodable (error verifying packet sanity: TLV length exceeds the remaining input)
 0s    hook OnRecv
 0s    hook OnRetry
-0s    result: packet nil, error "error verifying packet sanity: TLV length exceeds the remaining input"
+0s    result: packet nil, error "error verifying packet sanity: TLV length exceeds the remaining input" *fmt.wrapError
 0s    client after: retries=0 next request id=1002
 0s    known bug: a TCP reply must arrive in one read
 
@@ -346,7 +412,7 @@
 0s    hook OnSent
 0s    read: 65535 octets, not decodable (invalid packet header)
 0s    hook OnRetry
-0s    result: packet nil, error "response buffer too small"
+0s    result: packet nil, error "response buffer too small" *errors.errorString
 0s    client after: retries=2 next request id=1004
 
 == requests/answer/unknown-pdu-type
@@ -375,7 +441,7 @@
 0s    read from 127.0.0.2:161: 52 octets, not decodable (unknown PDUType 0x504455547970652831373529)
 0s    hook OnRecv
 0s    hook OnRetry
-0s    result: packet nil, error "unknown PDUType 0x504455547970652831373529"
+0s    result: packet nil, error "unknown PDUType 0x504455547970652831373529" *errors.errorString
 0s    client after: retries=2 next request id=1004
 0s    known bug: the error text formats the PDU type's String() as hexadecimal
 
@@ -422,7 +488,7 @@
 2s    hook OnRecv
 3s    read from 127.0.0.2:161: deadline
 3s    hook OnRetry
-3s    result: packet nil, error "request timeout (after 2 retries)"
+3s    result: packet nil, error "request timeout (after 2 retries)" *errors.errorString
 3s    client after: retries=2 next request id=1004
 
 == requests/answer/zero-id
@@ -441,13 +507,13 @@
 
 == requests/conn-without-connect
 0s    client: 2c timeout=1s retries=2 exponential=false
-0s    result: packet nil, error "recover: runtime error: invalid memory address or nil pointer dereference Stack: ..."
+0s    result: packet nil, error "recover: runtime error: invalid memory address or nil pointer dereference Stack: ..." *errors.errorString
 0s    client after: retries=2 next request id=1001
 0s    known bug: a client given a Conn without Connect has no Context and no receive buffer: send recovers the nil dereference into an error
 
 == requests/context/canceled-before
 0s    client: 2c timeout=1s retries=2 exponential=false
-0s    result: packet nil, error "context canceled" (is context.Canceled)
+0s    result: packet nil, error "context canceled" *errors.errorString (equals context.Canceled)
 0s    client after: retries=2 next request id=1001
 
 == requests/context/canceled-in-last-attempt
@@ -470,7 +536,7 @@
 2s    hook OnSent
 3s    read from 127.0.0.2:161: deadline
 3s    hook OnRetry
-3s    result: packet nil, error "request timeout (after 2 retries)"
+3s    result: packet nil, error "request timeout (after 2 retries)" *errors.errorString
 3s    client after: retries=2 next request id=1004
 3s    known bug: a cancellation during the last attempt is reported as a request timeout
 
@@ -482,9 +548,14 @@
 0s    hook OnSent
 1s    read from 127.0.0.2:161: deadline
 1s    hook OnRetry
-1s    result: packet nil, error "context canceled" (is context.Canceled)
+1s    result: packet nil, error "context canceled" *errors.errorString (equals context.Canceled)
 1s    client after: retries=2 next request id=1002
 1s    known bug: cancellation is noticed only when the attempt's deadline passes
+
+== requests/context/canceled-with-cause-before
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    result: packet nil, error "context canceled" *errors.errorString (equals context.Canceled)
+0s    client after: retries=2 next request id=1001
 
 == requests/context/deadline-after-all-attempts
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -506,7 +577,7 @@
 2s    hook OnSent
 3s    read from 127.0.0.2:161: deadline
 3s    hook OnRetry
-3s    result: packet nil, error "request timeout (after 2 retries)"
+3s    result: packet nil, error "request timeout (after 2 retries)" *errors.errorString
 3s    client after: retries=2 next request id=1004
 
 == requests/context/deadline-during-hook
@@ -517,8 +588,19 @@
 0s    hook OnSent
 1s    read from 127.0.0.2:161: deadline
 1s    hook OnRetry, which takes 1s
-2s    result: packet nil, error "context deadline exceeded" (is context.DeadlineExceeded, net.Error timeout)
+2s    result: packet nil, error "context deadline exceeded" context.deadlineExceededError (equals context.DeadlineExceeded; is net.Error timeout)
 2s    client after: retries=2 next request id=1002
+
+== requests/context/deadline-equal-to-timeout
+0s    client: 2c timeout=1s retries=0 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    hook OnSent
+1s    read from 127.0.0.2:161: deadline
+1s    hook OnRetry
+1s    result: packet nil, error "request timeout (after 0 retries)" *errors.errorString
+1s    client after: retries=0 next request id=1002
 
 == requests/context/deadline-in-first-attempt
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -528,7 +610,7 @@
 0s    hook OnSent
 700ms read from 127.0.0.2:161: deadline
 700ms hook OnRetry
-700ms result: packet nil, error "context deadline exceeded" (is context.DeadlineExceeded, net.Error timeout)
+700ms result: packet nil, error "context deadline exceeded" context.deadlineExceededError (equals context.DeadlineExceeded; is net.Error timeout)
 700ms client after: retries=2 next request id=1002
 
 == requests/context/deadline-in-third-attempt
@@ -551,7 +633,7 @@
 2s    hook OnSent
 2.5s  read from 127.0.0.2:161: deadline
 2.5s  hook OnRetry
-2.5s  result: packet nil, error "context deadline exceeded" (is context.DeadlineExceeded, net.Error timeout)
+2.5s  result: packet nil, error "context deadline exceeded" context.deadlineExceededError (equals context.DeadlineExceeded; is net.Error timeout)
 2.5s  client after: retries=2 next request id=1004
 
 == requests/custom-conn
@@ -570,7 +652,7 @@
 == requests/deadline-error
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
-0s    result: packet nil, error "codec deadline failure"
+0s    result: packet nil, error "codec deadline failure" *errors.errorString
 0s    client after: retries=2 next request id=1001
 
 == requests/get
@@ -589,7 +671,7 @@
 == requests/get/invalid-oid
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
-0s    result: packet nil, error "marshal: unable to marshal varbind list: unable to marshal OID \".1.3.6.1.x\": invalid object identifier"
+0s    result: packet nil, error "marshal: unable to marshal varbind list: unable to marshal OID \".1.3.6.1.x\": invalid object identifier" *fmt.wrapError
 0s    client after: retries=2 next request id=1002
 
 == requests/get/max-oids/at-limit
@@ -607,12 +689,12 @@
 
 == requests/get/max-oids/over-limit
 0s    client: 2c timeout=1s retries=2 exponential=false
-0s    result: packet nil, error "oid count (3) is greater than MaxOids (2)"
+0s    result: packet nil, error "oid count (3) is greater than MaxOids (2)" *errors.errorString
 0s    client after: retries=2 next request id=1001
 
 == requests/get/no-conn
 0s    client: 2c timeout=1s retries=2 exponential=false
-0s    result: packet nil, error "&GoSNMP.Conn is missing. Provide a connection or use Connect()"
+0s    result: packet nil, error "&GoSNMP.Conn is missing. Provide a connection or use Connect()" *errors.errorString
 0s    client after: retries=2 next request id=1001
 
 == requests/get/v1
@@ -656,12 +738,12 @@
 
 == requests/getbulk/max-oids/over-limit
 0s    client: 2c timeout=1s retries=2 exponential=false
-0s    result: packet nil, error "oid count (3) is greater than MaxOids (2)"
+0s    result: packet nil, error "oid count (3) is greater than MaxOids (2)" *errors.errorString
 0s    client after: retries=2 next request id=1001
 
 == requests/getbulk/v1
 0s    client: 1 timeout=1s retries=2 exponential=false
-0s    result: packet nil, error "GETBULK not supported in SNMPv1"
+0s    result: packet nil, error "GETBULK not supported in SNMPv1" *errors.errorString
 0s    client after: retries=2 next request id=1001
 
 == requests/getnext
@@ -692,13 +774,13 @@
 
 == requests/getnext/max-oids/over-limit
 0s    client: 2c timeout=1s retries=2 exponential=false
-0s    result: packet nil, error "oid count (3) is greater than MaxOids (2)"
+0s    result: packet nil, error "oid count (3) is greater than MaxOids (2)" *errors.errorString
 0s    client after: retries=2 next request id=1001
 
 == requests/hook-panics
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
-0s    result: packet nil, error "recover: codec hook failure Stack: ..."
+0s    result: packet nil, error "recover: codec hook failure Stack: ..." *errors.errorString
 0s    client after: retries=2 next request id=1002
 
 == requests/mk-snmp-packet
@@ -756,7 +838,7 @@
 0s    hook OnSent
 0s    read from 127.0.0.2:161: read udp: connection refused
 0s    hook OnRetry
-0s    result: packet nil, error "error reading from socket: read udp: connection refused" (is syscall.ECONNREFUSED)
+0s    result: packet nil, error "error reading from socket: read udp: connection refused" *fmt.wrapError (is syscall.ECONNREFUSED)
 0s    client after: retries=2 next request id=1004
 
 == requests/read-error/once
@@ -982,7 +1064,7 @@
 == requests/set/integer-with-text
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
-0s    result: packet nil, error "marshal: unable to marshal varbind list: unable to marshal PDU Integer; not int"
+0s    result: packet nil, error "marshal: unable to marshal varbind list: unable to marshal PDU Integer; not int" *fmt.wrapError
 0s    client after: retries=2 next request id=1002
 
 == requests/set/max-oids/over-limit
@@ -1007,13 +1089,13 @@
 == requests/set/second-varbind-unsupported
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
-0s    result: packet nil, error "marshal: unable to marshal varbind list: unable to marshal PDU: unknown BER type \"Boolean\""
+0s    result: packet nil, error "marshal: unable to marshal varbind list: unable to marshal PDU: unknown BER type \"Boolean\"" *fmt.wrapError
 0s    client after: retries=2 next request id=1002
 0s    known bug: Set checks the type of the first varbind only; a later one fails in the encoder, after an attempt has started
 
 == requests/set/unsupported-type
 0s    client: 2c timeout=1s retries=2 exponential=false
-0s    result: packet nil, error "ERR:gosnmp currently only supports SNMP SETs for Integer, OctetString, Gauge32, IPAddress, ObjectIdentifier, Counter32, Counter64, Null, TimeTicks, Uinteger32, OpaqueFloat, and OpaqueDouble. Not Boolean"
+0s    result: packet nil, error "ERR:gosnmp currently only supports SNMP SETs for Integer, OctetString, Gauge32, IPAddress, ObjectIdentifier, Counter32, Counter64, Null, TimeTicks, Uinteger32, OpaqueFloat, and OpaqueDouble. Not Boolean" *errors.errorString
 0s    client after: retries=2 next request id=1001
 
 == requests/timeout
@@ -1036,7 +1118,7 @@
 2s    hook OnSent
 3s    read from 127.0.0.2:161: deadline
 3s    hook OnRetry
-3s    result: packet nil, error "request timeout (after 2 retries)"
+3s    result: packet nil, error "request timeout (after 2 retries)" *errors.errorString
 3s    client after: retries=2 next request id=1004
 3s    known bug: OnRetry runs even when no retry follows
 
@@ -1060,7 +1142,7 @@
 3s    hook OnSent
 7s    read from 127.0.0.2:161: deadline
 7s    hook OnRetry
-7s    result: packet nil, error "request timeout (after 2 retries)"
+7s    result: packet nil, error "request timeout (after 2 retries)" *errors.errorString
 7s    client after: retries=2 next request id=1004
 
 == requests/timeout/negative-retries
@@ -1071,7 +1153,7 @@
 0s    hook OnSent
 1s    read from 127.0.0.2:161: deadline
 1s    hook OnRetry
-1s    result: packet nil, error "request timeout (after 0 retries)"
+1s    result: packet nil, error "request timeout (after 0 retries)" *errors.errorString
 1s    client after: retries=0 next request id=1002
 
 == requests/timeout/no-retries
@@ -1082,7 +1164,7 @@
 0s    hook OnSent
 1s    read from 127.0.0.2:161: deadline
 1s    hook OnRetry
-1s    result: packet nil, error "request timeout (after 0 retries)"
+1s    result: packet nil, error "request timeout (after 0 retries)" *errors.errorString
 1s    client after: retries=0 next request id=1002
 
 == requests/timeout/tcp
@@ -1105,7 +1187,7 @@
 2s    hook OnSent
 3s    read: deadline
 3s    hook OnRetry
-3s    result: packet nil, error "request timeout (after 2 retries)"
+3s    result: packet nil, error "request timeout (after 2 retries)" *errors.errorString
 3s    client after: retries=2 next request id=1004
 
 == requests/timeout/zero
@@ -1125,7 +1207,7 @@
 0s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
 0s    write #3: deadline
 0s    hook OnRetry
-0s    result: packet nil, error "request timeout (after 2 retries)"
+0s    result: packet nil, error "request timeout (after 2 retries)" *errors.errorString
 0s    client after: retries=2 next request id=1004
 
 == requests/unconnected
@@ -1158,7 +1240,7 @@
 0s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
 0s    write #3 fails: codec write failure
 0s    hook OnRetry
-0s    result: packet nil, error "codec write failure" (is errEngineWrite)
+0s    result: packet nil, error "codec write failure" *errors.errorString (equals errEngineWrite)
 0s    client after: retries=2 next request id=1004
 
 == requests/write-error/once
@@ -1196,6 +1278,6 @@
 0s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
 0s    write #3 fails: codec timeout of the write queue
 0s    hook OnRetry
-0s    result: packet nil, error "request timeout (after 2 retries)"
+0s    result: packet nil, error "request timeout (after 2 retries)" *errors.errorString
 0s    client after: retries=2 next request id=1004
 0s    known bug: a timeout is recognized by the word in the error's text, so another error with that word becomes a request timeout

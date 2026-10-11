@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"maps"
 	"net"
 	"regexp"
@@ -24,6 +25,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netdata/gosnmp/internal/ber"
 )
 
 var engineGolden = goldenFiles{dir: "testdata/engine", title: "Engine"}
@@ -68,6 +71,43 @@ func answerWith(edit func(*SnmpPacket), vbs ...SnmpPDU) engineAgent {
 	return func(_ int, req []byte) []agentReply {
 		return []agentReply{{data: replyTo(req, edit, vbs...)}}
 	}
+}
+
+// errEngineCause is the cause a scenario cancels its context with.
+var errEngineCause = errors.New("engine test cause")
+
+// bareV3Report encodes an SNMPv3 noAuthNoPriv Report answering req whose
+// msgData is the Report PDU itself, without the scoped PDU around it, so that
+// a v1/v2c client reads it as the PDU after the SNMPv3 header.
+func bareV3Report(req []byte, counter string) []byte {
+	in, err := decodeMessage(req)
+	if err != nil {
+		panic(fmt.Sprintf("agent cannot decode the request: %v", err))
+	}
+	out := &SnmpPacket{
+		Version: Version3, MsgFlags: NoAuthNoPriv, SecurityModel: UserSecurityModel,
+		SecurityParameters: &UsmSecurityParameters{UserName: "public"},
+		PDUType:            Report, RequestID: in.RequestID, MsgID: 7,
+		Variables: []SnmpPDU{{Name: counter, Type: Counter32, Value: uint32(1)}},
+	}
+	b, err := out.marshalMsg()
+	if err != nil {
+		panic(fmt.Sprintf("agent cannot encode the reply: %v", err))
+	}
+	m, err := parseV3Message(b)
+	if err != nil {
+		panic(fmt.Sprintf("agent cannot read its reply: %v", err))
+	}
+	r := ber.NewReader(m.scoped)
+	for range 2 { // context engine ID and context name
+		if _, _, err = r.Next(); err != nil {
+			panic(err)
+		}
+	}
+	if m.scopedTag, m.scoped, err = r.Next(); err != nil {
+		panic(err)
+	}
+	return m.bytes()
 }
 
 // answerFromSecond is an agent that answers the requests from the second on
@@ -196,6 +236,12 @@ func engineScenarios() map[string]engineScenario {
 			}
 			return nil
 		}},
+		"answer/late-by-two-attempts": {agent: func(n int, req []byte) []agentReply {
+			if n == 1 {
+				return []agentReply{{data: replyTo(req, nil, sysDescr), after: 2500 * time.Millisecond}}
+			}
+			return nil
+		}},
 		"answer/late-reply-read-by-next-request": {run: twoGets, agent: func(n int, req []byte) []agentReply {
 			switch n {
 			case 1:
@@ -271,6 +317,15 @@ func engineScenarios() map[string]engineScenario {
 			agent:    answerWith(func(p *SnmpPacket) { p.Version = Version1 }, sysDescr),
 			knownBug: "a reply of another SNMP version is accepted, though RFC 3412 hands each message to the model of its own version",
 		},
+		"answer/other-version-v3": {
+			agent: answerWith(func(p *SnmpPacket) {
+				p.Version, p.MsgFlags, p.SecurityModel = Version3, NoAuthNoPriv, UserSecurityModel
+				p.SecurityParameters = &UsmSecurityParameters{UserName: "public"}
+			}, sysDescr),
+		},
+		"answer/other-version-v3-report": {agent: func(_ int, req []byte) []agentReply {
+			return []agentReply{{data: bareV3Report(req, usmStatsUnknownUserNames)}}
+		}},
 		"answer/other-community": {agent: answerWith(func(p *SnmpPacket) { p.Community = "private" }, sysDescr)},
 		"answer/garbage-then-valid": {
 			agent: func(_ int, req []byte) []agentReply {
@@ -341,6 +396,15 @@ func engineScenarios() map[string]engineScenario {
 			cancel()
 			return ctx, cancel
 		}},
+		"context/canceled-with-cause-before": {agent: answer(sysDescr), context: func() (context.Context, context.CancelFunc) {
+			ctx, cancel := context.WithCancelCause(context.Background())
+			cancel(errEngineCause)
+			return ctx, func() { cancel(nil) }
+		}},
+		"context/deadline-equal-to-timeout": {
+			context: withEngineTimeout(time.Second),
+			setup:   func(x *GoSNMP, _ *fakeTransport) { x.Retries = 0 },
+		},
 		"context/deadline-in-first-attempt":   {context: withEngineTimeout(700 * time.Millisecond)},
 		"context/deadline-in-third-attempt":   {context: withEngineTimeout(2500 * time.Millisecond)},
 		"context/deadline-after-all-attempts": {context: withEngineTimeout(time.Hour)},
@@ -465,34 +529,47 @@ func runEngineScenario(t *testing.T, sc engineScenario) string {
 }
 
 // TestEngineTCPReconnect pins, on loopback sockets, what the engine does when
-// a TCP agent closes the connection after reading each request: it reconnects
+// a TCP agent closes the connection after reading a request: it reconnects
 // and sends again, and gives up on the reconnect's error or when the retries
 // run out, known bugs included.
 func TestEngineTCPReconnect(t *testing.T) {
 	tests := map[string]struct {
 		transport      string        // "tcp" unless set
 		acceptAgain    bool          // the agent accepts the reconnection
+		ignoreFirst    bool          // the agent reads the first request and keeps the connection open
+		staleReply     bool          // the agent answers the request after the reconnect with a reply to the first
+		timeout        time.Duration // the client's Timeout; 10 s unless set
 		contextTimeout time.Duration // a context deadline before the timeout
-		wantErr        string        // describeEngineError, the dial address masked
+		wantErr        string        // describeEngineError, the dial address masked; "" for a reply
 		wantHooks      []string
 		wantRequests   int32 // requests the agent read
 		knownBug       string
 	}{
 		"retries run out": {
-			acceptAgain: true, wantErr: `error "max retries (1) exceeded"`,
+			acceptAgain: true, wantErr: `error "max retries (1) exceeded" *errors.errorString`,
 			wantHooks: []string{"PreSend", "OnSent", "OnRetry", "PreSend", "OnSent", "OnRetry"}, wantRequests: 2,
 		},
 		"retries run out, tcp4": {
-			transport: "tcp4", acceptAgain: true, wantErr: `error "max retries (1) exceeded"`,
+			transport: "tcp4", acceptAgain: true, wantErr: `error "max retries (1) exceeded" *errors.errorString`,
 			wantHooks: []string{"PreSend", "OnSent", "OnRetry", "PreSend", "OnSent", "OnRetry"}, wantRequests: 2,
 		},
+		"retries run out after a timeout": {
+			acceptAgain: true, ignoreFirst: true, timeout: 200 * time.Millisecond,
+			wantErr:   `error "max retries (1) exceeded" *errors.errorString`,
+			wantHooks: []string{"PreSend", "OnSent", "OnRetry", "PreSend", "OnSent", "OnRetry"}, wantRequests: 2,
+		},
+		"reply to the first request after the reconnect": {
+			acceptAgain: true, staleReply: true, timeout: 500 * time.Millisecond,
+			wantHooks:    []string{"PreSend", "OnSent", "OnRetry", "PreSend", "OnSent", "OnRecv", "OnFinish"},
+			wantRequests: 2,
+		},
 		"reconnect refused": {
-			wantErr:   `error "dial tcp <address>: connect: connection refused" (is syscall.ECONNREFUSED)`,
+			wantErr:   `error "dial tcp <address>: connect: connection refused" *net.OpError (is syscall.ECONNREFUSED)`,
 			wantHooks: []string{"PreSend", "OnSent"}, wantRequests: 1,
 		},
 		"context deadline": {
 			acceptAgain: true, contextTimeout: 5 * time.Second,
-			wantErr:   `error "recover: runtime error: invalid memory address or nil pointer dereference Stack: ..."`,
+			wantErr:   `error "recover: runtime error: invalid memory address or nil pointer dereference Stack: ..." *errors.errorString`,
 			wantHooks: []string{"PreSend", "OnSent", "OnRetry"}, wantRequests: 1,
 			knownBug: "after the reconnect under a context deadline, the engine reads the nil error of the reconnect",
 		},
@@ -504,6 +581,7 @@ func TestEngineTCPReconnect(t *testing.T) {
 			require.NoError(t, err)
 			port := uint16(ln.Addr().(*net.TCPAddr).Port) //nolint:gosec // a TCP port
 			var requests atomic.Int32
+			var firstRequest atomic.Pointer[[]byte]
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
@@ -515,12 +593,16 @@ func TestEngineTCPReconnect(t *testing.T) {
 					if first && !tc.acceptAgain {
 						ln.Close()
 					}
-					go func() {
-						defer conn.Close()
-						if n, _ := conn.Read(make([]byte, 2048)); n > 0 {
-							requests.Add(1)
+					go serveTCPRequests(conn, func(req []byte) (reply []byte, keepOpen bool) {
+						switch n := requests.Add(1); {
+						case n == 1:
+							firstRequest.Store(&req)
+							return nil, tc.ignoreFirst
+						case tc.staleReply:
+							return replyTo(*firstRequest.Load(), nil, sysDescr), true
 						}
-					}()
+						return nil, false
+					})
 				}
 			}()
 			defer func() {
@@ -538,6 +620,10 @@ func TestEngineTCPReconnect(t *testing.T) {
 			if transport == "" {
 				transport = "tcp"
 			}
+			timeout := tc.timeout
+			if timeout == 0 {
+				timeout = 10 * time.Second
+			}
 			var hooks []string
 			hook := func(name string) func(*GoSNMP) { return func(*GoSNMP) { hooks = append(hooks, name) } }
 			x := &GoSNMP{
@@ -546,7 +632,7 @@ func TestEngineTCPReconnect(t *testing.T) {
 				Transport: transport,
 				Community: "public",
 				Version:   Version2c,
-				Timeout:   10 * time.Second,
+				Timeout:   timeout,
 				Retries:   1,
 				Context:   ctx,
 				PreSend:   hook("PreSend"),
@@ -558,19 +644,62 @@ func TestEngineTCPReconnect(t *testing.T) {
 			require.NoError(t, x.Connect())
 			defer x.Close()
 
-			_, err = x.Get([]string{engineOID})
-			require.Error(t, err)
-			got := dialAddress.ReplaceAllString(describeEngineError(err), "dial tcp <address>: ")
-			if runtime.GOOS == "windows" && name == "reconnect refused" {
+			res, err := x.Get([]string{engineOID})
+			switch {
+			case tc.wantErr == "":
+				require.NoError(t, err)
+				first, decodeErr := decodeMessage(*firstRequest.Load())
+				require.NoError(t, decodeErr)
+				assert.Equal(t, first.RequestID, res.RequestID, "the reply answers the first request")
+			case runtime.GOOS == "windows" && name == "reconnect refused":
 				// Windows words the refusal differently and reports WSAECONNREFUSED.
+				got := dialAddress.ReplaceAllString(describeEngineError(err), "dial tcp <address>: ")
 				assert.True(t, strings.HasPrefix(got, `error "dial tcp <address>: connectex:`), "got %s", got)
-			} else {
+			default:
+				require.Error(t, err)
+				got := dialAddress.ReplaceAllString(describeEngineError(err), "dial tcp <address>: ")
 				assert.Equal(t, tc.wantErr, got, "known bug: %q", tc.knownBug)
 			}
 			assert.Equal(t, tc.wantHooks, hooks, "hooks")
 			assert.Equal(t, tc.wantRequests, requests.Load(), "requests the agent read")
 		})
 	}
+}
+
+// serveTCPRequests reads requests from conn, one per read, and hands each to
+// handle, which returns the reply to write, if any, and whether to keep the
+// connection open; conn closes when it is not kept open or the client closes
+// it.
+func serveTCPRequests(conn net.Conn, handle func(req []byte) (reply []byte, keepOpen bool)) {
+	defer conn.Close()
+	buf := make([]byte, 2048)
+	for {
+		n, err := conn.Read(buf)
+		if n == 0 || err != nil {
+			return
+		}
+		reply, keepOpen := handle(bytes.Clone(buf[:n]))
+		if reply != nil {
+			if _, err := conn.Write(reply); err != nil {
+				return
+			}
+		}
+		if !keepOpen {
+			return
+		}
+	}
+}
+
+// TestEngineReplyLogger pins that a reply carries the client's Logger.
+func TestEngineReplyLogger(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		c := newFakeTransport(nil, answer(sysDescr))
+		x := newEngineClient(t, nil, Version2c, c)
+		x.Logger = NewLogger(log.New(io.Discard, "", 0))
+		res, err := x.Get([]string{engineOID})
+		require.NoError(t, err)
+		assert.Equal(t, x.Logger, res.Logger)
+	})
 }
 
 // BenchmarkSendOneRequest measures one SNMPv2c Get through the request engine

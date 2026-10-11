@@ -103,6 +103,11 @@ func forgeReport(p *SnmpPacket) {
 	usp.AuthoritativeEngineBoots, usp.AuthoritativeEngineTime = 99, 5
 }
 
+// asV2c turns an answer into an SNMPv2c message with the same request ID.
+func asV2c(p *SnmpPacket) {
+	p.Version, p.Community = Version2c, "public"
+}
+
 // fromOtherEngine makes an answer come from the agent's other engine ID.
 func fromOtherEngine(p *SnmpPacket) {
 	p.SecurityParameters.usm().AuthoritativeEngineID = agentOtherEngineID
@@ -379,6 +384,28 @@ func v3Scenarios() map[string]v3Scenario {
 				why: "GetResponse with an empty msgFlags", raw: emptyMsgFlags,
 			}),
 			knownBug: "a reply with an empty msgFlags is accepted and carries the request's flags (RFC 3412 section 6: one octet)",
+		},
+		"answer/other-version/noauth": {
+			user: "codec-noauth", script: onRequest(2, agentAnswer{why: "SNMPv2c GetResponse", edit: asV2c}),
+		},
+		"answer/other-version/md5": {
+			user: "codec-md5", script: onRequest(2, agentAnswer{level: AuthNoPriv, why: "SNMPv2c GetResponse", edit: asV2c}),
+		},
+		"answer/other-version/sha-aes": {
+			user: "codec-sha-aes", script: onRequest(2, agentAnswer{level: AuthPriv, why: "SNMPv2c GetResponse", edit: asV2c}),
+		},
+		"hooks/privacy-protocol-changed-on-retry": {
+			user: "codec-sha-aes", script: onRequest(2, agentAnswer{drop: true, why: "no answer"}),
+			setup: func(x *GoSNMP, _ *UsmSecurityParameters) { x.Retries = 1 },
+			run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+				onRetry := x.OnRetry
+				x.OnRetry = func(x *GoSNMP) {
+					onRetry(x)
+					x.SecurityParameters.usm().PrivacyProtocol = DES
+					a.tr.addf("hook OnRetry sets the client's privacy protocol to DES")
+				}
+				return x.Get([]string{engineOID})
+			},
 		},
 		"answer/other-security-model": {
 			user: "codec-noauth", script: onRequest(2, agentAnswer{
