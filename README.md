@@ -247,6 +247,9 @@ running SNMP agent and the environment variables above, so they only build with 
 
 The generic end-to-end integration test `generic_e2e_test.go` should
 work against any SNMP MIB-2 compliant host (e.g. a router, NAS box, printer).
+Its SNMPv3 test logs in as each user of `testdata/snmp_users.txt`, one per
+authentication and privacy protocol pair; `snmp_users.sh` creates them in
+net-snmp's `snmpd.conf`, as CI and the Docker image do.
 
 The `netsnmp` module compares gosnmp with net-snmp: packet encodings and the SNMPv3
 User-based Security Model (localized keys, encryption and authentication for every
