@@ -170,6 +170,36 @@ func unauthenticatedTimeWindow(a *fakeV3Agent, edit func(*SnmpPacket)) {
 	}
 }
 
+// malformedSecondVarbind appends a varbind whose value does not decode to the
+// varbind list of an encoded plaintext answer.
+func malformedSecondVarbind(m *v3Message) {
+	split := func(b []byte) (fields [][]byte) {
+		r := ber.NewReader(b)
+		for r.Len() > 0 {
+			tag, content, err := r.Next()
+			if err != nil {
+				panic(err)
+			}
+			fields = append(fields, tlv(tag, content))
+		}
+		return fields
+	}
+	content := func(field []byte) []byte {
+		r := ber.NewReader(field)
+		_, c, err := r.Next()
+		if err != nil {
+			panic(err)
+		}
+		return c
+	}
+	scoped := split(m.scoped)        // context engine ID, context name, PDU
+	pdu := split(content(scoped[2])) // request ID, error status, error index, varbinds
+	bad := tlv(byte(Sequence), tlv(byte(ObjectIdentifier), []byte{0x2b, 6, 1}), []byte{byte(Counter32), 5, 1})
+	pdu[3] = tlv(byte(Sequence), content(pdu[3]), bad)
+	scoped[2] = tlv(scoped[2][0], bytes.Join(pdu, nil))
+	m.scoped = bytes.Join(scoped, nil)
+}
+
 // onRequest scripts the answer to request n only.
 func onRequest(n int, ans agentAnswer) func(int, agentRequest) (agentAnswer, bool) {
 	return func(k int, _ agentRequest) (agentAnswer, bool) { return ans, k == n }
@@ -365,6 +395,62 @@ func v3Scenarios() map[string]v3Scenario {
 			report: usmStatsUnknownUserNames, why: "unauthenticated, no varbinds",
 			edit: func(p *SnmpPacket) { p.Variables = nil },
 		})},
+		"unauthenticated-report/malformed-second-varbind": {user: "codec-md5", script: onRequest(2, agentAnswer{
+			report: usmStatsUnknownUserNames, why: "unauthenticated, a second varbind that does not decode",
+			raw: malformedSecondVarbind,
+		})},
+		"unauthenticated-report/other-security-model": {user: "codec-md5", script: onRequest(2, agentAnswer{
+			report: usmStatsUnknownUserNames, why: "unauthenticated, security model 2",
+			edit: func(p *SnmpPacket) { p.SecurityModel = 2 },
+		})},
+		// The Report of the capture that showed the problem: the agent does not
+		// read the PDU of a request outside its time window, so the request ID is
+		// 0 and only the msgID ties the Report to the request.
+		"unauthenticated-report/time-jump/request-id-zero": {user: "codec-sha-aes", run: getTwice(func(a *fakeV3Agent) {
+			timeJump(a)
+			unauthenticatedTimeWindow(a, func(p *SnmpPacket) { p.RequestID = 0 })
+		})},
+		"unauthenticated-report/silent-after-unknown-engine": {user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+			switch {
+			case n == 2:
+				return agentAnswer{report: usmStatsUnknownEngineIDs, why: "unauthenticated, from the other engine", edit: fromOtherEngine}, true
+			case n > 2:
+				return agentAnswer{drop: true, why: "silent after the Report"}, true
+			}
+			return agentAnswer{}, false
+		}},
+		"unauthenticated-report/security-model-changed-by-hook": {
+			user:   "codec-md5",
+			script: onRequest(2, agentAnswer{report: usmStatsNotInTimeWindows, why: "not in time window, unauthenticated"}),
+			run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+				onRecv := x.OnRecv
+				x.OnRecv = func(x *GoSNMP) {
+					onRecv(x)
+					if a.counters[usmStatsNotInTimeWindows] == 1 && x.SecurityModel == UserSecurityModel {
+						x.SecurityModel = 2
+						a.tr.addf("hook OnRecv sets the client's security model to 2")
+					}
+				}
+				return x.Get([]string{engineOID})
+			},
+		},
+		"answer/forged-report/empty-identity": {user: "codec-md5", script: onRequest(2, agentAnswer{
+			report: usmStatsUnknownUserNames, level: AuthNoPriv, why: "Report signed with another key, without a user name and engine ID",
+			edit: func(p *SnmpPacket) {
+				forgeReport(p)
+				usp := p.SecurityParameters.usm()
+				usp.UserName, usp.AuthoritativeEngineID = "", ""
+			},
+		})},
+		// A client with authentication keys that sends at noAuthNoPriv does
+		// not check the digest of an authNoPriv answer.
+		"report-later/noauth-request-authenticated-report": {
+			user: "codec-md5", setup: func(x *GoSNMP, _ *UsmSecurityParameters) { x.MsgFlags = NoAuthNoPriv },
+			run: getTwice(nil), script: onRequest(3, agentAnswer{
+				report: usmStatsUnknownUserNames, level: AuthNoPriv, why: "authNoPriv Report from another engine ID 10 s later",
+				edit: fromOtherEngine,
+			}),
+		},
 
 		"time-window/silence-over-150s": {
 			user: "codec-md5", run: getAfter(200*time.Second, nil),

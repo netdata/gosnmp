@@ -80,6 +80,11 @@ var errEngineCause = errors.New("engine test cause")
 // msgData is the Report PDU itself, without the scoped PDU around it, so that
 // a v1/v2c client reads it as the PDU after the SNMPv3 header.
 func bareV3Report(req []byte, counter string) []byte {
+	return bareV3Answer(req, Report, SnmpPDU{Name: counter, Type: Counter32, Value: uint32(1)})
+}
+
+// bareV3Answer is bareV3Report for a PDU of type pduType with vbs.
+func bareV3Answer(req []byte, pduType PDUType, vbs ...SnmpPDU) []byte {
 	in, err := decodeMessage(req)
 	if err != nil {
 		panic(fmt.Sprintf("agent cannot decode the request: %v", err))
@@ -87,8 +92,8 @@ func bareV3Report(req []byte, counter string) []byte {
 	out := &SnmpPacket{
 		Version: Version3, MsgFlags: NoAuthNoPriv, SecurityModel: UserSecurityModel,
 		SecurityParameters: &UsmSecurityParameters{UserName: "public"},
-		PDUType:            Report, RequestID: in.RequestID, MsgID: 7,
-		Variables: []SnmpPDU{{Name: counter, Type: Counter32, Value: uint32(1)}},
+		PDUType:            pduType, RequestID: in.RequestID, MsgID: 7,
+		Variables: vbs,
 	}
 	b, err := out.marshalMsg()
 	if err != nil {
@@ -329,6 +334,12 @@ func engineScenarios() map[string]engineScenario {
 		},
 		"answer/other-version-v3-report": {agent: func(_ int, req []byte) []agentReply {
 			return []agentReply{{data: bareV3Report(req, usmStatsUnknownUserNames)}}
+		}},
+		"answer/other-version-v3-unknown-engine-report": {agent: func(_ int, req []byte) []agentReply {
+			return []agentReply{{data: bareV3Report(req, usmStatsUnknownEngineIDs)}}
+		}},
+		"answer/other-version-v3-get-response": {agent: func(_ int, req []byte) []agentReply {
+			return []agentReply{{data: bareV3Answer(req, GetResponse, sysDescr)}}
 		}},
 		"answer/other-community": {agent: answerWith(func(p *SnmpPacket) { p.Community = "private" }, sysDescr)},
 		"answer/garbage-then-valid": {

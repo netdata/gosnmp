@@ -317,6 +317,9 @@ func describeV3Message(b []byte) string {
 	if err != nil {
 		return fmt.Sprintf("%d octets, SNMPv3, not decodable (%v)", len(b), err)
 	}
+	if req.pdu == nil && m.scopedTag != byte(OctetString) {
+		return "3 " + describeAgentRequest(req) + " scoped PDU not decodable"
+	}
 	if req.pdu == nil {
 		return "3 " + describeAgentRequest(req) + " encrypted"
 	}
