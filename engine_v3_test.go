@@ -584,7 +584,6 @@ func v3Scenarios() map[string]v3Scenario {
 				}
 				return agentAnswer{}, false
 			},
-			knownBug: "while the client has no engine ID, the engine discovery exception accepts a reply with an empty user name and engine ID without its digest, and stores its engine boots and time",
 		},
 		"discovery/report-without-engine-id/then-report-other-msg-id": {
 			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
@@ -735,12 +734,13 @@ func v3Scenarios() map[string]v3Scenario {
 				return agentAnswer{}, false
 			},
 		},
+		// A Report is matched by its msgID (RFC 3412 section 7.2 step 10); its
+		// request ID may be 0 when the agent could not read the request.
 		"resync/report-for-other-request-id": {
 			user: "codec-md5", script: onRequest(2, agentAnswer{
 				report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "not in time window, for another request ID",
 				edit: func(p *SnmpPacket) { p.RequestID += 100 },
 			}),
-			knownBug: "a Report is mapped without checking its msgID or request ID",
 		},
 		"resync/retransmission-answered-by-authenticated-report": {
 			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
@@ -817,7 +817,6 @@ func v3Scenarios() map[string]v3Scenario {
 					return agentAnswer{level: AuthPriv, why: "answers the old engine ID from the new one"}, n == 3
 				}
 			}),
-			knownBug: "a GetResponse from another engine ID than the request's is accepted and its engine ID adopted (RFC 3412 section 7.2 step 12 b)",
 		},
 		"engine-change/md5-answered-from-new-engine": {
 			user: "codec-md5", run: getThrice(func(a *fakeV3Agent) {
@@ -826,7 +825,6 @@ func v3Scenarios() map[string]v3Scenario {
 					return agentAnswer{level: AuthNoPriv, why: "answers the old engine ID from the new one"}, n == 3
 				}
 			}),
-			knownBug: "a GetResponse from another engine ID than the request's is accepted and its engine ID adopted (RFC 3412 section 7.2 step 12 b)",
 		},
 
 		// Requests the agent rejects.
@@ -858,13 +856,11 @@ func v3Scenarios() map[string]v3Scenario {
 				report: usmStatsUnknownUserNames, why: "Report for another message",
 				edit: func(p *SnmpPacket) { p.MsgID, p.RequestID = p.MsgID+100, p.RequestID+100 },
 			}),
-			knownBug: "a Report is mapped without checking its msgID or request ID",
 		},
 		"answer/wrong-msg-id": {
 			user: "codec-md5", script: onRequest(2, agentAnswer{
 				level: AuthNoPriv, edit: func(p *SnmpPacket) { p.MsgID += 100 }, why: "GetResponse for another message",
 			}),
-			knownBug: "the reply's msgID is not checked",
 		},
 		"answer/empty-other-message": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			level: AuthNoPriv, why: "empty GetResponse for another message",

@@ -336,25 +336,21 @@ func engineScenarios() map[string]engineScenario {
 			agent: func(_ int, req []byte) []agentReply {
 				return []agentReply{{data: bareV3Report(req, usmStatsUnknownUserNames)}}
 			},
-			knownBug: "an SNMPv3 message answers an SNMPv2c request, though RFC 3412 hands each message to the model of its own version",
 		},
 		"answer/other-version-v3-unknown-engine-report": {
 			agent: func(_ int, req []byte) []agentReply {
 				return []agentReply{{data: bareV3Report(req, usmStatsUnknownEngineIDs)}}
 			},
-			knownBug: "an SNMPv3 message answers an SNMPv2c request, though RFC 3412 hands each message to the model of its own version",
 		},
 		"answer/other-version-v3-msg-id-zero": {
 			agent: func(_ int, req []byte) []agentReply {
 				return []agentReply{{data: bareV3Answer(req, 0, Report, SnmpPDU{Name: usmStatsUnknownUserNames, Type: Counter32, Value: uint32(1)})}}
 			},
-			knownBug: "an SNMPv3 message answers an SNMPv2c request, though RFC 3412 hands each message to the model of its own version",
 		},
 		"answer/other-version-v3-get-response": {
 			agent: func(_ int, req []byte) []agentReply {
 				return []agentReply{{data: bareV3Answer(req, 7, GetResponse, sysDescr)}}
 			},
-			knownBug: "an SNMPv3 message answers an SNMPv2c request, though RFC 3412 hands each message to the model of its own version",
 		},
 		"answer/other-community": {agent: answerWith(func(p *SnmpPacket) { p.Community = "private" }, sysDescr)},
 		"answer/garbage-then-valid": {
@@ -745,7 +741,7 @@ func BenchmarkSendOneRequest(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := x.sendOneRequest(pkt); err != nil {
+		if _, _, err := x.sendOneRequest(pkt); err != nil {
 			b.Fatal(err)
 		}
 	}

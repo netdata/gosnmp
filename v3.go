@@ -100,44 +100,48 @@ func (packet *SnmpPacket) authenticate(msg []byte) ([]byte, error) {
 }
 
 // testAuthentication verifies the digest of the SNMPv3 message packet, whose
-// header is decoded into result, with result's flags and user when
-// useResponseSecurityParameters is set, with the client's otherwise, except
-// for engine discovery (RFC 3414 section 4): a message with an empty user name
-// and engine ID is accepted without authentication. For the engine's replies
-// while the client has no engine ID, and for UnmarshalTrap. Known bug: whatever
-// its flags and variable bindings (the bindings are not decoded yet), so any
-// such message skips the digest.
+// header is decoded into result, for UnmarshalTrap: with result's flags and
+// security parameters when useResponseSecurityParameters is set, with the
+// client's otherwise. Engine discovery (RFC 3414 section 4): a message with an
+// empty user name and engine ID is accepted without authentication. Known bug:
+// whatever its flags and variable bindings (the bindings are not decoded yet),
+// so any such message skips the digest.
 func (x *GoSNMP) testAuthentication(packet []byte, result *SnmpPacket, useResponseSecurityParameters bool) error {
 	if x.Version != Version3 {
 		return fmt.Errorf("testAuthentication called with non Version3 connection")
 	}
+	msgFlags := x.MsgFlags
+	if useResponseSecurityParameters {
+		msgFlags = result.MsgFlags
+	}
+
 	msgSecParams := result.SecurityParameters.usm()
 	if msgSecParams.UserName == "" && msgSecParams.AuthoritativeEngineID == "" {
 		return nil
 	}
-	if useResponseSecurityParameters {
-		return verifyDigest(packet, result, result.MsgFlags, msgSecParams)
-	}
-	return verifyDigest(packet, result, x.MsgFlags, x.SecurityParameters.usm())
-}
 
-// verifyDigest verifies the digest of the SNMPv3 message packet, whose header
-// is decoded into result, when flags ask for authentication: the message must
-// carry the user name of user, and its digest is checked with result's keys,
-// which decoding derived for the engine ID the message carries.
-func verifyDigest(packet []byte, result *SnmpPacket, flags SnmpV3MsgFlags, user *UsmSecurityParameters) error {
-	if flags&AuthNoPriv > 0 {
-		authentic, err := user.isAuthentic(packet, result)
+	if msgFlags&AuthNoPriv > 0 {
+		var authentic bool
+		var err error
+		if useResponseSecurityParameters {
+			authentic, err = result.SecurityParameters.usm().isAuthentic(packet, result)
+		} else {
+			authentic, err = x.SecurityParameters.usm().isAuthentic(packet, result)
+		}
 		if err != nil {
 			return err
 		}
 		if !authentic {
-			return fmt.Errorf("incoming packet is not authentic, discarding")
+			return errNotAuthentic
 		}
 	}
 
 	return nil
 }
+
+// errNotAuthentic is the error of a message whose digest, user or engine ID
+// does not check.
+var errNotAuthentic = errors.New("incoming packet is not authentic, discarding")
 
 // initPacket draws a new salt when the client uses privacy, and sets it as the
 // privacy parameters of the outgoing SNMPv3 packet when the packet asks for

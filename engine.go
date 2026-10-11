@@ -55,13 +55,14 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 		}
 	}
 
-	result, err = x.sendOneRequest(packetOut)
+	var verified bool
+	result, verified, err = x.sendOneRequest(packetOut)
 	if err != nil {
 		x.Logger.Printf("SEND Error on the first Request Error: %s", err)
 	}
 	var kind reportKind
 	var stored bool
-	if kind, stored, err = x.settleReply(packetOut, result, err); !kind.resync {
+	if kind, stored, err = x.settleReply(packetOut, result, verified, err); !kind.resync {
 		return result, err
 	}
 
@@ -86,11 +87,11 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 		x.Logger.Printf("ERROR lendEngineParameters error: %s", err)
 		return nil, err
 	}
-	result, err = x.sendOneRequest(packetOut)
+	result, verified, err = x.sendOneRequest(packetOut)
 	if err != nil && x.Logger.enabled() {
 		x.Logger.Printf("ERROR "+kind.name+" retransmit error: %s", err)
 	}
-	if kind, _, err = x.settleReply(packetOut, result, err); kind.resync {
+	if kind, _, err = x.settleReply(packetOut, result, verified, err); kind.resync {
 		return result, kind.err
 	}
 	return result, err
@@ -115,6 +116,9 @@ type exchange struct {
 type attemptOutcome struct {
 	packet *SnmpPacket
 	err    error
+	// verified reports that packet's digest checked against the request
+	// (exchange.authenticate).
+	verified bool
 	// retry asks for another attempt; err is the reason, nil after a TCP
 	// reconnect.
 	retry bool
@@ -125,9 +129,10 @@ type sentIDs struct {
 	requestID, msgID uint32
 }
 
-// sendOneRequest sends packetOut and returns the reply that answers it,
-// retrying up to x.Retries times. OnFinish runs when it succeeds.
-func (x *GoSNMP) sendOneRequest(packetOut *SnmpPacket) (*SnmpPacket, error) {
+// sendOneRequest sends packetOut and returns the reply that answers it, and
+// whether the reply's digest checked against the request, retrying up to
+// x.Retries times. OnFinish runs when it succeeds.
+func (x *GoSNMP) sendOneRequest(packetOut *SnmpPacket) (*SnmpPacket, bool, error) {
 	e := exchange{x: x, packet: packetOut, timeout: x.Timeout}
 	// The IDs of the attempts before the current one, in a local array, not a
 	// field of exchange, so that eight of them stay on the stack: a field
@@ -139,7 +144,7 @@ func (x *GoSNMP) sendOneRequest(packetOut *SnmpPacket) (*SnmpPacket, error) {
 	for n := 0; ; n++ {
 		if n > 0 {
 			if err := e.beforeRetry(n, lastErr); err != nil {
-				return nil, err
+				return nil, false, err
 			}
 		}
 		out := e.attempt(earlier)
@@ -153,7 +158,7 @@ func (x *GoSNMP) sendOneRequest(packetOut *SnmpPacket) (*SnmpPacket, error) {
 		if out.err == nil && x.OnFinish != nil {
 			x.OnFinish(x)
 		}
-		return out.packet, out.err
+		return out.packet, out.verified, out.err
 	}
 }
 
@@ -290,22 +295,23 @@ func (e *exchange) await(earlier []sentIDs) attemptOutcome {
 			x.Logger.Printf("GET RESPONSE OK: %+v", resp)
 		}
 
-		reply, err := e.decode(resp)
+		reply, verified, err := e.decode(resp)
 		if err != nil {
 			// Known bug: an undecodable reply ends the attempt, and the request
 			// is sent again at once, instead of reading on.
 			return attemptOutcome{err: err, retry: true}
 		}
 		if answered, err := e.answers(reply, earlier); answered {
-			return attemptOutcome{packet: reply, err: err}
+			return attemptOutcome{packet: reply, err: err, verified: verified}
 		}
 		x.Logger.Print("ERROR out of order")
 	}
 }
 
 // decode decodes a reply to the request: the header, for an SNMPv3 client the
-// authentication and the scoped PDU, then the PDU.
-func (e *exchange) decode(resp []byte) (*SnmpPacket, error) {
+// authentication and the scoped PDU, then the PDU. It reports whether the
+// reply's digest checked against the request.
+func (e *exchange) decode(resp []byte) (_ *SnmpPacket, verified bool, _ error) {
 	x := e.x
 	// Known bug: a reply with an empty msgFlags keeps the request's flags.
 	reply := &SnmpPacket{Logger: x.Logger, MsgFlags: e.packet.MsgFlags}
@@ -316,54 +322,62 @@ func (e *exchange) decode(resp []byte) (*SnmpPacket, error) {
 	cursor, err := x.unmarshalHeader(resp, reply)
 	if err != nil {
 		x.Logger.Printf("ERROR on unmarshall header: %s", err)
-		return nil, err
+		return nil, false, err
 	}
 	if x.Version == Version3 {
-		// Until discovery has set the authoritative engine ID, the reply is
-		// checked with its own flags and user, with the engine discovery
-		// exception, afterwards with the request's and without it, so a Report
-		// the agent sends without authentication fails the digest check. The
-		// keys are derived for the engine ID the reply carries. Known bug: that
-		// engine ID is not compared with the request's (RFC 3412 section 7.2
-		// step 12 b).
-		usp := usmOf(x.SecurityParameters)
-		fromReply := usp != nil && usp.AuthoritativeEngineID == ""
-		if fromReply {
-			err = x.testAuthentication(resp, reply, true)
-		} else {
-			err = verifyDigest(resp, reply, e.packet.MsgFlags, e.packet.SecurityParameters.usm())
-		}
-		if err != nil {
+		if verified, err = e.authenticate(resp, reply); err != nil {
 			if e.unauthenticatedReport(resp, cursor, reply) {
-				return reply, nil
+				return reply, false, nil
 			}
 			x.Logger.Printf("ERROR on Test Authentication on v3: %s", err)
-			return nil, err
+			return nil, false, err
 		}
 		if resp, cursor, err = unmarshalScopedPDU(resp, cursor, reply); err != nil {
 			x.Logger.Printf("ERROR on the scoped PDU on v3: %s", err)
-			return nil, err
+			return nil, false, err
 		}
 	}
 	if err = unmarshalPayload(resp, cursor, reply); err != nil {
 		x.Logger.Printf("ERROR on UnmarshalPayload: %s", err)
-		return nil, err
+		return nil, false, err
 	}
-	return reply, nil
+	return reply, verified, nil
 }
 
-// unauthenticatedReport reports whether resp, a reply that failed the digest
-// check, is a Report the agent sent without the authentication the request
-// asked for, and decodes it into reply. An agent sends most Reports so (RFC
-// 3414 section 3.2: it cannot authenticate to an unknown engine ID or user),
-// and some agents even notInTimeWindow, which step 7 a sends at authNoPriv.
-// Only a plaintext scoped PDU is read, so nothing unauthenticated is
-// decrypted, and only a Report at noAuthNoPriv (privacy without
+// authenticate checks reply, an SNMPv3 answer to the request, against the
+// request's security state (RFC 3412 section 7.2, RFC 3414 section 3.2): to a
+// request that asks for authentication, it must ask for it too, name the
+// request's user and engine ID, and carry a digest that checks with the
+// request's key. It reports whether it checked the digest; any reply answers a
+// request without authentication unchecked.
+func (e *exchange) authenticate(resp []byte, reply *SnmpPacket) (bool, error) {
+	if e.packet.MsgFlags&AuthNoPriv == 0 {
+		return false, nil
+	}
+	if reply.MsgFlags&AuthNoPriv == 0 {
+		return false, errNotAuthentic
+	}
+	authentic, err := e.packet.SecurityParameters.usm().isAuthenticAnswer(resp, reply.SecurityParameters.usm())
+	if err != nil {
+		return false, err
+	}
+	if !authentic {
+		return false, errNotAuthentic
+	}
+	return true, nil
+}
+
+// unauthenticatedReport reports whether resp, a reply that failed the
+// authentication its request asked for, is a Report the agent sent without
+// authentication, and decodes it into reply. An agent sends most Reports so
+// (RFC 3414 section 3.2: it cannot authenticate to an unknown engine ID or
+// user), and some agents even notInTimeWindow, which step 7 a sends at
+// authNoPriv. Only a plaintext scoped PDU is read, so nothing unauthenticated
+// is decrypted, and only a Report at noAuthNoPriv (privacy without
 // authentication is invalid, RFC 3412 section 7.2) of the request's security
 // model that reportKindOf maps is kept.
 func (e *exchange) unauthenticatedReport(resp []byte, cursor int, reply *SnmpPacket) bool {
-	if !withoutAuthentication(e.packet, reply) || reply.MsgFlags&AuthPriv != NoAuthNoPriv ||
-		reply.SecurityModel != e.packet.SecurityModel ||
+	if reply.MsgFlags&AuthPriv != NoAuthNoPriv || reply.SecurityModel != e.packet.SecurityModel ||
 		cursor >= len(resp) || PDUType(resp[cursor]) != Sequence {
 		return false
 	}
@@ -375,39 +389,27 @@ func (e *exchange) unauthenticatedReport(resp []byte, cursor int, reply *SnmpPac
 	return ok
 }
 
-// withoutAuthentication reports whether reply, an answer to request, comes
-// without the authentication the request asked for.
-func withoutAuthentication(request, reply *SnmpPacket) bool {
-	return request.MsgFlags&AuthNoPriv != 0 && reply.MsgFlags&AuthNoPriv == 0
-}
-
-// authenticated reports whether the digest of reply, an answer to request,
-// was checked: both ask for authentication. Known bug: while the client has
-// no engine ID, the engine discovery exception of testAuthentication skips
-// the check for a reply with an empty user name and engine ID.
-func authenticated(request, reply *SnmpPacket) bool {
-	return request.MsgFlags&AuthNoPriv != 0 && reply.MsgFlags&AuthNoPriv != 0
-}
-
-// answers reports whether reply answers the request, and with which error: a
-// reply answers with the request ID of the current or an earlier attempt; a
-// Report gives its kind's error, none for a resync Report, and one without
-// the authentication the request asked for answers only with the msgID of the
-// current or an earlier attempt. Known bugs: nothing else of the reply is
-// compared with the request (its version, PDU type and the msgID of any other
-// reply, nor the security model, level, user, engine ID and context of RFC
-// 3412 section 7.2 step 12 b); an empty reply without an error status and a
-// Report answer before their request ID is checked; request ID 0 answers any
-// request.
+// answers reports whether reply answers the request, and with which error. An
+// SNMPv3 request is answered only by an SNMPv3 reply with the msgID of its
+// current or an earlier attempt, and an SNMPv3 reply answers no other request
+// (RFC 3412 section 7.2 step 10). A Report then answers with its kind's error,
+// none for a resync Report; another reply with the request ID of the current
+// or an earlier attempt. Known bugs: nothing else of the reply is compared
+// with the request (its PDU type, the SNMPv1 and SNMPv2c versions, nor the
+// security model, level and context of RFC 3412 section 7.2 step 12 b); an
+// empty reply without an error status answers before its request ID is
+// checked; request ID 0 answers any request.
 func (e *exchange) answers(reply *SnmpPacket, earlier []sentIDs) (bool, error) {
+	if reply.Version == Version3 || e.packet.Version == Version3 {
+		if reply.Version != e.packet.Version || !e.sentWithMsgID(reply.MsgID, earlier) {
+			return false, nil
+		}
+	}
 	if reply.Error == NoError && len(reply.Variables) < 1 {
 		e.x.Logger.Print("Empty result: the reply answers the request")
 		return true, nil
 	}
 	if kind, ok := reportKindOf(reply); ok {
-		if withoutAuthentication(e.packet, reply) && !e.sentWithMsgID(reply.MsgID, earlier) {
-			return false, nil
-		}
 		if kind.resync {
 			return true, nil
 		}

@@ -337,10 +337,28 @@
 0s    hook OnSent
 0s    read from 127.0.0.2:161: 3 msgID=7 noAuthNoPriv user="public" engine="" boots=0 time=0 scoped PDU not decodable
 0s    hook OnRecv
-0s    hook OnFinish
-0s    result: packet 3 msgID=7 noAuthNoPriv GetResponse id=1001 context=""/"" usm="public"/""/0/0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], error "storeParameters called with non Version3 connection or packet" *errors.errorString
-0s    client after: retries=2 next request id=1002
-0s    known bug: an SNMPv3 message answers an SNMPv2c request, though RFC 3412 hands each message to the model of its own version
+1s    read from 127.0.0.2:161: deadline
+1s    hook OnRetry
+1s    deadline +1s
+1s    hook PreSend
+1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+1s    agent answers #2 after 0s
+1s    hook OnSent
+1s    read from 127.0.0.2:161: 3 msgID=7 noAuthNoPriv user="public" engine="" boots=0 time=0 scoped PDU not decodable
+1s    hook OnRecv
+2s    read from 127.0.0.2:161: deadline
+2s    hook OnRetry
+2s    deadline +1s
+2s    hook PreSend
+2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+2s    agent answers #3 after 0s
+2s    hook OnSent
+2s    read from 127.0.0.2:161: 3 msgID=7 noAuthNoPriv user="public" engine="" boots=0 time=0 scoped PDU not decodable
+2s    hook OnRecv
+3s    read from 127.0.0.2:161: deadline
+3s    hook OnRetry
+3s    result: packet nil, error "request timeout (after 2 retries)" *errors.errorString
+3s    client after: retries=2 next request id=1004
 
 == requests/answer/other-version-v3-msg-id-zero
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -351,9 +369,28 @@
 0s    hook OnSent
 0s    read from 127.0.0.2:161: 3 msgID=0 noAuthNoPriv user="public" engine="" boots=0 time=0 scoped PDU not decodable
 0s    hook OnRecv
-0s    result: packet 3 msgID=0 noAuthNoPriv Report id=1001 context=""/"" usm="public"/""/0/0 [.1.3.6.1.6.3.15.1.1.3.0=Counter32:1], error "unknown username" *errors.errorString (equals ErrUnknownUsername)
-0s    client after: retries=2 next request id=1002
-0s    known bug: an SNMPv3 message answers an SNMPv2c request, though RFC 3412 hands each message to the model of its own version
+1s    read from 127.0.0.2:161: deadline
+1s    hook OnRetry
+1s    deadline +1s
+1s    hook PreSend
+1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+1s    agent answers #2 after 0s
+1s    hook OnSent
+1s    read from 127.0.0.2:161: 3 msgID=0 noAuthNoPriv user="public" engine="" boots=0 time=0 scoped PDU not decodable
+1s    hook OnRecv
+2s    read from 127.0.0.2:161: deadline
+2s    hook OnRetry
+2s    deadline +1s
+2s    hook PreSend
+2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+2s    agent answers #3 after 0s
+2s    hook OnSent
+2s    read from 127.0.0.2:161: 3 msgID=0 noAuthNoPriv user="public" engine="" boots=0 time=0 scoped PDU not decodable
+2s    hook OnRecv
+3s    read from 127.0.0.2:161: deadline
+3s    hook OnRetry
+3s    result: packet nil, error "request timeout (after 2 retries)" *errors.errorString
+3s    client after: retries=2 next request id=1004
 
 == requests/answer/other-version-v3-report
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -364,9 +401,28 @@
 0s    hook OnSent
 0s    read from 127.0.0.2:161: 3 msgID=7 noAuthNoPriv user="public" engine="" boots=0 time=0 scoped PDU not decodable
 0s    hook OnRecv
-0s    result: packet 3 msgID=7 noAuthNoPriv Report id=1001 context=""/"" usm="public"/""/0/0 [.1.3.6.1.6.3.15.1.1.3.0=Counter32:1], error "unknown username" *errors.errorString (equals ErrUnknownUsername)
-0s    client after: retries=2 next request id=1002
-0s    known bug: an SNMPv3 message answers an SNMPv2c request, though RFC 3412 hands each message to the model of its own version
+1s    read from 127.0.0.2:161: deadline
+1s    hook OnRetry
+1s    deadline +1s
+1s    hook PreSend
+1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+1s    agent answers #2 after 0s
+1s    hook OnSent
+1s    read from 127.0.0.2:161: 3 msgID=7 noAuthNoPriv user="public" engine="" boots=0 time=0 scoped PDU not decodable
+1s    hook OnRecv
+2s    read from 127.0.0.2:161: deadline
+2s    hook OnRetry
+2s    deadline +1s
+2s    hook PreSend
+2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+2s    agent answers #3 after 0s
+2s    hook OnSent
+2s    read from 127.0.0.2:161: 3 msgID=7 noAuthNoPriv user="public" engine="" boots=0 time=0 scoped PDU not decodable
+2s    hook OnRecv
+3s    read from 127.0.0.2:161: deadline
+3s    hook OnRetry
+3s    result: packet nil, error "request timeout (after 2 retries)" *errors.errorString
+3s    client after: retries=2 next request id=1004
 
 == requests/answer/other-version-v3-unknown-engine-report
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -377,10 +433,28 @@
 0s    hook OnSent
 0s    read from 127.0.0.2:161: 3 msgID=7 noAuthNoPriv user="public" engine="" boots=0 time=0 scoped PDU not decodable
 0s    hook OnRecv
-0s    hook OnFinish
-0s    result: packet nil, error "lendEngineParameters called with non Version3 connection or packet" *errors.errorString
-0s    client after: retries=2 next request id=1002
-0s    known bug: an SNMPv3 message answers an SNMPv2c request, though RFC 3412 hands each message to the model of its own version
+1s    read from 127.0.0.2:161: deadline
+1s    hook OnRetry
+1s    deadline +1s
+1s    hook PreSend
+1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+1s    agent answers #2 after 0s
+1s    hook OnSent
+1s    read from 127.0.0.2:161: 3 msgID=7 noAuthNoPriv user="public" engine="" boots=0 time=0 scoped PDU not decodable
+1s    hook OnRecv
+2s    read from 127.0.0.2:161: deadline
+2s    hook OnRetry
+2s    deadline +1s
+2s    hook PreSend
+2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+2s    agent answers #3 after 0s
+2s    hook OnSent
+2s    read from 127.0.0.2:161: 3 msgID=7 noAuthNoPriv user="public" engine="" boots=0 time=0 scoped PDU not decodable
+2s    hook OnRecv
+3s    read from 127.0.0.2:161: deadline
+3s    hook OnRetry
+3s    result: packet nil, error "request timeout (after 2 retries)" *errors.errorString
+3s    client after: retries=2 next request id=1004
 
 == requests/answer/report
 0s    client: 2c timeout=1s retries=2 exponential=false

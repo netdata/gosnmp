@@ -38,7 +38,7 @@ func (x *GoSNMP) negotiateInitialSecurityParameters(packetOut *SnmpPacket) error
 // engine ID (at authPriv it fails in the encoder for want of a privacy key).
 func (x *GoSNMP) discoverEngine(discoveryPacket, packetOut *SnmpPacket) error {
 	discoveryPacket.ContextName = x.ContextName
-	result, err := x.sendOneRequest(discoveryPacket)
+	result, _, err := x.sendOneRequest(discoveryPacket)
 	if err != nil && !engineFoundDespiteUnknownUser(result, err) {
 		return err
 	}
@@ -64,19 +64,19 @@ func engineFoundDespiteUnknownUser(result *SnmpPacket, err error) bool {
 // carries, and returns the reply's Report kind (zero for another reply),
 // whether its parameters were stored, and the error the request ends with
 // unless kind asks for a resync: err, or the store's for a reply other than
-// an error Report. A reply that is not SNMPv3 is not stored, nor is an
-// unauthenticated Report, whatever the session's security level: RFC 3414
-// section 3.2 step 7 takes the engine boots and time from authenticated
-// messages only, and discovery, which takes the engine ID from an
-// unauthenticated Report (section 4), is discoverEngine's. A noAuthNoPriv
-// session stores the parameters of its other replies. Known bug: a reply with
-// another security model is not discarded (RFC 3412 section 7.2 step 4).
-func (x *GoSNMP) settleReply(packetOut, reply *SnmpPacket, err error) (kind reportKind, stored bool, _ error) {
+// an error Report. A reply is stored when its digest checked against the
+// request (verified), so it names the request's engine; an unverified one only
+// in a noAuthNoPriv session, and never a Report (RFC 3414 section 3.2 step 7
+// takes the engine boots and time from authenticated messages only; discovery,
+// which takes the engine ID from an unauthenticated Report, section 4, is
+// discoverEngine's). Known bug: a reply with another security model is not
+// discarded (RFC 3412 section 7.2 step 4).
+func (x *GoSNMP) settleReply(packetOut, reply *SnmpPacket, verified bool, err error) (kind reportKind, stored bool, _ error) {
 	if reply == nil || reply.Version != Version3 {
 		return reportKind{}, false, err
 	}
 	kind, isReport := reportKindOf(reply)
-	if isReport && !authenticated(packetOut, reply) {
+	if !verified && (isReport || packetOut.MsgFlags&AuthNoPriv != 0) {
 		return kind, false, err
 	}
 	if x.Logger.enabled() {

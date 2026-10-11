@@ -529,6 +529,21 @@ func (sp *UsmSecurityParameters) isAuthentic(packetBytes []byte, packet *SnmpPac
 	return packetSecParams.AuthenticationProtocol.spec().Verify(packetSecParams.SecretKey, packetBytes, signature)
 }
 
+// isAuthenticAnswer reports whether packet, an answer to a request made with
+// sp and whose security parameters are in, is authentic: it names sp's user
+// and engine ID, and its digest checks with sp's key, localized to that engine
+// ID (RFC 3414 section 3.2 steps 3-6), not with keys derived for the engine ID
+// the answer names.
+func (sp *UsmSecurityParameters) isAuthenticAnswer(packet []byte, in *UsmSecurityParameters) (bool, error) {
+	if in.UserName != sp.UserName || in.AuthoritativeEngineID != sp.AuthoritativeEngineID {
+		return false, nil
+	}
+	if sp.AuthenticationProtocol <= NoAuth {
+		return false, errAuthProtocolRequired
+	}
+	return sp.AuthenticationProtocol.spec().Verify(sp.SecretKey, packet, []byte(in.AuthenticationParameters))
+}
+
 // encryptPacket returns the ciphertext of the scoped PDU.
 func (sp *UsmSecurityParameters) encryptPacket(scopedPdu []byte) ([]byte, error) {
 	return sp.PrivacyProtocol.spec().Encrypt(sp.PrivacyKey, sp.PrivacyParameters,
