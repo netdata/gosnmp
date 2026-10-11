@@ -95,11 +95,11 @@ func (x *GoSNMP) settleReply(packetOut, reply *SnmpPacket, verified bool, err er
 // store, may lend its engine parameters to the resend of packetOut. A request
 // without authentication carries no signature to misuse. An authenticated
 // request is signed with what the Report names, so it takes only the engine
-// boots and time of a Report that names its own engine ID (RFC 3414 section
-// 3.2 checks the engine ID before the time window), and only as a read
-// request, whose copy an on-path sender could replay only as that read later
-// (step 7 a accepts a time within 150 s of the agent's). It never takes an
-// engine ID: the request would be signed for another engine with the same
+// boots and time of a Report that names the request's engine ID (RFC 3414
+// section 3.2 checks the engine ID before the time window), and only as a
+// read request, whose copy an on-path sender could replay only as that read
+// later (step 7 a accepts a time within 150 s of the agent's). It never takes
+// an engine ID: the request would be signed for another engine with the same
 // credentials (section 1.5.2).
 func mayLend(packetOut, report *SnmpPacket, kind reportKind) bool {
 	if packetOut.MsgFlags&AuthNoPriv == 0 {

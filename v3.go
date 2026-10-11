@@ -139,8 +139,8 @@ func (x *GoSNMP) testAuthentication(packet []byte, result *SnmpPacket, useRespon
 	return nil
 }
 
-// errNotAuthentic is the error of a message whose digest, user or engine ID
-// does not check.
+// errNotAuthentic is the error of a message without the authentication it
+// needs, or whose user, engine ID or digest does not check.
 var errNotAuthentic = errors.New("incoming packet is not authentic, discarding")
 
 // initPacket draws a new salt when the client uses privacy, and sets it as the

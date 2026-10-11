@@ -316,8 +316,8 @@ func (e *exchange) await(earlier []sentIDs) attemptOutcome {
 	}
 }
 
-// decode decodes a reply to the request: the header, for an SNMPv3 client the
-// authentication and the scoped PDU, then the PDU. It reports whether the
+// decode decodes a reply to the request: the header, for an SNMPv3 request
+// the authentication and the scoped PDU, then the PDU. It reports whether the
 // reply's digest checked against the request.
 func (e *exchange) decode(resp []byte) (_ *SnmpPacket, verified bool, _ error) {
 	x := e.x
@@ -352,7 +352,7 @@ func (e *exchange) decode(resp []byte) (_ *SnmpPacket, verified bool, _ error) {
 	return reply, verified, nil
 }
 
-// authenticate checks reply, an SNMPv3 answer to the request, against the
+// authenticate checks reply, an answer to an SNMPv3 request, against the
 // request's security state (RFC 3412 section 7.2, RFC 3414 section 3.2): to a
 // request that asks for authentication, it must ask for it too, name the
 // request's user and engine ID, and carry a digest that checks with the
@@ -403,10 +403,11 @@ func (e *exchange) unauthenticatedReport(resp []byte, cursor int, reply *SnmpPac
 // (RFC 3412 section 7.2 step 10). A Report then answers with its kind's error,
 // none for a resync Report; another reply with the request ID of the current
 // or an earlier attempt. Known bugs: nothing else of the reply is compared
-// with the request (its PDU type, the SNMPv1 and SNMPv2c versions, nor the
-// security model, level and context of RFC 3412 section 7.2 step 12 b); an
-// empty reply without an error status answers before its request ID is
-// checked; request ID 0 answers any request.
+// with the request (its PDU type, the SNMPv1 and SNMPv2c versions, the
+// security model, level and context of RFC 3412 section 7.2 step 12 b, nor,
+// for a request without authentication, the user and engine ID); an empty
+// reply without an error status answers before its request ID is checked;
+// request ID 0 answers any request.
 func (e *exchange) answers(reply *SnmpPacket, earlier []sentIDs) (bool, error) {
 	if reply.Version == Version3 || e.packet.Version == Version3 {
 		if reply.Version != e.packet.Version || !e.sentWithMsgID(reply.MsgID, earlier) {
