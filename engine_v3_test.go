@@ -183,6 +183,22 @@ func signedByOtherEngine(p *SnmpPacket) {
 	usp.SecretKey = other.SecretKey
 }
 
+// presetKey gives the client the user's key localized to the agent's engine
+// ID, as a configured key.
+func presetKey(_ *GoSNMP, sp *UsmSecurityParameters) {
+	creds := agentCreds[sp.UserName]
+	k := &UsmSecurityParameters{
+		UserName:                 sp.UserName,
+		AuthenticationProtocol:   creds.auth,
+		AuthenticationPassphrase: creds.authPass,
+		AuthoritativeEngineID:    agentEngineID,
+	}
+	if err := k.InitSecurityKeys(); err != nil {
+		panic(err)
+	}
+	sp.SecretKey = k.SecretKey
+}
+
 // otherEngineTime gives an answer engine boots and time the agent does not
 // have.
 func otherEngineTime(p *SnmpPacket) {
@@ -541,6 +557,14 @@ func v3Scenarios() map[string]v3Scenario {
 			report: snmpUnknownContexts, level: AuthNoPriv, why: "signed by another agent with the same credentials",
 			edit: signedByOtherEngine,
 		})},
+		// An authentic Report for another message answers no request.
+		"answer/authentic-report/other-message": {user: "codec-md5", run: getThrice(nil), script: onRequest(2, agentAnswer{
+			report: snmpUnknownContexts, level: AuthNoPriv, why: "authentic, for another message, a later engine time",
+			edit: func(p *SnmpPacket) {
+				p.MsgID += 100
+				p.SecurityParameters.usm().AuthoritativeEngineTime += 50
+			},
+		})},
 		// A reply naming another engine ID is not the request's answer, even
 		// when the request's key signs it.
 		"answer/other-engine-id-request-key": {user: "codec-md5", run: getThrice(nil), script: onRequest(2, agentAnswer{
@@ -581,8 +605,10 @@ func v3Scenarios() map[string]v3Scenario {
 			}),
 			knownBug: "a discovery answer without an engine ID is accepted, and an authenticated request then fails for want of a key localized to an engine ID",
 		},
+		// A configured key survives a discovery answer without an engine ID, so
+		// the authenticated request goes out while the client has none.
 		"discovery/report-without-engine-id/then-forged-empty-identity": {
-			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+			user: "codec-md5", setup: presetKey, script: func(n int, _ agentRequest) (agentAnswer, bool) {
 				switch n {
 				case 1:
 					return agentAnswer{report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID}, true
@@ -598,10 +624,10 @@ func v3Scenarios() map[string]v3Scenario {
 				}
 				return agentAnswer{}, false
 			},
-			knownBug: "a discovery answer without an engine ID is accepted, and an authenticated request then fails for want of a key localized to an engine ID",
+			knownBug: "a discovery answer without an engine ID is accepted, and the request goes out with an empty engine ID",
 		},
 		"discovery/report-without-engine-id/then-report-other-msg-id": {
-			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+			user: "codec-md5", setup: presetKey, script: func(n int, _ agentRequest) (agentAnswer, bool) {
 				switch n {
 				case 1:
 					return agentAnswer{report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID}, true
@@ -616,10 +642,10 @@ func v3Scenarios() map[string]v3Scenario {
 				}
 				return agentAnswer{}, false
 			},
-			knownBug: "a discovery answer without an engine ID is accepted, and an authenticated request then fails for want of a key localized to an engine ID",
+			knownBug: "a discovery answer without an engine ID is accepted, and the request goes out with an empty engine ID",
 		},
 		"discovery/report-without-engine-id/then-privacy-only-report-other-msg-id": {
-			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+			user: "codec-md5", setup: presetKey, script: func(n int, _ agentRequest) (agentAnswer, bool) {
 				switch n {
 				case 1:
 					return agentAnswer{report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID}, true
@@ -635,36 +661,13 @@ func v3Scenarios() map[string]v3Scenario {
 				}
 				return agentAnswer{}, false
 			},
-			knownBug: "a discovery answer without an engine ID is accepted, and an authenticated request then fails for want of a key localized to an engine ID",
+			knownBug: "a discovery answer without an engine ID is accepted, and the request goes out with an empty engine ID",
 		},
-		// Without a key the client cannot authenticate: a reply signed with the
-		// empty key must not verify.
-		"empty-key/after-discovery-without-engine-id": {
-			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
-				switch n {
-				case 1:
-					return agentAnswer{report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID}, true
-				case 2:
-					return agentAnswer{level: AuthNoPriv, why: "forged, signed with the empty key", edit: func(p *SnmpPacket) {
-						withoutEngineID(p)
-						usp := p.SecurityParameters.usm()
-						usp.SecretKey = []byte{}
-						usp.AuthoritativeEngineBoots, usp.AuthoritativeEngineTime = 99, 5
-						p.Variables = []SnmpPDU{{Name: engineOID, Type: OctetString, Value: []byte("forged")}}
-					}}, true
-				}
-				return agentAnswer{}, false
-			},
-		},
+		// A configured key without an engine ID is replaced at discovery.
 		"empty-key/key-only-user-empty-passphrase": {
 			user: "codec-md5", creds: &agentUser{auth: MD5, authPass: ""},
-			setup: func(_ *GoSNMP, sp *UsmSecurityParameters) { sp.SecretKey = bytes.Repeat([]byte{0x11}, 16) },
-			script: onRequest(2, agentAnswer{level: AuthNoPriv, why: "forged, signed with the empty key", edit: func(p *SnmpPacket) {
-				usp := p.SecurityParameters.usm()
-				usp.AuthenticationProtocol, usp.SecretKey = MD5, []byte{}
-				usp.AuthoritativeEngineBoots, usp.AuthoritativeEngineTime = 99, 5
-				p.Variables = []SnmpPDU{{Name: engineOID, Type: OctetString, Value: []byte("forged")}}
-			}}),
+			setup:    func(_ *GoSNMP, sp *UsmSecurityParameters) { sp.SecretKey = bytes.Repeat([]byte{0x11}, 16) },
+			knownBug: "discovery drops a configured key, and the error of deriving one from the empty passphrase too, so the request fails for want of a key instead of with that error",
 		},
 		"discovery/report-without-engine-id/sha256-des": {
 			user: "codec-sha256-des", script: onRequest(1, agentAnswer{
@@ -698,9 +701,15 @@ func v3Scenarios() map[string]v3Scenario {
 			user: "codec-md5",
 			run:  onLogging("SEND INIT", func(x *GoSNMP) { x.Version = Version2c }),
 		},
-		// After a discovery answer without an engine ID the client has no key;
-		// the packet stays SNMPv3 when the Logger changes the client's version.
+		// The packet stays SNMPv3 when the Logger changes the client's version
+		// after the negotiation; after a discovery answer without an engine ID
+		// the client has no key.
 		"hooks/logger-changes-version-after-negotiation": {
+			user:     "codec-md5",
+			run:      onLogging("SEND END NEGOTIATE SECURITY PARAMS", func(x *GoSNMP) { x.Version = Version2c }),
+			knownBug: "a Logger that changes the client's version after the negotiation makes encode skip the msgID and the salt: the request goes out with msgID 0",
+		},
+		"hooks/logger-changes-version-after-negotiation/engine-less-discovery": {
 			user: "codec-md5", script: onRequest(1, agentAnswer{
 				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
 			}),
@@ -987,6 +996,17 @@ func v3Scenarios() map[string]v3Scenario {
 		},
 		"answer/other-version/noauth": {
 			user: "codec-noauth", script: onRequest(2, agentAnswer{why: "SNMPv2c GetResponse", edit: asV2c}),
+		},
+		// An SNMPv2c message whose body reads as a scoped PDU, with the
+		// request's request ID, does not answer an SNMPv3 request.
+		"answer/other-version/noauth-scoped-body": {
+			user: "codec-noauth", script: onRequest(2, agentAnswer{
+				why: "an SNMPv2c message carrying the scoped PDU",
+				encode: func(m v3Message) []byte {
+					return tlv(0x30, tlv(byte(Integer), []byte{byte(Version2c)}), tlv(byte(OctetString), []byte("public")),
+						tlv(m.scopedTag, m.scoped))
+				},
+			}),
 		},
 		"answer/other-version/md5": {
 			user: "codec-md5", script: onRequest(2, agentAnswer{level: AuthNoPriv, why: "SNMPv2c GetResponse", edit: asV2c}),
