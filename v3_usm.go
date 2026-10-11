@@ -309,6 +309,7 @@ func (sp *UsmSecurityParameters) setEngineTime(in *UsmSecurityParameters) {
 var (
 	errAuthProtocolRequired = errors.New("securityParameters.AuthenticationProtocol is required")
 	errPrivProtocolRequired = errors.New("securityParameters.PrivacyProtocol is required")
+	errAuthKeyRequired      = errors.New("securityParameters.SecretKey is required: no authentication key localized to the engine ID")
 )
 
 // checkProtocols rejects authentication and privacy protocol values outside
@@ -540,6 +541,9 @@ func (sp *UsmSecurityParameters) isAuthenticAnswer(packet []byte, in *UsmSecurit
 	}
 	if sp.AuthenticationProtocol <= NoAuth {
 		return false, errAuthProtocolRequired
+	}
+	if len(sp.SecretKey) == 0 {
+		return false, errAuthKeyRequired
 	}
 	return sp.AuthenticationProtocol.spec().Verify(sp.SecretKey, packet, []byte(in.AuthenticationParameters))
 }

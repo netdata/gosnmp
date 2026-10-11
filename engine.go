@@ -81,7 +81,7 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 			x.Logger.Printf("ERROR updatePktSecurityParameters error: %s", err)
 			return nil, err
 		}
-	} else if !x.mayLend(packetOut, kind) {
+	} else if !mayLend(packetOut, result, kind) {
 		return result, kind.err
 	} else if err = x.lendEngineParameters(packetOut, result, kind); err != nil {
 		x.Logger.Printf("ERROR lendEngineParameters error: %s", err)
@@ -254,6 +254,12 @@ func (x *GoSNMP) attemptDeadline(timeout time.Duration) (deadline time.Time, byC
 func (e *exchange) encode() ([]byte, error) {
 	x, p := e.x, e.packet
 	if x.Version == Version3 {
+		// An authenticated request is signed with the user's key localized to
+		// the agent's engine ID, and its answer checked with it; without one,
+		// anyone could sign either.
+		if usp := usmOf(p.SecurityParameters); p.MsgFlags&AuthNoPriv != 0 && (usp == nil || len(usp.SecretKey) == 0) {
+			return nil, errAuthKeyRequired
+		}
 		p.MsgID = x.nextMsgID()
 		if err := x.initPacket(p); err != nil {
 			return nil, err
@@ -324,7 +330,7 @@ func (e *exchange) decode(resp []byte) (_ *SnmpPacket, verified bool, _ error) {
 		x.Logger.Printf("ERROR on unmarshall header: %s", err)
 		return nil, false, err
 	}
-	if x.Version == Version3 {
+	if e.packet.Version == Version3 {
 		if verified, err = e.authenticate(resp, reply); err != nil {
 			if e.unauthenticatedReport(resp, cursor, reply) {
 				return reply, false, nil

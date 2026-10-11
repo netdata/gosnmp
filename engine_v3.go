@@ -91,16 +91,17 @@ func (x *GoSNMP) settleReply(packetOut, reply *SnmpPacket, verified bool, err er
 	return kind, true, err
 }
 
-// mayLend reports whether a resync Report of kind that the client did not store
-// may lend its engine parameters to the resend of packetOut. A request without
-// authentication carries no signature to misuse. An authenticated request is
-// signed with what the Report names, so it takes them only as a read request,
-// whose copy an on-path sender could replay only as that read later (RFC 3414
-// section 3.2 step 7 a accepts a time within 150 s of the agent's), and an
-// engine ID only while the client has none (discovery, section 4): afterwards
-// the request would be signed for another engine with the same credentials
-// (section 1.5.2).
-func (x *GoSNMP) mayLend(packetOut *SnmpPacket, kind reportKind) bool {
+// mayLend reports whether report, a resync Report of kind the client did not
+// store, may lend its engine parameters to the resend of packetOut. A request
+// without authentication carries no signature to misuse. An authenticated
+// request is signed with what the Report names, so it takes only the engine
+// boots and time of a Report that names its own engine ID (RFC 3414 section
+// 3.2 checks the engine ID before the time window), and only as a read
+// request, whose copy an on-path sender could replay only as that read later
+// (step 7 a accepts a time within 150 s of the agent's). It never takes an
+// engine ID: the request would be signed for another engine with the same
+// credentials (section 1.5.2).
+func mayLend(packetOut, report *SnmpPacket, kind reportKind) bool {
 	if packetOut.MsgFlags&AuthNoPriv == 0 {
 		return true
 	}
@@ -109,11 +110,10 @@ func (x *GoSNMP) mayLend(packetOut *SnmpPacket, kind reportKind) bool {
 	default:
 		return false
 	}
-	if !kind.namesEngine {
-		return true
+	if kind.namesEngine {
+		return false
 	}
-	usp := usmOf(x.SecurityParameters)
-	return usp == nil || usp.AuthoritativeEngineID == ""
+	return report.SecurityParameters.usm().AuthoritativeEngineID == packetOut.SecurityParameters.usm().AuthoritativeEngineID
 }
 
 // lendEngineParameters puts the engine parameters of report, a resync Report

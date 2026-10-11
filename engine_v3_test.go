@@ -565,7 +565,7 @@ func v3Scenarios() map[string]v3Scenario {
 			user: "codec-md5", script: onRequest(1, agentAnswer{
 				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
 			}),
-			knownBug: "a discovery answer without an engine ID is accepted, and the request goes out with an empty engine ID",
+			knownBug: "a discovery answer without an engine ID is accepted, and an authenticated request then fails for want of a key localized to an engine ID",
 		},
 		"discovery/report-without-engine-id/then-forged-empty-identity": {
 			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
@@ -584,6 +584,7 @@ func v3Scenarios() map[string]v3Scenario {
 				}
 				return agentAnswer{}, false
 			},
+			knownBug: "a discovery answer without an engine ID is accepted, and an authenticated request then fails for want of a key localized to an engine ID",
 		},
 		"discovery/report-without-engine-id/then-report-other-msg-id": {
 			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
@@ -601,7 +602,7 @@ func v3Scenarios() map[string]v3Scenario {
 				}
 				return agentAnswer{}, false
 			},
-			knownBug: "a discovery answer without an engine ID is accepted, and the request goes out with an empty engine ID",
+			knownBug: "a discovery answer without an engine ID is accepted, and an authenticated request then fails for want of a key localized to an engine ID",
 		},
 		"discovery/report-without-engine-id/then-privacy-only-report-other-msg-id": {
 			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
@@ -620,7 +621,7 @@ func v3Scenarios() map[string]v3Scenario {
 				}
 				return agentAnswer{}, false
 			},
-			knownBug: "a discovery answer without an engine ID is accepted, and the request goes out with an empty engine ID",
+			knownBug: "a discovery answer without an engine ID is accepted, and an authenticated request then fails for want of a key localized to an engine ID",
 		},
 		// Without a key the client cannot authenticate: a reply signed with the
 		// empty key must not verify.
@@ -655,13 +656,13 @@ func v3Scenarios() map[string]v3Scenario {
 			user: "codec-sha256-des", script: onRequest(1, agentAnswer{
 				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
 			}),
-			knownBug: "a discovery answer without an engine ID is accepted, and the request goes out with an empty engine ID: with DES the encoder panics for want of a privacy key and send recovers it",
+			knownBug: "a discovery answer without an engine ID is accepted, and an authenticated request then fails for want of a key localized to an engine ID",
 		},
 		"discovery/report-without-engine-id/sha-aes": {
 			user: "codec-sha-aes", script: onRequest(1, agentAnswer{
 				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
 			}),
-			knownBug: "a discovery answer without an engine ID is accepted, and the request goes out with an empty engine ID: at authPriv it fails in the encoder for want of a privacy key",
+			knownBug: "a discovery answer without an engine ID is accepted, and an authenticated request then fails for want of a key localized to an engine ID",
 		},
 
 		// The client's Logger is user code that runs inside send, before the
