@@ -121,6 +121,8 @@ func (x *GoSNMP) write(b []byte) error {
 	return err
 }
 
+const rxBufSize = 65535 // max size of IPv4 & IPv6 packet
+
 // receive response from network and read into a byte array
 func (x *GoSNMP) receive() ([]byte, error) {
 	var n int
