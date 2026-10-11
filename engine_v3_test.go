@@ -539,6 +539,43 @@ func v3Scenarios() map[string]v3Scenario {
 			},
 			knownBug: "while the client has no engine ID, the engine discovery exception accepts a reply with an empty user name and engine ID without its digest, and stores its engine boots and time",
 		},
+		"discovery/report-without-engine-id/then-report-other-msg-id": {
+			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				switch n {
+				case 1:
+					return agentAnswer{report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID}, true
+				case 2:
+					return agentAnswer{
+						report: usmStatsUnknownEngineIDs, why: "unauthenticated, from the other engine, for another message",
+						edit: func(p *SnmpPacket) {
+							fromOtherEngine(p)
+							p.MsgID += 100
+						},
+					}, true
+				}
+				return agentAnswer{}, false
+			},
+			knownBug: "a discovery answer without an engine ID is accepted, and the request goes out with an empty engine ID",
+		},
+		"discovery/report-without-engine-id/then-privacy-only-report-other-msg-id": {
+			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				switch n {
+				case 1:
+					return agentAnswer{report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID}, true
+				case 2:
+					return agentAnswer{
+						report: usmStatsUnknownEngineIDs, why: "privacy-only msgFlags, from the other engine, for another message",
+						edit: func(p *SnmpPacket) {
+							fromOtherEngine(p)
+							p.MsgID += 100
+						},
+						raw: msgFlagsOctets(byte(AuthPriv &^ AuthNoPriv)),
+					}, true
+				}
+				return agentAnswer{}, false
+			},
+			knownBug: "a discovery answer without an engine ID is accepted, and the request goes out with an empty engine ID",
+		},
 		"discovery/report-without-engine-id/sha256-des": {
 			user: "codec-sha256-des", script: onRequest(1, agentAnswer{
 				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
