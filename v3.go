@@ -100,9 +100,12 @@ func (packet *SnmpPacket) authenticate(msg []byte) ([]byte, error) {
 }
 
 // testAuthentication verifies the digest of the SNMPv3 message packet, whose
-// header is decoded into result, for the engine's replies and for
-// UnmarshalTrap: with result's flags and security parameters when
-// useResponseSecurityParameters is set, with the client's otherwise.
+// header is decoded into result, for UnmarshalTrap: with result's flags and
+// security parameters when useResponseSecurityParameters is set, with the
+// client's otherwise. Engine discovery (RFC 3414 section 4): a message with an
+// empty user name and engine ID is accepted without authentication. Known bug:
+// whatever its flags and variable bindings (the bindings are not decoded yet),
+// so any such message skips the digest.
 func (x *GoSNMP) testAuthentication(packet []byte, result *SnmpPacket, useResponseSecurityParameters bool) error {
 	if x.Version != Version3 {
 		return fmt.Errorf("testAuthentication called with non Version3 connection")
@@ -112,10 +115,6 @@ func (x *GoSNMP) testAuthentication(packet []byte, result *SnmpPacket, useRespon
 		msgFlags = result.MsgFlags
 	}
 
-	// Engine discovery (RFC 3414 section 4): a message with an empty user name
-	// and engine ID is accepted without authentication. Known bug: whatever its
-	// flags and variable bindings (the bindings are not decoded yet), so any
-	// message with an empty user name and engine ID skips the digest.
 	msgSecParams := result.SecurityParameters.usm()
 	if msgSecParams.UserName == "" && msgSecParams.AuthoritativeEngineID == "" {
 		return nil
@@ -133,12 +132,16 @@ func (x *GoSNMP) testAuthentication(packet []byte, result *SnmpPacket, useRespon
 			return err
 		}
 		if !authentic {
-			return fmt.Errorf("incoming packet is not authentic, discarding")
+			return errNotAuthentic
 		}
 	}
 
 	return nil
 }
+
+// errNotAuthentic is the error of a message without the authentication it
+// needs, or whose user, engine ID or digest does not check.
+var errNotAuthentic = errors.New("incoming packet is not authentic, discarding")
 
 // initPacket draws a new salt when the client uses privacy, and sets it as the
 // privacy parameters of the outgoing SNMPv3 packet when the packet asks for

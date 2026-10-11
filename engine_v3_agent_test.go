@@ -72,8 +72,9 @@ type agentAnswer struct {
 	report string         // the Report's counter OID, or "" for a GetResponse
 	level  SnmpV3MsgFlags // the security level of the answer
 	edit   func(*SnmpPacket)
-	raw    func(*v3Message) // edits the encoded answer, after edit
-	drop   bool             // no answer
+	raw    func(*v3Message)       // edits the encoded answer, after edit
+	encode func(v3Message) []byte // encodes the answer after raw, instead of v3Message.bytes
+	drop   bool                   // no answer
 	why    string
 }
 
@@ -184,13 +185,19 @@ func (a *fakeV3Agent) handle(n int, data []byte) []agentReply {
 	if err != nil {
 		panic(fmt.Sprintf("agent cannot encode its answer: %v", err))
 	}
-	if ans.raw != nil {
+	if ans.raw != nil || ans.encode != nil {
 		m, err := parseV3Message(b)
 		if err != nil {
 			panic(fmt.Sprintf("agent cannot read its answer: %v", err))
 		}
-		ans.raw(&m)
-		b = m.bytes()
+		if ans.raw != nil {
+			ans.raw(&m)
+		}
+		if ans.encode != nil {
+			b = ans.encode(m)
+		} else {
+			b = m.bytes()
+		}
 	}
 	return []agentReply{{data: b}}
 }

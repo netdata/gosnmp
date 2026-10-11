@@ -296,9 +296,20 @@ func (sp *UsmSecurityParameters) setSecurityParameters(in *UsmSecurityParameters
 	return nil
 }
 
+// setEngineTime takes the engine boots and time of in; the engine ID and the
+// keys stay.
+func (sp *UsmSecurityParameters) setEngineTime(in *UsmSecurityParameters) {
+	sp.mu.Lock()
+	defer sp.mu.Unlock()
+
+	sp.AuthoritativeEngineBoots = in.AuthoritativeEngineBoots
+	sp.AuthoritativeEngineTime = in.AuthoritativeEngineTime
+}
+
 var (
 	errAuthProtocolRequired = errors.New("securityParameters.AuthenticationProtocol is required")
 	errPrivProtocolRequired = errors.New("securityParameters.PrivacyProtocol is required")
+	errAuthKeyRequired      = errors.New("securityParameters.SecretKey is required: no authentication key localized to the engine ID")
 )
 
 // checkProtocols rejects authentication and privacy protocol values outside
@@ -517,6 +528,24 @@ func (sp *UsmSecurityParameters) isAuthentic(packetBytes []byte, packet *SnmpPac
 	// Check the message signature against the computed digest
 	signature := []byte(packetSecParams.AuthenticationParameters)
 	return packetSecParams.AuthenticationProtocol.spec().Verify(packetSecParams.SecretKey, packetBytes, signature)
+}
+
+// isAuthenticAnswer reports whether packet, an answer to a request made with
+// sp and whose security parameters are in, is authentic: it names sp's user
+// and engine ID, and its digest checks with sp's key, localized to that engine
+// ID (RFC 3414 section 3.2 steps 3-6), not with keys derived for the engine ID
+// the answer names.
+func (sp *UsmSecurityParameters) isAuthenticAnswer(packet []byte, in *UsmSecurityParameters) (bool, error) {
+	if in.UserName != sp.UserName || in.AuthoritativeEngineID != sp.AuthoritativeEngineID {
+		return false, nil
+	}
+	if sp.AuthenticationProtocol <= NoAuth {
+		return false, errAuthProtocolRequired
+	}
+	if len(sp.SecretKey) == 0 {
+		return false, errAuthKeyRequired
+	}
+	return sp.AuthenticationProtocol.spec().Verify(sp.SecretKey, packet, []byte(in.AuthenticationParameters))
 }
 
 // encryptPacket returns the ciphertext of the scoped PDU.

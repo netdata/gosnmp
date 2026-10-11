@@ -80,6 +80,11 @@ var errEngineCause = errors.New("engine test cause")
 // msgData is the Report PDU itself, without the scoped PDU around it, so that
 // a v1/v2c client reads it as the PDU after the SNMPv3 header.
 func bareV3Report(req []byte, counter string) []byte {
+	return bareV3Answer(req, 7, Report, SnmpPDU{Name: counter, Type: Counter32, Value: uint32(1)})
+}
+
+// bareV3Answer is bareV3Report with msgID for a PDU of type pduType with vbs.
+func bareV3Answer(req []byte, msgID uint32, pduType PDUType, vbs ...SnmpPDU) []byte {
 	in, err := decodeMessage(req)
 	if err != nil {
 		panic(fmt.Sprintf("agent cannot decode the request: %v", err))
@@ -87,8 +92,8 @@ func bareV3Report(req []byte, counter string) []byte {
 	out := &SnmpPacket{
 		Version: Version3, MsgFlags: NoAuthNoPriv, SecurityModel: UserSecurityModel,
 		SecurityParameters: &UsmSecurityParameters{UserName: "public"},
-		PDUType:            Report, RequestID: in.RequestID, MsgID: 7,
-		Variables: []SnmpPDU{{Name: counter, Type: Counter32, Value: uint32(1)}},
+		PDUType:            pduType, RequestID: in.RequestID, MsgID: msgID,
+		Variables: vbs,
 	}
 	b, err := out.marshalMsg()
 	if err != nil {
@@ -327,9 +332,26 @@ func engineScenarios() map[string]engineScenario {
 				p.SecurityParameters = &UsmSecurityParameters{UserName: "public"}
 			}, sysDescr),
 		},
-		"answer/other-version-v3-report": {agent: func(_ int, req []byte) []agentReply {
-			return []agentReply{{data: bareV3Report(req, usmStatsUnknownUserNames)}}
-		}},
+		"answer/other-version-v3-report": {
+			agent: func(_ int, req []byte) []agentReply {
+				return []agentReply{{data: bareV3Report(req, usmStatsUnknownUserNames)}}
+			},
+		},
+		"answer/other-version-v3-unknown-engine-report": {
+			agent: func(_ int, req []byte) []agentReply {
+				return []agentReply{{data: bareV3Report(req, usmStatsUnknownEngineIDs)}}
+			},
+		},
+		"answer/other-version-v3-msg-id-zero": {
+			agent: func(_ int, req []byte) []agentReply {
+				return []agentReply{{data: bareV3Answer(req, 0, Report, SnmpPDU{Name: usmStatsUnknownUserNames, Type: Counter32, Value: uint32(1)})}}
+			},
+		},
+		"answer/other-version-v3-get-response": {
+			agent: func(_ int, req []byte) []agentReply {
+				return []agentReply{{data: bareV3Answer(req, 7, GetResponse, sysDescr)}}
+			},
+		},
 		"answer/other-community": {agent: answerWith(func(p *SnmpPacket) { p.Community = "private" }, sysDescr)},
 		"answer/garbage-then-valid": {
 			agent: func(_ int, req []byte) []agentReply {
@@ -719,7 +741,7 @@ func BenchmarkSendOneRequest(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := x.sendOneRequest(pkt); err != nil {
+		if _, _, err := x.sendOneRequest(pkt); err != nil {
 			b.Fatal(err)
 		}
 	}

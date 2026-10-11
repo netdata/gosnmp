@@ -23,7 +23,7 @@ func getFirstOf2(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
 // v3FIPSScenarios are the scenarios of TestEngineV3FIPS140Only.
 func v3FIPSScenarios() map[string]v3Scenario {
 	const cfbPanic = "AES-CFB panics in FIPS 140-only mode; send recovers it into an error that carries the stack"
-	const partialState = "a failed key derivation leaves the agent's engine ID adopted without keys, boots or time, so the next request skips the discovery"
+	const partialState = "a failed key derivation leaves the agent's engine ID adopted without keys, boots or time, so the next request skips the discovery; its error is dropped and the request ends for want of a key"
 	return map[string]v3Scenario{
 		"discovery/noauth":         {user: "codec-noauth"},
 		"discovery/md5":            {user: "codec-md5", run: getFirstOf2, knownBug: partialState},
