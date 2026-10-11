@@ -108,6 +108,35 @@ func asV2c(p *SnmpPacket) {
 	p.Version, p.Community = Version2c, "public"
 }
 
+// withoutEngineID takes the engine ID out of an answer and its context.
+func withoutEngineID(p *SnmpPacket) {
+	p.SecurityParameters.usm().AuthoritativeEngineID = ""
+	p.ContextEngineID = ""
+}
+
+// onLogging runs a Get with a Logger that calls do the first time it is
+// given msg: user code that changes the client or panics inside the engine.
+func onLogging(msg string, do func(x *GoSNMP)) func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+	return func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+		done := false
+		x.Logger = NewLogger(funcLogger(func(s string) {
+			if s == msg && !done {
+				done = true
+				a.tr.addf("Logger is given %q", msg)
+				do(x)
+			}
+		}))
+		return x.Get([]string{engineOID})
+	}
+}
+
+// funcLogger is a LoggerInterface that hands each line to a function.
+type funcLogger func(string)
+
+func (l funcLogger) Print(v ...any) { l(fmt.Sprint(v...)) }
+
+func (l funcLogger) Printf(format string, v ...any) { l(fmt.Sprintf(format, v...)) }
+
 // fromOtherEngine makes an answer come from the agent's other engine ID.
 func fromOtherEngine(p *SnmpPacket) {
 	p.SecurityParameters.usm().AuthoritativeEngineID = agentOtherEngineID
@@ -244,6 +273,146 @@ func v3Scenarios() map[string]v3Scenario {
 				return agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "always not in time window"}, n > 1
 			},
 			knownBug: "a notInTimeWindow Report answering the resynchronized retransmission is returned with a nil error",
+		},
+		// Discovery answered by a Report without an engine ID.
+		"discovery/report-without-engine-id/md5": {
+			user: "codec-md5", script: onRequest(1, agentAnswer{
+				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
+			}),
+			knownBug: "a discovery answer without an engine ID is accepted, and the request goes out with an empty engine ID",
+		},
+		"discovery/report-without-engine-id/sha256-des": {
+			user: "codec-sha256-des", script: onRequest(1, agentAnswer{
+				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
+			}),
+			knownBug: "a discovery answer without an engine ID is accepted, and the request goes out with an empty engine ID: with DES the encoder panics for want of a privacy key and send recovers it",
+		},
+		"discovery/report-without-engine-id/sha-aes": {
+			user: "codec-sha-aes", script: onRequest(1, agentAnswer{
+				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
+			}),
+			knownBug: "a discovery answer without an engine ID is accepted, and the request goes out with an empty engine ID: at authPriv it fails in the encoder for want of a privacy key",
+		},
+
+		// The client's Logger is user code that runs inside send, before the
+		// negotiation.
+		"hooks/logger-changes-security-model": {
+			user: "codec-md5",
+			run:  onLogging("SEND INIT", func(x *GoSNMP) { x.SecurityModel = 2 }),
+		},
+		"hooks/logger-changes-version": {
+			user: "codec-md5",
+			run:  onLogging("SEND INIT", func(x *GoSNMP) { x.Version = Version2c }),
+		},
+		"hooks/logger-panics-after-failed-retransmission": {
+			user: "codec-noauth", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				switch n {
+				case 2:
+					return agentAnswer{report: usmStatsNotInTimeWindows, why: "not in time window"}, true
+				case 3:
+					return agentAnswer{report: usmStatsUnknownUserNames, why: "unknown user"}, true
+				}
+				return agentAnswer{}, false
+			},
+			run: onLogging("ERROR out-of-time-window retransmit error: unknown username", func(*GoSNMP) {
+				panic("logger failure")
+			}),
+			knownBug: "send recovers a panic into an error, with the result the request had when it panicked",
+		},
+		"hooks/onfinish-changes-version": {
+			user: "codec-md5",
+			run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+				onFinish, calls := x.OnFinish, 0
+				x.OnFinish = func(x *GoSNMP) {
+					onFinish(x)
+					if calls++; calls == 2 {
+						x.Version = Version2c
+						a.tr.addf("hook OnFinish sets the client's version to 2c")
+					}
+				}
+				return x.Get([]string{engineOID})
+			},
+		},
+
+		// send's resynchronization after a notInTimeWindow Report.
+		"resync/panic-in-retransmission": {
+			user:   "codec-md5",
+			script: onRequest(2, agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "not in time window"}),
+			run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+				preSend, calls := x.PreSend, 0
+				x.PreSend = func(x *GoSNMP) {
+					preSend(x)
+					if calls++; calls == 3 {
+						a.tr.addf("hook PreSend panics in the retransmission")
+						panic("hook failure")
+					}
+				}
+				return x.Get([]string{engineOID})
+			},
+			knownBug: "send recovers a panic into an error, with the result the request had when it panicked",
+		},
+		"resync/security-model-changed-by-hook": {
+			user:   "codec-md5",
+			script: onRequest(2, agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "not in time window"}),
+			run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+				onFinish, calls := x.OnFinish, 0
+				x.OnFinish = func(x *GoSNMP) {
+					onFinish(x)
+					if calls++; calls == 2 {
+						x.SecurityModel = 2
+						a.tr.addf("hook OnFinish sets the client's security model to 2")
+					}
+				}
+				return x.Get([]string{engineOID})
+			},
+		},
+		"resync/retransmission-answered-by-report": {
+			user: "codec-noauth", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				switch n {
+				case 2:
+					return agentAnswer{report: usmStatsNotInTimeWindows, why: "not in time window"}, true
+				case 3:
+					return agentAnswer{report: usmStatsUnknownUserNames, why: "unknown user"}, true
+				}
+				return agentAnswer{}, false
+			},
+			knownBug: "the retransmission's error is replaced by ErrNotInTimeWindow",
+		},
+		"resync/report-for-other-request-id": {
+			user: "codec-md5", script: onRequest(2, agentAnswer{
+				report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "not in time window, for another request ID",
+				edit: func(p *SnmpPacket) { p.RequestID += 100 },
+			}),
+			knownBug: "a Report is mapped without checking its msgID or request ID",
+		},
+		"resync/retransmission-answered-by-authenticated-report": {
+			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				switch n {
+				case 2:
+					return agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "not in time window"}, true
+				case 3:
+					return agentAnswer{
+						report: snmpUnknownContexts, level: AuthNoPriv, why: "unknown context, a later engine time",
+						edit: func(p *SnmpPacket) { p.SecurityParameters.usm().AuthoritativeEngineTime += 7 },
+					}, true
+				}
+				return agentAnswer{}, false
+			},
+			knownBug: "the retransmission's error is replaced by ErrNotInTimeWindow, and the engine boots and time of its answer are not stored",
+		},
+		"resync/retransmission-answer-time": {
+			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				switch n {
+				case 2:
+					return agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "not in time window"}, true
+				case 3:
+					return agentAnswer{level: AuthNoPriv, why: "a later engine time", edit: func(p *SnmpPacket) {
+						p.SecurityParameters.usm().AuthoritativeEngineTime += 7
+					}}, true
+				}
+				return agentAnswer{}, false
+			},
+			knownBug: "the engine boots and time of the answer to the retransmission are not stored",
 		},
 		"engine-change": {
 			user: "codec-md5", run: getTwice(func(a *fakeV3Agent) { a.setEngineID(agentOtherEngineID) }),
@@ -601,4 +770,34 @@ func describeKeys(sp *UsmSecurityParameters) string {
 		return fmt.Sprintf("%q", id)
 	}
 	return "unknown"
+}
+
+// BenchmarkGetV3 measures one SNMPv3 authNoPriv Get through send, after
+// discovery, against the fake agent; the agent's checks and answer are
+// included.
+func BenchmarkGetV3(b *testing.B) {
+	agent := newFakeV3Agent(nil, agentCreds, sysDescr)
+	c := newFakeTransport(nil, agent.handle)
+	creds := agentCreds["codec-md5"]
+	x := newEngineClientFrom(b, nil, fakePacketTransport{c}, &GoSNMP{
+		Version:       Version3,
+		MsgFlags:      AuthNoPriv,
+		SecurityModel: UserSecurityModel,
+		SecurityParameters: &UsmSecurityParameters{
+			UserName:                 "codec-md5",
+			AuthenticationProtocol:   creds.auth,
+			AuthenticationPassphrase: creds.authPass,
+		},
+		Timeout: time.Second,
+		Retries: 2,
+	})
+	if _, err := x.Get([]string{engineOID}); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := x.Get([]string{engineOID}); err != nil {
+			b.Fatal(err)
+		}
+	}
 }

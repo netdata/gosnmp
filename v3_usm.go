@@ -268,7 +268,15 @@ func (sp *UsmSecurityParameters) privacyKey() ([]byte, error) {
 }
 
 // setSecurityParameters adopts the engine ID, boots and time of in, deriving
-// new keys when the engine ID changes.
+// new keys when the engine ID changes. Known bugs: the engine ID is adopted
+// before the keys are derived, so a failed derivation leaves it adopted
+// without derived keys, boots or time, and the next request skips the
+// discovery; boots and time are adopted from any message the client accepts,
+// older or outside the time window ones included (RFC 3414 section 3.2 step 7
+// b keeps the latest); the time is kept without the moment it was received, so
+// a request sends the engine time of the last message, not the current one
+// (RFC 3414 section 3.1 step 6 a), and one after 150 s of silence is first
+// answered with notInTimeWindow.
 func (sp *UsmSecurityParameters) setSecurityParameters(in *UsmSecurityParameters) error {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
