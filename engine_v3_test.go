@@ -403,6 +403,14 @@ func v3Scenarios() map[string]v3Scenario {
 				p.SecurityParameters.usm().AuthoritativeEngineTime += 7
 			},
 		}), run: func(x *GoSNMP, _ *fakeV3Agent) (*SnmpPacket, error) { return setEngineOID(x) }},
+		// A notInTimeWindow Report lends its time only, not the other engine
+		// ID it names.
+		"unauthenticated-report/noauth-other-engine": {user: "codec-noauth", script: onRequest(2, agentAnswer{
+			report: usmStatsNotInTimeWindows, why: "not in time window, from the other engine", edit: func(p *SnmpPacket) {
+				fromOtherEngine(p)
+				p.SecurityParameters.usm().AuthoritativeEngineTime += 7
+			},
+		})},
 		"reboot/set": {user: "codec-md5", run: getThen(func(a *fakeV3Agent) { a.reboot() }, setEngineOID)},
 		"unauthenticated-report/engine-id-differs": {user: "codec-md5", run: getTwice(func(a *fakeV3Agent) {
 			timeJump(a)
@@ -669,6 +677,15 @@ func v3Scenarios() map[string]v3Scenario {
 				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
 			}),
 			knownBug: "a discovery answer without an engine ID is accepted, and an authenticated request then fails for want of a key localized to an engine ID",
+		},
+		// A request without authentication needs no key: the agent's
+		// unknownEngineID Report lends it the engine ID, and the context engine
+		// ID it lacks.
+		"discovery/report-without-engine-id/noauth": {
+			user: "codec-noauth", script: onRequest(1, agentAnswer{
+				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
+			}),
+			knownBug: "a discovery answer without an engine ID is accepted, and the request goes out with an empty engine ID",
 		},
 
 		// The client's Logger is user code that runs inside send, before the
