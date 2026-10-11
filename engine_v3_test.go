@@ -200,6 +200,16 @@ func malformedSecondVarbind(m *v3Message) {
 	m.scoped = bytes.Join(scoped, nil)
 }
 
+// withoutScopedPDU encodes an answer that ends after its security parameters.
+func withoutScopedPDU(m v3Message) []byte {
+	var usm [][]byte
+	for i, f := range m.usm {
+		usm = append(usm, tlv(m.usmTags[i], f))
+	}
+	return tlv(byte(Sequence), tlv(byte(Integer), m.version), tlv(byte(Sequence), m.header),
+		tlv(byte(OctetString), tlv(byte(Sequence), usm...)))
+}
+
 // onRequest scripts the answer to request n only.
 func onRequest(n int, ans agentAnswer) func(int, agentRequest) (agentAnswer, bool) {
 	return func(k int, _ agentRequest) (agentAnswer, bool) { return ans, k == n }
@@ -393,6 +403,14 @@ func v3Scenarios() map[string]v3Scenario {
 			report: usmStatsUnknownUserNames, why: "unauthenticated, no varbinds",
 			edit: func(p *SnmpPacket) { p.Variables = nil },
 		})},
+		"unauthenticated-report/without-scoped-pdu": {user: "codec-md5", script: onRequest(2, agentAnswer{
+			report: usmStatsUnknownUserNames, why: "unauthenticated, ends after its security parameters",
+			encode: withoutScopedPDU,
+		})},
+		"unauthenticated-report/privacy-flag-only": {user: "codec-md5", script: onRequest(2, agentAnswer{
+			report: usmStatsUnknownUserNames, why: "plaintext, msgFlags privacy without authentication",
+			raw: msgFlagsOctets(byte(AuthPriv &^ AuthNoPriv)),
+		})},
 		"unauthenticated-report/malformed-second-varbind": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			report: usmStatsUnknownUserNames, why: "unauthenticated, a second varbind that does not decode",
 			raw: malformedSecondVarbind,
@@ -523,6 +541,22 @@ func v3Scenarios() map[string]v3Scenario {
 			}),
 			knownBug: "send recovers a panic into an error, with the result the request had when it panicked",
 		},
+		"hooks/onrecv-lowers-msg-flags": {
+			user: "codec-md5", script: onRequest(2, agentAnswer{
+				report: usmStatsUnknownUserNames, level: AuthNoPriv, why: "Report signed with another key", edit: forgeReport,
+			}),
+			run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+				onRecv, calls := x.OnRecv, 0
+				x.OnRecv = func(x *GoSNMP) {
+					onRecv(x)
+					if calls++; calls == 2 {
+						x.MsgFlags = NoAuthNoPriv
+						a.tr.addf("hook OnRecv sets the client's msgFlags to noAuthNoPriv")
+					}
+				}
+				return x.Get([]string{engineOID})
+			},
+		},
 		"hooks/onfinish-changes-version": {
 			user: "codec-md5",
 			run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
@@ -598,6 +632,17 @@ func v3Scenarios() map[string]v3Scenario {
 						report: snmpUnknownContexts, level: AuthNoPriv, why: "unknown context, a later engine time",
 						edit: func(p *SnmpPacket) { p.SecurityParameters.usm().AuthoritativeEngineTime += 7 },
 					}, true
+				}
+				return agentAnswer{}, false
+			},
+		},
+		"resync/retransmission-answer-other-security-model": {
+			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				switch n {
+				case 2:
+					return agentAnswer{report: usmStatsNotInTimeWindows, why: "not in time window, unauthenticated"}, true
+				case 3:
+					return agentAnswer{level: AuthNoPriv, why: "GetResponse with security model 2", edit: func(p *SnmpPacket) { p.SecurityModel = 2 }}, true
 				}
 				return agentAnswer{}, false
 			},
@@ -829,6 +874,12 @@ func v3Scenarios() map[string]v3Scenario {
 		"answer/forged-report/unknown-user-names": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			report: usmStatsUnknownUserNames, level: AuthNoPriv, why: "Report signed with another key", edit: forgeReport,
 		})},
+		"answer/error-report-other-security-model": {
+			user: "codec-md5", script: onRequest(2, agentAnswer{
+				report: usmStatsUnknownUserNames, level: AuthNoPriv, why: "authenticated Report with security model 2",
+				edit: func(p *SnmpPacket) { p.SecurityModel = 2 },
+			}),
+		},
 		"answer/report-other-security-model": {
 			user: "codec-md5", script: onRequest(2, agentAnswer{
 				report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "Report with security model 2",
