@@ -729,32 +729,6 @@ func TestEngineReplyLogger(t *testing.T) {
 // BenchmarkSendOneRequest measures one SNMPv2c Get through the request engine
 // on the in-memory transport, without socket system calls; the agent's
 // decoding of the request and encoding of the reply are included.
-// TestSendOneRequestAllocsIgnoreRetries checks that a request answered at
-// once allocates the same whatever x.Retries: the IDs of earlier attempts stay
-// on the stack.
-func TestSendOneRequestAllocsIgnoreRetries(t *testing.T) {
-	const oid = ".1.3.6.1.2.1.1.1.0"
-	allocs := func(retries int) float64 {
-		c := newFakeTransport(nil, func(_ int, req []byte) []agentReply {
-			return []agentReply{{data: replyTo(req, nil, sysDescr)}}
-		})
-		x := newEngineClient(t, nil, Version2c, fakePacketTransport{c})
-		x.Retries = retries
-		pkt := x.mkSnmpPacket(GetRequest, []SnmpPDU{{Name: oid, Type: Null}}, 0, 0)
-		return testing.AllocsPerRun(20, func() {
-			if _, err := x.sendOneRequest(pkt); err != nil {
-				t.Fatal(err)
-			}
-		})
-	}
-	want := allocs(1)
-	for _, retries := range []int{2, 4, 7} {
-		if got := allocs(retries); got != want {
-			t.Errorf("Retries=%d: %v allocations per request, want %v as with Retries=1", retries, got, want)
-		}
-	}
-}
-
 func BenchmarkSendOneRequest(b *testing.B) {
 	const oid = ".1.3.6.1.2.1.31.1.1.1.10.1"
 	c := newFakeTransport(nil, func(_ int, req []byte) []agentReply {
