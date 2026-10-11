@@ -1002,6 +1002,9 @@ func v3Scenarios() map[string]v3Scenario {
 		"answer/reflected-request/noauth": {
 			user: "codec-noauth", script: onRequest(2, agentAnswer{reflect: true, why: "the request sent back"}),
 		},
+		"answer/reflected-request/discovery": {
+			user: "codec-md5", script: onRequest(1, agentAnswer{reflect: true, why: "the discovery request sent back"}),
+		},
 		"answer/reflected-request/md5": {
 			user: "codec-md5", script: onRequest(2, agentAnswer{reflect: true, why: "the request sent back"}),
 		},
