@@ -391,8 +391,10 @@ func TestUnmarshalTrapLogging(t *testing.T) {
 	otherAuthPass.authPass, otherPrivPass.privPass, otherUser.user = "other-pass", "other-pass", "other-user"
 
 	unknownPDUType := func(t *testing.T) []byte {
-		data, err := (&SnmpPacket{Version: Version2c, Community: "public", PDUType: SNMPv2Trap, RequestID: 42,
-			Variables: rtVarbinds}).MarshalMsg()
+		data, err := (&SnmpPacket{
+			Version: Version2c, Community: "public", PDUType: SNMPv2Trap, RequestID: 42,
+			Variables: rtVarbinds,
+		}).MarshalMsg()
 		require.NoError(t, err)
 		data[bytes.IndexByte(data, byte(SNMPv2Trap))] = 0xaf
 		return data
