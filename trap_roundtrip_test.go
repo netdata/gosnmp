@@ -382,8 +382,8 @@ func (l formatLogger) Print(v ...any) { *l.lines = append(*l.lines, fmt.Sprint(v
 
 func (l formatLogger) Printf(format string, _ ...any) { *l.lines = append(*l.lines, format) }
 
-// TestUnmarshalTrapLogging pins what UnmarshalTrap writes to the client's
-// Logger for each kind of outcome.
+// TestUnmarshalTrapLogging pins that UnmarshalTrap writes nothing to the
+// client's Logger, whatever the outcome: it returns its errors.
 func TestUnmarshalTrapLogging(t *testing.T) {
 	sha := rtCreds(SHA, NoPriv)
 	shaAES := rtCreds(SHA, AES)
@@ -419,7 +419,6 @@ func TestUnmarshalTrapLogging(t *testing.T) {
 		data      func(t *testing.T) []byte
 		receiver  rtReceiver
 		receivers []rtCredentials
-		want      []string
 	}{
 		"accepted": {
 			data: func(t *testing.T) []byte { return rtEncodeV3(t, sha, SNMPv2Trap) }, receiver: rtSingleUser,
@@ -428,39 +427,31 @@ func TestUnmarshalTrapLogging(t *testing.T) {
 		"not a message": {
 			data: func(*testing.T) []byte { return []byte{0x30, 0x03, 0x02} }, receiver: rtSingleUser,
 			receivers: []rtCredentials{sha},
-			want:      []string{"UnmarshalTrap version unmarshal: %s\n"},
 		},
 		"unknown PDU type, v2c": {
 			data: unknownPDUType, receiver: rtSingleUser, receivers: []rtCredentials{sha},
-			want: []string{"UnmarshalTrap: %s\n"},
 		},
 		"header not a sequence, single user": {
 			data: headerNotASequence, receiver: rtSingleUser, receivers: []rtCredentials{sha},
-			want: []string{"UnmarshalTrap: %s\n"},
 		},
 		"USM parameters not a sequence, table": {
 			data: usmNotASequence, receiver: rtTable(""), receivers: []rtCredentials{sha},
-			want: []string{"UnmarshalTrap V3 get trap identifier: %s\n"},
 		},
 		"wrong auth passphrase, single user": {
 			data: func(t *testing.T) []byte { return rtEncodeV3(t, sha, SNMPv2Trap) }, receiver: rtSingleUser,
 			receivers: []rtCredentials{otherAuthPass},
-			want:      []string{"UnmarshalTrap v3 auth: %s\n"},
 		},
 		"wrong privacy passphrase, single user": {
 			data: func(t *testing.T) []byte { return rtEncodeV3(t, shaAES, SNMPv2Trap) }, receiver: rtSingleUser,
 			receivers: []rtCredentials{otherPrivPass},
-			want:      []string{"UnmarshalTrap v3 decrypt: %s\n"},
 		},
 		"wrong auth passphrase, table": {
 			data: func(t *testing.T) []byte { return rtEncodeV3(t, sha, SNMPv2Trap) }, receiver: rtTable(""),
 			receivers: []rtCredentials{otherAuthPass},
-			want:      []string{"UnmarshalTrap v3 auth: %s\n"},
 		},
 		"unknown user, table": {
 			data: func(t *testing.T) []byte { return rtEncodeV3(t, sha, SNMPv2Trap) }, receiver: rtTable(""),
 			receivers: []rtCredentials{otherUser},
-			want:      []string{"UnmarshalTrap V3 get security parameters from table: %s\n"},
 		},
 	}
 
@@ -471,7 +462,7 @@ func TestUnmarshalTrapLogging(t *testing.T) {
 			x.Logger = NewLogger(formatLogger{&lines})
 
 			_, _ = x.UnmarshalTrap(tc.data(t), false)
-			assert.Equal(t, tc.want, lines)
+			assert.Empty(t, lines)
 		})
 	}
 }
