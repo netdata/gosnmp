@@ -5,6 +5,7 @@
 package gosnmp
 
 import (
+	"bytes"
 	"fmt"
 	"testing"
 
@@ -369,6 +370,108 @@ func TestTrapSecurityOutcomes(t *testing.T) {
 			}
 			require.NoError(t, err, "trap rejected (known bug: %q)", tc.knownBug)
 			assert.Equal(t, rtVarbinds, got.Variables)
+		})
+	}
+}
+
+// formatLogger records the format of each Printf call and the text of each
+// Print call.
+type formatLogger struct{ lines *[]string }
+
+func (l formatLogger) Print(v ...any) { *l.lines = append(*l.lines, fmt.Sprint(v...)) }
+
+func (l formatLogger) Printf(format string, _ ...any) { *l.lines = append(*l.lines, format) }
+
+// TestUnmarshalTrapLogging pins what UnmarshalTrap writes to the client's
+// Logger for each kind of outcome.
+func TestUnmarshalTrapLogging(t *testing.T) {
+	sha := rtCreds(SHA, NoPriv)
+	shaAES := rtCreds(SHA, AES)
+	otherAuthPass, otherPrivPass, otherUser := sha, shaAES, sha
+	otherAuthPass.authPass, otherPrivPass.privPass, otherUser.user = "other-pass", "other-pass", "other-user"
+
+	unknownPDUType := func(t *testing.T) []byte {
+		data, err := (&SnmpPacket{Version: Version2c, Community: "public", PDUType: SNMPv2Trap, RequestID: 42,
+			Variables: rtVarbinds}).MarshalMsg()
+		require.NoError(t, err)
+		data[bytes.IndexByte(data, byte(SNMPv2Trap))] = 0xaf
+		return data
+	}
+	// headerNotASequence makes msgGlobalData, after the version, an OCTET STRING.
+	headerNotASequence := func(t *testing.T) []byte {
+		data := rtEncodeV3(t, sha, SNMPv2Trap)
+		data[bytes.Index(data, []byte{byte(Integer), 1, byte(Version3)})+3] = byte(OctetString)
+		return data
+	}
+	// usmNotASequence makes the USM parameters inside msgSecurityParameters an
+	// OCTET STRING: the header fails after the security parameters exist (a
+	// header that fails before is a pinned panic of the table path).
+	usmNotASequence := func(t *testing.T) []byte {
+		data := rtEncodeV3(t, sha, SNMPv2Trap)
+		i := bytes.Index(data, []byte{byte(Integer), 1, byte(UserSecurityModel), byte(OctetString)}) + 4
+		if data[i]&0x80 != 0 {
+			i += int(data[i] & 0x7f)
+		}
+		data[i+1] = byte(OctetString)
+		return data
+	}
+	tests := map[string]struct {
+		data      func(t *testing.T) []byte
+		receiver  rtReceiver
+		receivers []rtCredentials
+		want      []string
+	}{
+		"accepted": {
+			data: func(t *testing.T) []byte { return rtEncodeV3(t, sha, SNMPv2Trap) }, receiver: rtSingleUser,
+			receivers: []rtCredentials{sha},
+		},
+		"not a message": {
+			data: func(*testing.T) []byte { return []byte{0x30, 0x03, 0x02} }, receiver: rtSingleUser,
+			receivers: []rtCredentials{sha},
+			want:      []string{"UnmarshalTrap version unmarshal: %s\n"},
+		},
+		"unknown PDU type, v2c": {
+			data: unknownPDUType, receiver: rtSingleUser, receivers: []rtCredentials{sha},
+			want: []string{"UnmarshalTrap: %s\n"},
+		},
+		"header not a sequence, single user": {
+			data: headerNotASequence, receiver: rtSingleUser, receivers: []rtCredentials{sha},
+			want: []string{"UnmarshalTrap: %s\n"},
+		},
+		"USM parameters not a sequence, table": {
+			data: usmNotASequence, receiver: rtTable(""), receivers: []rtCredentials{sha},
+			want: []string{"UnmarshalTrap V3 get trap identifier: %s\n"},
+		},
+		"wrong auth passphrase, single user": {
+			data: func(t *testing.T) []byte { return rtEncodeV3(t, sha, SNMPv2Trap) }, receiver: rtSingleUser,
+			receivers: []rtCredentials{otherAuthPass},
+			want:      []string{"UnmarshalTrap v3 auth: %s\n"},
+		},
+		"wrong privacy passphrase, single user": {
+			data: func(t *testing.T) []byte { return rtEncodeV3(t, shaAES, SNMPv2Trap) }, receiver: rtSingleUser,
+			receivers: []rtCredentials{otherPrivPass},
+			want:      []string{"UnmarshalTrap v3 decrypt: %s\n"},
+		},
+		"wrong auth passphrase, table": {
+			data: func(t *testing.T) []byte { return rtEncodeV3(t, sha, SNMPv2Trap) }, receiver: rtTable(""),
+			receivers: []rtCredentials{otherAuthPass},
+			want:      []string{"UnmarshalTrap v3 auth: %s\n"},
+		},
+		"unknown user, table": {
+			data: func(t *testing.T) []byte { return rtEncodeV3(t, sha, SNMPv2Trap) }, receiver: rtTable(""),
+			receivers: []rtCredentials{otherUser},
+			want:      []string{"UnmarshalTrap V3 get security parameters from table: %s\n"},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			x := tc.receiver(t, tc.receivers...)
+			var lines []string
+			x.Logger = NewLogger(formatLogger{&lines})
+
+			_, _ = x.UnmarshalTrap(tc.data(t), false)
+			assert.Equal(t, tc.want, lines)
 		})
 	}
 }
