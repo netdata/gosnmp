@@ -997,6 +997,25 @@ func v3Scenarios() map[string]v3Scenario {
 		"answer/other-version/noauth": {
 			user: "codec-noauth", script: onRequest(2, agentAnswer{why: "SNMPv2c GetResponse", edit: asV2c}),
 		},
+		// A request sent back unchanged carries the client's own msgID,
+		// request ID and, when authenticated, its own digest and ciphertext.
+		"answer/reflected-request/noauth": {
+			user: "codec-noauth", script: onRequest(2, agentAnswer{reflect: true, why: "the request sent back"}),
+		},
+		"answer/reflected-request/discovery": {
+			user: "codec-md5", script: onRequest(1, agentAnswer{reflect: true, why: "the discovery request sent back"}),
+		},
+		"answer/reflected-request/md5": {
+			user: "codec-md5", script: onRequest(2, agentAnswer{reflect: true, why: "the request sent back"}),
+		},
+		"answer/reflected-request/md5-set": {
+			user: "codec-md5", script: onRequest(2, agentAnswer{reflect: true, why: "the request sent back"}),
+			run: func(x *GoSNMP, _ *fakeV3Agent) (*SnmpPacket, error) { return setEngineOID(x) },
+		},
+		"answer/reflected-request/sha-aes-set": {
+			user: "codec-sha-aes", script: onRequest(2, agentAnswer{reflect: true, why: "the request sent back"}),
+			run: func(x *GoSNMP, _ *fakeV3Agent) (*SnmpPacket, error) { return setEngineOID(x) },
+		},
 		// An SNMPv2c message whose body reads as a scoped PDU, with the
 		// request's request ID, does not answer an SNMPv3 request.
 		"answer/other-version/noauth-scoped-body": {
@@ -1033,19 +1052,19 @@ func v3Scenarios() map[string]v3Scenario {
 			}),
 			knownBug: "a reply with another security model is accepted, then returned together with the model mismatch error",
 		},
+		// A Report carries one varbind (RFC 3412 section 7.1 step 3 d): one with
+		// two is read past.
 		"answer/report-two-varbinds": {
 			user: "codec-noauth", script: onRequest(2, agentAnswer{
 				report: usmStatsNotInTimeWindows, why: "Report with two varbinds",
 				edit: func(p *SnmpPacket) { p.Variables = append(p.Variables, sysDescr) },
 			}),
-			knownBug: "a Report with more than one varbind is returned as a successful reply",
 		},
 		"answer/report-two-varbinds-error-oid": {
 			user: "codec-noauth", script: onRequest(2, agentAnswer{
 				report: usmStatsUnknownUserNames, why: "Report with two varbinds",
 				edit: func(p *SnmpPacket) { p.Variables = append(p.Variables, sysDescr) },
 			}),
-			knownBug: "a Report with more than one varbind is returned as a successful reply",
 		},
 
 		// Reports after the engine is known: whether their engine
