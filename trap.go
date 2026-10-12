@@ -13,7 +13,6 @@ func (x *GoSNMP) UnmarshalTrap(trap []byte, useResponseSecurityParameters bool) 
 	// Get only the version from the header of the trap
 	version, _, err := unmarshalVersionFromHeader(trap, new(SnmpPacket))
 	if err != nil {
-		x.Logger.Printf("UnmarshalTrap version unmarshal: %s\n", err)
 		return nil, err
 	}
 	// If there are multiple users configured and the SNMP trap is v3, see which user has valid credentials
@@ -21,12 +20,10 @@ func (x *GoSNMP) UnmarshalTrap(trap []byte, useResponseSecurityParameters bool) 
 	if x.TrapSecurityParametersTable != nil && version == Version3 {
 		identifier, err := x.getTrapIdentifier(trap)
 		if err != nil {
-			x.Logger.Printf("UnmarshalTrap V3 get trap identifier: %s\n", err)
 			return nil, err
 		}
 		secParamsList, err := x.TrapSecurityParametersTable.Get(identifier)
 		if err != nil {
-			x.Logger.Printf("UnmarshalTrap V3 get security parameters from table: %s\n", err)
 			return nil, err
 		}
 		for _, secParams := range secParamsList {
@@ -69,7 +66,6 @@ func (x *GoSNMP) unmarshalTrapBase(trap []byte, sp SnmpV3SecurityParameters, use
 
 	cursor, err := x.unmarshalHeader(trap, result)
 	if err != nil {
-		x.Logger.Printf("UnmarshalTrap: %s\n", err)
 		return nil, err
 	}
 
@@ -77,20 +73,17 @@ func (x *GoSNMP) unmarshalTrapBase(trap []byte, sp SnmpV3SecurityParameters, use
 		if result.SecurityModel == UserSecurityModel {
 			err = x.testAuthentication(trap, result, useResponseSecurityParameters)
 			if err != nil {
-				x.Logger.Printf("UnmarshalTrap v3 auth: %s\n", err)
 				return nil, err
 			}
 		}
 
 		trap, cursor, err = unmarshalScopedPDU(trap, cursor, result)
 		if err != nil {
-			x.Logger.Printf("UnmarshalTrap v3 decrypt: %s\n", err)
 			return nil, err
 		}
 	}
 	err = unmarshalPayload(trap, cursor, result)
 	if err != nil {
-		x.Logger.Printf("UnmarshalTrap: %s\n", err)
 		return nil, err
 	}
 	return result, nil
