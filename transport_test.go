@@ -163,6 +163,27 @@ func TestConnectUnconnectedUDPListenFailure(t *testing.T) {
 	assert.True(t, ok && conn == nil, "Conn = %#v, want a nil *net.UDPConn", x.Conn)
 }
 
+// TestConnectTCPLocalAddr pins that a TCP connection is made from the
+// configured local address, port included.
+func TestConnectTCPLocalAddr(t *testing.T) {
+	agent, err := net.Listen("tcp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer agent.Close()
+	free, err := net.Listen("tcp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	localPort := free.Addr().(*net.TCPAddr).Port
+	require.NoError(t, free.Close())
+
+	x := &GoSNMP{
+		Target: "127.0.0.1", Port: uint16(agent.Addr().(*net.TCPAddr).Port), //nolint:gosec // a loopback port
+		Transport: "tcp", LocalAddr: "127.0.0.1:" + strconv.Itoa(localPort),
+		Version: Version2c, Community: "public", Timeout: time.Second,
+	}
+	require.NoError(t, x.Connect())
+	defer x.Conn.Close()
+	assert.Equal(t, localPort, x.Conn.LocalAddr().(*net.TCPAddr).Port)
+}
+
 // closeErrConn is a connection whose Close fails.
 type closeErrConn struct {
 	net.Conn

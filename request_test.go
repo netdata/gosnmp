@@ -5,6 +5,7 @@
 package gosnmp
 
 import (
+	"math"
 	"net"
 	"strconv"
 	"testing"
@@ -13,12 +14,47 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestHandlerMaxRepetitions pins that a Handler keeps max-repetitions with
+// its top bit cleared.
+func TestHandlerMaxRepetitions(t *testing.T) {
+	h := NewHandler()
+	assert.Equal(t, uint32(0), h.MaxRepetitions(), "new")
+	h.SetMaxRepetitions(math.MaxUint32)
+	assert.Equal(t, uint32(math.MaxInt32), h.MaxRepetitions())
+}
+
 // TestGetBulkChecks pins the order of GetBulk's input checks: the SNMPv1
 // check comes before the MaxOids check.
 func TestGetBulkChecks(t *testing.T) {
 	x := &GoSNMP{Version: Version1, MaxOids: 1}
 	_, err := x.GetBulk([]string{".1.3.6.1.2.1.1.1.0", ".1.3.6.1.2.1.1.3.0"}, 0, 10)
 	assert.EqualError(t, err, "GETBULK not supported in SNMPv1")
+}
+
+// TestSnmpEncodePacketErrors pins that SnmpEncodePacket returns an empty,
+// non-nil message with each of its errors.
+func TestSnmpEncodePacketErrors(t *testing.T) {
+	tests := map[string]struct {
+		x       *GoSNMP
+		pdus    []SnmpPDU
+		wantErr string
+	}{
+		"invalid parameters": {
+			x: &GoSNMP{Version: Version2c, MaxOids: -1}, wantErr: "field MaxOids cannot be less than 0",
+		},
+		"unencodable varbind": {
+			x:       &GoSNMP{Version: Version2c, Community: "public"},
+			pdus:    []SnmpPDU{{Name: "not an oid", Type: Null}},
+			wantErr: "invalid object identifier",
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			out, err := tc.x.SnmpEncodePacket(GetRequest, tc.pdus, 0, 0)
+			assert.ErrorContains(t, err, tc.wantErr)
+			assert.Equal(t, []byte{}, out)
+		})
+	}
 }
 
 // TestRequestAndMsgIDs pins, through the encoded messages, how Connect seeds
