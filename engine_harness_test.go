@@ -289,7 +289,7 @@ func decodeMessage(b []byte) (*SnmpPacket, error) {
 // does not decode. An SNMPv3 message is described by its header, and by its
 // scoped PDU when that is not encrypted.
 func describeMessage(b []byte) string {
-	if version, _, err := unmarshalVersionFromHeader(b, new(SnmpPacket)); err == nil && version == Version3 {
+	if version, _, err := readVersion(b); err == nil && version == Version3 {
 		return describeV3Message(b)
 	}
 	p, err := decodeMessage(b)

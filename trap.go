@@ -5,38 +5,45 @@
 package gosnmp
 
 import (
+	"bytes"
 	"fmt"
 )
 
 // UnmarshalTrap unpacks the SNMP Trap.
-func (x *GoSNMP) UnmarshalTrap(trap []byte, useResponseSecurityParameters bool) (result *SnmpPacket, err error) {
-	// Get only the version from the header of the trap
-	version, _, err := unmarshalVersionFromHeader(trap, new(SnmpPacket))
+func (x *GoSNMP) UnmarshalTrap(trap []byte, useResponseSecurityParameters bool) (*SnmpPacket, error) {
+	version, _, err := readVersion(trap)
 	if err != nil {
 		return nil, err
 	}
-	// If there are multiple users configured and the SNMP trap is v3, see which user has valid credentials
-	// by iterating through the list matching the identifier and seeing which credentials are authentic / can be used to decrypt
 	if x.TrapSecurityParametersTable != nil && version == Version3 {
-		identifier, err := x.getTrapIdentifier(trap)
-		if err != nil {
-			return nil, err
-		}
-		secParamsList, err := x.TrapSecurityParametersTable.Get(identifier)
-		if err != nil {
-			return nil, err
-		}
-		for _, secParams := range secParamsList {
-			// Copy the trap and pass the security parameters to try to unmarshal with
-			cpTrap := make([]byte, len(trap))
-			copy(cpTrap, trap)
-			if result, err = x.unmarshalTrapBase(cpTrap, secParams.Copy(), true); err == nil {
-				return result, nil
-			}
-		}
-		return nil, fmt.Errorf("no credentials successfully unmarshaled trap: %w", err)
+		return x.unmarshalTrapByUser(trap)
 	}
 	return x.unmarshalTrapBase(trap, nil, useResponseSecurityParameters)
+}
+
+// unmarshalTrapByUser decodes an SNMPv3 trap with the parameter sets the
+// table holds for its user name, in the order they were added, each with the
+// message's security parameters and on its own copy of the trap. The first
+// set that decodes it wins; when none does, the error wraps the last
+// attempt's.
+func (x *GoSNMP) unmarshalTrapByUser(trap []byte) (*SnmpPacket, error) {
+	identifier, err := x.getTrapIdentifier(trap)
+	if err != nil {
+		return nil, err
+	}
+	secParamsList, err := x.TrapSecurityParametersTable.Get(identifier)
+	if err != nil {
+		return nil, err
+	}
+	var lastErr error
+	for _, secParams := range secParamsList {
+		result, err := x.unmarshalTrapBase(bytes.Clone(trap), secParams.Copy(), true)
+		if err == nil {
+			return result, nil
+		}
+		lastErr = err
+	}
+	return nil, fmt.Errorf("no credentials successfully unmarshaled trap: %w", lastErr)
 }
 
 func (x *GoSNMP) getTrapIdentifier(trap []byte) (string, error) {

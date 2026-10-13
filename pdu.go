@@ -118,19 +118,16 @@ func readWhole(b []byte) ([]byte, error) {
 
 // -- Messages and PDUs --------------------------------------------------------
 
-// unmarshalVersionFromHeader reads the message SEQUENCE, which must span the
-// whole packet, and its version field. It returns the version and the offset
-// of the field after it. A version that is not an INTEGER reads as Version1.
-func unmarshalVersionFromHeader(packet []byte, response *SnmpPacket) (SnmpVersion, int, error) {
+// errEmptyPacket is the error of a message shorter than a TLV header.
+var errEmptyPacket = errors.New("cannot unmarshal empty packet")
+
+// readVersion reads the message SEQUENCE, which must span the whole packet,
+// and its version field. It returns the version and the offset of the field
+// after it. A version that is not an INTEGER reads as Version1.
+func readVersion(packet []byte) (SnmpVersion, int, error) {
 	if len(packet) < 2 {
-		return 0, 0, errors.New("cannot unmarshal empty packet")
+		return 0, 0, errEmptyPacket
 	}
-	if response == nil {
-		return 0, 0, errors.New("cannot unmarshal response into nil packet reference")
-	}
-
-	response.Variables = make([]SnmpPDU, 0, 5)
-
 	if PDUType(packet[0]) != Sequence {
 		return 0, 0, errors.New("invalid packet header")
 	}
@@ -158,7 +155,12 @@ func unmarshalVersionFromHeader(packet []byte, response *SnmpPacket) (SnmpVersio
 // SNMPv2c, the community, or for SNMPv3 the header and security parameters.
 // It returns the offset of the PDU.
 func (x *GoSNMP) unmarshalHeader(packet []byte, response *SnmpPacket) (int, error) {
-	version, cursor, err := unmarshalVersionFromHeader(packet, response)
+	version, cursor, err := readVersion(packet)
+	// Known bug: a packet that is not too short to read presets the variables
+	// to an empty list, also when it then fails to decode.
+	if !errors.Is(err, errEmptyPacket) {
+		response.Variables = make([]SnmpPDU, 0, 5)
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -191,9 +193,6 @@ func unmarshalPayload(packet []byte, cursor int, response *SnmpPacket) error {
 	}
 	if cursor >= len(packet) {
 		return fmt.Errorf("cannot unmarshal payload, packet length %d cursor %d", len(packet), cursor)
-	}
-	if response == nil {
-		return errors.New("cannot unmarshal payload response into nil packet reference")
 	}
 
 	// Parse SNMP packet type
