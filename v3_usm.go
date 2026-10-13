@@ -240,7 +240,9 @@ func (sp *UsmSecurityParameters) Copy() SnmpV3SecurityParameters {
 
 // InitSecurityKeys derives the keys the protocols need and the parameters
 // lack, from the passphrases and AuthoritativeEngineID. Known bug: an empty
-// authentication or DES passphrase gives an empty key without an error.
+// passphrase is not refused: it gives an empty authentication or DES key, and
+// a Blumenthal AES key extended from nothing when the hash is long enough;
+// the other AES keys fail as too short.
 func (sp *UsmSecurityParameters) InitSecurityKeys() error {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
@@ -292,7 +294,9 @@ func (sp *UsmSecurityParameters) privacyKey() ([]byte, error) {
 // caller holds sp.mu or owns sp (a private copy). Known bugs: the engine ID is
 // adopted before the keys are derived, so a failed derivation leaves it
 // adopted with keys missing; keys given without passphrases are dropped too,
-// and the empty passphrases derive no usable keys.
+// and the empty passphrases derive an empty authentication key, which
+// verifies a digest anyone can compute (isAuthentic), and no usable privacy
+// key.
 func (sp *UsmSecurityParameters) adoptEngineID(engineID string) error {
 	if sp.AuthoritativeEngineID == engineID {
 		return nil
@@ -531,7 +535,9 @@ func (sp *UsmSecurityParameters) sign(packet []byte) error {
 
 // isAuthentic reports whether the message is from the user of sp and carries
 // the digest computed with the decoded message's parameters, which need an
-// authentication protocol.
+// authentication protocol. Known bug: it accepts their key when it is empty,
+// as the empty passphrase derives it, and a digest with the empty key is one
+// anyone can compute (isAuthenticAnswer refuses an empty key).
 func (sp *UsmSecurityParameters) isAuthentic(packetBytes []byte, packet *SnmpPacket) (bool, error) {
 	packetSecParams := packet.SecurityParameters.usm()
 

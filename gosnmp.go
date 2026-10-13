@@ -74,7 +74,7 @@ type GoSNMP struct {
 
 	// Timeout is how long each attempt of a request waits for its answer, and
 	// Connect's dial timeout. It has no default: a zero Timeout times out
-	// every attempt at once.
+	// every attempt at once, and leaves the dial without a timeout.
 	Timeout time.Duration
 
 	// Retries is the number of attempts after the first; a request sets a
@@ -105,11 +105,12 @@ type GoSNMP struct {
 	OnRecv func(*GoSNMP)
 
 	// OnRetry is called after each attempt that fails in a way another attempt
-	// may cure (a write or read error, a timeout, an undecodable reply, a TCP
-	// connection the agent closed and the client reopened), before the next
-	// one, and also after the last such attempt, when no attempt follows. An
-	// encoding, deadline-setting or context error, or a failed TCP reconnect,
-	// ends the request without it.
+	// may cure (a write or read error, a timeout, a reply that does not decode
+	// or authenticate, a TCP connection the agent closed and the client
+	// reopened), before the next one, and also after the last such attempt,
+	// when no attempt follows. An encoding or deadline-setting error, a
+	// Context already done when an attempt would start, or a failed TCP
+	// reconnect, ends the request without it.
 	OnRetry func(*GoSNMP)
 
 	// OnFinish is called each time an exchange (a request and the answer to
@@ -222,8 +223,10 @@ type SnmpPDU struct {
 	// documentation). Get, GetNext and GetBulk send nil.
 	Value any
 
-	// Name is the object's OID in dotted form, such as ".1.3.6.1.2.1.1.1.0";
-	// decoded names have the leading dot, sent ones need not.
+	// Name is the object's OID in dotted form, such as ".1.3.6.1.2.1.1.1.0":
+	// with the leading dot when decoded from an OBJECT IDENTIFIER, with or
+	// without it when sent. A name a device sent as an OCTET STRING or an
+	// IpAddress is kept as text.
 	Name string
 
 	// Type is the type of the value.
@@ -355,7 +358,9 @@ func (x *GoSNMP) SnmpEncodePacket(pdutype PDUType, pdus []SnmpPDU, nonRepeaters 
 // with a copy of the client's security parameters, after preparing the client
 // as Connect does; keys are derived for an SNMPv3 message from another engine
 // ID. It does not check the digest, and it decodes in place (see the package
-// documentation). On an error it returns what it decoded so far.
+// documentation). On an error it returns what it decoded so far. Known bug:
+// some malformed SNMPv3 messages make it panic (see the package
+// documentation).
 func (x *GoSNMP) SnmpDecodePacket(resp []byte) (*SnmpPacket, error) {
 	result := &SnmpPacket{}
 	if err := x.prepare(); err != nil {
@@ -385,7 +390,7 @@ func (x *GoSNMP) SnmpDecodePacket(resp []byte) (*SnmpPacket, error) {
 // sliceLength items is cut into partitions of partitionSize, the last one
 // possibly shorter: a loop over many OIDs can send a Get each time it reports
 // true. A position outside the slice reports false. Known bug: a
-// partitionSize of 0 panics.
+// partitionSize of 0 panics for a position inside the slice.
 //
 // For a slice of 8 items in partitions of 3, it reports true at 2, 5 and 7:
 //

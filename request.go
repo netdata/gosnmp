@@ -50,7 +50,9 @@ func (x *GoSNMP) Get(oids []string) (result *SnmpPacket, err error) {
 // Counter32, Counter64, Null, TimeTicks, Uinteger32, OpaqueFloat and
 // OpaqueDouble, with the Go values the package documentation lists; MaxOids
 // does not apply. Known bugs: no pdus panics; only the first varbind's type
-// is checked, so a later one fails in the encoder, in the first attempt.
+// is checked, so a later varbind of another type the encoder takes
+// (BitString, Opaque, the exceptions) is sent, and one it does not take fails
+// in the encoder, in the first attempt.
 func (x *GoSNMP) Set(pdus []SnmpPDU) (result *SnmpPacket, err error) {
 	switch pdus[0].Type {
 	case Integer, OctetString, Gauge32, IPAddress, ObjectIdentifier, Counter32, Counter64, Null, TimeTicks, Uinteger32, OpaqueFloat, OpaqueDouble:

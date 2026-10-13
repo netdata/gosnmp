@@ -10,24 +10,28 @@ import (
 )
 
 // UnmarshalTrap decodes a received trap or inform, of any version; an SNMPv3
-// message needs a client whose Version is Version3.
+// message needs a client whose Version is Version3. It decodes any PDU type
+// and does not compare the community: check PDUType and Community.
 //
 // An SNMPv3 message is decoded, when TrapSecurityParametersTable is set, with
 // the sets the table holds for its user name, each on a copy of trap, until
 // one decodes it; useResponseSecurityParameters is then always set. Otherwise
-// it is decoded in place (see the package documentation) with a copy of
-// SecurityParameters, whose keys are derived first. When the flags ask for
-// authentication, a User-based Security Model message must name the user and
-// carry a digest that checks with the user's key, localized to the engine ID
-// the message names. The flags and the user are the client's, or, with
-// useResponseSecurityParameters, the message's own.
+// UnmarshalTrap derives the missing keys of SecurityParameters and decodes
+// trap in place (see the package documentation) with a copy of them. When the
+// flags ask for authentication, a User-based Security Model message must name
+// the user and carry a digest that checks with the user's key, localized to
+// the engine ID the message names. The flags and the user are the client's,
+// or, with useResponseSecurityParameters, the message's own.
 //
-// Known bugs: these messages are accepted without the digest their user needs:
-// one of another security model; one with an empty user name and engine ID, as
-// in engine discovery; with useResponseSecurityParameters, so on the table
-// path, one without the authentication flag; and, the client's flags deciding
-// only whether a digest is checked, one without privacy for a client at
-// authPriv.
+// Known bugs: these messages are accepted without the security their user
+// needs: one of another security model, and one with an empty user name and
+// engine ID, as in engine discovery, both unchecked; with
+// useResponseSecurityParameters, so on the table path, one without the
+// authentication flag; one without privacy, for a client at authPriv (the
+// client's flags decide only whether a digest is checked); and, for a user
+// configured with keys instead of passphrases, one that names another engine
+// ID and is signed with the empty key, which anyone can compute. Some
+// malformed messages make it panic (see the package documentation).
 func (x *GoSNMP) UnmarshalTrap(trap []byte, useResponseSecurityParameters bool) (*SnmpPacket, error) {
 	version, _, err := readVersion(trap)
 	if err != nil {

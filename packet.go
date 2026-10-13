@@ -35,9 +35,11 @@ func (s SnmpVersion) String() string {
 }
 
 // SnmpPacket is an SNMP message: a request, an answer or a trap. A decoded
-// packet holds what the message carried; fields a message does not carry
-// stay zero.
+// packet holds the fields the message carried; its SecurityParameters are a
+// copy of the client's, protocols, passphrases and keys included, with the
+// message's fields decoded into them, and its Logger is the client's.
 type SnmpPacket struct {
+	// Version is the SNMP version.
 	Version SnmpVersion
 
 	// The SNMPv3 header: the flags, the security model and its parameters.
@@ -52,6 +54,7 @@ type SnmpPacket struct {
 	// Community is the community of an SNMPv1 or SNMPv2c message.
 	Community string
 
+	// PDUType is the type of the PDU.
 	PDUType PDUType
 
 	// MsgID is the SNMPv3 msgID, RequestID the PDU's request ID.
@@ -128,7 +131,8 @@ const (
 //go:generate go tool -modfile=tools/go.mod stringer -type=PDUType
 
 // SafeString formats the packet for logs, with the SafeString of its
-// security parameters, which leaves the passphrases and keys out.
+// security parameters, which leaves the passphrases and keys out; the
+// community is in it.
 func (packet *SnmpPacket) SafeString() string {
 	sp := ""
 	if packet.SecurityParameters != nil {

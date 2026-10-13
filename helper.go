@@ -16,9 +16,10 @@ import (
 	"github.com/netdata/gosnmp/internal/ber"
 )
 
-// Errors that decode errors wrap (match them with errors.Is): those of the
-// BER decoder, and ErrZeroByteBuffer for a varbind without a value or an
-// empty Opaque. ErrInvalidOidLength is not returned.
+// Errors that some decode errors wrap (match them with errors.Is): those of
+// the BER decoder, and ErrZeroByteBuffer for a varbind without a value or an
+// empty Opaque. Other decode, configuration and authentication errors are not
+// exported. ErrInvalidOidLength is not returned.
 var (
 	ErrBase128IntegerTooLarge  = ber.ErrBase128IntegerTooLarge
 	ErrBase128IntegerTruncated = ber.ErrBase128IntegerTruncated

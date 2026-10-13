@@ -48,8 +48,8 @@ hooks, SNMPv3 engine discovery and Reports, the Go type of each value type, and 
 
 ## Logging
 
-A client logs nothing unless its `Logger` is set to `gosnmp.NewLogger(l)`, where `l` has the `Print` and `Printf`
-methods of the standard `*log.Logger` (`gosnmp.LoggerInterface`):
+A client writes debug output only when its `Logger` is set to `gosnmp.NewLogger(l)`, where `l` has the `Print` and
+`Printf` methods of the standard `*log.Logger` (`gosnmp.LoggerInterface`):
 
 ```go
 g := &gosnmp.GoSNMP{
@@ -58,7 +58,8 @@ g := &gosnmp.GoSNMP{
 }
 ```
 
-The encoder and decoder never log, and without a logger the request path does not format log messages.
+The encoder and decoder write nothing to the `Logger`, and without a logger the request path does not format log
+messages.
 
 # Installation
 
@@ -123,7 +124,7 @@ More examples, each a program under `examples/`:
 * `example4` - Set
 * `walkexample` and `walktcpexample` - BulkWalk over UDP and TCP, where the agent may close the connection between
   walks
-* `Hex-String` - OctetString values that are not text, printed as hex
+* `Hex-String` - OctetString values that are not text, printed octet by octet in decimal
 * `linux_vrf` - a socket bound to a Linux VRF device with `Control`
 * `logger` - logging turned on and off
 
@@ -194,8 +195,6 @@ or, against another agent:
 ```shell
 export GOSNMP_TARGET=192.0.2.1
 export GOSNMP_PORT=161
-export GOSNMP_TARGET_IPV4=192.0.2.1
-export GOSNMP_PORT_IPV4=161
 export GOSNMP_TARGET_IPV6='2001:db8::1'
 export GOSNMP_PORT_IPV6=161
 go test -v -tags end2end ./...

@@ -62,10 +62,10 @@ func (a Auth) Verify(key, msg, mac []byte) (bool, error) {
 }
 
 // hmacRFC3414 computes the HMAC of RFC 3414 sections 6.3.1 and 7.3.1: the key
-// zero-padded to the 64-octet block (a longer key is cut, not hashed as RFC
-// 2104 does), XORed with ipad and opad around two hash passes. Unlike
-// crypto/hmac, which panics, it returns the error a hash reports, as MD5 and
-// SHA-1 do in FIPS 140-only mode.
+// zero-padded to the 64-octet block, XORed with ipad and opad around two hash
+// passes. Unlike crypto/hmac, which panics, it returns the error a hash
+// reports, as MD5 and SHA-1 do in FIPS 140-only mode. Known bug: a key longer
+// than the block is cut, not hashed as RFC 2104 does.
 func hmacRFC3414(hash crypto.Hash, key, msg []byte) ([]byte, error) {
 	var ipad, opad [64]byte
 	copy(ipad[:], key)

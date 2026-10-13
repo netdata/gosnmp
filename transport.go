@@ -32,9 +32,10 @@ func (x *GoSNMP) ConnectIPv6() error {
 	return x.connect("6")
 }
 
-// Close closes the connection. Only the first call closes it; later calls,
-// and calls from other goroutines at the same time, return nil. Like the rest
-// of GoSNMP, Close is not safe to call while a request is running.
+// Close closes the connection. Only the first call after Connect closes it;
+// later calls, and calls from other goroutines at the same time, return nil.
+// Like the rest of GoSNMP, Close is not safe to call while a request is
+// running.
 func (x *GoSNMP) Close() error {
 	x.mu.Lock()
 	defer x.mu.Unlock()
