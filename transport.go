@@ -11,29 +11,31 @@ import (
 	"strconv"
 )
 
-// Connect creates and opens a socket. Because UDP is a connectionless
-// protocol, you won't know if the remote host is responding until you send
-// packets. Neither will you know if the host is regularly disappearing and reappearing.
-//
-// For historical reasons (ie this is part of the public API), the method won't
-// be renamed to Dial().
+// Connect readies the client and opens its connection to Target and Port
+// (see the package documentation); a client connects before its requests.
+// Over UDP it sends nothing, so it succeeds whether or not an agent answers.
 func (x *GoSNMP) Connect() error {
 	return x.connect("")
 }
 
-// ConnectIPv4 forces an IPv4-only connection
+// ConnectIPv4 connects like Connect, over IPv4 only: it appends "4" to
+// Transport. Known bug: it appends it on every call, so the next ConnectIPv4
+// fails ("udp44").
 func (x *GoSNMP) ConnectIPv4() error {
 	return x.connect("4")
 }
 
-// ConnectIPv6 forces an IPv6-only connection
+// ConnectIPv6 connects like Connect, over IPv6 only: it appends "6" to
+// Transport. Known bug: it appends it on every call, so the next ConnectIPv6
+// fails ("udp66").
 func (x *GoSNMP) ConnectIPv6() error {
 	return x.connect("6")
 }
 
-// Close closes the connection. Only the first call closes it; later calls,
-// and calls from other goroutines at the same time, return nil. Like the rest
-// of GoSNMP, Close is not safe to call while a request is running.
+// Close closes the connection. Only the first call after Connect closes it;
+// later calls, and calls from other goroutines at the same time, return nil.
+// Like the rest of GoSNMP, Close is not safe to call while a request is
+// running.
 func (x *GoSNMP) Close() error {
 	x.mu.Lock()
 	defer x.mu.Unlock()
@@ -47,18 +49,16 @@ func (x *GoSNMP) Close() error {
 	return err
 }
 
-// connect to address addr on the given network
-//
-// https://golang.org/pkg/net/#Dial gives acceptable network values as:
-//
-//	"tcp", "tcp4" (IPv4-only), "tcp6" (IPv6-only), "udp", "udp4" (IPv4-only),"udp6" (IPv6-only), "ip",
-//	"ip4" (IPv4-only), "ip6" (IPv6-only), "unix", "unixgram" and "unixpacket"
+// connect readies the client, appends networkSuffix ("", "4" or "6") to
+// Transport, opens the connection, seeds the IDs and allocates the receive
+// buffer.
 func (x *GoSNMP) connect(networkSuffix string) error {
 	err := x.prepare()
 	if err != nil {
 		return err
 	}
 
+	// Known bug: the suffix is appended on every call.
 	x.Transport += networkSuffix
 	if err = x.netConnect(); err != nil {
 		return fmt.Errorf("error establishing connection to host: %w", err)

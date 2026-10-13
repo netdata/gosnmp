@@ -17,10 +17,12 @@ import (
 	"github.com/netdata/gosnmp/internal/ber"
 )
 
-// SnmpV3MsgFlags contains various message flags to describe Authentication, Privacy, and whether a report PDU must be sent.
+// SnmpV3MsgFlags is the msgFlags octet of an SNMPv3 message: its security
+// level, authentication and privacy, and whether the receiver must answer an
+// error with a Report.
 type SnmpV3MsgFlags uint8
 
-// Possible values of SnmpV3MsgFlags
+// The security levels and the reportable flag.
 const (
 	NoAuthNoPriv SnmpV3MsgFlags = 0x0 // No authentication, and no privacy
 	AuthNoPriv   SnmpV3MsgFlags = 0x1 // Authentication and no privacy
@@ -40,7 +42,7 @@ func (f SnmpV3MsgFlags) privFlag() bool { return f&0x2 != 0 }
 
 //go:generate go tool -modfile=tools/go.mod stringer -type=SnmpV3MsgFlags
 
-// SnmpV3SecurityModel describes the security model used by a SnmpV3 connection
+// SnmpV3SecurityModel is the security model of an SNMPv3 message.
 type SnmpV3SecurityModel uint8
 
 // UserSecurityModel is the only SnmpV3SecurityModel currently implemented.
@@ -52,7 +54,7 @@ const (
 
 // SnmpV3SecurityParameters holds the parameters of an SNMPv3 security model.
 // Its only implementation is *UsmSecurityParameters, for the User-based
-// Security Model.
+// Security Model, which documents the methods.
 type SnmpV3SecurityParameters interface {
 	Log()
 	Copy() SnmpV3SecurityParameters
@@ -75,6 +77,8 @@ func usmOf(sp SnmpV3SecurityParameters) *UsmSecurityParameters {
 	return sp.usm()
 }
 
+// validateParametersV3 checks the client's SNMPv3 configuration: the
+// User-based Security Model, and parameters that fit MsgFlags.
 func (x *GoSNMP) validateParametersV3() error {
 	// update following code if you implement a new security model
 	if x.SecurityModel != UserSecurityModel {
@@ -88,10 +92,11 @@ func (x *GoSNMP) validateParametersV3() error {
 }
 
 // sign writes the digest of the marshalled SNMPv3 message msg into it when
-// the flags ask for authentication. Known bug: it recovers a panic of the
-// signing (crypto/hmac's, for an HMAC-SHA-2 key shorter than 14 octets in
-// FIPS 140-only mode), writes it and the stack to stdout and returns no
-// message and no error.
+// the flags ask for authentication. Known bugs: it signs with an empty key
+// when the parameters have none; it recovers a panic of the signing
+// (crypto/hmac's, for an HMAC-SHA-2 key shorter than 14 octets in FIPS
+// 140-only mode), writes it and the stack to stdout and returns no message
+// and no error.
 func (packet *SnmpPacket) sign(msg []byte) ([]byte, error) {
 	defer func() {
 		if e := recover(); e != nil {
@@ -113,13 +118,20 @@ func (packet *SnmpPacket) sign(msg []byte) ([]byte, error) {
 	return msg, nil
 }
 
-// testAuthentication verifies the digest of the SNMPv3 message packet, whose
-// header is decoded into result, for UnmarshalTrap: with result's flags and
-// security parameters when useResponseSecurityParameters is set, with the
-// client's otherwise. Engine discovery (RFC 3414 section 4): a message with an
-// empty user name and engine ID is accepted without authentication. Known bug:
-// whatever its flags and variable bindings (the bindings are not decoded yet),
-// so any such message skips the digest.
+// testAuthentication verifies the SNMPv3 message packet, whose header is
+// decoded into result, for UnmarshalTrap, when the flags ask for
+// authentication: the message must name the user and carry a digest that
+// checks with result's key, localized to the engine ID the message names. The
+// flags and the user are the client's, or the message's own when
+// useResponseSecurityParameters is set, so its user name always matches.
+// Engine discovery (RFC 3414 section 4): a message with an empty user name and
+// engine ID is accepted without authentication. Known bugs: the discovery
+// exception holds whatever the message's flags and variable bindings (the
+// bindings are not decoded yet), so any such message skips the digest; with
+// useResponseSecurityParameters, which the table path sets, a message without
+// the authentication flag skips it too, whatever its user requires; the
+// client's flags decide only whether a digest is checked, so a message without
+// privacy passes a client at authPriv.
 func (x *GoSNMP) testAuthentication(packet []byte, result *SnmpPacket, useResponseSecurityParameters bool) error {
 	if x.Version != Version3 {
 		return fmt.Errorf("testAuthentication called with non Version3 connection")

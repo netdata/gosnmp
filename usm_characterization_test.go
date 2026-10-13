@@ -415,18 +415,36 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 		return m.bytes()
 	}
 
+	// emptyKeyTrap is an authNoPriv trap from usmCharEngineID signed with the
+	// empty key, which anyone can compute.
+	emptyKeyTrap := func() []byte {
+		data, err := (&SnmpPacket{
+			Version: Version3, MsgFlags: AuthNoPriv, SecurityModel: UserSecurityModel,
+			SecurityParameters: &UsmSecurityParameters{
+				UserName: "codec-user", AuthoritativeEngineID: usmCharEngineID, AuthenticationProtocol: SHA,
+			},
+			PDUType: SNMPv2Trap, Variables: plainVars,
+		}).MarshalMsg()
+		require.NoError(t, err)
+		return data
+	}
+
 	type receiverKind int
 	const (
 		single receiverKind = iota
 		table
-		tableKeysOnly // keys localized to another engine ID, no passphrases
+		tableKeysOnly  // keys localized to another engine ID, no passphrases
+		singleKeysOnly // the same, for a single user at authNoPriv
 	)
 	receiver := func(priv SnmpV3PrivProtocol, kind receiverKind) *GoSNMP {
 		sp := usmDecoder(SHA, "codec-auth-pass", priv, "codec-priv-pass")().SecurityParameters.(*UsmSecurityParameters)
-		if kind == single {
+		switch kind {
+		case single:
 			return &GoSNMP{Version: Version3, MsgFlags: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp}
-		}
-		if kind == tableKeysOnly {
+		case singleKeysOnly:
+			usmKeysOnly(sp, usmOtherEngineID)
+			return &GoSNMP{Version: Version3, MsgFlags: AuthNoPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp}
+		case tableKeysOnly:
 			usmKeysOnly(sp, usmOtherEngineID)
 		}
 		tb := NewSnmpV3SecurityParametersTable(Logger{})
@@ -481,6 +499,17 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 		"privacy-only DES, table with keys only": {
 			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 8) }, priv: DES, receiver: tableKeysOnly,
 			want: "panic", knownBug: "a new engine ID replaces the keys with the empty keys of the empty passphrases",
+		},
+		"authNoPriv signed with the empty key, table with keys only": {
+			in: emptyKeyTrap, priv: NoPriv, receiver: tableKeysOnly, want: "accepted", vars: plainVars,
+			knownBug: "a new engine ID replaces the keys with the empty key of the empty passphrase, which verifies a digest anyone can compute",
+		},
+		"authNoPriv signed with the empty key, single user with keys only": {
+			in: emptyKeyTrap, priv: NoPriv, receiver: singleKeysOnly, want: "accepted", vars: plainVars,
+			knownBug: "a new engine ID replaces the keys with the empty key of the empty passphrase, which verifies a digest anyone can compute",
+		},
+		"authNoPriv signed with the empty key, table": {
+			in: emptyKeyTrap, priv: NoPriv, receiver: table, want: "rejected",
 		},
 		"noAuthNoPriv plaintext, AES table with keys only": {
 			in: func() []byte { return plainTrap(3, usmCharEngineID, "codec-user") }, priv: AES, receiver: tableKeysOnly,

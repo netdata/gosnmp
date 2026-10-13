@@ -15,70 +15,51 @@ import (
 
 //go:generate go tool -modfile=tools/go.mod mockgen -source=interface.go -destination=mocks/gosnmp_mock.go -package=mocks
 
-// Handler is the interface of a GoSNMP, provided for mocks in tests. Like a
-// GoSNMP, a Handler is not safe for concurrent use.
+// Handler is the interface of a GoSNMP, provided for mocks in tests; the
+// methods that act are documented on GoSNMP, the others get or set its
+// fields. Like a GoSNMP, a Handler is not safe for concurrent use.
 type Handler interface {
-	// Connect creates and opens a socket. Because UDP is a connectionless
-	// protocol, you won't know if the remote host is responding until you send
-	// packets. And if the host is regularly disappearing and reappearing, you won't
-	// know if you've only done a Connect().
-	//
-	// For historical reasons (ie this is part of the public API), the method won't
-	// be renamed.
+	// Connect: see GoSNMP.Connect.
 	Connect() error
 
-	// ConnectIPv4 connects using IPv4
+	// ConnectIPv4: see GoSNMP.ConnectIPv4.
 	ConnectIPv4() error
 
-	// ConnectIPv6 connects using IPv6
+	// ConnectIPv6: see GoSNMP.ConnectIPv6.
 	ConnectIPv6() error
 
-	// Get sends an SNMP GET request
+	// Get: see GoSNMP.Get.
 	Get(oids []string) (result *SnmpPacket, err error)
 
-	// GetBulk sends an SNMP GETBULK request
+	// GetBulk: see GoSNMP.GetBulk.
 	GetBulk(oids []string, nonRepeaters uint8, maxRepetitions uint32) (result *SnmpPacket, err error)
 
-	// GetNext sends an SNMP GETNEXT request
+	// GetNext: see GoSNMP.GetNext.
 	GetNext(oids []string) (result *SnmpPacket, err error)
 
-	// Walk walks the subtree under rootOid with GETNEXT requests, one per value,
-	// where BulkWalk asks for many at a time, calling walkFn for each value in it.
-	// An empty or "." rootOid walks .1.3.6.1; when the first value of the first
-	// answer lies outside the subtree, rootOid is taken for a leaf and fetched
-	// with a Get. It returns at once the error of a failed request or of walkFn,
-	// and an error for a name in the subtree that is not after the requested one
-	// (unless AppOpts has "c"). An answer whose Error is TooBig through
-	// InconsistentName ends the walk without an error.
+	// Walk: see GoSNMP.Walk.
 	Walk(rootOid string, walkFn WalkFunc) error
 
-	// WalkAll is similar to Walk but returns a filled array of all values rather
-	// than using a callback function to stream results.
+	// WalkAll: see GoSNMP.WalkAll.
 	WalkAll(rootOid string) (results []SnmpPDU, err error)
 
-	// BulkWalk walks the subtree under rootOid with GETBULK requests, calling
-	// walkFn for each value in it. An empty or "." rootOid walks .1.3.6.1; when
-	// the first value of the first answer lies outside the subtree, rootOid is
-	// taken for a leaf and fetched with a Get. It returns at once the error of a
-	// failed request or of walkFn, and an error for a name in the subtree that is
-	// not after the requested one (unless AppOpts has "c"). An answer whose Error
-	// is TooBig through InconsistentName ends the walk without an error.
+	// BulkWalk: see GoSNMP.BulkWalk.
 	BulkWalk(rootOid string, walkFn WalkFunc) error
 
-	// BulkWalkAll is similar to BulkWalk but returns a filled array of all values
-	// rather than using a callback function to stream results.
+	// BulkWalkAll: see GoSNMP.BulkWalkAll.
 	BulkWalkAll(rootOid string) (results []SnmpPDU, err error)
 
-	// UnmarshalTrap unpacks the SNMP Trap.
+	// UnmarshalTrap: see GoSNMP.UnmarshalTrap.
 	UnmarshalTrap(trap []byte, useResponseSecurityParameters bool) (result *SnmpPacket, err error)
 
-	// Set sends an SNMP SET request
+	// Set: see GoSNMP.Set.
 	Set(pdus []SnmpPDU) (result *SnmpPacket, err error)
 
-	// Check makes checking errors easy, so they actually get a minimal check
+	// Check: see GoSNMP.Check.
 	Check(err error)
 
-	// Close closes the connection
+	// Close closes the connection; see NewHandler for how its Close differs
+	// from GoSNMP.Close.
 	Close() error
 
 	// Target gets the Target
@@ -135,10 +116,10 @@ type Handler interface {
 	// SetMaxOids sets the MaxOids
 	SetMaxOids(maxOids int)
 
-	// MaxRepetitions gets the maxRepetitions
+	// MaxRepetitions gets the MaxRepetitions
 	MaxRepetitions() uint32
 
-	// SetMaxRepetitions sets the maxRepetitions
+	// SetMaxRepetitions sets the MaxRepetitions, with its top bit cleared
 	SetMaxRepetitions(maxRepetitions uint32)
 
 	// MsgFlags gets the MsgFlags
@@ -177,7 +158,10 @@ type snmpHandler struct {
 	GoSNMP
 }
 
-// NewHandler creates a new Handler using gosnmp
+// NewHandler returns a Handler backed by a new GoSNMP with the Port,
+// Community, Version, Timeout, Retries and MaxOids of Default; Transport and
+// ExponentialTimeout stay unset. Known bug: its Close closes Conn directly,
+// so it panics without a connection and leaves Conn set.
 func NewHandler() Handler {
 	return &snmpHandler{
 		GoSNMP{

@@ -27,11 +27,12 @@ const (
 	// set GoSNMP.MaxOids to change it.
 	MaxOids = 60
 
-	// Max oid sub-identifier value
-	// https://tools.ietf.org/html/rfc2578#section-7.1.3
+	// MaxObjectSubIdentifierValue is the largest OID sub-identifier (RFC
+	// 2578 section 7.1.3). The library does not use it.
 	MaxObjectSubIdentifierValue = 4294967295
 
-	// Java SNMP uses 50, snmp-net uses 10
+	// defaultMaxRepetitions is the walks' GetBulk max-repetitions unless
+	// GoSNMP.MaxRepetitions is set; Java SNMP uses 50, net-snmp 10.
 	defaultMaxRepetitions = 50
 
 	// "udp" and "tcp" are used regularly, prevent 'goconst' complaints
@@ -52,53 +53,64 @@ type GoSNMP struct {
 	// Target is the agent's host name or IP address.
 	Target string
 
-	// Port is a port.
+	// Port is the agent's port, usually 161; it has no default.
 	Port uint16
 
-	// Transport is the transport protocol to use ("udp" or "tcp"); if unset "udp" will be used.
+	// Transport is the network: "udp" (when empty) or "tcp", or either with
+	// "4" or "6" for IPv4 or IPv6 only. Connect narrows it to IPv4 for an IPv4
+	// LocalAddr; ConnectIPv4 and ConnectIPv6 add the suffix.
 	Transport string
 
-	// Community is an SNMP Community string.
+	// Community is the community of SNMPv1 and SNMPv2c messages.
 	Community string
 
-	// Version is an SNMP Version.
+	// Version is the SNMP version: Version1, Version2c or Version3.
 	Version SnmpVersion
 
-	// Context allows for overall deadlines and cancellation.
+	// Context, when set, bounds Connect's dial and every request: no attempt
+	// starts once it is done, and its deadline ends an attempt. Connect sets
+	// context.Background() when it is nil.
 	Context context.Context
 
-	// Timeout is the timeout for one SNMP request/response.
+	// Timeout is how long each attempt of a request waits for its answer, and
+	// Connect's dial timeout. It has no default: a zero Timeout times out
+	// every attempt at once, and leaves the dial without a timeout.
 	Timeout time.Duration
 
-	// Set the number of retries to attempt.
+	// Retries is the number of attempts after the first; a request sets a
+	// negative value to 0.
 	Retries int
 
-	// Double timeout in each retry.
+	// ExponentialTimeout doubles the timeout for each retry.
 	ExponentialTimeout bool
 
-	// Logger is the GoSNMP.Logger to use for debugging; the zero Logger
-	// disables logging. For verbose logging to stdout:
-	// x.Logger = NewLogger(log.New(os.Stdout, "", 0))
+	// Logger receives the client's debug output; the zero Logger disables it.
+	// For verbose logging to stdout:
+	//
+	//	x.Logger = NewLogger(log.New(os.Stdout, "", 0))
 	Logger Logger
 
-	// Message hook methods allow passing in functions at various points in the packet handling.
-	// For example, this can be used to collect packet timing, add metrics, or implement tracing.
+	// The message hooks are called at points of a request, each with the
+	// client, for example to time requests, count them or trace them. The
+	// package documentation gives their order.
 	//
-	// PreSend is called before a packet is sent.
+	// PreSend is called in each attempt after the request is encoded, before
+	// it is written.
 	PreSend func(*GoSNMP)
 
-	// OnSent is called when a packet is sent.
+	// OnSent is called in each attempt after the request is written.
 	OnSent func(*GoSNMP)
 
-	// OnRecv is called when a packet is received.
+	// OnRecv is called after each reply is read, before it is decoded.
 	OnRecv func(*GoSNMP)
 
 	// OnRetry is called after each attempt that fails in a way another attempt
-	// may cure (a write or read error, a timeout, an undecodable reply, a TCP
-	// connection the agent closed and the client reopened), before the next
-	// one, and also after the last such attempt, when no attempt follows. An
-	// encoding, deadline-setting or context error, or a failed TCP reconnect,
-	// ends the request without it.
+	// may cure (a write or read error, a timeout, a reply that does not decode
+	// or authenticate, a TCP connection the agent closed and the client
+	// reopened), before the next one, and also after the last such attempt,
+	// when no attempt follows. An encoding or deadline-setting error, a
+	// Context already done when an attempt would start, or a failed TCP
+	// reconnect, ends the request without it.
 	OnRetry func(*GoSNMP)
 
 	// OnFinish is called each time an exchange (a request and the answer to
@@ -113,70 +125,75 @@ type GoSNMP struct {
 	// constant.
 	MaxOids int
 
-	// MaxRepetitions sets the GETBULK max-repetitions used by BulkWalk*
-	// Unless MaxRepetitions is specified it will use defaultMaxRepetitions (50)
-	// This may cause issues with some devices, if so set MaxRepetitions lower.
-	// See comments in https://github.com/gosnmp/gosnmp/issues/100
+	// MaxRepetitions is the GETBULK max-repetitions of BulkWalk and
+	// BulkWalkAll, sent with its top bit cleared; zero means 50. Some devices
+	// fail with large values; see https://github.com/gosnmp/gosnmp/issues/100.
 	MaxRepetitions uint32
 
-	// Deprecated: This parameter is not used and ignored
+	// NonRepeaters is not used.
+	//
+	// Deprecated: GetBulk takes the non-repeaters as an argument.
 	NonRepeaters int
 
-	// UseUnconnectedUDPSocket if set, changes net.Conn to be unconnected UDP socket.
-	// Some multi-homed network gear isn't smart enough to send SNMP responses
-	// from the address it received the requests on. To work around that,
-	// we open unconnected UDP socket and use sendto/recvfrom.
+	// UseUnconnectedUDPSocket makes a UDP client send from an unconnected
+	// socket, with sendto and recvfrom, for agents that answer from another
+	// address than the one the request went to, as some multi-homed devices
+	// do. Replies are then read from any address.
 	UseUnconnectedUDPSocket bool
 
-	// If Control is not nil, it is called after creating the network
-	// connection but before actually dialing.
-	//
-	// Can be used when UseUnconnectedUDPSocket is set to false or when using TCP
-	// in scenario where specific options on the underlying socket are nedded.
-	// Refer to https://pkg.go.dev/net#Dialer
+	// Control, when set, is the Control function of Connect's net.Dialer: it
+	// is called after the socket is created and before it connects, for
+	// example to set socket options. An unconnected UDP socket is not dialed,
+	// so it does not get it.
 	Control func(network, address string, c syscall.RawConn) error
 
-	// LocalAddr is the local address in the format "address:port" to use when connecting an Target address.
-	// If the port parameter is empty or "0", as in
-	// "127.0.0.1:" or "[::1]:0", a port number is automatically (random) chosen.
+	// LocalAddr is the local address of a UDP or TCP connection, "host:port";
+	// an empty host or port, or port 0, lets the system choose.
 	LocalAddr string
 
-	// netsnmp has '-C APPOPTS - set various application specific behaviours'
+	// AppOpts holds net-snmp application options (snmpwalk -C). Only "c" is
+	// used: when the key is present, whatever its value, Walk and BulkWalk do
+	// not check that the names they receive increase, so the caller must end a
+	// walk that loops.
 	//
-	// - 'c: do not check returned OIDs are increasing' - use AppOpts = map[string]interface{"c":true} with
-	//   Walk() or BulkWalk(). The library user needs to implement their own policy for terminating walks.
-	// - 'p,i,I,t,E' -> pull requests welcome
+	//	x.AppOpts = map[string]any{"c": true}
 	AppOpts map[string]any
 
-	// Internal - used to sync requests to responses.
-	requestID atomic.Uint32
-	random    uint32
-
-	rxBuf *[rxBufSize]byte // has to be pointer due to https://github.com/golang/go/issues/11728
-
-	// MsgFlags is an SNMPV3 MsgFlags.
+	// MsgFlags is the SNMPv3 security level: NoAuthNoPriv, AuthNoPriv or
+	// AuthPriv. Connect adds Reportable.
 	MsgFlags SnmpV3MsgFlags
 
-	// SecurityModel is an SNMPV3 Security Model.
+	// SecurityModel is the SNMPv3 security model; UserSecurityModel is the
+	// only one.
 	SecurityModel SnmpV3SecurityModel
 
-	// SecurityParameters is an SNMPV3 Security Model parameters struct.
+	// SecurityParameters are the SNMPv3 security parameters, a
+	// *UsmSecurityParameters. The client stores the agent's engine ID, boots
+	// and time, and the keys, in them.
 	SecurityParameters SnmpV3SecurityParameters
 
-	// TrapSecurityParametersTable is a mapping of identifiers to corresponding SNMP V3 Security Model parameters
-	// right now only supported for receiving traps, variable name to make that clear
+	// TrapSecurityParametersTable, when set, holds the security parameters
+	// UnmarshalTrap decodes SNMPv3 messages with, by user name, instead of
+	// SecurityParameters.
 	TrapSecurityParametersTable *SnmpV3SecurityParametersTable
 
-	// ContextEngineID is SNMPV3 ContextEngineID in ScopedPDU.
+	// ContextEngineID is the SNMPv3 context engine ID of requests; when it is
+	// empty, the client takes the agent's engine ID.
 	ContextEngineID string
 
-	// ContextName is SNMPV3 ContextName in ScopedPDU
+	// ContextName is the SNMPv3 context name of requests.
 	ContextName string
 
-	// Internal - used to sync requests to responses - snmpv3.
-	msgID atomic.Uint32
+	// requestID and msgID count the request IDs and the SNMPv3 msgIDs from
+	// random, a seed drawn once.
+	requestID atomic.Uint32
+	msgID     atomic.Uint32
+	random    uint32
 
-	// Internal - we use to send packets if using unconnected socket.
+	// rxBuf is the receive buffer, allocated by Connect.
+	rxBuf *[rxBufSize]byte // has to be pointer due to https://github.com/golang/go/issues/11728
+
+	// uaddr is the agent's address for an unconnected UDP socket.
 	uaddr *net.UDPAddr
 
 	// mu serializes Close calls.
@@ -198,31 +215,34 @@ var Default = &GoSNMP{
 	MaxOids:            MaxOids,
 }
 
-// SnmpPDU will be used when doing SNMP Set's
+// SnmpPDU is a variable binding (varbind): the name of an object, and the
+// type and value of its value. Requests, answers and traps carry them in
+// SnmpPacket.Variables.
 type SnmpPDU struct {
-	// The value to be set by the SNMP set, or the value when
-	// sending a trap
+	// Value is the value, whose Go type depends on Type (see the package
+	// documentation). Get, GetNext and GetBulk send nil.
 	Value any
 
-	// Name is an oid in string format eg ".1.3.6.1.4.9.27"
+	// Name is the object's OID in dotted form, such as ".1.3.6.1.2.1.1.1.0":
+	// with the leading dot when decoded from an OBJECT IDENTIFIER, with or
+	// without it when sent. A name a device sent as an OCTET STRING or an
+	// IpAddress is kept as text.
 	Name string
 
-	// The type of the value eg Integer
+	// Type is the type of the value.
 	Type Asn1BER
 }
 
-const (
-	AsnContext      = 0x80
-	AsnExtensionID  = 0x1F
-	AsnExtensionTag = (AsnContext | AsnExtensionID) // 0x9F
-)
-
 //go:generate go tool -modfile=tools/go.mod stringer -type Asn1BER
 
-// Asn1BER is the type of the SNMP PDU
+// Asn1BER is the BER tag of a varbind value, which names its type.
 type Asn1BER byte
 
-// Asn1BER's - http://www.ietf.org/rfc/rfc1442.txt
+// The value types: ASN.1's, those of the SMI (RFC 2578), net-snmp's
+// OpaqueFloat and OpaqueDouble, the tags of the floats it wraps in an Opaque,
+// and the exceptions of RFC 3416 (NoSuchObject, NoSuchInstance, EndOfMibView).
+// The decoder gives UnknownType, which shares 0x00 with EndOfContents, for a
+// value of a type it does not decode.
 const (
 	EndOfContents     Asn1BER = 0x00
 	UnknownType       Asn1BER = 0x00
@@ -307,9 +327,14 @@ func (x *GoSNMP) prepare() error {
 	return nil
 }
 
-// SnmpEncodePacket exposes SNMP packet generation to external callers.
-// This is useful for generating traffic for use over separate transport
-// stacks and creating traffic samples for test purposes.
+// SnmpEncodePacket encodes a request or trap, for another transport or for
+// tests: it prepares the client as Connect does, builds the packet with
+// MkSnmpPacket and numbers it with the next request ID and, for SNMPv3, the
+// next msgID and salt, as a request's attempt does. It runs no engine
+// discovery and derives no keys: an authenticated or private SNMPv3 message
+// needs the keys in SecurityParameters. Known bug: without an authentication
+// key the message is signed with an empty one. On an error it returns an
+// empty message.
 func (x *GoSNMP) SnmpEncodePacket(pdutype PDUType, pdus []SnmpPDU, nonRepeaters uint8, maxRepetitions uint32) ([]byte, error) {
 	if err := x.prepare(); err != nil {
 		return []byte{}, err
@@ -329,9 +354,13 @@ func (x *GoSNMP) SnmpEncodePacket(pdutype PDUType, pdus []SnmpPDU, nonRepeaters 
 	return out, nil
 }
 
-// SnmpDecodePacket exposes SNMP packet parsing to external callers.
-// This is useful for processing traffic from other sources and
-// building test harnesses.
+// SnmpDecodePacket decodes a message, from another transport or for tests,
+// with a copy of the client's security parameters, after preparing the client
+// as Connect does; keys are derived for an SNMPv3 message from another engine
+// ID. It does not check the digest, and it decodes in place (see the package
+// documentation). On an error it returns what it decoded so far. Known bug:
+// some malformed SNMPv3 messages make it panic (see the package
+// documentation).
 func (x *GoSNMP) SnmpDecodePacket(resp []byte) (*SnmpPacket, error) {
 	result := &SnmpPacket{}
 	if err := x.prepare(); err != nil {
@@ -357,22 +386,16 @@ func (x *GoSNMP) SnmpDecodePacket(resp []byte) (*SnmpPacket, error) {
 	return result, nil
 }
 
+// Partition reports whether currentPosition ends a partition when a slice of
+// sliceLength items is cut into partitions of partitionSize, the last one
+// possibly shorter: a loop over many OIDs can send a Get each time it reports
+// true. A position outside the slice reports false. Known bug: a
+// partitionSize of 0 panics for a position inside the slice.
 //
-// Public Functions (helpers) - in alphabetical order
+// For a slice of 8 items in partitions of 3, it reports true at 2, 5 and 7:
 //
-
-// Partition - returns true when dividing a slice into
-// partitionSize lengths, including last partition which may be smaller
-// than partitionSize. This is useful when you have a large array of OIDs
-// to run Get() on. See the tests for example usage.
-//
-// For example for a slice of 8 items to be broken into partitions of
-// length 3, Partition returns true for the currentPosition having
-// the following values:
-//
-// 0  1  2  3  4  5  6  7
-//
-//	T        T     T
+//	0  1  2  3  4  5  6  7
+//	      T        T     T
 func Partition(currentPosition, partitionSize, sliceLength int) bool {
 	if currentPosition < 0 || currentPosition >= sliceLength {
 		return false
@@ -389,12 +412,10 @@ func Partition(currentPosition, partitionSize, sliceLength int) bool {
 	return false
 }
 
-// ToBigInt converts SnmpPDU.Value to big.Int, or returns a zero big.Int for
-// non int-like types (eg strings).
-//
-// This is a convenience function to make working with SnmpPDU's easier - it
-// reduces the need for type assertions. A big.Int is convenient, as SNMP can
-// return int32, uint32, and uint64.
+// ToBigInt converts an integer varbind value, of any Go integer type, or a
+// string holding a decimal integer, to a big.Int, and anything else to zero.
+// It saves a type switch over the integer types values decode to. Known bug:
+// a uint above math.MaxInt64 converts through int64 and comes out negative.
 func ToBigInt(value any) *big.Int {
 	var val int64
 

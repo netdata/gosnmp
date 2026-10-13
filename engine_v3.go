@@ -35,7 +35,8 @@ func (x *GoSNMP) negotiateInitialSecurityParameters(packetOut *SnmpPacket) error
 // the client and packetOut. Known bugs: a discovery Report with another
 // security model fails the request instead of being discarded; an answer
 // without an engine ID is accepted, so the request goes out with an empty
-// engine ID (at authPriv it fails in the encoder for want of a privacy key).
+// engine ID, and an authenticated one fails for want of a key localized to an
+// engine ID (errAuthKeyRequired).
 func (x *GoSNMP) discoverEngine(discoveryPacket, packetOut *SnmpPacket) error {
 	discoveryPacket.ContextName = x.ContextName
 	result, _, err := x.sendOneRequest(discoveryPacket)
@@ -144,7 +145,10 @@ func (x *GoSNMP) lendEngineParameters(packetOut, report *SnmpPacket, kind report
 	return nil
 }
 
-// save the connection security parameters after a request/response
+// storeSecurityParameters takes the engine parameters of result, an SNMPv3
+// answer, into the client: the engine ID, with keys derived for a new one,
+// the boots and time, and the engine ID as the context engine ID when the
+// client has none.
 func (x *GoSNMP) storeSecurityParameters(result *SnmpPacket) error {
 	if x.Version != Version3 || result.Version != Version3 {
 		return fmt.Errorf("storeParameters called with non Version3 connection or packet")
@@ -164,7 +168,8 @@ func (x *GoSNMP) storeSecurityParameters(result *SnmpPacket) error {
 	return x.SecurityParameters.usm().setSecurityParameters(result.SecurityParameters.usm())
 }
 
-// update packet security parameters to match connection security parameters
+// updatePktSecurityParameters takes the client's engine parameters into
+// packetOut, and the client's context engine ID when the packet has none.
 func (x *GoSNMP) updatePktSecurityParameters(packetOut *SnmpPacket) error {
 	if x.Version != Version3 || packetOut.Version != Version3 {
 		return fmt.Errorf("updatePktSecurityParameters called with non Version3 connection or packet")

@@ -16,7 +16,10 @@ import (
 	"github.com/netdata/gosnmp/internal/ber"
 )
 
-// helper error modes
+// Errors that some decode errors wrap (match them with errors.Is): those of
+// the BER decoder, and ErrZeroByteBuffer for a varbind without a value or an
+// empty Opaque. Other decode, configuration and authentication errors are not
+// exported. ErrInvalidOidLength is not returned.
 var (
 	ErrBase128IntegerTooLarge  = ber.ErrBase128IntegerTooLarge
 	ErrBase128IntegerTruncated = ber.ErrBase128IntegerTruncated
@@ -29,9 +32,8 @@ var (
 	ErrZeroLenInteger          = ber.ErrZeroLenInteger
 )
 
-// -- helper functions (mostly) in alphabetical order --------------------------
-
-// Check makes checking errors easy, so they actually get a minimal check
+// Check logs a non-nil err to the client's Logger and exits the process with
+// status 1. It is meant for examples; a program should handle the error.
 func (x *GoSNMP) Check(err error) {
 	if err != nil {
 		x.Logger.Printf("Check: %v\n", err)
@@ -39,7 +41,8 @@ func (x *GoSNMP) Check(err error) {
 	}
 }
 
-// Check makes checking errors easy, so they actually get a minimal check
+// Check logs a non-nil err to the packet's Logger and exits the process with
+// status 1. It is meant for examples; a program should handle the error.
 func (packet *SnmpPacket) Check(err error) {
 	if err != nil {
 		packet.Logger.Printf("Check: %v\n", err)
@@ -47,25 +50,25 @@ func (packet *SnmpPacket) Check(err error) {
 	}
 }
 
-// Check makes checking errors easy, so they actually get a minimal check
+// Check logs a non-nil err with the standard logger and exits the process
+// with status 1 (log.Fatalf). It is meant for examples; a program should
+// handle the error.
 func Check(err error) {
 	if err != nil {
 		log.Fatalf("Check: %v\n", err)
 	}
 }
 
-// -- Bit String ---------------------------------------------------------------
-
-// BitStringValue is the structure to use when you want an ASN.1 BIT STRING type. A
-// bit string is padded up to the nearest byte in memory and the number of
-// valid bits is recorded. Padding bits will be zero.
+// BitStringValue is an ASN.1 BIT STRING: the bits packed into bytes, the
+// first bit in the high bit of the first byte, and the number of valid bits;
+// the padding bits are zero. The encoder and decoder do not use it: a
+// BitString value is sent as []byte or string, and decodes as UnknownType.
 type BitStringValue struct {
 	Bytes     []byte // bits packed into bytes.
 	BitLength int    // length in bits.
 }
 
-// At returns the bit at the given index. If the index is out of range it
-// returns false.
+// At returns the bit at index i, or 0 when i is out of range.
 func (b BitStringValue) At(i int) int {
 	if i < 0 || i >= b.BitLength {
 		return 0
@@ -91,19 +94,4 @@ func (b BitStringValue) RightAlign() []byte {
 	}
 
 	return a
-}
-
-// -- SnmpVersion --------------------------------------------------------------
-
-func (s SnmpVersion) String() string {
-	switch s {
-	case Version1:
-		return "1"
-	case Version2c:
-		return "2c"
-	case Version3:
-		return "3"
-	default:
-		return "3"
-	}
 }

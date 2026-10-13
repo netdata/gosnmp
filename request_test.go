@@ -57,6 +57,34 @@ func TestSnmpEncodePacketErrors(t *testing.T) {
 	}
 }
 
+// TestSnmpEncodePacketEmptyKey pins that SnmpEncodePacket signs an
+// authenticated SNMPv3 message with an empty key when the client has no key:
+// it derives none, and the signer does not refuse an empty one. Known bug.
+func TestSnmpEncodePacketEmptyKey(t *testing.T) {
+	x := &GoSNMP{
+		Version:       Version3,
+		MsgFlags:      AuthNoPriv,
+		SecurityModel: UserSecurityModel,
+		SecurityParameters: &UsmSecurityParameters{
+			UserName:                 "codec-user",
+			AuthoritativeEngineID:    usmCharEngineID,
+			AuthenticationProtocol:   SHA,
+			AuthenticationPassphrase: "codec-auth-pass",
+		},
+	}
+	out, err := x.SnmpEncodePacket(GetRequest, []SnmpPDU{{Name: engineOID, Type: Null}}, 0, 0)
+	require.NoError(t, err)
+	assert.Empty(t, x.SecurityParameters.usm().SecretKey, "key derived")
+
+	// Decoding zeroes the digest in out, which leaves the message as signed.
+	p, err := x.SnmpDecodePacket(out)
+	require.NoError(t, err)
+	digest := []byte(p.SecurityParameters.usm().AuthenticationParameters)
+	ok, err := SHA.spec().Verify(nil, out, digest)
+	require.NoError(t, err)
+	assert.True(t, ok, "not signed with an empty key")
+}
+
 // TestRequestAndMsgIDs pins, through the encoded messages, how Connect seeds
 // the request and msg IDs from the client's one random value, how
 // SetRequestID and SetMsgID move them and how both wrap to 0 after

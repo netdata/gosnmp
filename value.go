@@ -13,8 +13,8 @@ import (
 	"github.com/netdata/gosnmp/internal/ber"
 )
 
-// decodeValue decodes the content octets of a varbind value with the given
-// tag into the type and Go value of the varbind:
+// decodeValue decodes the content octets of a varbind value with the given tag
+// into the type and Go value of the varbind:
 //
 //   - Integer: int; Uinteger32: uint32; Counter32, Gauge32: uint; TimeTicks:
 //     uint32; Counter64: uint64
@@ -27,10 +27,10 @@ import (
 //
 // Integer, Uinteger32, Counter32, Gauge32 and TimeTicks decode through the
 // platform's int or uint, so 32-bit platforms reject or drop values that
-// 64-bit platforms keep. Uinteger32 is decoded as a signed INTEGER and
-// truncated, TimeTicks is truncated to 32 bits, and a Counter32, Gauge32,
-// TimeTicks or Counter64 that fails to decode is not an error: it decodes as
-// UnknownType with a nil value.
+// 64-bit platforms keep. Known bug: Uinteger32 is decoded as a signed INTEGER
+// and truncated, so 32-bit platforms reject one above MaxInt32. TimeTicks is
+// truncated to 32 bits, and a Counter32, Gauge32, TimeTicks or Counter64 that
+// fails to decode is not an error: it decodes as UnknownType with a nil value.
 func decodeValue(tag Asn1BER, content []byte) (Asn1BER, any, error) {
 	switch tag {
 	case Integer:
@@ -88,6 +88,16 @@ func decodeValue(tag Asn1BER, content []byte) (Asn1BER, any, error) {
 		return UnknownType, nil, nil
 	}
 }
+
+// The identifier octet of the floats net-snmp wraps in an Opaque (an
+// OpaqueFloat or OpaqueDouble value): AsnExtensionTag, a context-specific
+// (AsnContext) tag in the high-tag-number form (AsnExtensionID), whose number,
+// OpaqueFloat or OpaqueDouble, follows in the next octet.
+const (
+	AsnContext      = 0x80
+	AsnExtensionID  = 0x1F
+	AsnExtensionTag = (AsnContext | AsnExtensionID) // 0x9F
+)
 
 // decodeOpaque decodes the content of an Opaque value. net-snmp wraps floats
 // and doubles in an Opaque as a TLV whose identifier is the extension octet

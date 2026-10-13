@@ -7,6 +7,7 @@ package gosnmp
 import (
 	"bytes"
 	"crypto/fips140"
+	"crypto/sha256"
 	"encoding/hex"
 	"io"
 	"log"
@@ -748,6 +749,41 @@ func TestUSMShortPrivacyKey(t *testing.T) {
 			}
 			assert.EqualError(t, sp.InitSecurityKeys(), tc.wantErr)
 			assert.Equal(t, []byte{}, sp.PrivacyKey)
+		})
+	}
+}
+
+// TestUSMEmptyPassphraseKeys pins the keys InitSecurityKeys derives without an
+// error from an empty passphrase: an empty authentication key, an empty DES
+// key, and for Blumenthal AES-256 with an HMAC-SHA-256 user a key extended
+// from nothing (the hash of the empty localized key). Known bug: none is
+// refused, though anyone can compute the authentication and Blumenthal keys
+// and DES panics on its empty key.
+func TestUSMEmptyPassphraseKeys(t *testing.T) {
+	sum := sha256.Sum256(nil)
+	tests := map[string]struct {
+		auth              SnmpV3AuthProtocol
+		authPass          string
+		priv              SnmpV3PrivProtocol
+		wantAuth, wantKey []byte
+	}{
+		"authentication": {auth: SHA, priv: NoPriv, wantAuth: []byte{}},
+		"DES":            {auth: SHA, authPass: "codec-auth-pass", priv: DES, wantKey: []byte{}},
+		"Blumenthal":     {auth: SHA256, authPass: "codec-auth-pass", priv: AES256, wantKey: sum[:]},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			sp := &UsmSecurityParameters{
+				AuthoritativeEngineID:    usmCharEngineID,
+				AuthenticationProtocol:   tc.auth,
+				AuthenticationPassphrase: tc.authPass,
+				PrivacyProtocol:          tc.priv,
+			}
+			require.NoError(t, sp.InitSecurityKeys())
+			if tc.wantAuth != nil {
+				assert.Equal(t, tc.wantAuth, sp.SecretKey)
+			}
+			assert.Equal(t, tc.wantKey, sp.PrivacyKey)
 		})
 	}
 }

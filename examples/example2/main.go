@@ -66,7 +66,7 @@ func main() {
 	}
 
 	oids := []string{"1.3.6.1.2.1.1.4.0", "1.3.6.1.2.1.1.7.0"}
-	result, err2 := params.Get(oids) // Get() accepts up to g.MAX_OIDS
+	result, err2 := params.Get(oids) // Get accepts up to MaxOids OIDs (60 by default)
 	if err2 != nil {
 		log.Fatalf("Get() err: %v", err2)
 	}
@@ -74,8 +74,8 @@ func main() {
 	for i, variable := range result.Variables {
 		fmt.Printf("%d: oid: %s ", i, variable.Name)
 
-		// the Value of each variable returned by Get() implements
-		// interface{}. You could do a type switch...
+		// The Go type of a Value depends on its Type (see the package
+		// documentation). You could do a type switch...
 		switch variable.Type {
 		case g.OctetString:
 			fmt.Printf("string: %s\n", string(variable.Value.([]byte)))

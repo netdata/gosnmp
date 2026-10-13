@@ -238,6 +238,7 @@ func unmarshalPayload(packet []byte, cursor int, response *SnmpPacket) error {
 			return fmt.Errorf("error in unmarshalTrapV1: %w", err)
 		}
 	default:
+		// Known bug: %#x formats the hexadecimal of the type's name.
 		return fmt.Errorf("unknown PDUType %#x", requestType)
 	}
 	return nil

@@ -2,10 +2,10 @@
 // source code is governed by a BSD-style license that can be found in the
 // LICENSE file.
 
-// Package ber decodes the ASN.1 BER encodings SNMP messages are built from:
-// TLV lengths, integers, object identifiers and Opaque floats. It keeps the
-// leniencies the decoder has always had (see Length), because they decide
-// which device responses the library accepts.
+// Package ber reads and writes the ASN.1 BER encodings SNMP messages are
+// built from: TLV headers and lengths, integers, object identifiers and Opaque
+// floats. Its decoder keeps the leniencies it has always had (see Length),
+// because they decide which device responses the library accepts.
 package ber
 
 import (
@@ -181,7 +181,7 @@ func OID(src []byte) (string, error) {
 // binary32 value.
 func Float32(bytes []byte) (float32, error) {
 	if len(bytes) > 4 {
-		// We'll overflow a uint64 in this case.
+		// More than a binary32 holds.
 		return 0, ErrFloatTooLarge
 	}
 	if len(bytes) < 4 {
@@ -195,7 +195,7 @@ func Float32(bytes []byte) (float32, error) {
 // binary64 value.
 func Float64(bytes []byte) (float64, error) {
 	if len(bytes) > 8 {
-		// We'll overflow a uint64 in this case.
+		// More than a binary64 holds.
 		return 0, ErrFloatTooLarge
 	}
 	if len(bytes) < 8 {

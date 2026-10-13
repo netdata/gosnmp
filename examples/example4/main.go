@@ -39,13 +39,13 @@ func main() {
 	}}
 	setResult, setErr := Client.Set(mySnmpPDU)
 	if setErr != nil {
-		log.Fatalf("SNMP set() fialed due to err: %v", setErr)
+		log.Fatalf("SNMP set() failed due to err: %v", setErr)
 	}
 	for i, variable := range setResult.Variables {
 		fmt.Printf("%d: oid: %s ", i, variable.Name)
 
-		// the Value of each variable returned by Get() implements
-		// interface{}. You could do a type switch...
+		// The Go type of a Value depends on its Type (see the package
+		// documentation). You could do a type switch...
 		switch variable.Type {
 		case g.OctetString:
 			fmt.Printf("string: %s\n", string(variable.Value.([]byte)))

@@ -10,17 +10,16 @@ gosnmp
 [![Build Status](https://github.com/netdata/gosnmp/actions/workflows/ci.yml/badge.svg)](https://github.com/netdata/gosnmp/actions/workflows/ci.yml)
 [![PkgGoDev](https://pkg.go.dev/badge/github.com/netdata/gosnmp)](https://pkg.go.dev/github.com/netdata/gosnmp)
 
-GoSNMP is an SNMP client library fully written in Go. It provides Get,
-GetNext, GetBulk, Walk, BulkWalk and Set, and decodes received traps and
-informs. It supports IPv4 and IPv6, using __SNMPv1__, __SNMPv2c__ or
-__SNMPv3__. Tests run on Linux (amd64 and 386), macOS and Windows, and CI
-builds for every platform the Netdata Agent ships its Go plugins on.
+GoSNMP is an SNMP client library written in Go. It sends Get, GetNext, GetBulk and Set requests, walks subtrees, and
+decodes received traps and informs, over __SNMPv1__, __SNMPv2c__ and __SNMPv3__ (the User-based Security Model), on IPv4
+and IPv6, over UDP or TCP. Tests run on Linux (amd64 and 386), macOS and Windows, and CI builds for every platform the
+Netdata Agent ships its Go plugins on.
 
 # About
 
 **gosnmp** was started by [Andreas Louca](https://github.com/alouca), then
 completely rewritten by [Sonia Hamilton](https://github.com/soniah)
-(2012-2020), and now ownership has been transferred to the community at
+(2012-2020), and then transferred to the community at
 [gosnmp/gosnmp](https://github.com/gosnmp/gosnmp).
 
 For support and help with this fork, open an [issue](https://github.com/netdata/gosnmp/issues).
@@ -29,53 +28,38 @@ For support and help with this fork, open an [issue](https://github.com/netdata/
 
 GoSNMP has the following SNMP functions:
 
-* **Get** (single or multiple OIDs)
-* **GetNext**
-* **GetBulk** (SNMPv2c and SNMPv3 only)
-* **Walk** - retrieves a subtree of values using GETNEXT.
-* **BulkWalk** - retrieves a subtree of values using GETBULK (SNMPv2c and
-  SNMPv3 only).
-* **BulkWalkAll** - similar to BulkWalk but returns a filled array of all values rather than using a callback function to stream results.
-* **Set** - supports Integers and OctetStrings.
-* **UnmarshalTrap** - decode received SNMP traps and informs.
+* **Get** and **GetNext** - one or more OIDs, up to `MaxOids` (60 by default).
+* **GetBulk** (SNMPv2c and SNMPv3 only).
+* **Walk** and **WalkAll** - retrieve a subtree of values using GETNEXT.
+* **BulkWalk** and **BulkWalkAll** - retrieve a subtree of values using GETBULK (SNMPv2c and SNMPv3 only). The `All`
+  variants return the values in a slice rather than passing each to a callback.
+* **Set** - Integer, OctetString, Gauge32, IPAddress, ObjectIdentifier, Counter32, Counter64, Null, TimeTicks,
+  Uinteger32, OpaqueFloat and OpaqueDouble values.
+* **UnmarshalTrap** - decodes received traps and informs; the library does not listen for them.
+* **SnmpEncodePacket** and **SnmpDecodePacket** - encode and decode messages for other transports and for tests.
 
 GoSNMP has the following **helper** functions:
 
-* **ToBigInt** - treat returned values as `*big.Int`
+* **ToBigInt** - treat returned integer values as `*big.Int`
 * **Partition** - facilitates dividing up large slices of OIDs
 
-**gosnmp/gosnmp** has completely diverged from **alouca/gosnmp**, your code
-will require modification in these (and other) locations:
+The [package documentation](https://pkg.go.dev/github.com/netdata/gosnmp) describes request attempts and timeouts,
+hooks, SNMPv3 engine discovery and Reports, the Go type of each value type, and how messages are decoded.
 
-* the **Get** function has a different method signature
-* the **NewGoSNMP** function has been removed, use **Connect** instead
-  (see Usage below). `Connect` uses the `GoSNMP` struct;
-  `gosnmp.Default` is provided for you to build on.
-* GoSNMP no longer relies on **alouca/gologger** - you can use your
-  logger if it conforms to the `gosnmp.LoggerInterface` interface; otherwise
-  debugging will disabled.
+## Logging
 
-```go
-type LoggerInterface interface {
-    Print(v ...interface{})
-    Printf(format string, v ...interface{})
-}
-```
-To enable logging, you must call gosnmp.NewLogger() function, and pass a pointer to your logging interface, for example with standard *log.Logger:
+A client writes debug output only when its `Logger` is set to `gosnmp.NewLogger(l)`, where `l` has the `Print` and
+`Printf` methods of the standard `*log.Logger` (`gosnmp.LoggerInterface`):
 
-```go
-gosnmp.Default.Logger = gosnmp.NewLogger(log.New(os.Stdout, "", 0))
-```
-or
 ```go
 g := &gosnmp.GoSNMP{
     ...
-    Logger:    gosnmp.NewLogger(log.New(os.Stdout, "", 0)),
+    Logger: gosnmp.NewLogger(log.New(os.Stdout, "", 0)),
 }
-
 ```
-Without a logger (the default) logging is disabled: the encoder and decoder do not log, and the request path does not
-format log messages.
+
+The encoder and decoder write nothing to the `Logger`, and without a logger the request path does not format log
+messages.
 
 # Installation
 
@@ -89,7 +73,7 @@ https://pkg.go.dev/github.com/netdata/gosnmp
 
 # Usage
 
-Here is `examples/example/main.go`, demonstrating how to use GoSNMP:
+Here is the body of `examples/example/main.go`, which imports the package as `g`:
 
 ```go
 // Default is a pointer to a GoSNMP struct that contains sensible defaults
@@ -102,7 +86,7 @@ if err != nil {
 defer g.Default.Conn.Close()
 
 oids := []string{"1.3.6.1.2.1.1.4.0", "1.3.6.1.2.1.1.7.0"}
-result, err2 := g.Default.Get(oids) // Get() accepts up to g.MAX_OIDS
+result, err2 := g.Default.Get(oids) // Get accepts up to MaxOids OIDs (60 by default)
 if err2 != nil {
     log.Fatalf("Get() err: %v", err2)
 }
@@ -110,12 +94,11 @@ if err2 != nil {
 for i, variable := range result.Variables {
     fmt.Printf("%d: oid: %s ", i, variable.Name)
 
-    // the Value of each variable returned by Get() implements
-    // interface{}. You could do a type switch...
+    // The Go type of a Value depends on its Type (see the package
+    // documentation). You could do a type switch...
     switch variable.Type {
     case g.OctetString:
-        bytes := variable.Value.([]byte)
-        fmt.Printf("string: %s\n", string(bytes))
+        fmt.Printf("string: %s\n", string(variable.Value.([]byte)))
     default:
         // ... or often you're just interested in numeric values.
         // ToBigInt() will return the Value as a BigInt, for plugging
@@ -125,23 +108,29 @@ for i, variable := range result.Variables {
 }
 ```
 
-Running this example gives the following output (from my printer):
+Run against an agent, it prints, for example:
 
 ```shell
-% go run example.go
-0: oid: 1.3.6.1.2.1.1.4.0 string: Administrator
-1: oid: 1.3.6.1.2.1.1.7.0 number: 104
+% go run ./examples/example
+0: oid: .1.3.6.1.2.1.1.4.0 string: Administrator
+1: oid: .1.3.6.1.2.1.1.7.0 number: 104
 ```
 
-* `examples/example2.go` is similar to `example.go`, however it uses a
-  custom `&GoSNMP` rather than `g.Default`
-* `examples/walkexample.go` demonstrates using `BulkWalk`
-* `examples/example3.go` demonstrates `SNMPv3`
+More examples, each a program under `examples/`:
+
+* `example2` - a client built as a `GoSNMP` literal rather than `g.Default`, with verbose logging and hooks that time
+  each request
+* `example3` - SNMPv3 at authPriv
+* `example4` - Set
+* `walkexample` and `walktcpexample` - BulkWalk over UDP and TCP, where the agent may close the connection between
+  walks
+* `Hex-String` - OctetString values that are not text, printed octet by octet in decimal
+* `linux_vrf` - a socket bound to a Linux VRF device with `Control`
+* `logger` - logging turned on and off
 
 # MIB Parser
 
-I don't have any plans to write a mib parser. Others have suggested
-https://github.com/sleepinggenius2/gosmi
+GoSNMP does not parse MIBs; https://github.com/sleepinggenius2/gosmi does.
 
 # Contributions
 
@@ -169,7 +158,7 @@ Create your packet captures in the following way:
 Expected output, obtained via an **snmp** command. For example:
 
 ```shell
-% snmpget -On -v2c -c public 203.50.251.17 1.3.6.1.2.1.1.7.0 \
+% snmpget -On -v2c -c public 192.0.2.17 1.3.6.1.2.1.1.7.0 \
   1.3.6.1.2.1.2.2.1.2.6 1.3.6.1.2.1.2.2.1.5.3
 .1.3.6.1.2.1.1.7.0 = INTEGER: 78
 .1.3.6.1.2.1.2.2.1.2.6 = STRING: GigabitEthernet0
@@ -179,44 +168,17 @@ Expected output, obtained via an **snmp** command. For example:
 A packet capture, obtained while running the snmpget. For example:
 
 ```shell
-sudo tcpdump -s 0 -i eth0 -w foo.pcap host 203.50.251.17 and port 161
+sudo tcpdump -s 0 -i eth0 -w foo.pcap host 192.0.2.17 and port 161
 ```
 
 # Bugs
 
-Rane's document [SNMP: Simple? Network Management
-Protocol](https://www.ranecommercial.com/legacy/note161.html) was useful when learning the SNMP
-protocol.
+Please create an [issue](https://github.com/netdata/gosnmp/issues) with packet captures (upload them to Google Drive,
+Dropbox, or similar) that show the bug, for example a value type GoSNMP does not decode; the package documentation
+lists the value types it decodes and encodes. If possible, please include 2 or 3 examples.
 
-Please create an [issue](https://github.com/netdata/gosnmp/issues) on
-Github with packet captures (upload capture to Google Drive, Dropbox, or
-similar) containing samples of missing BER types, or of any other bugs
-you find. If possible, please include 2 or 3 examples of the
-missing/faulty BER type.
-
-The following BER types have been implemented:
-
-* 0x00 UnknownType
-* 0x01 Boolean
-* 0x02 Integer
-* 0x03 BitString
-* 0x04 OctetString
-* 0x05 Null
-* 0x06 ObjectIdentifier
-* 0x07 ObjectDescription
-* 0x40 IPAddress (IPv4 & IPv6)
-* 0x41 Counter32
-* 0x42 Gauge32
-* 0x43 TimeTicks
-* 0x44 Opaque (Float & Double)
-* 0x45 NsapAddress
-* 0x46 Counter64
-* 0x47 Uinteger32
-* 0x78 OpaqueFloat
-* 0x79 OpaqueDouble
-* 0x80 NoSuchObject
-* 0x81 NoSuchInstance
-* 0x82 EndOfMibView
+Rane's document [SNMP: Simple? Network Management Protocol](https://www.ranecommercial.com/legacy/note161.html) is a
+good introduction to the SNMP protocol.
 
 # Running the Tests
 
@@ -231,11 +193,9 @@ docker run -it netdata/gosnmp:latest
 or, against another agent:
 
 ```shell
-export GOSNMP_TARGET=1.2.3.4
+export GOSNMP_TARGET=192.0.2.1
 export GOSNMP_PORT=161
-export GOSNMP_TARGET_IPV4=1.2.3.4
-export GOSNMP_PORT_IPV4=161
-export GOSNMP_TARGET_IPV6='0:0:0:0:0:ffff:102:304'
+export GOSNMP_TARGET_IPV6='2001:db8::1'
 export GOSNMP_PORT_IPV6=161
 go test -v -tags end2end ./...
 ```
@@ -279,9 +239,8 @@ go tool pprof gosnmp.test mem.out
 To check test coverage:
 
 ```shell
-go get github.com/axw/gocov/gocov
-go get github.com/matm/gocov-html
-gocov test github.com/netdata/gosnmp | gocov-html > gosnmp.html && firefox gosnmp.html &
+go test -coverprofile cover.out ./...
+go tool cover -html cover.out
 ```
 
 To measure the password-to-key cache, compare the cached and uncached key derivation benchmarks:
