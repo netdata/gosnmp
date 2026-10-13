@@ -487,6 +487,69 @@ func TestUSMDecodeSecurityLevel(t *testing.T) {
 	}
 }
 
+// TestUSMTrapTableAttempts checks how the trap table path tries the
+// parameter sets of a user, in the order they were added: each on its own
+// copy of the trap (a failed attempt zeroes the copy's digest), the first that
+// decodes wins, and when none does the error carries the last attempt's.
+func TestUSMTrapTableAttempts(t *testing.T) {
+	data := usmCharTrap(t, AES, usmCharSalt(AES), usmCharVarbinds)
+	params := func(authPass string) *UsmSecurityParameters {
+		return &UsmSecurityParameters{
+			UserName:                 "codec-user",
+			AuthoritativeEngineID:    usmCharEngineID,
+			AuthenticationProtocol:   SHA,
+			AuthenticationPassphrase: authPass,
+			PrivacyProtocol:          AES,
+			PrivacyPassphrase:        "codec-priv-pass",
+		}
+	}
+	good := func() *UsmSecurityParameters { return params("codec-auth-pass") }
+	wrongPass := func() *UsmSecurityParameters { return params("wrong-auth-pass") }
+	// unsupported fails before decoding anything; its protocol is set after
+	// Add, which rejects it.
+	unsupported := func(tb *SnmpV3SecurityParametersTable) {
+		sp := good()
+		require.NoError(t, tb.Add("codec-user", sp))
+		sp.AuthenticationProtocol = SnmpV3AuthProtocol(8)
+	}
+	add := func(sp *UsmSecurityParameters) func(*SnmpV3SecurityParametersTable) {
+		return func(tb *SnmpV3SecurityParametersTable) { require.NoError(t, tb.Add("codec-user", sp)) }
+	}
+	const (
+		prefix         = "no credentials successfully unmarshaled trap: "
+		notAuthentic   = "incoming packet is not authentic, discarding"
+		notSupportedV8 = "securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(8) is not supported"
+	)
+
+	tests := map[string]struct {
+		sets    []func(*SnmpV3SecurityParametersTable)
+		wantErr string
+	}{
+		"wrong passphrase, then right":    {sets: []func(*SnmpV3SecurityParametersTable){add(wrongPass()), add(good())}},
+		"right passphrase first":          {sets: []func(*SnmpV3SecurityParametersTable){add(good()), add(wrongPass())}},
+		"unsupported, then not authentic": {sets: []func(*SnmpV3SecurityParametersTable){unsupported, add(wrongPass())}, wantErr: prefix + notAuthentic},
+		"not authentic, then unsupported": {sets: []func(*SnmpV3SecurityParametersTable){add(wrongPass()), unsupported}, wantErr: prefix + notSupportedV8},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			tb := NewSnmpV3SecurityParametersTable(Logger{})
+			for _, set := range tc.sets {
+				set(tb)
+			}
+			x := &GoSNMP{Version: Version3, TrapSecurityParametersTable: tb}
+			in := bytes.Clone(data)
+			res, err := x.UnmarshalTrap(in, false)
+			assert.Equal(t, data, in, "the caller's trap")
+			if tc.wantErr != "" {
+				assert.EqualError(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, usmCharVarbinds, res.Variables)
+		})
+	}
+}
+
 // TestUSMReceiverAuthenticationWithoutProtocol checks that a single-user
 // UnmarshalTrap receiver whose flags require authentication, but whose
 // parameters have no authentication protocol, rejects a trap from its user
