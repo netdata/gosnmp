@@ -237,39 +237,26 @@ func (x *GoSNMP) unmarshalV3Header(packet []byte,
 		return 0, fmt.Errorf("error parsing SNMPV3 header: %w", err)
 	}
 
-	msgID, ok, err := readInt(&r)
-	if err != nil {
-		return 0, fmt.Errorf("error parsing SNMPV3 message ID: %w", err)
+	fr := fieldReader{r: &r}
+	if v, ok := fr.int("SNMPV3 message ID"); ok {
+		response.MsgID = uint32(v) //nolint:gosec
 	}
-	if ok {
-		response.MsgID = uint32(msgID) //nolint:gosec
+	if v, ok := fr.int("SNMPV3 msgMaxSize"); ok {
+		response.MsgMaxSize = uint32(v) //nolint:gosec
 	}
-
-	msgMaxSize, ok, err := readInt(&r)
-	if err != nil {
-		return 0, fmt.Errorf("error parsing SNMPV3 msgMaxSize: %w", err)
+	if v, ok := fr.string("SNMPV3 msgFlags"); ok && len(v) > 0 {
+		response.MsgFlags = SnmpV3MsgFlags(v[0])
 	}
-	if ok {
-		response.MsgMaxSize = uint32(msgMaxSize) //nolint:gosec
+	secModel, secModelOK := fr.int("SNMPV3 msgSecModel")
+	if fr.err != nil {
+		return 0, fr.err
 	}
-
-	msgFlags, ok, err := readString(&r)
-	if err != nil {
-		return 0, fmt.Errorf("error parsing SNMPV3 msgFlags: %w", err)
-	}
-	if ok && len(msgFlags) > 0 {
-		response.MsgFlags = SnmpV3MsgFlags(msgFlags[0])
-	}
-
-	secModel, ok, err := readInt(&r)
-	if err != nil {
-		return 0, fmt.Errorf("error parsing SNMPV3 msgSecModel: %w", err)
-	}
+	// The security model is taken only when anything follows it.
 	tag, more := r.Peek()
 	if !more {
 		return 0, errors.New("error parsing SNMPV3: nothing after the security model")
 	}
-	if ok {
+	if secModelOK {
 		response.SecurityModel = SnmpV3SecurityModel(secModel) //nolint:gosec
 	}
 
@@ -323,21 +310,15 @@ func unmarshalScopedPDU(packet []byte, cursor int, response *SnmpPacket) ([]byte
 		return nil, 0, errors.New("error parsing SNMPV3 scoped PDU")
 	}
 
-	contextEngineID, ok, err := readString(&r)
-	if err != nil {
-		return nil, 0, fmt.Errorf("error parsing SNMPV3 contextEngineID: %w", err)
+	fr := fieldReader{r: &r}
+	if v, ok := fr.string("SNMPV3 contextEngineID"); ok {
+		response.ContextEngineID = v
 	}
-	if ok {
-		response.ContextEngineID = contextEngineID
+	if v, ok := fr.string("SNMPV3 contextName"); ok {
+		response.ContextName = v
 	}
-
-	contextName, ok, err := readString(&r)
-	if err != nil {
-		return nil, 0, fmt.Errorf("error parsing SNMPV3 contextName: %w", err)
+	if fr.err != nil {
+		return nil, 0, fr.err
 	}
-	if ok {
-		response.ContextName = contextName
-	}
-
 	return packet, len(packet) - r.Len(), nil
 }

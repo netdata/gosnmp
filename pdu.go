@@ -103,6 +103,34 @@ func readUint(r *ber.Reader) (v uint, ok bool, err error) {
 	return f.u, f.kind == fieldUint, err
 }
 
+// fieldReader reads header fields in order: each read returns the value and
+// whether the field decoded to the expected kind. The first failure is kept
+// in err as "error parsing <name>: <cause>", and every read after it returns
+// false without reading, so a decoder checks err once after its reads, and
+// before anything that must not run after a failure.
+type fieldReader struct {
+	r   *ber.Reader
+	err error
+}
+
+func (fr *fieldReader) int(name string) (int, bool)       { return readNamed(fr, name, readInt) }
+func (fr *fieldReader) string(name string) (string, bool) { return readNamed(fr, name, readString) }
+func (fr *fieldReader) uint(name string) (uint, bool)     { return readNamed(fr, name, readUint) }
+
+// readNamed reads the next field with read unless an earlier read failed.
+func readNamed[T any](fr *fieldReader, name string, read func(*ber.Reader) (T, bool, error)) (T, bool) {
+	var zero T
+	if fr.err != nil {
+		return zero, false
+	}
+	v, ok, err := read(fr.r)
+	if err != nil {
+		fr.err = fmt.Errorf("error parsing %s: %w", name, err)
+		return zero, false
+	}
+	return v, ok
+}
+
 // readWhole reads the TLV that b must consist of and returns its content.
 func readWhole(b []byte) ([]byte, error) {
 	r := ber.NewReader(b)
@@ -175,12 +203,12 @@ func (x *GoSNMP) unmarshalHeader(packet []byte, response *SnmpPacket) (int, erro
 	}
 
 	r := ber.NewReader(packet[cursor:])
-	community, ok, err := readString(&r)
-	if err != nil {
-		return 0, fmt.Errorf("error parsing community string: %w", err)
+	fr := fieldReader{r: &r}
+	if v, ok := fr.string("community string"); ok {
+		response.Community = v
 	}
-	if ok {
-		response.Community = community
+	if fr.err != nil {
+		return 0, fr.err
 	}
 	return len(packet) - r.Len(), nil
 }
@@ -201,7 +229,7 @@ func unmarshalPayload(packet []byte, cursor int, response *SnmpPacket) error {
 	// known, supported types
 	case GetResponse, GetNextRequest, GetBulkRequest, Report, SNMPv2Trap, GetRequest, SetRequest, InformRequest:
 		response.PDUType = requestType
-		if err := unmarshalResponse(packet[cursor:], response); err != nil {
+		if err := unmarshalResponse(packet[cursor:], requestType, response); err != nil {
 			return fmt.Errorf("error in unmarshalResponse: %w", err)
 		}
 		// If it's an InformRequest, mark the trap.
@@ -217,59 +245,39 @@ func unmarshalPayload(packet []byte, cursor int, response *SnmpPacket) error {
 	return nil
 }
 
-// unmarshalResponse reads a PDU other than the SNMPv1 trap: the request ID,
-// the non-repeaters and max-repetitions of a GetBulkRequest or the error
-// status and index of any other PDU, and the varbinds. Fields of another type
-// than INTEGER are skipped; error status and index keep their low byte.
-func unmarshalResponse(packet []byte, response *SnmpPacket) error {
+// unmarshalResponse reads a PDU of pduType other than the SNMPv1 trap: the
+// request ID, the non-repeaters and max-repetitions of a GetBulkRequest or the
+// error status and index of any other PDU, and the varbinds. Fields of another
+// type than INTEGER are skipped; error status and index keep their low byte.
+func unmarshalResponse(packet []byte, pduType PDUType, response *SnmpPacket) error {
 	pdu, err := readWhole(packet)
 	if err != nil {
 		return fmt.Errorf("error verifying Response sanity: %w", err)
 	}
 	r := ber.NewReader(pdu)
+	fr := fieldReader{r: &r}
 
-	requestID, ok, err := readInt(&r)
-	if err != nil {
-		return fmt.Errorf("error parsing SNMP packet request ID: %w", err)
+	if v, ok := fr.int("SNMP packet request ID"); ok {
+		response.RequestID = uint32(v) //nolint:gosec
 	}
-	if ok {
-		response.RequestID = uint32(requestID) //nolint:gosec
-	}
-
-	if response.PDUType == GetBulkRequest {
-		nonRepeaters, ok, err := readInt(&r)
-		if err != nil {
-			return fmt.Errorf("error parsing SNMP packet non repeaters: %w", err)
+	if pduType == GetBulkRequest {
+		if v, ok := fr.int("SNMP packet non repeaters"); ok {
+			response.NonRepeaters = uint8(v) //nolint:gosec
 		}
-		if ok {
-			response.NonRepeaters = uint8(nonRepeaters) //nolint:gosec
-		}
-
-		maxRepetitions, ok, err := readInt(&r)
-		if err != nil {
-			return fmt.Errorf("error parsing SNMP packet max repetitions: %w", err)
-		}
-		if ok {
-			response.MaxRepetitions = uint32(maxRepetitions & 0x7FFFFFFF)
+		if v, ok := fr.int("SNMP packet max repetitions"); ok {
+			response.MaxRepetitions = uint32(v & 0x7FFFFFFF)
 		}
 	} else {
-		errorStatus, ok, err := readInt(&r)
-		if err != nil {
-			return fmt.Errorf("error parsing SNMP packet error: %w", err)
+		if v, ok := fr.int("SNMP packet error"); ok {
+			response.Error = SNMPError(v) //nolint:gosec
 		}
-		if ok {
-			response.Error = SNMPError(errorStatus) //nolint:gosec
-		}
-
-		errorIndex, ok, err := readInt(&r)
-		if err != nil {
-			return fmt.Errorf("error parsing SNMP packet error index: %w", err)
-		}
-		if ok {
-			response.ErrorIndex = uint8(errorIndex) //nolint:gosec
+		if v, ok := fr.int("SNMP packet error index"); ok {
+			response.ErrorIndex = uint8(v) //nolint:gosec
 		}
 	}
-
+	if fr.err != nil {
+		return fr.err
+	}
 	return unmarshalVBL(r.Rest(), response)
 }
 
@@ -283,47 +291,26 @@ func unmarshalTrapV1(packet []byte, response *SnmpPacket) error {
 		return fmt.Errorf("error verifying Response sanity: %w", err)
 	}
 	r := ber.NewReader(pdu)
+	fr := fieldReader{r: &r}
 
-	enterprise, ok, err := readString(&r)
-	if err != nil {
-		return fmt.Errorf("error parsing SNMPv1 trap enterprise: %w", err)
+	if v, ok := fr.string("SNMPv1 trap enterprise"); ok {
+		response.Enterprise = v
 	}
-	if ok {
-		response.Enterprise = enterprise
+	if v, ok := fr.string("SNMPv1 trap agent address"); ok {
+		response.AgentAddress = v
 	}
-
-	agentAddress, ok, err := readString(&r)
-	if err != nil {
-		return fmt.Errorf("error parsing SNMPv1 trap agent address: %w", err)
+	if v, ok := fr.int("SNMPv1 trap generic trap"); ok {
+		response.GenericTrap = v
 	}
-	if ok {
-		response.AgentAddress = agentAddress
+	if v, ok := fr.int("SNMPv1 trap specific trap"); ok {
+		response.SpecificTrap = v
 	}
-
-	genericTrap, ok, err := readInt(&r)
-	if err != nil {
-		return fmt.Errorf("error parsing SNMPv1 trap generic trap: %w", err)
+	if v, ok := fr.uint("SNMPv1 trap timestamp"); ok {
+		response.Timestamp = v
 	}
-	if ok {
-		response.GenericTrap = genericTrap
+	if fr.err != nil {
+		return fr.err
 	}
-
-	specificTrap, ok, err := readInt(&r)
-	if err != nil {
-		return fmt.Errorf("error parsing SNMPv1 trap specific trap: %w", err)
-	}
-	if ok {
-		response.SpecificTrap = specificTrap
-	}
-
-	timestamp, ok, err := readUint(&r)
-	if err != nil {
-		return fmt.Errorf("error parsing SNMPv1 trap timestamp: %w", err)
-	}
-	if ok {
-		response.Timestamp = timestamp
-	}
-
 	return unmarshalVBL(r.Rest(), response)
 }
 
