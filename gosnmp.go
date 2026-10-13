@@ -276,7 +276,12 @@ const (
 	InconsistentName                     // The name in a variable binding specifies a variable that does not exist.
 )
 
-func (x *GoSNMP) validateParameters() error {
+// prepare readies the client for Connect, SnmpEncodePacket and
+// SnmpDecodePacket, which call it each time: it fills in the defaults (the UDP
+// transport, MaxOids, a background Context), rejects a negative MaxOids and,
+// for SNMPv3, sets Reportable, checks the security model and parameters and
+// seeds the privacy protocol's salt counter with random bits.
+func (x *GoSNMP) prepare() error {
 	if x.Transport == "" {
 		x.Transport = udp
 	}
@@ -306,30 +311,21 @@ func (x *GoSNMP) validateParameters() error {
 // This is useful for generating traffic for use over separate transport
 // stacks and creating traffic samples for test purposes.
 func (x *GoSNMP) SnmpEncodePacket(pdutype PDUType, pdus []SnmpPDU, nonRepeaters uint8, maxRepetitions uint32) ([]byte, error) {
-	err := x.validateParameters()
-	if err != nil {
+	if err := x.prepare(); err != nil {
 		return []byte{}, err
 	}
-
 	pkt := x.mkSnmpPacket(pdutype, pdus, nonRepeaters, maxRepetitions)
-
 	pkt.RequestID = x.nextRequestID()
-
 	if x.Version == Version3 {
 		pkt.MsgID = x.nextMsgID()
-
-		err = x.initPacket(pkt)
-		if err != nil {
+		if err := x.initPacket(pkt); err != nil {
 			return []byte{}, err
 		}
 	}
-
-	var out []byte
-	out, err = pkt.marshalMsg()
+	out, err := pkt.marshalMsg()
 	if err != nil {
 		return []byte{}, err
 	}
-
 	return out, nil
 }
 
@@ -337,40 +333,27 @@ func (x *GoSNMP) SnmpEncodePacket(pdutype PDUType, pdus []SnmpPDU, nonRepeaters 
 // This is useful for processing traffic from other sources and
 // building test harnesses.
 func (x *GoSNMP) SnmpDecodePacket(resp []byte) (*SnmpPacket, error) {
-	var err error
-
 	result := &SnmpPacket{}
-
-	err = x.validateParameters()
-	if err != nil {
+	if err := x.prepare(); err != nil {
 		return result, err
 	}
-
 	result.Logger = x.Logger
 	if x.SecurityParameters != nil {
 		result.SecurityParameters = x.SecurityParameters.Copy()
 	}
 
-	var cursor int
-	cursor, err = x.unmarshalHeader(resp, result)
+	cursor, err := x.unmarshalHeader(resp, result)
 	if err != nil {
-		err = fmt.Errorf("unable to decode packet header: %w", err)
-		return result, err
+		return result, fmt.Errorf("unable to decode packet header: %w", err)
 	}
-
 	if result.Version == Version3 {
-		resp, cursor, err = unmarshalScopedPDU(resp, cursor, result)
-		if err != nil {
+		if resp, cursor, err = unmarshalScopedPDU(resp, cursor, result); err != nil {
 			return result, err
 		}
 	}
-
-	err = unmarshalPayload(resp, cursor, result)
-	if err != nil {
-		err = fmt.Errorf("unable to decode packet body: %w", err)
-		return result, err
+	if err = unmarshalPayload(resp, cursor, result); err != nil {
+		return result, fmt.Errorf("unable to decode packet body: %w", err)
 	}
-
 	return result, nil
 }
 
