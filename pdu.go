@@ -327,65 +327,72 @@ func unmarshalTrapV1(packet []byte, response *SnmpPacket) error {
 	return unmarshalVBL(r.Rest(), response)
 }
 
-// unmarshalVBL reads a varbind list, which must span all of packet. A varbind
-// name may be any text field.
+// unmarshalVBL reads a varbind list, which must span all of packet, and
+// appends its varbinds to response.Variables; on an error the ones before it
+// stay appended.
 func unmarshalVBL(packet []byte, response *SnmpPacket) error {
-	r := ber.NewReader(packet)
-	tag, ok := r.Peek()
-	if !ok {
+	if len(packet) == 0 {
 		return errors.New("truncated packet when unmarshalling a VBL")
 	}
-	if PDUType(tag) != Sequence {
-		return fmt.Errorf("expected a sequence when unmarshalling a VBL, got %x", tag)
+	if PDUType(packet[0]) != Sequence {
+		return fmt.Errorf("expected a sequence when unmarshalling a VBL, got %x", packet[0])
 	}
 	vbl, err := readWhole(packet)
 	if err != nil {
 		return fmt.Errorf("error verifying VBL length: %w", err)
 	}
 
-	vbs := ber.NewReader(vbl)
-	for vbs.Len() > 0 {
-		if tag, _ := vbs.Peek(); PDUType(tag) != Sequence {
-			return fmt.Errorf("expected a sequence when unmarshalling a VB, got %x", tag)
-		}
-		_, vb, err := vbs.Next()
+	r := ber.NewReader(vbl)
+	for r.Len() > 0 {
+		vb, err := readVarbind(&r)
 		if err != nil {
-			return fmt.Errorf("error reading varbind: %w", err)
+			return err
 		}
-
-		r := ber.NewReader(vb)
-		name, ok, err := readString(&r)
-		if err != nil {
-			return fmt.Errorf("error parsing OID Value: %w", err)
-		}
-		if !ok {
-			return errors.New("varbind name is not an OBJECT IDENTIFIER or text")
-		}
-
-		// The value TLV must span the rest of the varbind.
-		value := r.Rest()
-		if len(value) == 0 {
-			return fmt.Errorf("error decoding value: %w", ErrZeroByteBuffer)
-		}
-		length, header, err := ber.Length(value)
-		if err != nil {
-			return fmt.Errorf("error parsing value TLV in varbind: %w", err)
-		}
-		tag := Asn1BER(value[0])
-		// Some MikroTik responses overdeclare OctetString lengths by one byte.
-		// The enclosing varbind provides the content boundary for this case.
-		overdeclared := tag == OctetString && length == len(value)+1
-		if length != len(value) && !overdeclared {
-			return fmt.Errorf("value TLV length mismatch in varbind (TLV %d, remaining %d)", length, len(value))
-		}
-		typ, val, err := decodeValue(tag, value[header:])
-		if err != nil {
-			return fmt.Errorf("error decoding value: %w", err)
-		}
-
-		response.Variables = append(response.Variables, SnmpPDU{Name: name, Type: typ, Value: val})
+		response.Variables = append(response.Variables, vb)
 	}
 	return nil
+}
+
+// readVarbind reads the next varbind: a SEQUENCE of the name, any text field,
+// and the value TLV, which must span the rest of it.
+func readVarbind(r *ber.Reader) (SnmpPDU, error) {
+	if tag, _ := r.Peek(); PDUType(tag) != Sequence {
+		return SnmpPDU{}, fmt.Errorf("expected a sequence when unmarshalling a VB, got %x", tag)
+	}
+	_, vb, err := r.Next()
+	if err != nil {
+		return SnmpPDU{}, fmt.Errorf("error reading varbind: %w", err)
+	}
+
+	fields := ber.NewReader(vb)
+	name, ok, err := readString(&fields)
+	if err != nil {
+		return SnmpPDU{}, fmt.Errorf("error parsing OID Value: %w", err)
+	}
+	if !ok {
+		return SnmpPDU{}, errors.New("varbind name is not an OBJECT IDENTIFIER or text")
+	}
+
+	value := fields.Rest()
+	if len(value) == 0 {
+		return SnmpPDU{}, fmt.Errorf("error decoding value: %w", ErrZeroByteBuffer)
+	}
+	length, header, err := ber.Length(value)
+	if err != nil {
+		return SnmpPDU{}, fmt.Errorf("error parsing value TLV in varbind: %w", err)
+	}
+	tag := Asn1BER(value[0])
+	// Some MikroTik responses overdeclare OctetString lengths by one byte.
+	// The enclosing varbind provides the content boundary for this case.
+	overdeclared := tag == OctetString && length == len(value)+1
+	if length != len(value) && !overdeclared {
+		return SnmpPDU{}, fmt.Errorf("value TLV length mismatch in varbind (TLV %d, remaining %d)", length, len(value))
+	}
+	typ, val, err := decodeValue(tag, value[header:])
+	if err != nil {
+		return SnmpPDU{}, fmt.Errorf("error decoding value: %w", err)
+	}
+	return SnmpPDU{Name: name, Type: typ, Value: val}, nil
 }
 
 // marshalMsg encodes the message: a SEQUENCE of the version, then the
