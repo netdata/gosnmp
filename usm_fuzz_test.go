@@ -204,10 +204,10 @@ func v3DecodeKnownPanic(receiver string, p usmFuzzPair, data []byte, v any, stac
 			return "getTrapIdentifier on a nil SecurityParameters"
 		}
 
-	// Before any digest check, USM unmarshal zeroes the expected digest
+	// Before any digest check, readAuthParams zeroes the expected digest
 	// length after the authentication parameters' first two octets, whatever
 	// the field's length, so it slices past the end of a short input.
-	case "(*UsmSecurityParameters).unmarshal":
+	case "(*UsmSecurityParameters).readAuthParams":
 		var n, c int
 		if _, err := fmt.Sscanf(msg, "runtime error: slice bounds out of range [:%d] with capacity %d", &n, &c); err == nil &&
 			n == 2+p.auth.spec().MACLen && c < n {
