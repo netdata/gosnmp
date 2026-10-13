@@ -290,14 +290,10 @@ func (x *GoSNMP) validateParameters() error {
 	if x.Version == Version3 {
 		x.MsgFlags |= Reportable // tell the snmp server that a report PDU MUST be sent
 
-		err := x.validateParametersV3()
-		if err != nil {
+		if err := x.validateParametersV3(); err != nil {
 			return err
 		}
-		err = x.SecurityParameters.usm().init(x.Logger)
-		if err != nil {
-			return err
-		}
+		x.SecurityParameters.usm().init(x.Logger)
 	}
 
 	if x.Context == nil {

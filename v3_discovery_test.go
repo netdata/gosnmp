@@ -223,7 +223,7 @@ func (m *mockAgentUnknownUserNames) marshalGetResponse(req *SnmpPacket) ([]byte,
 
 // newV3NoAuthClientForDiscoveryTest returns a GoSNMP client configured for
 // NoAuthNoPriv SNMPv3 with an empty AuthoritativeEngineID so that
-// discoveryRequired() triggers engine-ID discovery on the first request.
+// the first request starts with engine-ID discovery (discoveryPacket).
 func newV3NoAuthClientForDiscoveryTest(port uint16) *GoSNMP {
 	gs := newTestGoSNMPv3(NoAuthNoPriv, &UsmSecurityParameters{
 		UserName: "testUser",

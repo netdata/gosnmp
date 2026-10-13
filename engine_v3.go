@@ -23,8 +23,8 @@ func (x *GoSNMP) negotiateInitialSecurityParameters(packetOut *SnmpPacket) error
 	if x.SecurityModel != packetOut.SecurityModel {
 		return fmt.Errorf("connection security model does not match security model defined in packet")
 	}
-	if discoveryPacket := packetOut.SecurityParameters.usm().discoveryRequired(); discoveryPacket != nil {
-		return x.discoverEngine(discoveryPacket, packetOut)
+	if discovery := packetOut.SecurityParameters.usm().discoveryPacket(); discovery != nil {
+		return x.discoverEngine(discovery, packetOut)
 	}
 	_ = packetOut.SecurityParameters.InitSecurityKeys()
 	return nil

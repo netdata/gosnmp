@@ -59,7 +59,7 @@ func (c *Cache) Enabled() bool {
 // the password-to-key result again. Known bug: an error of the password-to-key
 // step, an empty passphrase in particular, is dropped and the key is empty.
 func (c *Cache) LocalizedKey(h crypto.Hash, passphrase, engineID string) ([]byte, error) {
-	ku, err := c.passwordToKey(h.New(), cacheKey{hash: h, password: passphrase})
+	ku, err := c.passwordToKey(cacheKey{hash: h, password: passphrase}, h.New)
 	if err != nil {
 		return []byte{}, nil
 	}
@@ -137,9 +137,9 @@ func extendBlumenthal(h crypto.Hash, key []byte) []byte {
 }
 
 // passwordToKey returns the password-to-key result for k, hashing its password
-// with h when the cache does not hold it. The cache may be turned off or on
-// while the password is hashed.
-func (c *Cache) passwordToKey(h hash.Hash, k cacheKey) ([]byte, error) {
+// with a hash from newHash when the cache does not hold it. The cache may be
+// turned off or on while the password is hashed.
+func (c *Cache) passwordToKey(k cacheKey, newHash func() hash.Hash) ([]byte, error) {
 	c.mu.RLock()
 	key := c.keys[k]
 	c.mu.RUnlock()
@@ -147,7 +147,7 @@ func (c *Cache) passwordToKey(h hash.Hash, k cacheKey) ([]byte, error) {
 		return key, nil
 	}
 
-	key, err := passwordToKey(h, k.password)
+	key, err := passwordToKey(newHash(), k.password)
 	if err != nil {
 		return nil, err
 	}

@@ -50,22 +50,21 @@ func (authProtocol SnmpV3AuthProtocol) HashType() crypto.Hash {
 	return crypto.MD5
 }
 
+// authSpecs describes the authentication protocols by value.
+var authSpecs = [...]usm.Auth{ //nolint:gochecknoglobals // a read-only table
+	MD5:    {Hash: crypto.MD5, MACLen: 12},
+	SHA:    {Hash: crypto.SHA1, MACLen: 12},
+	SHA224: {Hash: crypto.SHA224, MACLen: 16},
+	SHA256: {Hash: crypto.SHA256, MACLen: 24},
+	SHA384: {Hash: crypto.SHA384, MACLen: 32},
+	SHA512: {Hash: crypto.SHA512, MACLen: usm.MaxMACLen},
+}
+
 // spec describes the protocol; NoAuth, unset and unknown values have no
 // description.
 func (authProtocol SnmpV3AuthProtocol) spec() usm.Auth {
-	switch authProtocol {
-	case MD5:
-		return usm.Auth{Hash: crypto.MD5, MACLen: 12}
-	case SHA:
-		return usm.Auth{Hash: crypto.SHA1, MACLen: 12}
-	case SHA224:
-		return usm.Auth{Hash: crypto.SHA224, MACLen: 16}
-	case SHA256:
-		return usm.Auth{Hash: crypto.SHA256, MACLen: 24}
-	case SHA384:
-		return usm.Auth{Hash: crypto.SHA384, MACLen: 32}
-	case SHA512:
-		return usm.Auth{Hash: crypto.SHA512, MACLen: usm.MaxMACLen}
+	if int(authProtocol) < len(authSpecs) {
+		return authSpecs[authProtocol]
 	}
 	return usm.Auth{}
 }
@@ -96,22 +95,21 @@ const (
 
 //go:generate go tool -modfile=tools/go.mod stringer -type=SnmpV3PrivProtocol
 
+// privSpecs describes the privacy protocols by value.
+var privSpecs = [...]usm.Priv{ //nolint:gochecknoglobals // a read-only table
+	DES:     {Cipher: usm.DESCBC},
+	AES:     {Cipher: usm.AESCFB, KeyLen: 16},
+	AES192:  {Cipher: usm.AESCFB, KeyLen: 24, Extension: usm.Blumenthal},
+	AES256:  {Cipher: usm.AESCFB, KeyLen: 32, Extension: usm.Blumenthal},
+	AES192C: {Cipher: usm.AESCFB, KeyLen: 24, Extension: usm.Reeder},
+	AES256C: {Cipher: usm.AESCFB, KeyLen: 32, Extension: usm.Reeder},
+}
+
 // spec describes the protocol; NoPriv, unset and unknown values have no
 // description.
 func (privProtocol SnmpV3PrivProtocol) spec() usm.Priv {
-	switch privProtocol {
-	case DES:
-		return usm.Priv{Cipher: usm.DESCBC}
-	case AES:
-		return usm.Priv{Cipher: usm.AESCFB, KeyLen: 16}
-	case AES192:
-		return usm.Priv{Cipher: usm.AESCFB, KeyLen: 24, Extension: usm.Blumenthal}
-	case AES256:
-		return usm.Priv{Cipher: usm.AESCFB, KeyLen: 32, Extension: usm.Blumenthal}
-	case AES192C:
-		return usm.Priv{Cipher: usm.AESCFB, KeyLen: 24, Extension: usm.Reeder}
-	case AES256C:
-		return usm.Priv{Cipher: usm.AESCFB, KeyLen: 32, Extension: usm.Reeder}
+	if int(privProtocol) < len(privSpecs) {
+		return privSpecs[privProtocol]
 	}
 	return usm.Priv{}
 }
@@ -267,28 +265,36 @@ func (sp *UsmSecurityParameters) privacyKey() ([]byte, error) {
 	return key, err
 }
 
+// adoptEngineID takes engineID as the authoritative engine ID and, when it
+// differs from the current one, drops both keys and derives them for it. The
+// caller holds sp.mu or owns sp (a private copy). Known bug: the engine ID is
+// adopted before the keys are derived, so a failed derivation leaves it
+// adopted with keys missing.
+func (sp *UsmSecurityParameters) adoptEngineID(engineID string) error {
+	if sp.AuthoritativeEngineID == engineID {
+		return nil
+	}
+	sp.AuthoritativeEngineID = engineID
+	sp.SecretKey = nil
+	sp.PrivacyKey = nil
+	return sp.initSecurityKeysNoLock()
+}
+
 // setSecurityParameters adopts the engine ID, boots and time of in, deriving
-// new keys when the engine ID changes. Known bugs: the engine ID is adopted
-// before the keys are derived, so a failed derivation leaves it adopted
-// without derived keys, boots or time, and the next request skips the
-// discovery; boots and time are adopted from any message the client accepts,
-// older or outside the time window ones included (RFC 3414 section 3.2 step 7
-// b keeps the latest); the time is kept without the moment it was received, so
-// a request sends the engine time of the last message, not the current one
-// (RFC 3414 section 3.1 step 6 a), and one after 150 s of silence is first
-// answered with notInTimeWindow.
+// new keys when the engine ID changes. Known bugs: a failed key derivation
+// (adoptEngineID) also leaves boots and time untaken, and the next request
+// skips the discovery; boots and time are adopted from any message the client
+// accepts, older or outside the time window ones included (RFC 3414 section
+// 3.2 step 7 b keeps the latest); the time is kept without the moment it was
+// received, so a request sends the engine time of the last message, not the
+// current one (RFC 3414 section 3.1 step 6 a), and one after 150 s of silence
+// is first answered with notInTimeWindow.
 func (sp *UsmSecurityParameters) setSecurityParameters(in *UsmSecurityParameters) error {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
 
-	if sp.AuthoritativeEngineID != in.AuthoritativeEngineID {
-		sp.AuthoritativeEngineID = in.AuthoritativeEngineID
-		sp.SecretKey = nil
-		sp.PrivacyKey = nil
-
-		if err := sp.initSecurityKeysNoLock(); err != nil {
-			return err
-		}
+	if err := sp.adoptEngineID(in.AuthoritativeEngineID); err != nil {
+		return err
 	}
 	sp.AuthoritativeEngineBoots = in.AuthoritativeEngineBoots
 	sp.AuthoritativeEngineTime = in.AuthoritativeEngineTime
@@ -362,49 +368,34 @@ func (sp *UsmSecurityParameters) validate(flags SnmpV3MsgFlags) error {
 		return fmt.Errorf("validate: MsgFlags must be populated with an appropriate security level")
 	}
 
-	if sp.PrivacyProtocol > NoPriv && len(sp.PrivacyKey) == 0 {
-		if sp.PrivacyPassphrase == "" {
-			return fmt.Errorf("securityParameters.PrivacyPassphrase is required when a privacy protocol is specified")
-		}
+	if sp.PrivacyProtocol > NoPriv && len(sp.PrivacyKey) == 0 && sp.PrivacyPassphrase == "" {
+		return fmt.Errorf("securityParameters.PrivacyPassphrase is required when a privacy protocol is specified")
 	}
-
-	if sp.AuthenticationProtocol > NoAuth && len(sp.SecretKey) == 0 {
-		if sp.AuthenticationPassphrase == "" {
-			return fmt.Errorf("securityParameters.AuthenticationPassphrase is required when an authentication protocol is specified")
-		}
+	if sp.AuthenticationProtocol > NoAuth && len(sp.SecretKey) == 0 && sp.AuthenticationPassphrase == "" {
+		return fmt.Errorf("securityParameters.AuthenticationPassphrase is required when an authentication protocol is specified")
 	}
 
 	return nil
 }
 
 // init sets the logger and seeds the salt counter of the privacy protocol with
-// random bits.
-func (sp *UsmSecurityParameters) init(log Logger) error {
+// random bits. crypto/rand.Read never fails (Go 1.24 and later).
+func (sp *UsmSecurityParameters) init(log Logger) {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
-
-	var err error
 
 	sp.Logger = log
 
 	switch sp.PrivacyProtocol.spec().Cipher {
 	case usm.AESCFB:
-		salt := make([]byte, 8)
-		_, err = crand.Read(salt)
-		if err != nil {
-			return fmt.Errorf("error creating a cryptographically secure salt: %w", err)
-		}
-		sp.localAESSalt = binary.BigEndian.Uint64(salt)
+		var salt [8]byte
+		_, _ = crand.Read(salt[:])
+		sp.localAESSalt = binary.BigEndian.Uint64(salt[:])
 	case usm.DESCBC:
-		salt := make([]byte, 4)
-		_, err = crand.Read(salt)
-		if err != nil {
-			return fmt.Errorf("error creating a cryptographically secure salt: %w", err)
-		}
-		sp.localDESSalt = binary.BigEndian.Uint32(salt)
+		var salt [4]byte
+		_, _ = crand.Read(salt[:])
+		sp.localDESSalt = binary.BigEndian.Uint32(salt[:])
 	}
-
-	return nil
 }
 
 // passwordCache derives the keys of every UsmSecurityParameters.
@@ -471,29 +462,29 @@ func (sp *UsmSecurityParameters) InitPacket(packet *SnmpPacket) error {
 	return nil
 }
 
-func (sp *UsmSecurityParameters) discoveryRequired() *SnmpPacket {
-	if sp.AuthoritativeEngineID == "" {
-		var emptyPdus []SnmpPDU
-
-		// send blank packet to discover authoriative engine ID/boots/time
-		blankPacket := &SnmpPacket{
-			Version:            Version3,
-			MsgFlags:           Reportable | NoAuthNoPriv,
-			SecurityModel:      UserSecurityModel,
-			SecurityParameters: &UsmSecurityParameters{Logger: sp.Logger},
-			PDUType:            GetRequest,
-			Logger:             sp.Logger,
-			Variables:          emptyPdus,
-		}
-
-		return blankPacket
+// discoveryPacket returns the request that discovers the authoritative
+// engine's ID, boots and time (RFC 3414 section 4) while sp has no engine ID:
+// a reportable, unauthenticated Get without variable bindings and with empty
+// security parameters. It returns nil once the engine ID is known.
+func (sp *UsmSecurityParameters) discoveryPacket() *SnmpPacket {
+	if sp.AuthoritativeEngineID != "" {
+		return nil
 	}
-	return nil
+	return &SnmpPacket{
+		Version:            Version3,
+		MsgFlags:           Reportable | NoAuthNoPriv,
+		SecurityModel:      UserSecurityModel,
+		SecurityParameters: &UsmSecurityParameters{Logger: sp.Logger},
+		PDUType:            GetRequest,
+		Logger:             sp.Logger,
+	}
 }
 
-// authenticate writes the digest of the message over the first
-// msgAuthenticationParameters placeholder found in it.
-func (sp *UsmSecurityParameters) authenticate(packet []byte) error {
+// sign writes the digest of the message over the first
+// msgAuthenticationParameters placeholder found in it. Known bug: the first
+// placeholder anywhere in the message, so an engine ID or user name that
+// holds the placeholder's octets receives the digest instead.
+func (sp *UsmSecurityParameters) sign(packet []byte) error {
 	spec := sp.AuthenticationProtocol.spec()
 	msgDigest, err := spec.Digest(sp.SecretKey, packet)
 	if err != nil {
@@ -606,9 +597,11 @@ func (sp *UsmSecurityParameters) marshal(dst []byte, flags SnmpV3MsgFlags) []byt
 
 // unmarshal reads the USM security parameters from r, which is positioned at
 // their SEQUENCE in the rest of the packet. The SEQUENCE header is skipped
-// without enforcing its declared length. When the message is authenticated,
-// the authentication parameters are zeroed in the packet so the digest can be
-// verified. Parameters with an unsupported protocol decode nothing.
+// without enforcing its declared length. When the flags ask for
+// authentication, the authentication parameters are zeroed in the packet so
+// the digest can be verified (readAuthParams). A new engine ID is adopted with
+// keys derived for it (adoptEngineID): sp is the decoder's private copy.
+// Parameters with an unsupported protocol decode nothing.
 func (sp *UsmSecurityParameters) unmarshal(flags SnmpV3MsgFlags, r *ber.Reader) error {
 	if err := sp.checkProtocols(); err != nil {
 		return err
@@ -629,12 +622,8 @@ func (sp *UsmSecurityParameters) unmarshal(flags SnmpV3MsgFlags, r *ber.Reader) 
 	if err != nil {
 		return fmt.Errorf("error parsing SNMPV3 User Security Model msgAuthoritativeEngineID: %w", err)
 	}
-	if ok && sp.AuthoritativeEngineID != engineID {
-		sp.AuthoritativeEngineID = engineID
-		sp.SecretKey = nil
-		sp.PrivacyKey = nil
-
-		if err = sp.initSecurityKeysNoLock(); err != nil {
+	if ok {
+		if err = sp.adoptEngineID(engineID); err != nil {
 			return err
 		}
 	}
@@ -663,26 +652,8 @@ func (sp *UsmSecurityParameters) unmarshal(flags SnmpV3MsgFlags, r *ber.Reader) 
 		sp.UserName = userName
 	}
 
-	// authField aliases the packet from the authentication parameters on, so
-	// they can be zeroed in place below.
-	authField := r.Rest()
-	authParams, ok, err := readString(r)
-	if err != nil {
-		return fmt.Errorf("error parsing SNMPV3 User Security Model msgAuthenticationParameters: %w", err)
-	}
-	if ok {
-		sp.AuthenticationParameters = authParams
-	}
-	// blank msgAuthenticationParameters to prepare for authentication check later
-	if flags.authFlag() {
-		// In case if the authentication protocol is not configured or set to NoAuth, then the packet cannot
-		// be processed further
-		if sp.AuthenticationProtocol <= NoAuth {
-			return errors.New("error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message")
-		}
-		// The zeros go two octets into the field whatever its actual header
-		// size, up to the expected digest length.
-		clear(authField[2 : 2+sp.AuthenticationProtocol.spec().MACLen])
+	if err = sp.readAuthParams(flags, r); err != nil {
+		return err
 	}
 
 	privParams, ok, err := readString(r)
@@ -691,12 +662,36 @@ func (sp *UsmSecurityParameters) unmarshal(flags SnmpV3MsgFlags, r *ber.Reader) 
 	}
 	if ok {
 		sp.PrivacyParameters = []byte(privParams)
-		if flags.authFlag() && flags.privFlag() {
-			if sp.PrivacyProtocol <= NoPriv {
-				return errors.New("error parsing SNMPv3 User Security Model: privacy parameters are not configured to parse incoming encrypted message")
-			}
+		if flags.authFlag() && flags.privFlag() && sp.PrivacyProtocol <= NoPriv {
+			return errors.New("error parsing SNMPv3 User Security Model: privacy parameters are not configured to parse incoming encrypted message")
 		}
 	}
 
+	return nil
+}
+
+// readAuthParams reads msgAuthenticationParameters from r. When flags ask for
+// authentication, which needs an authentication protocol, it zeroes the field
+// in the packet, so the digest can be verified over the message as it was
+// signed. Known bug: before any digest check, the zeros go two octets into
+// the field whatever its header size and length, up to the expected digest
+// length: past the end of a shorter field, over what follows it or past the
+// end of the input, which panics when the input has no spare capacity.
+func (sp *UsmSecurityParameters) readAuthParams(flags SnmpV3MsgFlags, r *ber.Reader) error {
+	field := r.Rest()
+	authParams, ok, err := readString(r)
+	if err != nil {
+		return fmt.Errorf("error parsing SNMPV3 User Security Model msgAuthenticationParameters: %w", err)
+	}
+	if ok {
+		sp.AuthenticationParameters = authParams
+	}
+	if !flags.authFlag() {
+		return nil
+	}
+	if sp.AuthenticationProtocol <= NoAuth {
+		return errors.New("error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message")
+	}
+	clear(field[2 : 2+sp.AuthenticationProtocol.spec().MACLen])
 	return nil
 }

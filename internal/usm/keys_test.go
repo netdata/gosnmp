@@ -72,7 +72,7 @@ func TestCacheKeys(t *testing.T) {
 		for _, k := range keys {
 			want, err := passwordToKey(k.hash.New(), k.password)
 			require.NoError(t, err)
-			got, err := c.passwordToKey(k.hash.New(), k)
+			got, err := c.passwordToKey(k, k.hash.New)
 			require.NoError(t, err)
 			assert.Equal(t, want, got, "%v %s", k.hash, k.password)
 		}
@@ -118,7 +118,7 @@ func TestCacheOffDuringDerivation(t *testing.T) {
 			r.panicked = recover()
 			done <- r
 		}()
-		r.key, r.err = c.passwordToKey(h, k)
+		r.key, r.err = c.passwordToKey(k, func() hash.Hash { return h })
 	}()
 
 	select {
@@ -136,7 +136,7 @@ func TestCacheOffDuringDerivation(t *testing.T) {
 	assert.Equal(t, want, r.key)
 
 	c.SetEnabled(true)
-	key, err := c.passwordToKey(crypto.MD5.New(), k)
+	key, err := c.passwordToKey(k, crypto.MD5.New)
 	require.NoError(t, err)
 	assert.Equal(t, want, key, "derivation after re-enabling the cache")
 }
@@ -154,16 +154,24 @@ func (h *countingHash) Write(p []byte) (int, error) {
 
 // TestCacheHashes pins when a derivation hashes the passphrase: every time
 // while the cache is off, once while it is on, and once again after it is
-// turned back on, which resets it.
+// turned back on, which resets it. A derivation the cache answers creates no
+// hash.
 func TestCacheHashes(t *testing.T) {
 	k := cacheKey{hash: crypto.MD5, password: "codec-count-pass"}
 	c := NewCache()
 	assert.True(t, c.Enabled(), "new")
 	hashes := func() bool {
-		h := &countingHash{Hash: crypto.MD5.New()}
-		_, err := c.passwordToKey(h, k)
+		var h *countingHash
+		_, err := c.passwordToKey(k, func() hash.Hash {
+			h = &countingHash{Hash: crypto.MD5.New()}
+			return h
+		})
 		require.NoError(t, err)
-		return h.writes > 0
+		if h == nil {
+			return false
+		}
+		assert.Positive(t, h.writes, "a created hash hashes the passphrase")
+		return true
 	}
 
 	c.SetEnabled(false)

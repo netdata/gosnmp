@@ -1530,16 +1530,7 @@ func TestUnmarshalEmptyPanic(t *testing.T) {
 
 func TestV3USMInitialPacket(t *testing.T) {
 	logger := NewLogger(log.New(io.Discard, "", 0))
-	var emptyPdus []SnmpPDU
-	blankPacket := &SnmpPacket{
-		Version:            Version3,
-		MsgFlags:           Reportable | NoAuthNoPriv,
-		SecurityModel:      UserSecurityModel,
-		SecurityParameters: &UsmSecurityParameters{Logger: logger},
-		PDUType:            GetRequest,
-		Logger:             logger,
-		Variables:          emptyPdus,
-	}
+	blankPacket := (&UsmSecurityParameters{Logger: logger}).discoveryPacket()
 	iBytes, err := blankPacket.marshalMsg()
 	if err != nil {
 		t.Errorf("#TestV3USMInitialPacket: marshalMsg() err returned: %v", err)

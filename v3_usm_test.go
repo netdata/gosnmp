@@ -127,7 +127,7 @@ func TestAuthenticationSHA224(t *testing.T) {
 	require.Equal(t, correctKeySHA224(t), sp.SecretKey, "Wrong key generated")
 
 	srcPacket := packetSHA224NoAuthentication(t)
-	err = sp.authenticate(srcPacket)
+	err = sp.sign(srcPacket)
 	require.NoError(t, err, "Authentication of packet failed")
 
 	require.Equal(t, packetSHA224Authenticated(t), srcPacket, "Wrong message authentication parameters.")
@@ -229,7 +229,7 @@ func TestAuthenticationSHA512(t *testing.T) {
 	require.Equal(t, correctKeySHA512(t), sp.SecretKey, "Wrong key generated")
 
 	srcPacket := packetSHA512NoAuthentication(t)
-	err = sp.authenticate(srcPacket)
+	err = sp.sign(srcPacket)
 	require.NoError(t, err, "Generation of key failed")
 
 	require.Equal(t, packetSHA512Authenticated(t), srcPacket, "Wrong message authentication parameters.")
@@ -450,6 +450,43 @@ func TestUSMEncodeSecurityLevel(t *testing.T) {
 	}
 }
 
+// TestUSMDecodeSecurityLevel checks that decoding fails when the message
+// flags ask for authentication or privacy and the decoder has no protocol
+// for it: the decoding counterpart of TestUSMEncodeSecurityLevel.
+func TestUSMDecodeSecurityLevel(t *testing.T) {
+	const (
+		authErr = "unable to decode packet header: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message"
+		privErr = "unable to decode packet header: error parsing SNMPv3 User Security Model: privacy parameters are not configured to parse incoming encrypted message"
+	)
+	authNoPriv := usmCharTrap(t, NoPriv, nil, usmCharVarbinds)
+	authPriv := usmCharTrap(t, AES, usmCharSalt(AES), usmCharVarbinds)
+
+	tests := map[string]struct {
+		in      []byte
+		auth    SnmpV3AuthProtocol
+		priv    SnmpV3PrivProtocol
+		wantErr string
+	}{
+		"authentication, unset protocol": {in: authNoPriv, wantErr: authErr},
+		"authentication, NoAuth":         {in: authNoPriv, auth: NoAuth, wantErr: authErr},
+		"authentication":                 {in: authNoPriv, auth: SHA},
+		"privacy, unset protocol":        {in: authPriv, auth: SHA, wantErr: privErr},
+		"privacy, NoPriv":                {in: authPriv, auth: SHA, priv: NoPriv, wantErr: privErr},
+		"privacy":                        {in: authPriv, auth: SHA, priv: AES},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			x := usmDecoder(tc.auth, "codec-auth-pass", tc.priv, "codec-priv-pass")()
+			_, err := x.SnmpDecodePacket(bytes.Clone(tc.in))
+			if tc.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			assert.EqualError(t, err, tc.wantErr)
+		})
+	}
+}
+
 // TestUSMReceiverAuthenticationWithoutProtocol checks that a single-user
 // UnmarshalTrap receiver whose flags require authentication, but whose
 // parameters have no authentication protocol, rejects a trap from its user
@@ -550,6 +587,48 @@ func TestUSMFIPS140OnlyDigest(t *testing.T) {
 			x := &GoSNMP{Version: Version3, MsgFlags: AuthNoPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy()}
 			require.NotPanics(t, func() { _, err = x.UnmarshalTrap(bytes.Clone(data), false) })
 			assert.ErrorContains(t, err, "not allowed in FIPS 140-only mode")
+		})
+	}
+}
+
+// TestUSMFIPS140OnlyShortSHA2Key pins, when run with GODEBUG=fips140=only,
+// signing with an HMAC-SHA-2 key shorter than the 14 octets crypto/hmac
+// accepts in that mode, where it panics. Known bug: the signer recovers the
+// panic, writes the stack to stdout and returns no message and no error.
+func TestUSMFIPS140OnlyShortSHA2Key(t *testing.T) {
+	if !fips140.Enforced() {
+		t.Skip("run with GODEBUG=fips140=only")
+	}
+	tests := map[string]struct {
+		keyLen    int
+		wantMsg   bool
+		wantStack bool
+	}{
+		"13-octet key": {keyLen: 13, wantStack: true},
+		"14-octet key": {keyLen: 14, wantMsg: true},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			pkt := &SnmpPacket{
+				Version:       Version3,
+				MsgFlags:      AuthNoPriv,
+				SecurityModel: UserSecurityModel,
+				SecurityParameters: &UsmSecurityParameters{
+					UserName:               "codec-user",
+					AuthoritativeEngineID:  usmCharEngineID,
+					AuthenticationProtocol: SHA256,
+					SecretKey:              bytes.Repeat([]byte{'k'}, tc.keyLen),
+				},
+				PDUType:   SNMPv2Trap,
+				Variables: usmCharVarbinds,
+			}
+			var msg []byte
+			var err error
+			panicked, wroteStdout := observe(func() { msg, err = pkt.MarshalMsg() })
+			assert.False(t, panicked, "encode panicked")
+			assert.NoError(t, err)
+			assert.Equal(t, tc.wantMsg, msg != nil, "message returned")
+			assert.Equal(t, tc.wantStack, wroteStdout, "stack written to stdout")
 		})
 	}
 }
