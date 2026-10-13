@@ -482,6 +482,10 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 8) }, priv: DES, receiver: tableKeysOnly,
 			want: "panic", knownBug: "a new engine ID replaces the keys with the empty keys of the empty passphrases",
 		},
+		"noAuthNoPriv plaintext, AES table with keys only": {
+			in: func() []byte { return plainTrap(3, usmCharEngineID, "codec-user") }, priv: AES, receiver: tableKeysOnly,
+			want: "rejected", knownBug: "a new engine ID replaces the keys with those of the empty passphrases, and no AES key derives from one",
+		},
 		"security model 2, plaintext, single user": {
 			in: func() []byte { return plainTrap(2, usmCharEngineID, "codec-user") }, priv: AES,
 			want: "accepted", vars: plainVars, knownBug: "the digest is checked only for the User-based Security Model",
@@ -895,6 +899,10 @@ func TestUSMValidate(t *testing.T) {
 			flags: AuthPriv, sp: &UsmSecurityParameters{
 				UserName: "u", AuthenticationProtocol: SHA, AuthenticationPassphrase: "p", PrivacyProtocol: AES,
 			},
+			wantErr: "securityParameters.PrivacyPassphrase is required when a privacy protocol is specified",
+		},
+		"authPriv without either passphrase": {
+			flags: AuthPriv, sp: &UsmSecurityParameters{UserName: "u", AuthenticationProtocol: SHA, PrivacyProtocol: AES},
 			wantErr: "securityParameters.PrivacyPassphrase is required when a privacy protocol is specified",
 		},
 		"authPriv with keys instead of passphrases": {

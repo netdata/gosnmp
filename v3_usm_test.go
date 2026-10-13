@@ -450,6 +450,43 @@ func TestUSMEncodeSecurityLevel(t *testing.T) {
 	}
 }
 
+// TestUSMDecodeSecurityLevel checks that decoding fails when the message
+// flags ask for authentication or privacy and the decoder has no protocol
+// for it: the decoding counterpart of TestUSMEncodeSecurityLevel.
+func TestUSMDecodeSecurityLevel(t *testing.T) {
+	const (
+		authErr = "unable to decode packet header: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message"
+		privErr = "unable to decode packet header: error parsing SNMPv3 User Security Model: privacy parameters are not configured to parse incoming encrypted message"
+	)
+	authNoPriv := usmCharTrap(t, NoPriv, nil, usmCharVarbinds)
+	authPriv := usmCharTrap(t, AES, usmCharSalt(AES), usmCharVarbinds)
+
+	tests := map[string]struct {
+		in      []byte
+		auth    SnmpV3AuthProtocol
+		priv    SnmpV3PrivProtocol
+		wantErr string
+	}{
+		"authentication, unset protocol": {in: authNoPriv, wantErr: authErr},
+		"authentication, NoAuth":         {in: authNoPriv, auth: NoAuth, wantErr: authErr},
+		"authentication":                 {in: authNoPriv, auth: SHA},
+		"privacy, unset protocol":        {in: authPriv, auth: SHA, wantErr: privErr},
+		"privacy, NoPriv":                {in: authPriv, auth: SHA, priv: NoPriv, wantErr: privErr},
+		"privacy":                        {in: authPriv, auth: SHA, priv: AES},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			x := usmDecoder(tc.auth, "codec-auth-pass", tc.priv, "codec-priv-pass")()
+			_, err := x.SnmpDecodePacket(bytes.Clone(tc.in))
+			if tc.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			assert.EqualError(t, err, tc.wantErr)
+		})
+	}
+}
+
 // TestUSMReceiverAuthenticationWithoutProtocol checks that a single-user
 // UnmarshalTrap receiver whose flags require authentication, but whose
 // parameters have no authentication protocol, rejects a trap from its user
