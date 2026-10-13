@@ -261,6 +261,7 @@ func TestAppendOID(t *testing.T) {
 		"underscore":                      {oid: ".1.3.1_0", wantErr: ErrInvalidOID},
 		"hex prefix":                      {oid: ".1.3.0x10", wantErr: ErrInvalidOID},
 		"space":                           {oid: ".1.3. 6", wantErr: ErrInvalidOID},
+		"colon, the octet after 9":        {oid: ".1.3.:", wantErr: ErrInvalidOID},
 		"first arc out of range":          {oid: ".4294967296.1", wantErr: ErrOIDOutOfRange},
 		"second arc out of range":         {oid: ".1.4294967296", wantErr: ErrOIDOutOfRange},
 		"out of range past 128 sub-ids":   {oid: "1.3" + strings.Repeat(".1", 127) + ".4294967296", wantErr: ErrOIDOutOfRange},

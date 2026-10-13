@@ -36,6 +36,9 @@ func TestLengthLongFormLimits(t *testing.T) {
 		"length past the int range": {
 			data: long(append([]byte{0x80}, make([]byte, k-1)...)), wantErr: ErrInvalidPacketLength,
 		},
+		"length past the int range, wrapping back": {
+			data: long(append([]byte{0x80}, make([]byte, k)...)), wantErr: ErrInvalidPacketLength,
+		},
 		"more length octets than an int holds wrap": {
 			data:       long(append(append([]byte{0x01}, make([]byte, k-1)...), 0x05)),
 			wantLength: 5 + 2 + k + 1, wantCursor: 2 + k + 1,
