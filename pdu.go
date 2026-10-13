@@ -85,22 +85,47 @@ func readField(r *ber.Reader) (field, error) {
 	}
 }
 
-// readInt reads the next field; ok reports whether it is an INTEGER.
-func readInt(r *ber.Reader) (v int, ok bool, err error) {
-	f, err := readField(r)
-	return f.i, f.kind == fieldInt, err
+// fieldReader reads header fields in order: each read returns the value and
+// whether the field decoded to the expected kind. The first failure is kept
+// in err as "error parsing <name>: <cause>", and every read after it returns
+// false without reading, so a decoder checks err once after its reads, and
+// before anything that must not run after a failure. The reader is passed to
+// each read rather than kept here: escape analysis tracks a struct as one
+// value, so returning err would move a reader kept beside it to the heap.
+type fieldReader struct {
+	err error
 }
 
-// readString reads the next field; ok reports whether it decoded to text.
-func readString(r *ber.Reader) (v string, ok bool, err error) {
-	f, err := readField(r)
-	return f.s, f.kind == fieldString, err
+// int reads the next field; ok reports whether it is an INTEGER.
+func (fr *fieldReader) int(r *ber.Reader, name string) (v int, ok bool) {
+	f := fr.next(r, name)
+	return f.i, f.kind == fieldInt
 }
 
-// readUint reads the next field; ok reports whether it is TimeTicks.
-func readUint(r *ber.Reader) (v uint, ok bool, err error) {
+// string reads the next field; ok reports whether it decoded to text.
+func (fr *fieldReader) string(r *ber.Reader, name string) (v string, ok bool) {
+	f := fr.next(r, name)
+	return f.s, f.kind == fieldString
+}
+
+// uint reads the next field; ok reports whether it is TimeTicks.
+func (fr *fieldReader) uint(r *ber.Reader, name string) (v uint, ok bool) {
+	f := fr.next(r, name)
+	return f.u, f.kind == fieldUint
+}
+
+// next reads the next field unless an earlier read failed; a failed or
+// skipped read returns the zero field, whose kind matches no read.
+func (fr *fieldReader) next(r *ber.Reader, name string) field {
+	if fr.err != nil {
+		return field{}
+	}
 	f, err := readField(r)
-	return f.u, f.kind == fieldUint, err
+	if err != nil {
+		fr.err = fmt.Errorf("error parsing %s: %w", name, err)
+		return field{}
+	}
+	return f
 }
 
 // readWhole reads the TLV that b must consist of and returns its content.
@@ -118,19 +143,16 @@ func readWhole(b []byte) ([]byte, error) {
 
 // -- Messages and PDUs --------------------------------------------------------
 
-// unmarshalVersionFromHeader reads the message SEQUENCE, which must span the
-// whole packet, and its version field. It returns the version and the offset
-// of the field after it. A version that is not an INTEGER reads as Version1.
-func unmarshalVersionFromHeader(packet []byte, response *SnmpPacket) (SnmpVersion, int, error) {
+// errEmptyPacket is the error of a message shorter than a TLV header.
+var errEmptyPacket = errors.New("cannot unmarshal empty packet")
+
+// readVersion reads the message SEQUENCE, which must span the whole packet,
+// and its version field. It returns the version and the offset of the field
+// after it. A version that is not an INTEGER reads as Version1.
+func readVersion(packet []byte) (SnmpVersion, int, error) {
 	if len(packet) < 2 {
-		return 0, 0, errors.New("cannot unmarshal empty packet")
+		return 0, 0, errEmptyPacket
 	}
-	if response == nil {
-		return 0, 0, errors.New("cannot unmarshal response into nil packet reference")
-	}
-
-	response.Variables = make([]SnmpPDU, 0, 5)
-
 	if PDUType(packet[0]) != Sequence {
 		return 0, 0, errors.New("invalid packet header")
 	}
@@ -140,7 +162,7 @@ func unmarshalVersionFromHeader(packet []byte, response *SnmpPacket) (SnmpVersio
 	}
 
 	r := ber.NewReader(msg)
-	version, ok, err := readInt(&r)
+	version, err := readField(&r)
 	if err != nil {
 		return 0, 0, fmt.Errorf("error parsing SNMP packet version: %w", err)
 	}
@@ -148,17 +170,22 @@ func unmarshalVersionFromHeader(packet []byte, response *SnmpPacket) (SnmpVersio
 		return 0, 0, errors.New("error parsing SNMP packet: nothing after the version")
 	}
 	cursor := len(packet) - r.Len()
-	if !ok {
+	if version.kind != fieldInt {
 		return 0, cursor, nil
 	}
-	return SnmpVersion(version), cursor, nil //nolint:gosec
+	return SnmpVersion(version.i), cursor, nil //nolint:gosec
 }
 
 // unmarshalHeader reads the message header: the version and, for SNMPv1 and
 // SNMPv2c, the community, or for SNMPv3 the header and security parameters.
 // It returns the offset of the PDU.
 func (x *GoSNMP) unmarshalHeader(packet []byte, response *SnmpPacket) (int, error) {
-	version, cursor, err := unmarshalVersionFromHeader(packet, response)
+	version, cursor, err := readVersion(packet)
+	// Known bug: a packet that is not too short to read presets the variables
+	// to an empty list, also when it then fails to decode.
+	if !errors.Is(err, errEmptyPacket) {
+		response.Variables = make([]SnmpPDU, 0, 5)
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -173,12 +200,12 @@ func (x *GoSNMP) unmarshalHeader(packet []byte, response *SnmpPacket) (int, erro
 	}
 
 	r := ber.NewReader(packet[cursor:])
-	community, ok, err := readString(&r)
-	if err != nil {
-		return 0, fmt.Errorf("error parsing community string: %w", err)
+	var fr fieldReader
+	if v, ok := fr.string(&r, "community string"); ok {
+		response.Community = v
 	}
-	if ok {
-		response.Community = community
+	if fr.err != nil {
+		return 0, fr.err
 	}
 	return len(packet) - r.Len(), nil
 }
@@ -192,9 +219,6 @@ func unmarshalPayload(packet []byte, cursor int, response *SnmpPacket) error {
 	if cursor >= len(packet) {
 		return fmt.Errorf("cannot unmarshal payload, packet length %d cursor %d", len(packet), cursor)
 	}
-	if response == nil {
-		return errors.New("cannot unmarshal payload response into nil packet reference")
-	}
 
 	// Parse SNMP packet type
 	requestType := PDUType(packet[cursor])
@@ -202,7 +226,7 @@ func unmarshalPayload(packet []byte, cursor int, response *SnmpPacket) error {
 	// known, supported types
 	case GetResponse, GetNextRequest, GetBulkRequest, Report, SNMPv2Trap, GetRequest, SetRequest, InformRequest:
 		response.PDUType = requestType
-		if err := unmarshalResponse(packet[cursor:], response); err != nil {
+		if err := unmarshalResponse(packet[cursor:], requestType, response); err != nil {
 			return fmt.Errorf("error in unmarshalResponse: %w", err)
 		}
 		// If it's an InformRequest, mark the trap.
@@ -218,59 +242,39 @@ func unmarshalPayload(packet []byte, cursor int, response *SnmpPacket) error {
 	return nil
 }
 
-// unmarshalResponse reads a PDU other than the SNMPv1 trap: the request ID,
-// the non-repeaters and max-repetitions of a GetBulkRequest or the error
-// status and index of any other PDU, and the varbinds. Fields of another type
-// than INTEGER are skipped; error status and index keep their low byte.
-func unmarshalResponse(packet []byte, response *SnmpPacket) error {
+// unmarshalResponse reads a PDU of pduType other than the SNMPv1 trap: the
+// request ID, the non-repeaters and max-repetitions of a GetBulkRequest or the
+// error status and index of any other PDU, and the varbinds. Fields of another
+// type than INTEGER are skipped; error status and index keep their low byte.
+func unmarshalResponse(packet []byte, pduType PDUType, response *SnmpPacket) error {
 	pdu, err := readWhole(packet)
 	if err != nil {
 		return fmt.Errorf("error verifying Response sanity: %w", err)
 	}
 	r := ber.NewReader(pdu)
+	var fr fieldReader
 
-	requestID, ok, err := readInt(&r)
-	if err != nil {
-		return fmt.Errorf("error parsing SNMP packet request ID: %w", err)
+	if v, ok := fr.int(&r, "SNMP packet request ID"); ok {
+		response.RequestID = uint32(v) //nolint:gosec
 	}
-	if ok {
-		response.RequestID = uint32(requestID) //nolint:gosec
-	}
-
-	if response.PDUType == GetBulkRequest {
-		nonRepeaters, ok, err := readInt(&r)
-		if err != nil {
-			return fmt.Errorf("error parsing SNMP packet non repeaters: %w", err)
+	if pduType == GetBulkRequest {
+		if v, ok := fr.int(&r, "SNMP packet non repeaters"); ok {
+			response.NonRepeaters = uint8(v) //nolint:gosec
 		}
-		if ok {
-			response.NonRepeaters = uint8(nonRepeaters) //nolint:gosec
-		}
-
-		maxRepetitions, ok, err := readInt(&r)
-		if err != nil {
-			return fmt.Errorf("error parsing SNMP packet max repetitions: %w", err)
-		}
-		if ok {
-			response.MaxRepetitions = uint32(maxRepetitions & 0x7FFFFFFF)
+		if v, ok := fr.int(&r, "SNMP packet max repetitions"); ok {
+			response.MaxRepetitions = uint32(v & 0x7FFFFFFF)
 		}
 	} else {
-		errorStatus, ok, err := readInt(&r)
-		if err != nil {
-			return fmt.Errorf("error parsing SNMP packet error: %w", err)
+		if v, ok := fr.int(&r, "SNMP packet error"); ok {
+			response.Error = SNMPError(v) //nolint:gosec
 		}
-		if ok {
-			response.Error = SNMPError(errorStatus) //nolint:gosec
-		}
-
-		errorIndex, ok, err := readInt(&r)
-		if err != nil {
-			return fmt.Errorf("error parsing SNMP packet error index: %w", err)
-		}
-		if ok {
-			response.ErrorIndex = uint8(errorIndex) //nolint:gosec
+		if v, ok := fr.int(&r, "SNMP packet error index"); ok {
+			response.ErrorIndex = uint8(v) //nolint:gosec
 		}
 	}
-
+	if fr.err != nil {
+		return fr.err
+	}
 	return unmarshalVBL(r.Rest(), response)
 }
 
@@ -284,109 +288,95 @@ func unmarshalTrapV1(packet []byte, response *SnmpPacket) error {
 		return fmt.Errorf("error verifying Response sanity: %w", err)
 	}
 	r := ber.NewReader(pdu)
+	var fr fieldReader
 
-	enterprise, ok, err := readString(&r)
-	if err != nil {
-		return fmt.Errorf("error parsing SNMPv1 trap enterprise: %w", err)
+	if v, ok := fr.string(&r, "SNMPv1 trap enterprise"); ok {
+		response.Enterprise = v
 	}
-	if ok {
-		response.Enterprise = enterprise
+	if v, ok := fr.string(&r, "SNMPv1 trap agent address"); ok {
+		response.AgentAddress = v
 	}
-
-	agentAddress, ok, err := readString(&r)
-	if err != nil {
-		return fmt.Errorf("error parsing SNMPv1 trap agent address: %w", err)
+	if v, ok := fr.int(&r, "SNMPv1 trap generic trap"); ok {
+		response.GenericTrap = v
 	}
-	if ok {
-		response.AgentAddress = agentAddress
+	if v, ok := fr.int(&r, "SNMPv1 trap specific trap"); ok {
+		response.SpecificTrap = v
 	}
-
-	genericTrap, ok, err := readInt(&r)
-	if err != nil {
-		return fmt.Errorf("error parsing SNMPv1 trap generic trap: %w", err)
+	if v, ok := fr.uint(&r, "SNMPv1 trap timestamp"); ok {
+		response.Timestamp = v
 	}
-	if ok {
-		response.GenericTrap = genericTrap
+	if fr.err != nil {
+		return fr.err
 	}
-
-	specificTrap, ok, err := readInt(&r)
-	if err != nil {
-		return fmt.Errorf("error parsing SNMPv1 trap specific trap: %w", err)
-	}
-	if ok {
-		response.SpecificTrap = specificTrap
-	}
-
-	timestamp, ok, err := readUint(&r)
-	if err != nil {
-		return fmt.Errorf("error parsing SNMPv1 trap timestamp: %w", err)
-	}
-	if ok {
-		response.Timestamp = timestamp
-	}
-
 	return unmarshalVBL(r.Rest(), response)
 }
 
-// unmarshalVBL reads a varbind list, which must span all of packet. A varbind
-// name may be any text field.
+// unmarshalVBL reads a varbind list, which must span all of packet, and
+// appends its varbinds to response.Variables; on an error the ones before it
+// stay appended.
 func unmarshalVBL(packet []byte, response *SnmpPacket) error {
-	r := ber.NewReader(packet)
-	tag, ok := r.Peek()
-	if !ok {
+	if len(packet) == 0 {
 		return errors.New("truncated packet when unmarshalling a VBL")
 	}
-	if PDUType(tag) != Sequence {
-		return fmt.Errorf("expected a sequence when unmarshalling a VBL, got %x", tag)
+	if PDUType(packet[0]) != Sequence {
+		return fmt.Errorf("expected a sequence when unmarshalling a VBL, got %x", packet[0])
 	}
 	vbl, err := readWhole(packet)
 	if err != nil {
 		return fmt.Errorf("error verifying VBL length: %w", err)
 	}
 
-	vbs := ber.NewReader(vbl)
-	for vbs.Len() > 0 {
-		if tag, _ := vbs.Peek(); PDUType(tag) != Sequence {
-			return fmt.Errorf("expected a sequence when unmarshalling a VB, got %x", tag)
-		}
-		_, vb, err := vbs.Next()
+	r := ber.NewReader(vbl)
+	for r.Len() > 0 {
+		vb, err := readVarbind(&r)
 		if err != nil {
-			return fmt.Errorf("error reading varbind: %w", err)
+			return err
 		}
-
-		r := ber.NewReader(vb)
-		name, ok, err := readString(&r)
-		if err != nil {
-			return fmt.Errorf("error parsing OID Value: %w", err)
-		}
-		if !ok {
-			return errors.New("varbind name is not an OBJECT IDENTIFIER or text")
-		}
-
-		// The value TLV must span the rest of the varbind.
-		value := r.Rest()
-		if len(value) == 0 {
-			return fmt.Errorf("error decoding value: %w", ErrZeroByteBuffer)
-		}
-		length, header, err := ber.Length(value)
-		if err != nil {
-			return fmt.Errorf("error parsing value TLV in varbind: %w", err)
-		}
-		tag := Asn1BER(value[0])
-		// Some MikroTik responses overdeclare OctetString lengths by one byte.
-		// The enclosing varbind provides the content boundary for this case.
-		overdeclared := tag == OctetString && length == len(value)+1
-		if length != len(value) && !overdeclared {
-			return fmt.Errorf("value TLV length mismatch in varbind (TLV %d, remaining %d)", length, len(value))
-		}
-		typ, val, err := decodeValue(tag, value[header:])
-		if err != nil {
-			return fmt.Errorf("error decoding value: %w", err)
-		}
-
-		response.Variables = append(response.Variables, SnmpPDU{Name: name, Type: typ, Value: val})
+		response.Variables = append(response.Variables, vb)
 	}
 	return nil
+}
+
+// readVarbind reads the next varbind: a SEQUENCE of the name, any text field,
+// and the value TLV, which must span the rest of it.
+func readVarbind(r *ber.Reader) (SnmpPDU, error) {
+	if tag, _ := r.Peek(); PDUType(tag) != Sequence {
+		return SnmpPDU{}, fmt.Errorf("expected a sequence when unmarshalling a VB, got %x", tag)
+	}
+	_, vb, err := r.Next()
+	if err != nil {
+		return SnmpPDU{}, fmt.Errorf("error reading varbind: %w", err)
+	}
+
+	fields := ber.NewReader(vb)
+	name, err := readField(&fields)
+	if err != nil {
+		return SnmpPDU{}, fmt.Errorf("error parsing OID Value: %w", err)
+	}
+	if name.kind != fieldString {
+		return SnmpPDU{}, errors.New("varbind name is not an OBJECT IDENTIFIER or text")
+	}
+
+	value := fields.Rest()
+	if len(value) == 0 {
+		return SnmpPDU{}, fmt.Errorf("error decoding value: %w", ErrZeroByteBuffer)
+	}
+	length, header, err := ber.Length(value)
+	if err != nil {
+		return SnmpPDU{}, fmt.Errorf("error parsing value TLV in varbind: %w", err)
+	}
+	tag := Asn1BER(value[0])
+	// Some MikroTik responses overdeclare OctetString lengths by one byte.
+	// The enclosing varbind provides the content boundary for this case.
+	overdeclared := tag == OctetString && length == len(value)+1
+	if length != len(value) && !overdeclared {
+		return SnmpPDU{}, fmt.Errorf("value TLV length mismatch in varbind (TLV %d, remaining %d)", length, len(value))
+	}
+	typ, val, err := decodeValue(tag, value[header:])
+	if err != nil {
+		return SnmpPDU{}, fmt.Errorf("error decoding value: %w", err)
+	}
+	return SnmpPDU{Name: name.s, Type: typ, Value: val}, nil
 }
 
 // marshalMsg encodes the message: a SEQUENCE of the version, then the

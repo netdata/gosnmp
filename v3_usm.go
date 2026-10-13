@@ -618,57 +618,40 @@ func (sp *UsmSecurityParameters) unmarshal(flags SnmpV3MsgFlags, r *ber.Reader) 
 		return fmt.Errorf("error parsing SNMPV3 User Security Model parameters: %w", err)
 	}
 
-	engineID, ok, err := readString(r)
-	if err != nil {
-		return fmt.Errorf("error parsing SNMPV3 User Security Model msgAuthoritativeEngineID: %w", err)
-	}
-	if ok {
-		if err = sp.adoptEngineID(engineID); err != nil {
+	var fr fieldReader
+	if v, ok := fr.string(r, usmField+"msgAuthoritativeEngineID"); ok {
+		if err := sp.adoptEngineID(v); err != nil {
 			return err
 		}
 	}
-
-	boots, ok, err := readInt(r)
-	if err != nil {
-		return fmt.Errorf("error parsing SNMPV3 User Security Model msgAuthoritativeEngineBoots: %w", err)
+	if v, ok := fr.int(r, usmField+"msgAuthoritativeEngineBoots"); ok {
+		sp.AuthoritativeEngineBoots = uint32(v) //nolint:gosec
 	}
-	if ok {
-		sp.AuthoritativeEngineBoots = uint32(boots) //nolint:gosec
+	if v, ok := fr.int(r, usmField+"msgAuthoritativeEngineTime"); ok {
+		sp.AuthoritativeEngineTime = uint32(v) //nolint:gosec
 	}
-
-	engineTime, ok, err := readInt(r)
-	if err != nil {
-		return fmt.Errorf("error parsing SNMPV3 User Security Model msgAuthoritativeEngineTime: %w", err)
+	if v, ok := fr.string(r, usmField+"msgUserName"); ok {
+		sp.UserName = v
 	}
-	if ok {
-		sp.AuthoritativeEngineTime = uint32(engineTime) //nolint:gosec
+	if fr.err != nil {
+		return fr.err
 	}
 
-	userName, ok, err := readString(r)
-	if err != nil {
-		return fmt.Errorf("error parsing SNMPV3 User Security Model msgUserName: %w", err)
-	}
-	if ok {
-		sp.UserName = userName
-	}
-
-	if err = sp.readAuthParams(flags, r); err != nil {
+	if err := sp.readAuthParams(flags, r); err != nil {
 		return err
 	}
 
-	privParams, ok, err := readString(r)
-	if err != nil {
-		return fmt.Errorf("error parsing SNMPV3 User Security Model msgPrivacyParameters: %w", err)
-	}
-	if ok {
-		sp.PrivacyParameters = []byte(privParams)
+	if v, ok := fr.string(r, usmField+"msgPrivacyParameters"); ok {
+		sp.PrivacyParameters = []byte(v)
 		if flags.authFlag() && flags.privFlag() && sp.PrivacyProtocol <= NoPriv {
 			return errors.New("error parsing SNMPv3 User Security Model: privacy parameters are not configured to parse incoming encrypted message")
 		}
 	}
-
-	return nil
+	return fr.err
 }
+
+// usmField prefixes the names of the USM fields in decode errors.
+const usmField = "SNMPV3 User Security Model "
 
 // readAuthParams reads msgAuthenticationParameters from r. When flags ask for
 // authentication, which needs an authentication protocol, it zeroes the field
@@ -679,12 +662,12 @@ func (sp *UsmSecurityParameters) unmarshal(flags SnmpV3MsgFlags, r *ber.Reader) 
 // end of the input, which panics when the input has no spare capacity.
 func (sp *UsmSecurityParameters) readAuthParams(flags SnmpV3MsgFlags, r *ber.Reader) error {
 	field := r.Rest()
-	authParams, ok, err := readString(r)
-	if err != nil {
-		return fmt.Errorf("error parsing SNMPV3 User Security Model msgAuthenticationParameters: %w", err)
+	var fr fieldReader
+	if v, ok := fr.string(r, usmField+"msgAuthenticationParameters"); ok {
+		sp.AuthenticationParameters = v
 	}
-	if ok {
-		sp.AuthenticationParameters = authParams
+	if fr.err != nil {
+		return fr.err
 	}
 	if !flags.authFlag() {
 		return nil
