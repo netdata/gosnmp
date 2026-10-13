@@ -9,8 +9,6 @@ import (
 	"errors"
 	"math"
 	"math/bits"
-	"strconv"
-	"strings"
 )
 
 // Errors returned by AppendOID.
@@ -117,20 +115,14 @@ func AppendOID(dst []byte, oid string) ([]byte, error) {
 	var firstArc uint64
 	i := 0
 	for rest := oid; rest != ""; {
-		var arc string
-		arc, rest, _ = strings.Cut(rest, ".")
-		if arc == "" {
+		if rest[0] == '.' { // an empty sub-identifier: a leading, repeated or trailing dot
+			rest = rest[1:]
 			continue
 		}
-		// Decimal digits only: no sign, underscore or base prefix. The
-		// first octet that is not a digit, or the digit taking the value
-		// past 2^32-1, decides the error.
-		val, err := strconv.ParseUint(arc, 10, 32)
-		if errors.Is(err, strconv.ErrRange) {
-			return dst[:start], ErrOIDOutOfRange
-		}
-		if err != nil {
-			return dst[:start], ErrInvalidOID
+		var val uint64
+		var err error
+		if val, rest, err = nextArc(rest); err != nil {
+			return dst[:start], err
 		}
 		switch i {
 		case 0:
@@ -157,6 +149,30 @@ func AppendOID(dst []byte, oid string) ([]byte, error) {
 		return dst[:start], ErrInvalidOID
 	}
 	return dst, nil
+}
+
+// nextArc parses the sub-identifier at the start of s, up to the next dot,
+// and returns its value and what follows the dot. A sub-identifier is decimal
+// digits only (no sign, underscore or base prefix) with a value of at most
+// 2^32-1; nextArc fails at the first octet that is not a digit
+// (ErrInvalidOID) or at the digit taking the value past the limit
+// (ErrOIDOutOfRange). strconv.ParseUint decides the same way, but splitting
+// the OID first and parsing each arc with it costs about three times as much
+// per OID, and every request encodes its OIDs.
+func nextArc(s string) (v uint64, rest string, err error) {
+	for i := range len(s) {
+		if s[i] == '.' {
+			return v, s[i+1:], nil
+		}
+		d := s[i] - '0'
+		if d > 9 {
+			return 0, "", ErrInvalidOID
+		}
+		if v = v*10 + uint64(d); v > maxSubIdentifier {
+			return 0, "", ErrOIDOutOfRange
+		}
+	}
+	return v, "", nil
 }
 
 // appendBase128 appends n in base 128, most significant group first, with the
