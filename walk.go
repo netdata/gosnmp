@@ -258,11 +258,8 @@ func oidCompare(oid1, oid2 string) int {
 			return 1
 		}
 
-		if comp1 != comp2 {
-			if comp1 < comp2 {
-				return -1
-			}
-			return 1
+		if c := cmp.Compare(comp1, comp2); c != 0 {
+			return c
 		}
 	}
 }

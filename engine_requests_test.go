@@ -737,7 +737,7 @@ func BenchmarkSendOneRequest(b *testing.B) {
 		return []agentReply{{data: replyTo(req, nil, SnmpPDU{Name: oid, Type: Counter64, Value: uint64(3825929753)})}}
 	})
 	x := newEngineClient(b, nil, Version2c, fakePacketTransport{c})
-	pkt := x.mkSnmpPacket(GetRequest, []SnmpPDU{{Name: oid, Type: Null}}, 0, 0)
+	pkt := x.MkSnmpPacket(GetRequest, []SnmpPDU{{Name: oid, Type: Null}}, 0, 0)
 
 	b.ReportAllocs()
 	for b.Loop() {

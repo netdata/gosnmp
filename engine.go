@@ -60,9 +60,11 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 	if err != nil {
 		x.Logger.Printf("SEND Error on the first Request Error: %s", err)
 	}
-	var kind reportKind
-	var stored bool
-	if kind, stored, err = x.settleReply(packetOut, result, verified, err); !kind.resync {
+	kind, stored, storeErr := x.settleReply(packetOut, result, verified)
+	if storeErr != nil {
+		return result, storeErr
+	}
+	if !kind.resync {
 		return result, err
 	}
 
@@ -91,7 +93,10 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 	if err != nil && x.Logger.enabled() {
 		x.Logger.Printf("ERROR "+kind.name+" retransmit error: %s", err)
 	}
-	if kind, _, err = x.settleReply(packetOut, result, verified, err); kind.resync {
+	if kind, _, storeErr = x.settleReply(packetOut, result, verified); storeErr != nil {
+		return result, storeErr
+	}
+	if kind.resync {
 		return result, kind.err
 	}
 	return result, err

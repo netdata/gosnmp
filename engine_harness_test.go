@@ -252,7 +252,7 @@ func newEngineClient(tb testing.TB, tr *engineTranscript, version SnmpVersion, c
 // counters, and with hooks that record their calls in tr.
 func newEngineClientFrom(tb testing.TB, tr *engineTranscript, conn net.Conn, x *GoSNMP) *GoSNMP {
 	tb.Helper()
-	if err := x.validateParameters(); err != nil {
+	if err := x.prepare(); err != nil {
 		tb.Fatal(err)
 	}
 	if usp := usmOf(x.SecurityParameters); usp != nil {

@@ -7,6 +7,7 @@ package gosnmp
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net"
 
 	"github.com/netdata/gosnmp/internal/ber"
@@ -262,7 +263,7 @@ func unmarshalResponse(packet []byte, pduType PDUType, response *SnmpPacket) err
 			response.NonRepeaters = uint8(v) //nolint:gosec
 		}
 		if v, ok := fr.int(&r, "SNMP packet max repetitions"); ok {
-			response.MaxRepetitions = uint32(v & 0x7FFFFFFF)
+			response.MaxRepetitions = uint32(v & math.MaxInt32)
 		}
 	} else {
 		if v, ok := fr.int(&r, "SNMP packet error"); ok {

@@ -4,13 +4,16 @@
 
 package gosnmp
 
-import "fmt"
+import (
+	"fmt"
+	"math"
+)
 
+// MkSnmpPacket builds a request or trap packet of pdutype with the variable
+// bindings pdus from the client's version, community, SNMPv3 flags, security
+// model, a copy of its security parameters and its context; maxRepetitions is
+// kept with its top bit cleared.
 func (x *GoSNMP) MkSnmpPacket(pdutype PDUType, pdus []SnmpPDU, nonRepeaters uint8, maxRepetitions uint32) *SnmpPacket {
-	return x.mkSnmpPacket(pdutype, pdus, nonRepeaters, maxRepetitions)
-}
-
-func (x *GoSNMP) mkSnmpPacket(pdutype PDUType, pdus []SnmpPDU, nonRepeaters uint8, maxRepetitions uint32) *SnmpPacket {
 	var newSecParams SnmpV3SecurityParameters
 	if x.SecurityParameters != nil {
 		newSecParams = x.SecurityParameters.Copy()
@@ -27,7 +30,7 @@ func (x *GoSNMP) mkSnmpPacket(pdutype PDUType, pdus []SnmpPDU, nonRepeaters uint
 		ErrorIndex:         0,
 		PDUType:            pdutype,
 		NonRepeaters:       nonRepeaters,
-		MaxRepetitions:     (maxRepetitions & 0x7FFFFFFF),
+		MaxRepetitions:     maxRepetitions & math.MaxInt32,
 		Variables:          pdus,
 	}
 }
@@ -45,15 +48,12 @@ func (x *GoSNMP) Get(oids []string) (result *SnmpPacket, err error) {
 func (x *GoSNMP) Set(pdus []SnmpPDU) (result *SnmpPacket, err error) {
 	// Known bugs: no pdus panics, and only the first varbind's type is
 	// checked.
-	var packetOut *SnmpPacket
 	switch pdus[0].Type {
-	// TODO test Gauge32
 	case Integer, OctetString, Gauge32, IPAddress, ObjectIdentifier, Counter32, Counter64, Null, TimeTicks, Uinteger32, OpaqueFloat, OpaqueDouble:
-		packetOut = x.mkSnmpPacket(SetRequest, pdus, 0, 0)
 	default:
 		return nil, fmt.Errorf("ERR:gosnmp currently only supports SNMP SETs for Integer, OctetString, Gauge32, IPAddress, ObjectIdentifier, Counter32, Counter64, Null, TimeTicks, Uinteger32, OpaqueFloat, and OpaqueDouble. Not %s", pdus[0].Type)
 	}
-	return x.send(packetOut)
+	return x.send(x.MkSnmpPacket(SetRequest, pdus, 0, 0))
 }
 
 // GetNext sends an SNMP GETNEXT request
@@ -88,5 +88,5 @@ func (x *GoSNMP) oidRequest(pdutype PDUType, oids []string, nonRepeaters uint8, 
 	for _, oid := range oids {
 		pdus = append(pdus, SnmpPDU{Name: oid, Type: Null, Value: nil})
 	}
-	return x.mkSnmpPacket(pdutype, pdus, nonRepeaters, maxRepetitions), nil
+	return x.MkSnmpPacket(pdutype, pdus, nonRepeaters, maxRepetitions), nil
 }

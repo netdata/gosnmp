@@ -14,7 +14,7 @@ import (
 // does not know its engine ID, and derives the keys otherwise. Known bug: the
 // key derivation error is ignored when the engine ID is known.
 func (x *GoSNMP) negotiateInitialSecurityParameters(packetOut *SnmpPacket) error {
-	// mkSnmpPacket copies the client's version and security model into the
+	// MkSnmpPacket copies the client's version and security model into the
 	// packet; they differ here only when the client's Logger changed the client
 	// during send.
 	if x.Version != Version3 || packetOut.Version != Version3 {
@@ -62,33 +62,33 @@ func engineFoundDespiteUnknownUser(result *SnmpPacket, err error) bool {
 
 // settleReply stores the engine parameters an SNMPv3 reply to packetOut
 // carries, and returns the reply's Report kind (zero for another reply),
-// whether its parameters were stored, and the error the request ends with
-// unless kind asks for a resync: err, or the store's for a reply other than
-// an error Report. A reply is stored when its digest checked against the
-// request (verified), so it names the request's engine; an unverified one only
-// in a noAuthNoPriv session, and never a Report (RFC 3414 section 3.2 step 7
-// takes the engine boots and time from authenticated messages only; discovery,
-// which takes the engine ID from an unauthenticated Report, section 4, is
-// discoverEngine's). Known bug: a reply with another security model is not
-// discarded (RFC 3412 section 7.2 step 4).
-func (x *GoSNMP) settleReply(packetOut, reply *SnmpPacket, verified bool, err error) (kind reportKind, stored bool, _ error) {
+// whether its parameters were stored, and the store's error when it fails for
+// a reply other than an error Report: that error then ends the request. A
+// reply is stored when its digest checked against the request (verified), so
+// it names the request's engine; an unverified one only in a noAuthNoPriv
+// session, and never a Report (RFC 3414 section 3.2 step 7 takes the engine
+// boots and time from authenticated messages only; discovery, which takes the
+// engine ID from an unauthenticated Report, section 4, is discoverEngine's).
+// Known bug: a reply with another security model is not discarded (RFC 3412
+// section 7.2 step 4).
+func (x *GoSNMP) settleReply(packetOut, reply *SnmpPacket, verified bool) (kind reportKind, stored bool, storeErr error) {
 	if reply == nil || reply.Version != Version3 {
-		return reportKind{}, false, err
+		return reportKind{}, false, nil
 	}
 	kind, isReport := reportKindOf(reply)
 	if !verified && (isReport || packetOut.MsgFlags.authFlag()) {
-		return kind, false, err
+		return kind, false, nil
 	}
 	if x.Logger.enabled() {
 		x.Logger.Printf("SEND STORE SECURITY PARAMS from result: %s", reply.SecurityParameters.SafeString())
 	}
-	if storeErr := x.storeSecurityParameters(reply); storeErr != nil {
+	if err := x.storeSecurityParameters(reply); err != nil {
 		if isReport && !kind.resync {
-			return kind, false, err
+			return kind, false, nil
 		}
-		return reportKind{}, false, storeErr
+		return kind, false, err
 	}
-	return kind, true, err
+	return kind, true, nil
 }
 
 // mayLend reports whether report, a resync Report of kind the client did not
