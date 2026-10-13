@@ -269,7 +269,7 @@ func (sp *UsmSecurityParameters) privacyKey() ([]byte, error) {
 // differs from the current one, drops both keys and derives them for it. The
 // caller holds sp.mu or owns sp (a private copy). Known bug: the engine ID is
 // adopted before the keys are derived, so a failed derivation leaves it
-// adopted without keys.
+// adopted with keys missing.
 func (sp *UsmSecurityParameters) adoptEngineID(engineID string) error {
 	if sp.AuthoritativeEngineID == engineID {
 		return nil
