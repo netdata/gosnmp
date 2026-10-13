@@ -86,7 +86,7 @@ func (x *GoSNMP) settleReply(packetOut, reply *SnmpPacket, verified bool) (kind 
 		if isReport && !kind.resync {
 			return kind, false, nil
 		}
-		return reportKind{}, false, err
+		return kind, false, err
 	}
 	return kind, true, nil
 }
