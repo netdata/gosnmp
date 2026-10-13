@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"crypto"
 	"fmt"
+	"log"
 	"math"
 	"strings"
 	"sync"
@@ -1007,6 +1008,22 @@ func TestUSMStrings(t *testing.T) {
 		s := (&UsmSecurityParameters{AuthenticationProtocol: SnmpV3AuthProtocol(v), PrivacyProtocol: SnmpV3PrivProtocol(v)}).Description()
 		assert.Equal(t, "user=,engine=(),authPass=,privPass=", s, "protocol value %d", v)
 	}
+}
+
+// TestUSMLog pins that Log writes SafeString to the client's Logger, which
+// prepare hands to the security parameters.
+func TestUSMLog(t *testing.T) {
+	var buf bytes.Buffer
+	x := &GoSNMP{
+		Version:            Version3,
+		MsgFlags:           NoAuthNoPriv,
+		SecurityModel:      UserSecurityModel,
+		SecurityParameters: &UsmSecurityParameters{UserName: "codec-user"},
+		Logger:             NewLogger(log.New(&buf, "", 0)),
+	}
+	require.NoError(t, x.prepare())
+	x.SecurityParameters.Log()
+	assert.Equal(t, "SECURITY PARAMETERS:"+x.SecurityParameters.SafeString()+"\n", buf.String())
 }
 
 // TestUSMHashType pins the hash of every authentication protocol value: MD5
