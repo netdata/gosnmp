@@ -45,10 +45,11 @@ type Priv struct {
 
 var errNoCipher = errors.New("usm: no privacy cipher")
 
-// Encrypt returns the ciphertext of a scoped PDU. salt is msgPrivacyParameters;
-// AES also takes the engine boots and time into its IV. DES pads the
-// plaintext with zeros to whole blocks, with a whole block of padding when it
-// is a multiple of the block size already.
+// Encrypt returns the ciphertext of a scoped PDU. salt is
+// msgPrivacyParameters; AES also takes the engine boots and time into its IV.
+// DES pads the plaintext with zeros to whole blocks, with a whole block of
+// padding when it is a multiple of the block size already. Known bug: AES
+// panics in FIPS 140-only mode, which does not allow CFB, here and in Decrypt.
 func (p Priv) Encrypt(key, salt []byte, engineBoots, engineTime uint32, plaintext []byte) ([]byte, error) {
 	switch p.Cipher {
 	case AESCFB:

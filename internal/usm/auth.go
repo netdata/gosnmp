@@ -32,7 +32,9 @@ const MaxMACLen = 48
 
 // Digest returns the HMAC of msg keyed with key, cut to the MAC length:
 // HMAC-MD5-96 and HMAC-SHA-96 as RFC 3414 sections 6.3.1 and 7.3.1 spell them
-// out, the SHA-2 protocols with crypto/hmac (RFC 7860 section 4.2.1).
+// out, the SHA-2 protocols with crypto/hmac (RFC 7860 section 4.2.1). Known
+// bug: in FIPS 140-only mode crypto/hmac panics for a key shorter than 14
+// octets.
 func (a Auth) Digest(key, msg []byte) ([]byte, error) {
 	var mac []byte
 	switch a.Hash {

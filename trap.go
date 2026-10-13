@@ -9,7 +9,25 @@ import (
 	"fmt"
 )
 
-// UnmarshalTrap unpacks the SNMP Trap.
+// UnmarshalTrap decodes a received trap or inform, of any version; an SNMPv3
+// message needs a client whose Version is Version3.
+//
+// An SNMPv3 message is decoded, when TrapSecurityParametersTable is set, with
+// the sets the table holds for its user name, each on a copy of trap, until
+// one decodes it; useResponseSecurityParameters is then always set. Otherwise
+// it is decoded in place (see the package documentation) with a copy of
+// SecurityParameters, whose keys are derived first. When the flags ask for
+// authentication, a User-based Security Model message must name the user and
+// carry a digest that checks with the user's key, localized to the engine ID
+// the message names. The flags and the user are the client's, or, with
+// useResponseSecurityParameters, the message's own.
+//
+// Known bugs: these messages are accepted without the digest their user needs:
+// one of another security model; one with an empty user name and engine ID, as
+// in engine discovery; with useResponseSecurityParameters, so on the table
+// path, one without the authentication flag; and, the client's flags deciding
+// only whether a digest is checked, one without privacy for a client at
+// authPriv.
 func (x *GoSNMP) UnmarshalTrap(trap []byte, useResponseSecurityParameters bool) (*SnmpPacket, error) {
 	version, _, err := readVersion(trap)
 	if err != nil {
@@ -46,6 +64,10 @@ func (x *GoSNMP) unmarshalTrapByUser(trap []byte) (*SnmpPacket, error) {
 	return nil, fmt.Errorf("no credentials successfully unmarshaled trap: %w", lastErr)
 }
 
+// getTrapIdentifier returns the user name of an SNMPv3 message, the table key
+// of its parameter sets; a header that fails to decode after the user name
+// still gives it. Known bug: a header that fails before the security
+// parameters leaves them nil, and reading the user name panics.
 func (x *GoSNMP) getTrapIdentifier(trap []byte) (string, error) {
 	// Initialize a packet with no auth/priv to unmarshal ID/key for security parameters to use
 	packet := new(SnmpPacket)
@@ -58,6 +80,11 @@ func (x *GoSNMP) getTrapIdentifier(trap []byte) (string, error) {
 	return userName, nil
 }
 
+// unmarshalTrapBase decodes trap in place with sp, or, when sp is nil, with a
+// copy of the client's security parameters, whose keys it derives first.
+// Known bug: the digest of an SNMPv3 message is checked only for the
+// User-based Security Model; a message of another model is decrypted, when
+// its scoped PDU is encrypted, and accepted.
 func (x *GoSNMP) unmarshalTrapBase(trap []byte, sp SnmpV3SecurityParameters, useResponseSecurityParameters bool) (*SnmpPacket, error) {
 	result := new(SnmpPacket)
 

@@ -255,7 +255,9 @@ func (x *GoSNMP) attemptDeadline(timeout time.Duration) (deadline time.Time, byC
 }
 
 // encode marshals the request, for SNMPv3 with a new message ID and privacy
-// parameters.
+// parameters. Known bug: it draws them by the client's version and flags,
+// not the packet's, so a change of the client's version during a request (by
+// its Logger or a hook) sends an SNMPv3 request with msgID 0.
 func (e *exchange) encode() ([]byte, error) {
 	x, p := e.x, e.packet
 	// An authenticated request is signed with the user's key localized to the
@@ -483,9 +485,9 @@ type reportKind struct {
 	// err is the request's error.
 	err error
 	// resync marks the Reports that say the request's engine ID or time is
-	// out of date: they answer without err, and send, when it is the caller,
-	// sends the request again with the engine parameters they carry, or
-	// returns err when it may not or when a resync Report answers that too.
+	// out of date: they answer without err. discoverEngine takes the engine
+	// parameters of one; send sends the request again with them, or returns
+	// err when it may not or when a resync Report answers that too.
 	resync bool
 	// namesEngine marks the Report that names the engine ID the request
 	// should have had (RFC 3414 section 3.2 step 3): a resend takes the

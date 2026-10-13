@@ -23,7 +23,7 @@ import (
 	"github.com/netdata/gosnmp/internal/usm"
 )
 
-// SnmpV3AuthProtocol describes the authentication protocol in use by an authenticated SnmpV3 connection.
+// SnmpV3AuthProtocol is the authentication protocol of an SNMPv3 user.
 type SnmpV3AuthProtocol uint8
 
 // Authentication protocols: HMAC-MD5-96 and HMAC-SHA-96 (RFC 3414) and the
@@ -41,8 +41,8 @@ const (
 
 //go:generate go tool -modfile=tools/go.mod stringer -type=SnmpV3AuthProtocol
 
-// HashType maps the AuthProtocol's hash type to an actual crypto.Hash object:
-// MD5 for NoAuth, unset and unknown values.
+// HashType returns the hash of the protocol's HMAC and key derivation: MD5
+// for NoAuth, unset and unknown values.
 func (authProtocol SnmpV3AuthProtocol) HashType() crypto.Hash {
 	if h := authProtocol.spec().Hash; h != 0 {
 		return h
@@ -70,14 +70,14 @@ func (authProtocol SnmpV3AuthProtocol) spec() usm.Auth {
 }
 
 // appendMACPlaceholder appends msgAuthenticationParameters as an outgoing
-// message carries them until authenticate writes the digest: an OCTET STRING
+// message carries them until sign writes the digest: an OCTET STRING
 // of macLen zeros.
 func appendMACPlaceholder(dst []byte, macLen int) []byte {
 	dst = ber.AppendHeader(dst, byte(OctetString), macLen)
 	return append(dst, make([]byte, macLen)...)
 }
 
-// SnmpV3PrivProtocol is the privacy protocol in use by an private SnmpV3 connection.
+// SnmpV3PrivProtocol is the privacy protocol of an SNMPv3 user.
 type SnmpV3PrivProtocol uint8
 
 // Privacy protocols: CBC-DES (RFC 3414), CFB128-AES-128 (RFC 3826) and AES-192
@@ -114,7 +114,10 @@ func (privProtocol SnmpV3PrivProtocol) spec() usm.Priv {
 	return usm.Priv{}
 }
 
-// UsmSecurityParameters is an implementation of SnmpV3SecurityParameters for the UserSecurityModel
+// UsmSecurityParameters are the parameters of the User-based Security Model
+// (RFC 3414): the user's credentials, and the agent's engine parameters the
+// client learns. A client keeps them in GoSNMP.SecurityParameters, and each
+// message carries a copy.
 type UsmSecurityParameters struct {
 	// mu guards the salt counters and serializes key initialization, Copy
 	// and Log.
@@ -122,22 +125,37 @@ type UsmSecurityParameters struct {
 	localAESSalt uint64
 	localDESSalt uint32
 
+	// The authoritative engine's ID, boots and time (RFC 3414 section 2.2),
+	// which discovery and answers set; an AuthoritativeEngineID set by the
+	// caller skips the discovery.
 	AuthoritativeEngineID    string
 	AuthoritativeEngineBoots uint32
 	AuthoritativeEngineTime  uint32
-	UserName                 string
+
+	// UserName is the user (msgUserName).
+	UserName string
+
+	// AuthenticationParameters and PrivacyParameters are a message's digest
+	// and salt: decoded from a message, or, for the salt, drawn for each
+	// outgoing message (InitPacket).
 	AuthenticationParameters string
 	PrivacyParameters        []byte
 
+	// The protocols; zero means unset.
 	AuthenticationProtocol SnmpV3AuthProtocol
 	PrivacyProtocol        SnmpV3PrivProtocol
 
+	// The passphrases the keys derive from.
 	AuthenticationPassphrase string
 	PrivacyPassphrase        string
 
+	// SecretKey and PrivacyKey are the authentication and privacy keys,
+	// localized to AuthoritativeEngineID. InitSecurityKeys derives the missing
+	// ones from the passphrases, and a new engine ID replaces both.
 	SecretKey  []byte
 	PrivacyKey []byte
 
+	// Logger receives Log's output; Connect sets the client's.
 	Logger Logger
 }
 
@@ -220,7 +238,9 @@ func (sp *UsmSecurityParameters) Copy() SnmpV3SecurityParameters {
 	}
 }
 
-// InitSecurityKeys initializes the Priv and Auth keys if needed
+// InitSecurityKeys derives the keys the protocols need and the parameters
+// lack, from the passphrases and AuthoritativeEngineID. Known bug: an empty
+// authentication or DES passphrase gives an empty key without an error.
 func (sp *UsmSecurityParameters) InitSecurityKeys() error {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
@@ -228,6 +248,8 @@ func (sp *UsmSecurityParameters) InitSecurityKeys() error {
 	return sp.initSecurityKeysNoLock()
 }
 
+// initSecurityKeysNoLock is InitSecurityKeys for a caller that holds sp.mu
+// or owns sp (a private copy).
 func (sp *UsmSecurityParameters) initSecurityKeysNoLock() error {
 	if err := sp.checkProtocols(); err != nil {
 		return err
@@ -267,9 +289,10 @@ func (sp *UsmSecurityParameters) privacyKey() ([]byte, error) {
 
 // adoptEngineID takes engineID as the authoritative engine ID and, when it
 // differs from the current one, drops both keys and derives them for it. The
-// caller holds sp.mu or owns sp (a private copy). Known bug: the engine ID is
+// caller holds sp.mu or owns sp (a private copy). Known bugs: the engine ID is
 // adopted before the keys are derived, so a failed derivation leaves it
-// adopted with keys missing.
+// adopted with keys missing; keys given without passphrases are dropped too,
+// and the empty passphrases derive no usable keys.
 func (sp *UsmSecurityParameters) adoptEngineID(engineID string) error {
 	if sp.AuthoritativeEngineID == engineID {
 		return nil
@@ -342,6 +365,9 @@ func (sp *UsmSecurityParameters) checkLevel(flags SnmpV3MsgFlags) error {
 	return nil
 }
 
+// validate checks the parameters for the security level of flags: valid
+// protocols, the ones the level needs, a user name, and a passphrase for each
+// protocol without a key.
 func (sp *UsmSecurityParameters) validate(flags SnmpV3MsgFlags) error {
 	if err := sp.checkProtocols(); err != nil {
 		return err
@@ -401,8 +427,9 @@ func (sp *UsmSecurityParameters) init(log Logger) {
 // passwordCache derives the keys of every UsmSecurityParameters.
 var passwordCache = usm.NewCache() //nolint:gochecknoglobals // PasswordCaching turns it on and off
 
-// PasswordCaching is enabled by default for performance reason. If the cache was disabled then
-// re-enabled, the cache is reset.
+// PasswordCaching turns the package's cache of password-to-key results on,
+// as it is by default, or off; turning it off empties it. See the package
+// documentation.
 func PasswordCaching(enable bool) {
 	passwordCache.SetEnabled(enable)
 }
@@ -546,9 +573,11 @@ func (sp *UsmSecurityParameters) encryptPacket(scopedPdu []byte) ([]byte, error)
 }
 
 // decryptPacket decrypts the OCTET STRING at packet[cursor:] in place: the
-// plaintext replaces the string, header included, and the packet is cut after
-// it. Known bug: without a privacy protocol the packet is returned unchanged,
-// and the caller reads the string's content as a plaintext scoped PDU.
+// ciphertext is the rest of the packet after the string's header, whatever
+// its declared length, and the plaintext replaces the string, header
+// included, and the packet is cut after it. Known bug: without a privacy
+// protocol the packet is returned unchanged, and the caller reads the string's
+// content as a plaintext scoped PDU.
 func (sp *UsmSecurityParameters) decryptPacket(packet []byte, cursor int) ([]byte, error) {
 	_, cursorTmp, err := ber.Length(packet[cursor:])
 	if err != nil {
@@ -574,7 +603,7 @@ func (sp *UsmSecurityParameters) decryptPacket(packet []byte, cursor int) ([]byt
 
 // marshal appends the User Security Model parameters: a SEQUENCE of the
 // authoritative engine ID, boots and time, the user name, the authentication
-// parameters (the zero placeholder authenticate fills in, or empty) and the
+// parameters (the zero placeholder sign fills in, or empty) and the
 // privacy parameters (the salt, or empty).
 func (sp *UsmSecurityParameters) marshal(dst []byte, flags SnmpV3MsgFlags) []byte {
 	dst, start := ber.Begin(dst, byte(Sequence))
