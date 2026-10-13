@@ -5,9 +5,55 @@
 package ber
 
 import (
+	"bytes"
+	"encoding/binary"
+	"errors"
+	"math"
+	"strconv"
 	"strings"
 	"testing"
 )
+
+// TestLengthLongFormLimits pins the long form at the size of int: a length
+// that fills the int with its header, the largest length octets whose header
+// then overflows, length octets past the int range, and more length octets
+// than an int holds, which wrap silently (a kept leniency).
+func TestLengthLongFormLimits(t *testing.T) {
+	k := strconv.IntSize / 8 // length octets an int holds
+	long := func(octets []byte) []byte { return append([]byte{0x04, 0x80 | byte(len(octets))}, octets...) }
+	intOctets := func(v int) []byte { return binary.BigEndian.AppendUint64(nil, uint64(v))[8-k:] }
+
+	tests := map[string]struct {
+		data       []byte
+		wantLength int
+		wantCursor int
+		wantErr    error
+	}{
+		"length plus header is the largest int": {
+			data: long(intOctets(math.MaxInt - 2 - k)), wantLength: math.MaxInt, wantCursor: 2 + k,
+		},
+		"header overflows the largest length": {data: long(intOctets(math.MaxInt)), wantErr: ErrInvalidPacketLength},
+		"length past the int range": {
+			data: long(append([]byte{0x80}, make([]byte, k-1)...)), wantErr: ErrInvalidPacketLength,
+		},
+		"more length octets than an int holds wrap": {
+			data:       long(append(append([]byte{0x01}, make([]byte, k-1)...), 0x05)),
+			wantLength: 5 + 2 + k + 1, wantCursor: 2 + k + 1,
+		},
+		"length octets cut short": {data: long(bytes.Repeat([]byte{0x01}, k))[:2+k-1], wantErr: ErrInvalidPacketLength},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			length, cursor, err := Length(tc.data)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("Length(% x) error = %v, want %v", tc.data, err, tc.wantErr)
+			}
+			if length != tc.wantLength || cursor != tc.wantCursor {
+				t.Errorf("Length(% x) = %d, %d, want %d, %d", tc.data, length, cursor, tc.wantLength, tc.wantCursor)
+			}
+		})
+	}
+}
 
 // TestLength tests the Length function with various BER length encodings
 func TestLength(t *testing.T) {

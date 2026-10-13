@@ -251,6 +251,20 @@ func TestAppendOID(t *testing.T) {
 		"arc under arc 2 too big":  {oid: ".2.4294967216", wantErr: ErrOIDOutOfRange},
 		"sub-id above uint32":      {oid: ".1.3.4294967296", wantErr: ErrOIDOutOfRange},
 		"sub-id overflowing int64": {oid: ".1.3.18446744073709551617", wantErr: ErrOIDOutOfRange},
+		// Each arc is read left to right and fails at its first bad octet: a
+		// value crossing 2^32-1 before a non-digit is out of range, and the
+		// reverse is invalid. Arc errors come before the count check.
+		"leading zeros":                   {oid: ".1.3.006", want: []byte{43, 6}, dotted: ".1.3.6"},
+		"out of range before a letter":    {oid: ".1.3.42949672960a", wantErr: ErrOIDOutOfRange},
+		"letter before out of range":      {oid: ".1.3.a42949672960", wantErr: ErrInvalidOID},
+		"plus sign":                       {oid: ".1.3.+6", wantErr: ErrInvalidOID},
+		"underscore":                      {oid: ".1.3.1_0", wantErr: ErrInvalidOID},
+		"hex prefix":                      {oid: ".1.3.0x10", wantErr: ErrInvalidOID},
+		"space":                           {oid: ".1.3. 6", wantErr: ErrInvalidOID},
+		"first arc out of range":          {oid: ".4294967296.1", wantErr: ErrOIDOutOfRange},
+		"second arc out of range":         {oid: ".1.4294967296", wantErr: ErrOIDOutOfRange},
+		"out of range past 128 sub-ids":   {oid: "1.3" + strings.Repeat(".1", 127) + ".4294967296", wantErr: ErrOIDOutOfRange},
+		"letter past 128 sub-identifiers": {oid: "1.3" + strings.Repeat(".1", 127) + ".a", wantErr: ErrInvalidOID},
 	}
 
 	for name, tt := range tests {
