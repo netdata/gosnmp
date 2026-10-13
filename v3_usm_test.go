@@ -554,6 +554,48 @@ func TestUSMFIPS140OnlyDigest(t *testing.T) {
 	}
 }
 
+// TestUSMFIPS140OnlyShortSHA2Key pins, when run with GODEBUG=fips140=only,
+// signing with an HMAC-SHA-2 key shorter than the 14 octets crypto/hmac
+// accepts in that mode, where it panics. Known bug: the signer recovers the
+// panic, writes the stack to stdout and returns no message and no error.
+func TestUSMFIPS140OnlyShortSHA2Key(t *testing.T) {
+	if !fips140.Enforced() {
+		t.Skip("run with GODEBUG=fips140=only")
+	}
+	tests := map[string]struct {
+		keyLen    int
+		wantMsg   bool
+		wantStack bool
+	}{
+		"13-octet key": {keyLen: 13, wantStack: true},
+		"14-octet key": {keyLen: 14, wantMsg: true},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			pkt := &SnmpPacket{
+				Version:       Version3,
+				MsgFlags:      AuthNoPriv,
+				SecurityModel: UserSecurityModel,
+				SecurityParameters: &UsmSecurityParameters{
+					UserName:               "codec-user",
+					AuthoritativeEngineID:  usmCharEngineID,
+					AuthenticationProtocol: SHA256,
+					SecretKey:              bytes.Repeat([]byte{'k'}, tc.keyLen),
+				},
+				PDUType:   SNMPv2Trap,
+				Variables: usmCharVarbinds,
+			}
+			var msg []byte
+			var err error
+			panicked, wroteStdout := observe(func() { msg, err = pkt.MarshalMsg() })
+			assert.False(t, panicked, "encode panicked")
+			assert.NoError(t, err)
+			assert.Equal(t, tc.wantMsg, msg != nil, "message returned")
+			assert.Equal(t, tc.wantStack, wroteStdout, "stack written to stdout")
+		})
+	}
+}
+
 // TestUSMShortPrivacyKey checks the error and the empty key InitSecurityKeys
 // leaves when the privacy key stays shorter than the cipher key, as it does
 // for an empty privacy passphrase.
