@@ -330,11 +330,10 @@ func (x *GoSNMP) prepare() error {
 // SnmpEncodePacket encodes a request or trap, for another transport or for
 // tests: it prepares the client as Connect does, builds the packet with
 // MkSnmpPacket and numbers it with the next request ID and, for SNMPv3, the
-// next msgID, as a request's attempt does. It runs no engine
-// discovery and derives no keys: an authenticated or private SNMPv3 message
-// needs the keys in SecurityParameters. Known bug: without an authentication
-// key the message is signed with an empty one. On an error it returns an
-// empty message.
+// next msgID, as a request's attempt does. It runs no engine discovery and
+// derives no keys: an authenticated or private SNMPv3 message needs the keys
+// in SecurityParameters. Known bug: without an authentication key the message
+// is signed with an empty one. On an error it returns an empty message.
 func (x *GoSNMP) SnmpEncodePacket(pdutype PDUType, pdus []SnmpPDU, nonRepeaters uint8, maxRepetitions uint32) ([]byte, error) {
 	if err := x.prepare(); err != nil {
 		return []byte{}, err

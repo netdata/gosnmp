@@ -254,10 +254,11 @@ func (x *GoSNMP) attemptDeadline(timeout time.Duration) (deadline time.Time, byC
 	return deadline, false
 }
 
-// encode marshals the request, for SNMPv3 with a new message ID and privacy
-// parameters. Known bug: it draws them by the client's version and flags,
-// not the packet's, so a change of the client's version during a request (by
-// its Logger or a hook) sends an SNMPv3 request with msgID 0.
+// encode marshals the request, for SNMPv3 with a new message ID (the encoder
+// draws the salt of an encrypted message). Known bug: it draws the message ID
+// by the client's version, not the packet's, so a change of the client's
+// version during a request (by its Logger or a hook) sends an SNMPv3 request
+// with msgID 0.
 func (e *exchange) encode() ([]byte, error) {
 	x, p := e.x, e.packet
 	// An authenticated request is signed with the user's key localized to the

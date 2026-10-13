@@ -132,8 +132,8 @@ type UsmSecurityParameters struct {
 	UserName string
 
 	// AuthenticationParameters and PrivacyParameters are the digest and salt
-	// decoded from a message. The encoder uses neither: it signs each message
-	// and draws a new salt for each encrypted one.
+	// decoded from a message. The encoder uses neither: it signs each
+	// authenticated message and draws a new salt for each encrypted one.
 	AuthenticationParameters string
 	PrivacyParameters        []byte
 

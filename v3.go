@@ -214,7 +214,7 @@ func (packet *SnmpPacket) appendV3Header(dst []byte) []byte {
 
 // appendV3ScopedPDU appends the scoped PDU: a SEQUENCE of the context engine
 // ID, the context name and the PDU, encrypted with salt into an OCTET STRING
-// when the flags ask for privacy.
+// when there is one (appendV3 draws it when the flags ask for privacy).
 func (packet *SnmpPacket) appendV3ScopedPDU(dst []byte, sp *UsmSecurityParameters, salt []byte) ([]byte, error) {
 	scoped := len(dst)
 	dst, start := ber.Begin(dst, byte(Sequence))
@@ -225,7 +225,7 @@ func (packet *SnmpPacket) appendV3ScopedPDU(dst []byte, sp *UsmSecurityParameter
 		return nil, err
 	}
 	dst = ber.End(dst, start)
-	if packet.MsgFlags.privFlag() {
+	if salt != nil {
 		ciphertext, err := sp.encryptPacket(dst[scoped:], salt)
 		if err != nil {
 			return nil, err

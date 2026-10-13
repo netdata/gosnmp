@@ -396,6 +396,12 @@ func encodeCases(t *testing.T) []encodeCase {
 	}
 	withVars := func(p *SnmpPacket, vars []SnmpPDU) *SnmpPacket { p.Variables = vars; return p }
 	oidName := func(name string) *SnmpPacket { return v2c(GetRequest, []SnmpPDU{{Name: name, Type: Null}}) }
+	// withPacketSalt gives the packet a salt of its own, unlike the drawn one:
+	// the encoder must neither send nor encrypt with it.
+	withPacketSalt := func(sp *UsmSecurityParameters) *UsmSecurityParameters {
+		sp.PrivacyParameters = []byte{0xee, 0xee, 0xee, 0xee, 0xee, 0xee, 0xee, 0xee}
+		return sp
+	}
 	marshal := func(p *SnmpPacket) func() ([]byte, error) { return p.MarshalMsg }
 	edit := func(p *SnmpPacket, f func(*SnmpPacket)) *SnmpPacket { f(p); return p }
 
@@ -515,17 +521,17 @@ func encodeCases(t *testing.T) []encodeCase {
 			p.SecurityParameters.(*UsmSecurityParameters).UserName = "\x04\x0c" + strings.Repeat("\x00", 12)
 		}))},
 		{"v3/auth-no-priv/flags-without-keys", marshal(v3(AuthNoPriv, GetRequest, &UsmSecurityParameters{UserName: "codec-user"}))},
-		{"v3/auth-priv/sha-aes", marshal(v3(AuthPriv, GetRequest, codecUSM(t, SHA, AES)))},
-		{"v3/auth-priv/sha-aes192", marshal(v3(AuthPriv, GetRequest, codecUSM(t, SHA, AES192)))},
-		{"v3/auth-priv/sha-aes256c", marshal(v3(AuthPriv, GetRequest, codecUSM(t, SHA, AES256C)))},
-		{"v3/auth-priv/md5-des", marshal(v3(AuthPriv, GetRequest, codecUSM(t, MD5, DES)))},
+		{"v3/auth-priv/sha-aes", marshal(v3(AuthPriv, GetRequest, withPacketSalt(codecUSM(t, SHA, AES))))},
+		{"v3/auth-priv/sha-aes192", marshal(v3(AuthPriv, GetRequest, withPacketSalt(codecUSM(t, SHA, AES192))))},
+		{"v3/auth-priv/sha-aes256c", marshal(v3(AuthPriv, GetRequest, withPacketSalt(codecUSM(t, SHA, AES256C))))},
+		{"v3/auth-priv/md5-des", marshal(v3(AuthPriv, GetRequest, withPacketSalt(codecUSM(t, MD5, DES))))},
 		{"v3/auth-priv/sha-aes/without-salt", marshal(v3(AuthPriv, GetRequest, codecUSM(t, SHA, AES)))},
 		{"v3/no-auth-no-priv/20-varbinds", marshal(withVars(v3(NoAuthNoPriv, GetResponse, codecUSM(t, NoAuth, NoPriv)), hostVars(20)))},
 		{"v3/auth-no-priv/sha/20-varbinds", marshal(withVars(v3(AuthNoPriv, GetResponse, codecUSM(t, SHA, NoPriv)), hostVars(20)))},
-		{"v3/auth-priv/sha-aes/4-varbinds", marshal(withVars(v3(AuthPriv, GetResponse, codecUSM(t, SHA, AES)), hostVars(4)))},
-		{"v3/auth-priv/sha-aes/20-varbinds", marshal(withVars(v3(AuthPriv, GetResponse, codecUSM(t, SHA, AES)), hostVars(20)))},
-		{"v3/auth-priv/md5-des/4-varbinds", marshal(withVars(v3(AuthPriv, GetResponse, codecUSM(t, MD5, DES)), hostVars(4)))},
-		{"v3/auth-priv/md5-des/20-varbinds", marshal(withVars(v3(AuthPriv, GetResponse, codecUSM(t, MD5, DES)), hostVars(20)))},
+		{"v3/auth-priv/sha-aes/4-varbinds", marshal(withVars(v3(AuthPriv, GetResponse, withPacketSalt(codecUSM(t, SHA, AES))), hostVars(4)))},
+		{"v3/auth-priv/sha-aes/20-varbinds", marshal(withVars(v3(AuthPriv, GetResponse, withPacketSalt(codecUSM(t, SHA, AES))), hostVars(20)))},
+		{"v3/auth-priv/md5-des/4-varbinds", marshal(withVars(v3(AuthPriv, GetResponse, withPacketSalt(codecUSM(t, MD5, DES))), hostVars(4)))},
+		{"v3/auth-priv/md5-des/20-varbinds", marshal(withVars(v3(AuthPriv, GetResponse, withPacketSalt(codecUSM(t, MD5, DES))), hostVars(20)))},
 		{"v3/auth-priv/md5-des/without-salt", marshal(v3(AuthPriv, GetRequest, codecUSM(t, MD5, DES)))},
 
 		// SnmpEncodePacket builds the packet from the GoSNMP configuration.

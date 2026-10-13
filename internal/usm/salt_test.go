@@ -32,9 +32,11 @@ func TestSaltCounterConcurrent(t *testing.T) {
 	const goroutines, draws = 8, 1000
 	var mu sync.Mutex
 	seen := make(map[[8]byte]bool, goroutines*draws)
+	start := make(chan struct{})
 	var wg sync.WaitGroup
 	for range goroutines {
 		wg.Go(func() {
+			<-start
 			got := make([][8]byte, 0, draws)
 			for range draws {
 				got = append(got, c.Next())
@@ -47,12 +49,16 @@ func TestSaltCounterConcurrent(t *testing.T) {
 			}
 		})
 	}
+	close(start)
 	wg.Wait()
 	assert.Len(t, seen, goroutines*draws)
 }
 
-// TestSaltsSeeded checks that the process-wide counter does not start at
-// zero, as an unseeded one would (a 2^-64 chance of a false failure).
+// TestSaltsSeeded checks that counters start at random points: two seeded
+// counters start apart, as constant or unread seeds would not, and the
+// process-wide counter is seeded (each check has a 2^-64 chance of a false
+// failure; no test of this package draws from Salts).
 func TestSaltsSeeded(t *testing.T) {
-	assert.NotEqual(t, [8]byte{0, 0, 0, 0, 0, 0, 0, 1}, newSeededSaltCounter().Next())
+	assert.NotEqual(t, newSeededSaltCounter().Next(), newSeededSaltCounter().Next())
+	assert.NotZero(t, Salts.n.Load(), "the process-wide counter is not seeded")
 }

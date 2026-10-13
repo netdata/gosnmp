@@ -42,10 +42,16 @@ func TestReencodeDrawsNewSalt(t *testing.T) {
 			assert.NotEqual(t, inSalt, firstSalt, "the received salt reused")
 			assert.NotEqual(t, firstSalt, secondSalt, "one salt for two messages")
 
-			// The response decrypts with its own salt.
+			// The response decrypts with its own salt, the context fields too
+			// (a wrong DES IV garbles only the first eight octets).
 			got, err := decoder.SnmpDecodePacket(first)
 			require.NoError(t, err)
-			assert.Equal(t, usmCharVarbinds, got.Variables)
+			type scoped struct {
+				contextEngineID, contextName string
+				variables                    []SnmpPDU
+			}
+			assert.Equal(t, scoped{in.ContextEngineID, in.ContextName, usmCharVarbinds},
+				scoped{got.ContextEngineID, got.ContextName, got.Variables})
 		})
 	}
 }
