@@ -237,17 +237,17 @@ func (x *GoSNMP) unmarshalV3Header(packet []byte,
 		return 0, fmt.Errorf("error parsing SNMPV3 header: %w", err)
 	}
 
-	fr := fieldReader{r: &r}
-	if v, ok := fr.int("SNMPV3 message ID"); ok {
+	var fr fieldReader
+	if v, ok := fr.int(&r, "SNMPV3 message ID"); ok {
 		response.MsgID = uint32(v) //nolint:gosec
 	}
-	if v, ok := fr.int("SNMPV3 msgMaxSize"); ok {
+	if v, ok := fr.int(&r, "SNMPV3 msgMaxSize"); ok {
 		response.MsgMaxSize = uint32(v) //nolint:gosec
 	}
-	if v, ok := fr.string("SNMPV3 msgFlags"); ok && len(v) > 0 {
+	if v, ok := fr.string(&r, "SNMPV3 msgFlags"); ok && len(v) > 0 {
 		response.MsgFlags = SnmpV3MsgFlags(v[0])
 	}
-	secModel, secModelOK := fr.int("SNMPV3 msgSecModel")
+	secModel, secModelOK := fr.int(&r, "SNMPV3 msgSecModel")
 	if fr.err != nil {
 		return 0, fr.err
 	}
@@ -310,11 +310,11 @@ func unmarshalScopedPDU(packet []byte, cursor int, response *SnmpPacket) ([]byte
 		return nil, 0, errors.New("error parsing SNMPV3 scoped PDU")
 	}
 
-	fr := fieldReader{r: &r}
-	if v, ok := fr.string("SNMPV3 contextEngineID"); ok {
+	var fr fieldReader
+	if v, ok := fr.string(&r, "SNMPV3 contextEngineID"); ok {
 		response.ContextEngineID = v
 	}
-	if v, ok := fr.string("SNMPV3 contextName"); ok {
+	if v, ok := fr.string(&r, "SNMPV3 contextName"); ok {
 		response.ContextName = v
 	}
 	if fr.err != nil {

@@ -1939,9 +1939,10 @@ func TestMarshalVarbindRoundTrip(t *testing.T) {
 
 			// Parse OID
 			r := ber.NewReader(result[cursor:])
-			parsedOID, ok, err := readString(&r)
-			if err != nil {
-				t.Fatalf("readString(OID) error = %v", err)
+			var fr fieldReader
+			parsedOID, ok := fr.string(&r, "OID")
+			if fr.err != nil {
+				t.Fatalf("reading the OID: %v", fr.err)
 			}
 			if !ok {
 				t.Fatal("OID did not decode to text")
