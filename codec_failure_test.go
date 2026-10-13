@@ -194,3 +194,32 @@ func TestDecodeFailurePartialResults(t *testing.T) {
 		})
 	}
 }
+
+// TestDecodeSkipsMistypedFields pins that a header field of another type than
+// expected is skipped, so the value already there stays: here the USM fields,
+// whose parameters start as a copy of the decoder's.
+func TestDecodeSkipsMistypedFields(t *testing.T) {
+	const engineID = "\x80\x00\x1f\x88\x04codec-engine"
+	x := &GoSNMP{SecurityParameters: &UsmSecurityParameters{
+		AuthoritativeEngineID:    engineID,
+		AuthoritativeEngineBoots: 7,
+		AuthoritativeEngineTime:  1234,
+		UserName:                 "codec-user",
+	}}
+	// Engine ID and user name as INTEGERs, boots and time as OCTET STRINGs.
+	usm := craftedUSM(intTLV(1), octets("boots"), octets("time"), intTLV(2), octets(""), octets(""))
+	in := craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), usm, craftedScopedResp)
+
+	p, err := x.SnmpDecodePacket(in)
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Equal(t, decodedFields{
+		version: Version3,
+		msgID:   42, msgMaxSize: 65507, securityModel: UserSecurityModel,
+		usmEngineID: engineID, usmBoots: 7, usmTime: 1234, usmUser: "codec-user",
+		contextEngineID: engineID, contextName: "ctx",
+		pduType: GetResponse, requestID: 1,
+		variables: []SnmpPDU{{Name: ".1.3.6.1.2.1.1.5.0", Type: Integer, Value: 5}},
+	}, fieldsOf(p))
+}
