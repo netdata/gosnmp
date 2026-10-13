@@ -31,14 +31,16 @@
 // until the Context's deadline when that comes first; ExponentialTimeout
 // doubles the timeout before each retry. An answer to any earlier attempt of
 // the same request answers it too. A timeout (a write or read error matching
-// [os.ErrDeadlineExceeded]), another write or read error, a reply that does
-// not decode or authenticate, and a TCP connection the agent closed (the
-// client reopens it) start the next attempt, unless the Context is done: then
-// the request ends with the Context's error, and with
-// [context.DeadlineExceeded] when the Context's deadline ended the attempt. An
-// answer ends the request, and so do a connection closed under it
-// ([net.ErrClosed]), an encoding error, a Context that is done before an
-// attempt starts, a failure to set the deadline and a failed TCP reconnect.
+// [os.ErrDeadlineExceeded]), another write or read error (except
+// [net.ErrClosed]), a reply that does not decode or authenticate, and a TCP
+// connection the agent closed (the client reopens it) start the next attempt,
+// unless the Context is done, which ends the request with the Context's
+// error, or the attempt timed out at the Context's deadline, which ends it
+// with [context.DeadlineExceeded] even before the Context reports its
+// deadline. An answer ends the request, and so do a connection closed under
+// it ([net.ErrClosed]), an encoding error, a Context that is done before an
+// attempt starts, a failure to set the deadline and a failed TCP reconnect (a
+// done Context fails it with an error that matches the Context's).
 // When the attempts run out, the request fails with the last attempt's error,
 // except that after a timeout the error's text is "request timeout (after N
 // retries)" and after a reconnect "max retries (N) exceeded"; both unwrap to

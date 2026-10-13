@@ -113,8 +113,10 @@ type exchange struct {
 	// timeout is the current attempt's timeout; ExponentialTimeout doubles it
 	// before each retry.
 	timeout time.Duration
-	// contextDeadline is set when the context's deadline, not the timeout,
-	// ends the current attempt.
+	// contextDeadline is set when the context's deadline ends the current
+	// attempt, at or before its timeout: endErr then reports
+	// context.DeadlineExceeded whether or not the Context reports its
+	// deadline yet.
 	contextDeadline bool
 }
 
@@ -304,7 +306,8 @@ func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
 
 // attemptDeadline returns when an attempt with timeout ends: after the
 // timeout, or at the context's deadline if that comes first or at the same
-// time (byContext): the Context is then done when the attempt times out.
+// time (byContext): the Context's deadline has then passed when the attempt
+// times out.
 func (x *GoSNMP) attemptDeadline(timeout time.Duration) (deadline time.Time, byContext bool) {
 	deadline = time.Now().Add(timeout)
 	if ctxDeadline, ok := x.Context.Deadline(); ok && !ctxDeadline.After(deadline) {

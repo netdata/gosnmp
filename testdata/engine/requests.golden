@@ -714,6 +714,16 @@
 0s    result: packet nil, error "context canceled" *errors.errorString (equals context.Canceled)
 0s    client after: retries=2 next request id=1001
 
+== requests/context/canceled-before-deadline
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +700ms
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    hook OnSent
+700ms read from 127.0.0.2:161: deadline
+700ms result: packet nil, error "context canceled" *errors.errorString (equals context.Canceled)
+700ms client after: retries=2 next request id=1002
+
 == requests/context/canceled-in-last-attempt
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
@@ -826,6 +836,36 @@
 2.5s  read from 127.0.0.2:161: deadline
 2.5s  result: packet nil, error "context deadline exceeded" context.deadlineExceededError (equals context.DeadlineExceeded; is net.Error timeout)
 2.5s  client after: retries=2 next request id=1004
+
+== requests/context/deadline-passed-in-hook
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +700ms
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    hook OnSent, which takes 1s
+1s    read from 127.0.0.2:161: read udp: connection refused
+1s    result: packet nil, error "context deadline exceeded" context.deadlineExceededError (equals context.DeadlineExceeded; is net.Error timeout)
+1s    client after: retries=2 next request id=1002
+
+== requests/context/deadline-unreported-equal-to-timeout
+0s    client: 2c timeout=1s retries=0 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    hook OnSent
+1s    read from 127.0.0.2:161: deadline
+1s    result: packet nil, error "context deadline exceeded" context.deadlineExceededError (equals context.DeadlineExceeded; is net.Error timeout)
+1s    client after: retries=0 next request id=1002
+
+== requests/context/deadline-unreported-in-first-attempt
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +700ms
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    hook OnSent
+700ms read from 127.0.0.2:161: deadline
+700ms result: packet nil, error "context deadline exceeded" context.deadlineExceededError (equals context.DeadlineExceeded; is net.Error timeout)
+700ms client after: retries=2 next request id=1002
 
 == requests/custom-conn
 0s    client: 2c timeout=1s retries=2 exponential=false
