@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"os"
 	"runtime"
 	"slices"
 	"strings"
@@ -116,18 +118,76 @@ type exchange struct {
 	contextDeadline bool
 }
 
-// attemptOutcome is how an attempt ended: with the request's result, or with
-// a failure another attempt may cure.
+// attemptKind is how an attempt ended.
+type attemptKind uint8
+
+const (
+	// attemptReply: a reply answered the request, with the error of a Report
+	// that answers it, if any.
+	attemptReply attemptKind = iota
+	// attemptTimeout: the deadline passed before an answer; the write or the
+	// read failed with an error matching os.ErrDeadlineExceeded.
+	attemptTimeout
+	// attemptTransportError: the write or the read failed otherwise.
+	attemptTransportError
+	// attemptInvalidReply: a reply did not decode or authenticate.
+	attemptInvalidReply
+	// attemptReconnected: the agent closed the TCP connection (io.EOF), and the
+	// client opened a new one.
+	attemptReconnected
+	// attemptClosed: the client's connection was closed (net.ErrClosed).
+	attemptClosed
+	// attemptContextDone: the Context was done when the attempt would start.
+	attemptContextDone
+	// attemptFailed: setting the deadline, encoding the request or reopening
+	// the TCP connection failed.
+	attemptFailed
+)
+
+// retryable reports whether another attempt may cure an attempt that ended
+// so.
+func (k attemptKind) retryable() bool {
+	switch k {
+	case attemptTimeout, attemptTransportError, attemptInvalidReply, attemptReconnected:
+		return true
+	}
+	return false
+}
+
+// attemptOutcome is how an attempt ended, and with what: the reply and its
+// error, or the reason the attempt failed.
 type attemptOutcome struct {
 	packet *SnmpPacket
 	err    error
+	kind   attemptKind
 	// verified reports that packet's digest checked against the request
 	// (exchange.authenticate).
 	verified bool
-	// retry asks for another attempt; err is the reason, nil after a TCP
-	// reconnect.
-	retry bool
 }
+
+// ioOutcome is the outcome of an attempt whose write or read failed with err.
+func ioOutcome(err error) attemptOutcome {
+	switch {
+	case errors.Is(err, os.ErrDeadlineExceeded):
+		return attemptOutcome{kind: attemptTimeout, err: err}
+	case errors.Is(err, net.ErrClosed):
+		return attemptOutcome{kind: attemptClosed, err: err}
+	}
+	return attemptOutcome{kind: attemptTransportError, err: err}
+}
+
+// attemptsError is the error of a request whose attempts ran out after a
+// timeout or a reconnect: a text callers know, unwrapping to the last
+// attempt's reason (the write's or the read's deadline error, a timeout
+// net.Error; io.EOF).
+type attemptsError struct {
+	text   string
+	reason error
+}
+
+func (e *attemptsError) Error() string { return e.text }
+
+func (e *attemptsError) Unwrap() error { return e.reason }
 
 // sentIDs are the request ID and the msgID an attempt sent the request with.
 type sentIDs struct {
@@ -145,64 +205,62 @@ func (x *GoSNMP) sendOneRequest(packetOut *SnmpPacket) (*SnmpPacket, bool, error
 	// them escapes beyond 32 bytes.
 	var sent [8]sentIDs
 	earlier := sent[:0]
-	var lastErr error
 	for n := 0; ; n++ {
-		if n > 0 {
-			if err := e.beforeRetry(n, lastErr); err != nil {
-				return nil, false, err
-			}
-		}
 		out := e.attempt(earlier)
-		if out.retry {
-			// An attempt asks for a retry only after it has stamped the
-			// packet with its IDs.
-			earlier = append(earlier, sentIDs{packetOut.RequestID, packetOut.MsgID})
-			lastErr = out.err
-			continue
+		if !out.kind.retryable() {
+			if out.err == nil && x.OnFinish != nil {
+				x.OnFinish(x)
+			}
+			return out.packet, out.verified, out.err
 		}
-		if out.err == nil && x.OnFinish != nil {
-			x.OnFinish(x)
+		// A retryable attempt has stamped the packet with its IDs.
+		earlier = append(earlier, sentIDs{packetOut.RequestID, packetOut.MsgID})
+		if err := e.endErr(n, out); err != nil {
+			return nil, false, err
 		}
-		return out.packet, out.verified, out.err
+		e.beforeRetry(n+1, out.err)
 	}
 }
 
-// beforeRetry runs before retry n, after an attempt that failed with lastErr.
-// It returns the request's error when no retry follows: the context's
-// deadline ended the attempt, or the retries are used up.
-func (e *exchange) beforeRetry(n int, lastErr error) error {
+// endErr decides whether another attempt follows attempt n (counted from 0),
+// which ended with out, a failure another attempt may cure: it returns the
+// request's error when none follows. A done Context ends the request with its
+// error, a timeout at the Context's deadline with context.DeadlineExceeded,
+// and the last attempt with its own error, or, after a timeout or a
+// reconnect, with an attemptsError.
+func (e *exchange) endErr(n int, out attemptOutcome) error {
 	x := e.x
-	// Known bug: OnRetry runs even when no retry follows.
+	if err := x.Context.Err(); err != nil {
+		return err
+	}
+	if out.kind == attemptTimeout && e.contextDeadline {
+		return context.DeadlineExceeded
+	}
+	if n < x.Retries {
+		return nil
+	}
+	switch out.kind {
+	case attemptTimeout:
+		return &attemptsError{text: fmt.Sprintf("request timeout (after %d retries)", n), reason: out.err}
+	case attemptReconnected:
+		return &attemptsError{text: fmt.Sprintf("max retries (%d) exceeded", x.Retries), reason: out.err}
+	}
+	return out.err
+}
+
+// beforeRetry readies retry n, which follows an attempt that failed with
+// lastErr: it runs OnRetry, logs the retry and, with ExponentialTimeout,
+// doubles the timeout.
+func (e *exchange) beforeRetry(n int, lastErr error) {
+	x := e.x
 	if x.OnRetry != nil {
 		x.OnRetry(x)
 	}
 	x.Logger.Printf("Retry number %d. Last error was: %v", n, lastErr)
-
-	if e.contextDeadline && isTimeout(lastErr) {
-		return context.DeadlineExceeded
-	}
-	if n > x.Retries {
-		switch {
-		case lastErr == nil:
-			return fmt.Errorf("max retries (%d) exceeded", x.Retries)
-		case isTimeout(lastErr):
-			return fmt.Errorf("request timeout (after %d retries)", n-1)
-		}
-		return lastErr
-	}
 	if x.ExponentialTimeout {
 		// https://www.webnms.com/snmp/help/snmpapi/snmpv3/v1/timeout.html
 		e.timeout *= 2
 	}
-	return nil
-}
-
-// isTimeout reports whether err ended an attempt by timing out. Known bug: it
-// looks for the word in the error's text, so any error mentioning a timeout
-// counts, and a nil err panics (the one after a TCP reconnect, under a context
-// deadline; send recovers it).
-func isTimeout(err error) bool {
-	return strings.Contains(err.Error(), "timeout")
 }
 
 // attempt sends the request once and reads until a reply answers it or the
@@ -213,12 +271,12 @@ func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
 	// Known bug: a client given a Conn without Connect has no Context, and this
 	// panics (send recovers it).
 	if err := x.Context.Err(); err != nil {
-		return attemptOutcome{err: err}
+		return attemptOutcome{kind: attemptContextDone, err: err}
 	}
 	var deadline time.Time
 	deadline, e.contextDeadline = x.attemptDeadline(e.timeout)
 	if err := x.Conn.SetDeadline(deadline); err != nil {
-		return attemptOutcome{err: err}
+		return attemptOutcome{kind: attemptFailed, err: err}
 	}
 
 	e.packet.RequestID = x.nextRequestID()
@@ -226,7 +284,7 @@ func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
 	// way.
 	outBuf, err := e.encode()
 	if err != nil {
-		return attemptOutcome{err: err}
+		return attemptOutcome{kind: attemptFailed, err: err}
 	}
 
 	if x.PreSend != nil {
@@ -236,7 +294,7 @@ func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
 		x.Logger.Printf("SENDING PACKET: %s", e.packet.SafeString())
 	}
 	if err := x.write(outBuf); err != nil {
-		return attemptOutcome{err: err, retry: true}
+		return ioOutcome(err)
 	}
 	if x.OnSent != nil {
 		x.OnSent(x)
@@ -245,10 +303,11 @@ func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
 }
 
 // attemptDeadline returns when an attempt with timeout ends: after the
-// timeout, or at the context's deadline if that comes first (byContext).
+// timeout, or at the context's deadline if that comes first or at the same
+// time (byContext): the Context is then done when the attempt times out.
 func (x *GoSNMP) attemptDeadline(timeout time.Duration) (deadline time.Time, byContext bool) {
 	deadline = time.Now().Add(timeout)
-	if ctxDeadline, ok := x.Context.Deadline(); ok && ctxDeadline.Before(deadline) {
+	if ctxDeadline, ok := x.Context.Deadline(); ok && !ctxDeadline.After(deadline) {
 		return ctxDeadline, true
 	}
 	return deadline, false
@@ -282,7 +341,7 @@ func (e *exchange) encode() ([]byte, error) {
 
 // await reads replies until one answers the request. Known bug: it does not
 // watch the context, so a cancellation is noticed only when the attempt's
-// deadline passes, and in the last attempt it ends as a request timeout.
+// deadline passes.
 func (e *exchange) await(earlier []sentIDs) attemptOutcome {
 	x := e.x
 	for {
@@ -294,12 +353,12 @@ func (e *exchange) await(earlier []sentIDs) attemptOutcome {
 			// The agent closed the connection: reconnect for the next attempt.
 			x.Logger.Printf("ERROR: EOF. Performing reconnect")
 			if err = x.netConnect(); err != nil {
-				return attemptOutcome{err: err}
+				return attemptOutcome{kind: attemptFailed, err: err}
 			}
-			return attemptOutcome{retry: true}
+			return attemptOutcome{kind: attemptReconnected, err: io.EOF}
 		}
 		if err != nil {
-			return attemptOutcome{err: err, retry: true}
+			return ioOutcome(err)
 		}
 		if x.OnRecv != nil {
 			x.OnRecv(x)
@@ -312,10 +371,10 @@ func (e *exchange) await(earlier []sentIDs) attemptOutcome {
 		if err != nil {
 			// Known bug: an undecodable reply ends the attempt, and the request
 			// is sent again at once, instead of reading on.
-			return attemptOutcome{err: err, retry: true}
+			return attemptOutcome{kind: attemptInvalidReply, err: err}
 		}
 		if answered, err := e.answers(reply, earlier); answered {
-			return attemptOutcome{packet: reply, err: err, verified: verified}
+			return attemptOutcome{kind: attemptReply, packet: reply, err: err, verified: verified}
 		}
 		x.Logger.Print("ERROR out of order")
 	}

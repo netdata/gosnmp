@@ -238,7 +238,7 @@ func engineScenarios() map[string]engineScenario {
 		"custom-conn": {shape: shapeStream, agent: answer(sysDescr)},
 
 		// Timeouts and retries.
-		"timeout":                  {knownBug: "OnRetry runs even when no retry follows"},
+		"timeout":                  {},
 		"timeout/exponential":      {setup: func(x *GoSNMP, _ *fakeTransport) { x.ExponentialTimeout = true }},
 		"timeout/no-retries":       {setup: func(x *GoSNMP, _ *fakeTransport) { x.Retries = 0 }},
 		"timeout/negative-retries": {setup: func(x *GoSNMP, _ *fakeTransport) { x.Retries = -3 }},
@@ -405,12 +405,9 @@ func engineScenarios() map[string]engineScenario {
 		"write-error/always": {agent: answer(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
 			c.failWrite = func(int) error { return errEngineWrite }
 		}},
-		"write-error/timeout-in-text": {
-			agent: answer(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
-				c.failWrite = func(int) error { return errors.New("codec timeout of the write queue") }
-			},
-			knownBug: "a timeout is recognized by the word in the error's text, so another error with that word becomes a request timeout",
-		},
+		"write-error/timeout-in-text": {agent: answer(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
+			c.failWrite = func(int) error { return errors.New("codec timeout of the write queue") }
+		}},
 		"deadline-error": {agent: answer(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
 			c.deadlineErr = errors.New("codec deadline failure")
 		}},
@@ -467,10 +464,7 @@ func engineScenarios() map[string]engineScenario {
 			context:  canceledAfter(300 * time.Millisecond),
 			knownBug: "cancellation is noticed only when the attempt's deadline passes",
 		},
-		"context/canceled-in-last-attempt": {
-			context:  canceledAfter(2300 * time.Millisecond),
-			knownBug: "a cancellation during the last attempt is reported as a request timeout",
-		},
+		"context/canceled-in-last-attempt": {context: canceledAfter(2300 * time.Millisecond)},
 
 		// Request IDs.
 		"request-id/wraps": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.requestID.Store(0x7FFFFFFF) }},
@@ -592,17 +586,17 @@ func TestEngineTCPReconnect(t *testing.T) {
 		knownBug       string
 	}{
 		"retries run out": {
-			acceptAgain: true, wantErr: `error "max retries (1) exceeded" *errors.errorString`,
-			wantHooks: []string{"PreSend", "OnSent", "OnRetry", "PreSend", "OnSent", "OnRetry"}, wantRequests: 2,
+			acceptAgain: true, wantErr: `error "max retries (1) exceeded" *gosnmp.attemptsError (is io.EOF)`,
+			wantHooks: []string{"PreSend", "OnSent", "OnRetry", "PreSend", "OnSent"}, wantRequests: 2,
 		},
 		"retries run out, tcp4": {
-			transport: "tcp4", acceptAgain: true, wantErr: `error "max retries (1) exceeded" *errors.errorString`,
-			wantHooks: []string{"PreSend", "OnSent", "OnRetry", "PreSend", "OnSent", "OnRetry"}, wantRequests: 2,
+			transport: "tcp4", acceptAgain: true, wantErr: `error "max retries (1) exceeded" *gosnmp.attemptsError (is io.EOF)`,
+			wantHooks: []string{"PreSend", "OnSent", "OnRetry", "PreSend", "OnSent"}, wantRequests: 2,
 		},
 		"retries run out after a timeout": {
 			acceptAgain: true, ignoreFirst: true, timeout: 200 * time.Millisecond,
-			wantErr:   `error "max retries (1) exceeded" *errors.errorString`,
-			wantHooks: []string{"PreSend", "OnSent", "OnRetry", "PreSend", "OnSent", "OnRetry"}, wantRequests: 2,
+			wantErr:   `error "max retries (1) exceeded" *gosnmp.attemptsError (is io.EOF)`,
+			wantHooks: []string{"PreSend", "OnSent", "OnRetry", "PreSend", "OnSent"}, wantRequests: 2,
 		},
 		"reply to the first request after the reconnect": {
 			acceptAgain: true, staleReply: true, timeout: 500 * time.Millisecond,
@@ -613,11 +607,9 @@ func TestEngineTCPReconnect(t *testing.T) {
 			wantErr:   `error "dial tcp <address>: connect: connection refused" *net.OpError (is syscall.ECONNREFUSED)`,
 			wantHooks: []string{"PreSend", "OnSent"}, wantRequests: 1,
 		},
-		"context deadline": {
-			acceptAgain: true, contextTimeout: 5 * time.Second,
-			wantErr:   `error "recover: runtime error: invalid memory address or nil pointer dereference Stack: ..." *errors.errorString`,
-			wantHooks: []string{"PreSend", "OnSent", "OnRetry"}, wantRequests: 1,
-			knownBug: "after the reconnect under a context deadline, the engine reads the nil error of the reconnect",
+		"retries run out under a context deadline": {
+			acceptAgain: true, contextTimeout: 5 * time.Second, wantErr: `error "max retries (1) exceeded" *gosnmp.attemptsError (is io.EOF)`,
+			wantHooks: []string{"PreSend", "OnSent", "OnRetry", "PreSend", "OnSent"}, wantRequests: 2,
 		},
 	}
 	dialAddress := regexp.MustCompile(`dial tcp \S+: `)
