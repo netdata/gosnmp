@@ -28,6 +28,16 @@ const (
 	Reportable   SnmpV3MsgFlags = 0x4 // Report PDU must be sent.
 )
 
+// authFlag reports whether f has the authFlag (bit 0x1, RFC 3412 section 6.4)
+// set: the message asks for authentication. A set flag is a request, not
+// proof that the message was authenticated.
+func (f SnmpV3MsgFlags) authFlag() bool { return f&0x1 != 0 }
+
+// privFlag reports whether f has the privFlag (bit 0x2) set: the message asks
+// for privacy. Without the authFlag the combination is invalid (RFC 3412
+// section 7.2 step 5 d).
+func (f SnmpV3MsgFlags) privFlag() bool { return f&0x2 != 0 }
+
 //go:generate go tool -modfile=tools/go.mod stringer -type=SnmpV3MsgFlags
 
 // SnmpV3SecurityModel describes the security model used by a SnmpV3 connection
@@ -89,7 +99,7 @@ func (packet *SnmpPacket) authenticate(msg []byte) ([]byte, error) {
 	if packet.Version != Version3 {
 		return msg, nil
 	}
-	if packet.MsgFlags&AuthNoPriv > 0 {
+	if packet.MsgFlags.authFlag() {
 		err := packet.SecurityParameters.usm().authenticate(msg)
 		if err != nil {
 			return nil, err
@@ -120,7 +130,7 @@ func (x *GoSNMP) testAuthentication(packet []byte, result *SnmpPacket, useRespon
 		return nil
 	}
 
-	if msgFlags&AuthNoPriv > 0 {
+	if msgFlags.authFlag() {
 		var authentic bool
 		var err error
 		if useResponseSecurityParameters {
@@ -148,7 +158,7 @@ var errNotAuthentic = errors.New("incoming packet is not authentic, discarding")
 // privacy too (a discovery packet does not); for the engine and
 // SnmpEncodePacket.
 func (x *GoSNMP) initPacket(packetOut *SnmpPacket) error {
-	if x.MsgFlags&AuthPriv > AuthNoPriv {
+	if x.MsgFlags.privFlag() {
 		return x.SecurityParameters.InitPacket(packetOut)
 	}
 
@@ -202,7 +212,7 @@ func (packet *SnmpPacket) appendV3ScopedPDU(dst []byte) ([]byte, error) {
 		return nil, err
 	}
 	dst = ber.End(dst, start)
-	if packet.MsgFlags&AuthPriv > AuthNoPriv {
+	if packet.MsgFlags.privFlag() {
 		ciphertext, err := packet.SecurityParameters.usm().encryptPacket(dst[scoped:])
 		if err != nil {
 			return nil, err

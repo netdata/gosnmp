@@ -327,10 +327,10 @@ func (sp *UsmSecurityParameters) checkProtocols() error {
 // checkLevel rejects message flags that ask for authentication or privacy
 // without a protocol for it.
 func (sp *UsmSecurityParameters) checkLevel(flags SnmpV3MsgFlags) error {
-	if flags&AuthNoPriv > 0 && sp.AuthenticationProtocol <= NoAuth {
+	if flags.authFlag() && sp.AuthenticationProtocol <= NoAuth {
 		return errAuthProtocolRequired
 	}
-	if flags&AuthPriv > AuthNoPriv && sp.PrivacyProtocol <= NoPriv {
+	if flags.privFlag() && sp.PrivacyProtocol <= NoPriv {
 		return errPrivProtocolRequired
 	}
 	return nil
@@ -461,7 +461,7 @@ func (sp *UsmSecurityParameters) usmSetSalt(salt uint64, isAES bool) error {
 // packet's msgPrivacyParameters from it when the packet asks for privacy.
 func (sp *UsmSecurityParameters) InitPacket(packet *SnmpPacket) error {
 	salt, isAES := sp.usmAllocateNewSalt()
-	if packet.MsgFlags&AuthPriv > AuthNoPriv {
+	if packet.MsgFlags.privFlag() {
 		s := usmOf(packet.SecurityParameters)
 		if s == nil {
 			return errors.New("param SnmpV3SecurityParameters is not of type *UsmSecurityParameters")
@@ -591,12 +591,12 @@ func (sp *UsmSecurityParameters) marshal(dst []byte, flags SnmpV3MsgFlags) []byt
 	dst = appendUint(dst, Integer, uint64(sp.AuthoritativeEngineBoots))
 	dst = appendUint(dst, Integer, uint64(sp.AuthoritativeEngineTime))
 	dst = appendOctets(dst, OctetString, sp.UserName)
-	if flags&AuthNoPriv > 0 {
+	if flags.authFlag() {
 		dst = appendMACPlaceholder(dst, sp.AuthenticationProtocol.spec().MACLen)
 	} else {
 		dst = append(dst, byte(OctetString), 0)
 	}
-	if flags&AuthPriv > AuthNoPriv {
+	if flags.privFlag() {
 		dst = appendOctets(dst, OctetString, sp.PrivacyParameters)
 	} else {
 		dst = append(dst, byte(OctetString), 0)
@@ -674,7 +674,7 @@ func (sp *UsmSecurityParameters) unmarshal(flags SnmpV3MsgFlags, r *ber.Reader) 
 		sp.AuthenticationParameters = authParams
 	}
 	// blank msgAuthenticationParameters to prepare for authentication check later
-	if flags&AuthNoPriv > 0 {
+	if flags.authFlag() {
 		// In case if the authentication protocol is not configured or set to NoAuth, then the packet cannot
 		// be processed further
 		if sp.AuthenticationProtocol <= NoAuth {
@@ -691,7 +691,7 @@ func (sp *UsmSecurityParameters) unmarshal(flags SnmpV3MsgFlags, r *ber.Reader) 
 	}
 	if ok {
 		sp.PrivacyParameters = []byte(privParams)
-		if flags&AuthPriv >= AuthPriv {
+		if flags.authFlag() && flags.privFlag() {
 			if sp.PrivacyProtocol <= NoPriv {
 				return errors.New("error parsing SNMPv3 User Security Model: privacy parameters are not configured to parse incoming encrypted message")
 			}
