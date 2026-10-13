@@ -256,7 +256,7 @@ func (e *exchange) encode() ([]byte, error) {
 	// An authenticated request is signed with the user's key localized to the
 	// agent's engine ID, and its answer checked with it; without one, anyone
 	// could sign either. The check follows the packet, as the signature does
-	// (SnmpPacket.authenticate).
+	// (SnmpPacket.sign).
 	if usp := usmOf(p.SecurityParameters); p.Version == Version3 && p.MsgFlags.authFlag() &&
 		(usp == nil || len(usp.SecretKey) == 0) {
 		return nil, errAuthKeyRequired

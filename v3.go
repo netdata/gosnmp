@@ -87,8 +87,12 @@ func (x *GoSNMP) validateParametersV3() error {
 	return x.SecurityParameters.usm().validate(x.MsgFlags)
 }
 
-// authenticate the marshalled result of a snmp version 3 packet
-func (packet *SnmpPacket) authenticate(msg []byte) ([]byte, error) {
+// sign writes the digest of the marshalled SNMPv3 message msg into it when
+// the flags ask for authentication. Known bug: it recovers a panic of the
+// signing (crypto/hmac's, for an HMAC-SHA-2 key shorter than 14 octets in
+// FIPS 140-only mode), writes it and the stack to stdout and returns no
+// message and no error.
+func (packet *SnmpPacket) sign(msg []byte) ([]byte, error) {
 	defer func() {
 		if e := recover(); e != nil {
 			buf := make([]byte, 8192)
@@ -100,7 +104,7 @@ func (packet *SnmpPacket) authenticate(msg []byte) ([]byte, error) {
 		return msg, nil
 	}
 	if packet.MsgFlags.authFlag() {
-		err := packet.SecurityParameters.usm().authenticate(msg)
+		err := packet.SecurityParameters.usm().sign(msg)
 		if err != nil {
 			return nil, err
 		}
@@ -120,32 +124,26 @@ func (x *GoSNMP) testAuthentication(packet []byte, result *SnmpPacket, useRespon
 	if x.Version != Version3 {
 		return fmt.Errorf("testAuthentication called with non Version3 connection")
 	}
-	msgFlags := x.MsgFlags
+	msgFlags, verifier := x.MsgFlags, x.SecurityParameters
 	if useResponseSecurityParameters {
-		msgFlags = result.MsgFlags
+		msgFlags, verifier = result.MsgFlags, result.SecurityParameters
 	}
 
 	msgSecParams := result.SecurityParameters.usm()
 	if msgSecParams.UserName == "" && msgSecParams.AuthoritativeEngineID == "" {
 		return nil
 	}
-
-	if msgFlags.authFlag() {
-		var authentic bool
-		var err error
-		if useResponseSecurityParameters {
-			authentic, err = result.SecurityParameters.usm().isAuthentic(packet, result)
-		} else {
-			authentic, err = x.SecurityParameters.usm().isAuthentic(packet, result)
-		}
-		if err != nil {
-			return err
-		}
-		if !authentic {
-			return errNotAuthentic
-		}
+	if !msgFlags.authFlag() {
+		return nil
 	}
 
+	authentic, err := verifier.usm().isAuthentic(packet, result)
+	if err != nil {
+		return err
+	}
+	if !authentic {
+		return errNotAuthentic
+	}
 	return nil
 }
 

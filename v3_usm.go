@@ -462,29 +462,29 @@ func (sp *UsmSecurityParameters) InitPacket(packet *SnmpPacket) error {
 	return nil
 }
 
-func (sp *UsmSecurityParameters) discoveryRequired() *SnmpPacket {
-	if sp.AuthoritativeEngineID == "" {
-		var emptyPdus []SnmpPDU
-
-		// send blank packet to discover authoriative engine ID/boots/time
-		blankPacket := &SnmpPacket{
-			Version:            Version3,
-			MsgFlags:           Reportable | NoAuthNoPriv,
-			SecurityModel:      UserSecurityModel,
-			SecurityParameters: &UsmSecurityParameters{Logger: sp.Logger},
-			PDUType:            GetRequest,
-			Logger:             sp.Logger,
-			Variables:          emptyPdus,
-		}
-
-		return blankPacket
+// discoveryPacket returns the request that discovers the authoritative
+// engine's ID, boots and time (RFC 3414 section 4) while sp has no engine ID:
+// a reportable, unauthenticated Get without variable bindings and with empty
+// security parameters. It returns nil once the engine ID is known.
+func (sp *UsmSecurityParameters) discoveryPacket() *SnmpPacket {
+	if sp.AuthoritativeEngineID != "" {
+		return nil
 	}
-	return nil
+	return &SnmpPacket{
+		Version:            Version3,
+		MsgFlags:           Reportable | NoAuthNoPriv,
+		SecurityModel:      UserSecurityModel,
+		SecurityParameters: &UsmSecurityParameters{Logger: sp.Logger},
+		PDUType:            GetRequest,
+		Logger:             sp.Logger,
+	}
 }
 
-// authenticate writes the digest of the message over the first
-// msgAuthenticationParameters placeholder found in it.
-func (sp *UsmSecurityParameters) authenticate(packet []byte) error {
+// sign writes the digest of the message over the first
+// msgAuthenticationParameters placeholder found in it. Known bug: the first
+// placeholder anywhere in the message, so an engine ID or user name that
+// holds the placeholder's octets receives the digest instead.
+func (sp *UsmSecurityParameters) sign(packet []byte) error {
 	spec := sp.AuthenticationProtocol.spec()
 	msgDigest, err := spec.Digest(sp.SecretKey, packet)
 	if err != nil {

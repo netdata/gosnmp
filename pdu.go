@@ -405,7 +405,7 @@ func (packet *SnmpPacket) marshalMsg() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return packet.authenticate(ber.End(dst, start))
+	return packet.sign(ber.End(dst, start))
 }
 
 // sizeHint estimates the encoded size of the message so that marshalMsg

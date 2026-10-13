@@ -127,7 +127,7 @@ func TestAuthenticationSHA224(t *testing.T) {
 	require.Equal(t, correctKeySHA224(t), sp.SecretKey, "Wrong key generated")
 
 	srcPacket := packetSHA224NoAuthentication(t)
-	err = sp.authenticate(srcPacket)
+	err = sp.sign(srcPacket)
 	require.NoError(t, err, "Authentication of packet failed")
 
 	require.Equal(t, packetSHA224Authenticated(t), srcPacket, "Wrong message authentication parameters.")
@@ -229,7 +229,7 @@ func TestAuthenticationSHA512(t *testing.T) {
 	require.Equal(t, correctKeySHA512(t), sp.SecretKey, "Wrong key generated")
 
 	srcPacket := packetSHA512NoAuthentication(t)
-	err = sp.authenticate(srcPacket)
+	err = sp.sign(srcPacket)
 	require.NoError(t, err, "Generation of key failed")
 
 	require.Equal(t, packetSHA512Authenticated(t), srcPacket, "Wrong message authentication parameters.")
