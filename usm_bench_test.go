@@ -50,7 +50,7 @@ var usmBenchPrivProtocols = []SnmpV3PrivProtocol{NoPriv, DES, AES, AES256, AES25
 func BenchmarkUSMEncode(b *testing.B) {
 	for _, priv := range usmBenchPrivProtocols {
 		b.Run(priv.String(), func(b *testing.B) {
-			pkt := usmCharPacket(b, priv, usmCharSalt(priv), usmCharVarbinds)
+			pkt := usmCharPacket(b, priv, usmCharVarbinds)
 			b.ReportAllocs()
 			for b.Loop() {
 				if _, err := pkt.MarshalMsg(); err != nil {
@@ -66,7 +66,7 @@ func BenchmarkUSMEncode(b *testing.B) {
 func BenchmarkUSMDecode(b *testing.B) {
 	for _, priv := range usmBenchPrivProtocols {
 		b.Run(priv.String(), func(b *testing.B) {
-			data := usmCharTrap(b, priv, usmCharSalt(priv), usmCharVarbinds)
+			data := usmCharTrap(b, priv, usmCharVarbinds)
 			x := usmDecoder(SHA, "codec-auth-pass", priv, "codec-priv-pass")()
 			x.Version = Version3
 			x.SecurityModel = UserSecurityModel

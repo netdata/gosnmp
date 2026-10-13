@@ -19,7 +19,7 @@ import (
 func TestReencodeDrawsNewSalt(t *testing.T) {
 	for _, priv := range []SnmpV3PrivProtocol{DES, AES, AES256C} {
 		t.Run(priv.String(), func(t *testing.T) {
-			data := usmCharTrap(t, priv, usmCharSalt(priv), usmCharVarbinds)
+			data := usmCharTrap(t, priv, usmCharVarbinds)
 			inSalt := splitV3Message(t, data).usm[5]
 
 			decoder := usmDecoder(SHA, "codec-auth-pass", priv, "codec-priv-pass")()

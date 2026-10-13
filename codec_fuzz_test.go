@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/netdata/gosnmp/internal/usm"
 )
 
 // codecFuzzSeeds returns every fixture and crafted decode input, and the
@@ -47,9 +49,10 @@ func FuzzUnmarshal(f *testing.F) {
 
 // FuzzDecodeReencode checks what holds for the packets SnmpDecodePacket
 // accepts today: MarshalMsg does not panic on them, the bytes MarshalMsg
-// produces decode again, and a second decode and encode pass reproduces
-// them exactly. Decoding the re-encoded bytes does not always return the
-// original values (known codec bugs, pinned by TestDecodeCharacterization).
+// produces decode again, and a second decode and encode pass, drawing the
+// same salt, reproduces them exactly. Decoding the re-encoded bytes does not
+// always return the original values (known codec bugs, pinned by
+// TestDecodeCharacterization).
 func FuzzDecodeReencode(f *testing.F) {
 	for _, seed := range codecFuzzSeeds(f) {
 		f.Add(seed)
@@ -60,6 +63,7 @@ func FuzzDecodeReencode(f *testing.F) {
 		if err != nil || reencodeKnownBug(first) {
 			return
 		}
+		usm.Salts.Set(1)
 		encoded, err := first.MarshalMsg()
 		if err != nil {
 			return
@@ -69,6 +73,7 @@ func FuzzDecodeReencode(f *testing.F) {
 		if err != nil {
 			t.Fatalf("re-encoded packet does not decode: %v\ninput:      %x\nre-encoded: %x", err, data, encoded)
 		}
+		usm.Salts.Set(1)
 		reencoded, err := second.MarshalMsg()
 		if err != nil {
 			t.Fatalf("second encode failed: %v\ninput:      %x\nre-encoded: %x", err, data, encoded)

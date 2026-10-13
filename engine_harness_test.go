@@ -17,6 +17,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/netdata/gosnmp/internal/usm"
 )
 
 // The engine harness runs the request engine against a scripted agent over an
@@ -248,16 +250,14 @@ func newEngineClient(tb testing.TB, tr *engineTranscript, version SnmpVersion, c
 }
 
 // newEngineClientFrom completes x on conn as Connect would leave it, with
-// request IDs starting after 1000, message IDs after 2000 and fixed salt
-// counters, and with hooks that record their calls in tr.
+// request IDs starting after 1000, message IDs after 2000 and the next salt
+// 0x101, and with hooks that record their calls in tr.
 func newEngineClientFrom(tb testing.TB, tr *engineTranscript, conn net.Conn, x *GoSNMP) *GoSNMP {
 	tb.Helper()
 	if err := x.prepare(); err != nil {
 		tb.Fatal(err)
 	}
-	if usp := usmOf(x.SecurityParameters); usp != nil {
-		usp.localAESSalt, usp.localDESSalt = 0x100, 0x100
-	}
+	usm.Salts.Set(0x101)
 	x.Conn = conn
 	x.rxBuf = new([rxBufSize]byte)
 	x.requestID.Store(1000)

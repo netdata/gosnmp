@@ -300,7 +300,7 @@ const (
 // SnmpDecodePacket, which call it each time: it fills in the defaults (the UDP
 // transport, MaxOids, a background Context), rejects a negative MaxOids and,
 // for SNMPv3, sets Reportable, checks the security model and parameters and
-// seeds the privacy protocol's salt counter with random bits.
+// hands the client's Logger to the security parameters.
 func (x *GoSNMP) prepare() error {
 	if x.Transport == "" {
 		x.Transport = udp
@@ -318,7 +318,7 @@ func (x *GoSNMP) prepare() error {
 		if err := x.validateParametersV3(); err != nil {
 			return err
 		}
-		x.SecurityParameters.usm().init(x.Logger)
+		x.SecurityParameters.usm().setLogger(x.Logger)
 	}
 
 	if x.Context == nil {
@@ -330,7 +330,7 @@ func (x *GoSNMP) prepare() error {
 // SnmpEncodePacket encodes a request or trap, for another transport or for
 // tests: it prepares the client as Connect does, builds the packet with
 // MkSnmpPacket and numbers it with the next request ID and, for SNMPv3, the
-// next msgID and salt, as a request's attempt does. It runs no engine
+// next msgID, as a request's attempt does. It runs no engine
 // discovery and derives no keys: an authenticated or private SNMPv3 message
 // needs the keys in SecurityParameters. Known bug: without an authentication
 // key the message is signed with an empty one. On an error it returns an
@@ -343,9 +343,6 @@ func (x *GoSNMP) SnmpEncodePacket(pdutype PDUType, pdus []SnmpPDU, nonRepeaters 
 	pkt.RequestID = x.nextRequestID()
 	if x.Version == Version3 {
 		pkt.MsgID = x.nextMsgID()
-		if err := x.initPacket(pkt); err != nil {
-			return []byte{}, err
-		}
 	}
 	out, err := pkt.marshalMsg()
 	if err != nil {

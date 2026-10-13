@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/netdata/gosnmp/internal/usm"
 )
 
 // The FuzzDecodeV3 receivers.
@@ -69,7 +71,7 @@ func FuzzDecodeV3(f *testing.F) {
 	}
 
 	for i, p := range pairs {
-		pkt := usmCharPacket(f, p.priv, usmCharSalt(p.priv), usmCharVarbinds)
+		pkt := usmCharPacket(f, p.priv, usmCharVarbinds)
 		sp := pkt.SecurityParameters.(*UsmSecurityParameters)
 		sp.AuthenticationProtocol = p.auth
 		sp.SecretKey, sp.PrivacyKey = nil, nil
@@ -79,6 +81,7 @@ func FuzzDecodeV3(f *testing.F) {
 		if err := sp.InitSecurityKeys(); err != nil {
 			f.Fatal(err)
 		}
+		usm.Salts.Set(usmCharSalt(p.priv))
 		data, err := pkt.MarshalMsg()
 		if err != nil {
 			f.Fatal(err)
@@ -86,7 +89,7 @@ func FuzzDecodeV3(f *testing.F) {
 		f.Add(uint8(i), data)
 	}
 	for _, priv := range usmPrivProtocols[1:] {
-		msg := splitV3Message(f, usmCharTrap(f, priv, usmCharSalt(priv), usmCharVarbinds))
+		msg := splitV3Message(f, usmCharTrap(f, priv, usmCharVarbinds))
 		short := msg
 		short.usm[5] = short.usm[5][:7]
 		truncated := msg
@@ -100,8 +103,8 @@ func FuzzDecodeV3(f *testing.F) {
 		f.Add(sel, short.withModel(f, 2).bytes())
 	}
 	f.Add(uint8(0), usmMalformedV3Header)
-	usm := craftedUSM(octets(usmCharEngineID), intTLV(0), intTLV(0), octets("codec-user"), octets(""), nil)
-	f.Add(index[usmFuzzPair{SHA, NoPriv}], craftedV3(intTLV(42), intTLV(65507), octets("\x01"), intTLV(3), usm, nil))
+	usmFields := craftedUSM(octets(usmCharEngineID), intTLV(0), intTLV(0), octets("codec-user"), octets(""), nil)
+	f.Add(index[usmFuzzPair{SHA, NoPriv}], craftedV3(intTLV(42), intTLV(65507), octets("\x01"), intTLV(3), usmFields, nil))
 
 	f.Fuzz(func(t *testing.T, sel uint8, data []byte) {
 		p := pairs[int(sel)%len(pairs)]

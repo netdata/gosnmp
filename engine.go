@@ -270,9 +270,6 @@ func (e *exchange) encode() ([]byte, error) {
 	}
 	if x.Version == Version3 {
 		p.MsgID = x.nextMsgID()
-		if err := x.initPacket(p); err != nil {
-			return nil, err
-		}
 		p.SecurityParameters.Log()
 	}
 	out, err := p.marshalMsg()

@@ -11,8 +11,6 @@ package gosnmp
 import (
 	"bytes"
 	"crypto"
-	crand "crypto/rand"
-	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -119,11 +117,9 @@ func (privProtocol SnmpV3PrivProtocol) spec() usm.Priv {
 // client learns. A client keeps them in GoSNMP.SecurityParameters, and each
 // message carries a copy.
 type UsmSecurityParameters struct {
-	// mu guards the salt counters and serializes key initialization, Copy
+	// mu serializes key initialization, the engine and logger updates, Copy
 	// and Log.
-	mu           sync.Mutex
-	localAESSalt uint64
-	localDESSalt uint32
+	mu sync.Mutex
 
 	// The authoritative engine's ID, boots and time (RFC 3414 section 2.2),
 	// which discovery and answers set; an AuthoritativeEngineID set by the
@@ -135,9 +131,9 @@ type UsmSecurityParameters struct {
 	// UserName is the user (msgUserName).
 	UserName string
 
-	// AuthenticationParameters and PrivacyParameters are a message's digest
-	// and salt: decoded from a message, or, for the salt, drawn for each
-	// outgoing message (InitPacket).
+	// AuthenticationParameters and PrivacyParameters are the digest and salt
+	// decoded from a message. The encoder uses neither: it signs each message
+	// and draws a new salt for each encrypted one.
 	AuthenticationParameters string
 	PrivacyParameters        []byte
 
@@ -214,8 +210,8 @@ func (sp *UsmSecurityParameters) Log() {
 	}
 }
 
-// Copy returns a copy of the parameters, the salt counters included. The key
-// and salt slices are shared with the original, not copied.
+// Copy returns a copy of the parameters. The key and salt slices are shared
+// with the original, not copied.
 func (sp *UsmSecurityParameters) Copy() SnmpV3SecurityParameters {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
@@ -232,8 +228,6 @@ func (sp *UsmSecurityParameters) Copy() SnmpV3SecurityParameters {
 		PrivacyPassphrase:        sp.PrivacyPassphrase,
 		SecretKey:                sp.SecretKey,
 		PrivacyKey:               sp.PrivacyKey,
-		localDESSalt:             sp.localDESSalt,
-		localAESSalt:             sp.localAESSalt,
 		Logger:                   sp.Logger,
 	}
 }
@@ -409,24 +403,12 @@ func (sp *UsmSecurityParameters) validate(flags SnmpV3MsgFlags) error {
 	return nil
 }
 
-// init sets the logger and seeds the salt counter of the privacy protocol with
-// random bits. crypto/rand.Read never fails (Go 1.24 and later).
-func (sp *UsmSecurityParameters) init(log Logger) {
+// setLogger sets the logger of Log.
+func (sp *UsmSecurityParameters) setLogger(log Logger) {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
 
 	sp.Logger = log
-
-	switch sp.PrivacyProtocol.spec().Cipher {
-	case usm.AESCFB:
-		var salt [8]byte
-		_, _ = crand.Read(salt[:])
-		sp.localAESSalt = binary.BigEndian.Uint64(salt[:])
-	case usm.DESCBC:
-		var salt [4]byte
-		_, _ = crand.Read(salt[:])
-		sp.localDESSalt = binary.BigEndian.Uint32(salt[:])
-	}
 }
 
 // passwordCache derives the keys of every UsmSecurityParameters.
@@ -439,58 +421,11 @@ func PasswordCaching(enable bool) {
 	passwordCache.SetEnabled(enable)
 }
 
-// usmAllocateNewSalt increments the salt counter of the privacy protocol and
-// returns its new value: the 64-bit AES counter (isAES, RFC 3826 section
-// 3.1.2.1) or the 32-bit DES counter (RFC 3414 section 8.1.1.1).
-func (sp *UsmSecurityParameters) usmAllocateNewSalt() (salt uint64, isAES bool) {
-	sp.mu.Lock()
-	defer sp.mu.Unlock()
-
-	if sp.PrivacyProtocol.spec().Cipher == usm.AESCFB {
-		sp.localAESSalt++
-		return sp.localAESSalt, true
-	}
-	sp.localDESSalt++
-	return uint64(sp.localDESSalt), false
-}
-
-// usmSetSalt sets msgPrivacyParameters from a salt counter value: the AES
-// counter, or the engine boots followed by the DES counter. The counter must
-// be of the family of the parameters' own privacy protocol.
-func (sp *UsmSecurityParameters) usmSetSalt(salt uint64, isAES bool) error {
-	sp.mu.Lock()
-	defer sp.mu.Unlock()
-	switch sp.PrivacyProtocol.spec().Cipher {
-	case usm.AESCFB:
-		if !isAES {
-			return fmt.Errorf("salt provided to usmSetSalt is not the correct type for the AES privacy protocol")
-		}
-		params := make([]byte, 8)
-		binary.BigEndian.PutUint64(params, salt)
-		sp.PrivacyParameters = params
-	default:
-		if isAES {
-			return fmt.Errorf("salt provided to usmSetSalt is not the correct type for the DES privacy protocol")
-		}
-		params := make([]byte, 8)
-		binary.BigEndian.PutUint32(params, sp.AuthoritativeEngineBoots)
-		binary.BigEndian.PutUint32(params[4:], uint32(salt)) //nolint:gosec // the DES counter is 32 bits wide
-		sp.PrivacyParameters = params
-	}
-	return nil
-}
-
-// InitPacket advances the salt counter, for every packet, and sets the
-// packet's msgPrivacyParameters from it when the packet asks for privacy.
-func (sp *UsmSecurityParameters) InitPacket(packet *SnmpPacket) error {
-	salt, isAES := sp.usmAllocateNewSalt()
-	if packet.MsgFlags.privFlag() {
-		s := usmOf(packet.SecurityParameters)
-		if s == nil {
-			return errors.New("param SnmpV3SecurityParameters is not of type *UsmSecurityParameters")
-		}
-		return s.usmSetSalt(salt, isAES)
-	}
+// InitPacket does nothing and returns nil: the encoder draws a new salt for
+// every encrypted message.
+//
+// Deprecated: there is nothing to initialize before encoding.
+func (sp *UsmSecurityParameters) InitPacket(*SnmpPacket) error {
 	return nil
 }
 
@@ -574,8 +509,8 @@ func (sp *UsmSecurityParameters) isAuthenticAnswer(packet []byte, in *UsmSecurit
 }
 
 // encryptPacket returns the ciphertext of the scoped PDU.
-func (sp *UsmSecurityParameters) encryptPacket(scopedPdu []byte) ([]byte, error) {
-	return sp.PrivacyProtocol.spec().Encrypt(sp.PrivacyKey, sp.PrivacyParameters,
+func (sp *UsmSecurityParameters) encryptPacket(scopedPdu, salt []byte) ([]byte, error) {
+	return sp.PrivacyProtocol.spec().Encrypt(sp.PrivacyKey, salt,
 		sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime, scopedPdu)
 }
 
@@ -612,7 +547,7 @@ func (sp *UsmSecurityParameters) decryptPacket(packet []byte, cursor int) ([]byt
 // authoritative engine ID, boots and time, the user name, the authentication
 // parameters (the zero placeholder sign fills in, or empty) and the
 // privacy parameters (the salt, or empty).
-func (sp *UsmSecurityParameters) marshal(dst []byte, flags SnmpV3MsgFlags) []byte {
+func (sp *UsmSecurityParameters) marshal(dst []byte, flags SnmpV3MsgFlags, salt []byte) []byte {
 	dst, start := ber.Begin(dst, byte(Sequence))
 	dst = appendOctets(dst, OctetString, sp.AuthoritativeEngineID)
 	dst = appendUint(dst, Integer, uint64(sp.AuthoritativeEngineBoots))
@@ -623,11 +558,7 @@ func (sp *UsmSecurityParameters) marshal(dst []byte, flags SnmpV3MsgFlags) []byt
 	} else {
 		dst = append(dst, byte(OctetString), 0)
 	}
-	if flags.privFlag() {
-		dst = appendOctets(dst, OctetString, sp.PrivacyParameters)
-	} else {
-		dst = append(dst, byte(OctetString), 0)
-	}
+	dst = appendOctets(dst, OctetString, salt)
 	return ber.End(dst, start)
 }
 

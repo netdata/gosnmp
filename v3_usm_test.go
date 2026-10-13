@@ -63,8 +63,6 @@ func TestIsAuthenticWrongUsername(t *testing.T) {
 	var err error
 
 	sp := UsmSecurityParameters{
-		localAESSalt:             0,
-		localDESSalt:             0,
 		AuthoritativeEngineBoots: 43,
 		AuthoritativeEngineID:    authorativeEngineID(t),
 		AuthoritativeEngineTime:  2113189,
@@ -103,8 +101,6 @@ func TestAuthenticationSHA224(t *testing.T) {
 	var err error
 
 	sp := UsmSecurityParameters{
-		localAESSalt:             0,
-		localDESSalt:             0,
 		AuthoritativeEngineBoots: 43,
 		AuthoritativeEngineID:    authorativeEngineID(t),
 		AuthoritativeEngineTime:  2113189,
@@ -138,8 +134,6 @@ func TestIsAuthenticSHA224(t *testing.T) {
 	var err error
 
 	sp := UsmSecurityParameters{
-		localAESSalt:             0,
-		localDESSalt:             0,
 		AuthoritativeEngineBoots: 43,
 		AuthoritativeEngineID:    authorativeEngineID(t),
 		AuthoritativeEngineTime:  2113189,
@@ -205,8 +199,6 @@ func TestAuthenticationSHA512(t *testing.T) {
 	var err error
 
 	sp := UsmSecurityParameters{
-		localAESSalt:             0,
-		localDESSalt:             0,
 		AuthoritativeEngineBoots: 43,
 		AuthoritativeEngineID:    authorativeEngineID(t),
 		AuthoritativeEngineTime:  2113258,
@@ -240,8 +232,6 @@ func TestIsAuthenticSHA512(t *testing.T) {
 	var err error
 
 	sp := UsmSecurityParameters{
-		localAESSalt:             0,
-		localDESSalt:             0,
 		AuthoritativeEngineBoots: 43,
 		AuthoritativeEngineID:    authorativeEngineID(t),
 		AuthoritativeEngineTime:  2113189,
@@ -379,7 +369,7 @@ func TestUSMUnsupportedProtocols(t *testing.T) {
 				assert.EqualError(t, err, tc.wantErr)
 			})
 			t.Run("decode", func(t *testing.T) {
-				data := usmCharTrap(t, AES, usmCharSalt(AES), usmCharVarbinds)
+				data := usmCharTrap(t, AES, usmCharVarbinds)
 				sp := params(SHA, AES)
 				table := NewSnmpV3SecurityParametersTable(Logger{})
 				require.NoError(t, table.Add("codec-user", sp))
@@ -459,8 +449,8 @@ func TestUSMDecodeSecurityLevel(t *testing.T) {
 		authErr = "unable to decode packet header: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message"
 		privErr = "unable to decode packet header: error parsing SNMPv3 User Security Model: privacy parameters are not configured to parse incoming encrypted message"
 	)
-	authNoPriv := usmCharTrap(t, NoPriv, nil, usmCharVarbinds)
-	authPriv := usmCharTrap(t, AES, usmCharSalt(AES), usmCharVarbinds)
+	authNoPriv := usmCharTrap(t, NoPriv, usmCharVarbinds)
+	authPriv := usmCharTrap(t, AES, usmCharVarbinds)
 
 	tests := map[string]struct {
 		in      []byte
@@ -493,7 +483,7 @@ func TestUSMDecodeSecurityLevel(t *testing.T) {
 // copy of the trap (a failed attempt zeroes the copy's digest), the first that
 // decodes wins, and when none does the error carries the last attempt's.
 func TestUSMTrapTableAttempts(t *testing.T) {
-	data := usmCharTrap(t, AES, usmCharSalt(AES), usmCharVarbinds)
+	data := usmCharTrap(t, AES, usmCharVarbinds)
 	params := func(authPass string) *UsmSecurityParameters {
 		return &UsmSecurityParameters{
 			UserName:                 "codec-user",

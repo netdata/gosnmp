@@ -9,7 +9,6 @@ import (
 	"crypto"
 	"fmt"
 	"log"
-	"math"
 	"strings"
 	"sync"
 	"testing"
@@ -18,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/netdata/gosnmp/internal/ber"
+	"github.com/netdata/gosnmp/internal/usm"
 )
 
 // The USM characterization tests pin the observable behavior of the
@@ -162,18 +162,19 @@ func dumpUSMKeys(c usmKeyCase) string {
 	return d.String()
 }
 
-// usmCharTrap encodes usmCharPacket.
-func usmCharTrap(t testing.TB, priv SnmpV3PrivProtocol, salt []byte, variables []SnmpPDU) []byte {
+// usmCharTrap encodes usmCharPacket with the salt usmCharSalt.
+func usmCharTrap(t testing.TB, priv SnmpV3PrivProtocol, variables []SnmpPDU) []byte {
 	t.Helper()
-	data, err := usmCharPacket(t, priv, salt, variables).MarshalMsg()
+	usm.Salts.Set(usmCharSalt(priv))
+	data, err := usmCharPacket(t, priv, variables).MarshalMsg()
 	require.NoError(t, err)
 	return data
 }
 
 // usmCharPacket is an authPriv (authNoPriv without a privacy protocol)
 // SNMPv2-Trap from codec-user, the credentials usmDecoder configures, with
-// the given privacy protocol and salt and its keys initialized.
-func usmCharPacket(t testing.TB, priv SnmpV3PrivProtocol, salt []byte, variables []SnmpPDU) *SnmpPacket {
+// the given privacy protocol and its keys initialized.
+func usmCharPacket(t testing.TB, priv SnmpV3PrivProtocol, variables []SnmpPDU) *SnmpPacket {
 	t.Helper()
 
 	sp := &UsmSecurityParameters{
@@ -185,7 +186,6 @@ func usmCharPacket(t testing.TB, priv SnmpV3PrivProtocol, salt []byte, variables
 		AuthoritativeEngineID:    usmCharEngineID,
 		AuthoritativeEngineBoots: 3,
 		AuthoritativeEngineTime:  77,
-		PrivacyParameters:        salt,
 	}
 	require.NoError(t, sp.InitSecurityKeys())
 	flags := AuthPriv
@@ -211,11 +211,13 @@ var usmCharVarbinds = []SnmpPDU{
 	{Name: ".1.3.6.1.6.3.1.1.4.1.0", Type: ObjectIdentifier, Value: ".1.3.6.1.4.1.8072.2.3.0.1"},
 }
 
-func usmCharSalt(priv SnmpV3PrivProtocol) []byte {
+// usmCharSalt is the salt of usmCharTrap's message, the one the USM goldens
+// were recorded with.
+func usmCharSalt(priv SnmpV3PrivProtocol) uint64 {
 	if priv == DES {
-		return []byte{0, 0, 0, 3, 0x0a, 0x0b, 0x0c, 0x0d}
+		return 0x000000030a0b0c0d
 	}
-	return []byte{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88}
+	return 0x1122334455667788
 }
 
 // v3Message is an SNMPv3 message split into the parts the USM tests change.
@@ -288,7 +290,7 @@ func (m v3Message) bytes() []byte {
 func TestUSMDecryptCharacterization(t *testing.T) {
 	var results []goldenCase
 	for _, priv := range usmPrivProtocols[1:] {
-		data := usmCharTrap(t, priv, usmCharSalt(priv), usmCharVarbinds)
+		data := usmCharTrap(t, priv, usmCharVarbinds)
 		msg := splitV3Message(t, data)
 		require.Equal(t, data, msg.bytes(), "splitV3Message does not round-trip")
 
@@ -373,7 +375,7 @@ func (m v3Message) withModel(t testing.TB, model byte) v3Message {
 // first saltLen octets of its privacy parameters.
 func usmFlagsTrap(t testing.TB, priv SnmpV3PrivProtocol, flags SnmpV3MsgFlags, saltLen int) []byte {
 	t.Helper()
-	m := splitV3Message(t, usmCharTrap(t, priv, usmCharSalt(priv), usmCharVarbinds)).withFlags(t, flags)
+	m := splitV3Message(t, usmCharTrap(t, priv, usmCharVarbinds)).withFlags(t, flags)
 	m.usm[5] = m.usm[5][:saltLen]
 	return m.bytes()
 }
@@ -411,7 +413,7 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 		return craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), usm, scoped)
 	}
 	encryptedWithModel := func(priv SnmpV3PrivProtocol, model byte, saltLen int) []byte {
-		m := splitV3Message(t, usmCharTrap(t, priv, usmCharSalt(priv), usmCharVarbinds)).withModel(t, model)
+		m := splitV3Message(t, usmCharTrap(t, priv, usmCharVarbinds)).withModel(t, model)
 		m.usm[5] = m.usm[5][:saltLen]
 		return m.bytes()
 	}
@@ -602,8 +604,8 @@ func TestUSMPrivacyPadding(t *testing.T) {
 	for _, priv := range usmPrivProtocols[1:] {
 		for n := range 16 {
 			vbs := []SnmpPDU{{Name: ".1.3.6.1.2.1.1.5.0", Type: OctetString, Value: bytes.Repeat([]byte{'x'}, n)}}
-			plain := splitV3Message(t, usmCharTrap(t, NoPriv, nil, vbs))
-			secured := splitV3Message(t, usmCharTrap(t, priv, usmCharSalt(priv), vbs))
+			plain := splitV3Message(t, usmCharTrap(t, NoPriv, vbs))
+			secured := splitV3Message(t, usmCharTrap(t, priv, vbs))
 
 			plainLen := len(tlv(plain.scopedTag, plain.scoped))
 			want := plainLen
@@ -615,168 +617,74 @@ func TestUSMPrivacyPadding(t *testing.T) {
 	}
 }
 
-// TestUSMSalts pins how InitPacket allocates msgPrivacyParameters: a counter
-// of the parameters it is called on, incremented on every call (also for
-// packets without privacy), written to the packet's own parameters; DES
-// prefixes the packet's engine boots (RFC 3414 section 8.1.1.1), the AES
-// protocols use the 64-bit counter (RFC 3826 section 3.1.2.1); a counter of
-// one family cannot fill the parameters of the other. The counters start at
-// zero until GoSNMP initializes them with random values.
+// TestUSMSalts pins how the encoder fills msgPrivacyParameters: a message
+// the flags encrypt carries the next value of usm.Salts, one 64-bit counter
+// for DES and the AES protocols (RFC 3826 section 3.1.2.1; RFC 3414 section
+// 8.1.1.1 leaves DES's integer to the implementation); a message without
+// privacy draws none and carries an empty salt. The packet's own
+// PrivacyParameters are neither used nor written, and InitPacket does
+// nothing.
 func TestUSMSalts(t *testing.T) {
-	newPacket := func(sp *UsmSecurityParameters, flags SnmpV3MsgFlags) *SnmpPacket {
-		return &SnmpPacket{Version: Version3, MsgFlags: flags, SecurityModel: UserSecurityModel, SecurityParameters: sp}
-	}
-	salts := func(t *testing.T, sp *UsmSecurityParameters, flags ...SnmpV3MsgFlags) []string {
-		t.Helper()
-		var out []string
-		for _, f := range flags {
-			pktSP := &UsmSecurityParameters{PrivacyProtocol: sp.PrivacyProtocol, AuthoritativeEngineBoots: 9}
-			require.NoError(t, sp.InitPacket(newPacket(pktSP, f)))
-			out = append(out, dumpBytes(pktSP.PrivacyParameters))
-		}
-		return out
-	}
-
+	packetSalt := func() []byte { return bytes.Repeat([]byte{0xee}, 8) }
 	tests := map[string]struct {
-		sp    *UsmSecurityParameters
+		priv  SnmpV3PrivProtocol
+		next  uint64
 		flags []SnmpV3MsgFlags
 		want  []string
 	}{
-		"aes counter": {
-			sp:    &UsmSecurityParameters{PrivacyProtocol: AES256, AuthoritativeEngineBoots: 5},
+		"aes": {
+			priv: AES256, next: 0x0000000700000001,
 			flags: []SnmpV3MsgFlags{AuthPriv, AuthNoPriv, AuthPriv, NoAuthNoPriv, AuthPriv},
-			want:  []string{"0000000000000001", "nil", "0000000000000003", "nil", "0000000000000005"},
+			want:  []string{"0000000700000001", "empty", "0000000700000002", "empty", "0000000700000003"},
 		},
-		"des counter and boots of the packet": {
-			sp:    &UsmSecurityParameters{PrivacyProtocol: DES, AuthoritativeEngineBoots: 5},
+		"des counts in 64 bits": {
+			priv: DES, next: 0x00000001ffffffff,
 			flags: []SnmpV3MsgFlags{AuthPriv, AuthNoPriv, AuthPriv},
-			want:  []string{"0000000900000001", "nil", "0000000900000003"},
-		},
-		"aes wraps": {
-			sp:    &UsmSecurityParameters{PrivacyProtocol: AES, localAESSalt: math.MaxUint64 - 1},
-			flags: []SnmpV3MsgFlags{AuthPriv, AuthPriv},
-			want:  []string{"ffffffffffffffff", "0000000000000000"},
-		},
-		"des wraps": {
-			sp:    &UsmSecurityParameters{PrivacyProtocol: DES, localDESSalt: math.MaxUint32 - 1},
-			flags: []SnmpV3MsgFlags{AuthPriv, AuthPriv},
-			want:  []string{"00000009ffffffff", "0000000900000000"},
-		},
-		"no privacy protocol uses the DES layout": {
-			sp:    &UsmSecurityParameters{PrivacyProtocol: NoPriv},
-			flags: []SnmpV3MsgFlags{AuthPriv},
-			want:  []string{"0000000900000001"},
-		},
-		"unset privacy protocol uses the DES layout": {
-			sp:    &UsmSecurityParameters{},
-			flags: []SnmpV3MsgFlags{AuthPriv},
-			want:  []string{"0000000900000001"},
-		},
-		"unknown privacy protocol uses the DES layout": {
-			sp:    &UsmSecurityParameters{PrivacyProtocol: SnmpV3PrivProtocol(8)},
-			flags: []SnmpV3MsgFlags{AuthPriv},
-			want:  []string{"0000000900000001"},
+			want:  []string{"00000001ffffffff", "empty", "0000000200000000"},
 		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			assert.Equal(t, tc.want, salts(t, tc.sp, tc.flags...))
-			assert.Nil(t, tc.sp.PrivacyParameters, "the counter's own parameters")
+			usm.Salts.Set(tc.next)
+			var got []string
+			for _, flags := range tc.flags {
+				sp := codecUSM(t, SHA, tc.priv)
+				sp.PrivacyParameters = packetSalt()
+				pkt := &SnmpPacket{
+					Version: Version3, MsgFlags: flags, SecurityModel: UserSecurityModel, SecurityParameters: sp,
+					PDUType: GetRequest,
+				}
+				data, err := pkt.MarshalMsg()
+				require.NoError(t, err)
+				got = append(got, dumpBytes(splitV3Message(t, data).usm[5]))
+				assert.Equal(t, packetSalt(), sp.PrivacyParameters, "the packet's salt")
+			}
+			assert.Equal(t, tc.want, got)
 		})
 	}
-	t.Run("the counter's protocol family must match the packet's", func(t *testing.T) {
-		tests := map[string]struct {
-			counter, packet SnmpV3PrivProtocol
-			wantErr         string
-		}{
-			"aes counter, des packet": {
-				counter: AES192, packet: DES,
-				wantErr: "salt provided to usmSetSalt is not the correct type for the DES privacy protocol",
-			},
-			"aes counter, no privacy packet": {
-				counter: AES, packet: NoPriv,
-				wantErr: "salt provided to usmSetSalt is not the correct type for the DES privacy protocol",
-			},
-			"des counter, aes packet": {
-				counter: DES, packet: AES256C,
-				wantErr: "salt provided to usmSetSalt is not the correct type for the AES privacy protocol",
-			},
-		}
-		for name, tc := range tests {
-			t.Run(name, func(t *testing.T) {
-				pktSP := &UsmSecurityParameters{PrivacyProtocol: tc.packet}
-				err := (&UsmSecurityParameters{PrivacyProtocol: tc.counter}).InitPacket(newPacket(pktSP, AuthPriv))
-				assert.EqualError(t, err, tc.wantErr)
-				assert.Nil(t, pktSP.PrivacyParameters)
-			})
-		}
-	})
-	t.Run("packet without security parameters", func(t *testing.T) {
-		tests := map[string]struct {
-			pktSP   SnmpV3SecurityParameters
-			flags   SnmpV3MsgFlags
-			wantErr string
-		}{
-			"nil, privacy": {
-				flags: AuthPriv, wantErr: "param SnmpV3SecurityParameters is not of type *UsmSecurityParameters",
-			},
-			"typed nil, privacy": {
-				pktSP: (*UsmSecurityParameters)(nil), flags: AuthPriv,
-				wantErr: "param SnmpV3SecurityParameters is not of type *UsmSecurityParameters",
-			},
-			"nil, no privacy": {flags: AuthNoPriv},
-		}
-		for name, tc := range tests {
-			t.Run(name, func(t *testing.T) {
-				pkt := &SnmpPacket{Version: Version3, MsgFlags: tc.flags, SecurityParameters: tc.pktSP}
-				err := (&UsmSecurityParameters{PrivacyProtocol: AES}).InitPacket(pkt)
-				if tc.wantErr == "" {
-					assert.NoError(t, err)
-					return
-				}
-				assert.EqualError(t, err, tc.wantErr)
-			})
-		}
-	})
-	t.Run("init seeds the counter of the AES or the DES protocols only", func(t *testing.T) {
-		for _, priv := range []SnmpV3PrivProtocol{0, NoPriv, DES, AES, AES192, AES256, AES192C, AES256C, 8} {
-			sp := &UsmSecurityParameters{PrivacyProtocol: priv}
-			sp.init(Logger{})
-			aes := priv >= AES && priv <= AES256C
-			assert.Equal(t, aes, sp.localAESSalt != 0, "%v AES counter", priv)
-			assert.Equal(t, priv == DES, sp.localDESSalt != 0, "%v DES counter", priv)
-		}
-	})
-	t.Run("GoSNMP starts the counter at a random value", func(t *testing.T) {
-		encode := func() string {
-			x := &GoSNMP{
-				Version:       Version3,
-				MsgFlags:      AuthPriv,
-				SecurityModel: UserSecurityModel,
-				SecurityParameters: &UsmSecurityParameters{
-					UserName:                 "codec-user",
-					AuthenticationProtocol:   SHA,
-					AuthenticationPassphrase: "codec-auth-pass",
-					PrivacyProtocol:          AES,
-					PrivacyPassphrase:        "codec-priv-pass",
-					AuthoritativeEngineID:    usmCharEngineID,
-				},
+	t.Run("a message without security parameters is an error", func(t *testing.T) {
+		for name, sp := range map[string]SnmpV3SecurityParameters{"nil": nil, "typed nil": (*UsmSecurityParameters)(nil)} {
+			for _, flags := range []SnmpV3MsgFlags{NoAuthNoPriv, AuthPriv} {
+				pkt := &SnmpPacket{Version: Version3, MsgFlags: flags, SecurityModel: UserSecurityModel, SecurityParameters: sp}
+				_, err := pkt.MarshalMsg()
+				assert.EqualError(t, err, "SNMPv3 message without security parameters", "%s, %v", name, flags)
 			}
-			require.NoError(t, x.SecurityParameters.InitSecurityKeys())
-			data, err := x.SnmpEncodePacket(GetRequest, nil, 0, 0)
-			require.NoError(t, err)
-			return string(splitV3Message(t, data).usm[5])
 		}
-		assert.NotEqual(t, encode(), encode())
+	})
+	t.Run("InitPacket does nothing", func(t *testing.T) {
+		usm.Salts.Set(5)
+		sp := &UsmSecurityParameters{PrivacyProtocol: AES}
+		pkt := &SnmpPacket{Version: Version3, MsgFlags: AuthPriv, SecurityParameters: sp}
+		require.NoError(t, (&UsmSecurityParameters{PrivacyProtocol: DES}).InitPacket(pkt))
+		assert.Equal(t, &UsmSecurityParameters{PrivacyProtocol: AES}, sp)
+		assert.Equal(t, [8]byte{7: 5}, usm.Salts.Next(), "no salt drawn")
 	})
 }
 
-// TestUSMCopy pins Copy: every field is copied, the salt counters too, but
-// the key and salt slices are shared with the original.
+// TestUSMCopy pins Copy: every field is copied, but the key and salt slices
+// are shared with the original.
 func TestUSMCopy(t *testing.T) {
 	sp := &UsmSecurityParameters{
-		localAESSalt:             11,
-		localDESSalt:             12,
 		AuthoritativeEngineID:    usmCharEngineID,
 		AuthoritativeEngineBoots: 3,
 		AuthoritativeEngineTime:  77,
@@ -802,12 +710,6 @@ func TestUSMCopy(t *testing.T) {
 		assert.Equal(t, cp.SecretKey, sp.SecretKey)
 		assert.Equal(t, cp.PrivacyKey, sp.PrivacyKey)
 		assert.Equal(t, cp.PrivacyParameters, sp.PrivacyParameters)
-	})
-	t.Run("salt counters are independent", func(t *testing.T) {
-		pkt := &SnmpPacket{MsgFlags: AuthPriv, SecurityParameters: &UsmSecurityParameters{PrivacyProtocol: AES}}
-		require.NoError(t, cp.InitPacket(pkt))
-		assert.Equal(t, uint64(12), cp.localAESSalt)
-		assert.Equal(t, uint64(11), sp.localAESSalt)
 	})
 }
 

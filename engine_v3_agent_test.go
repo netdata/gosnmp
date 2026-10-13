@@ -6,7 +6,6 @@ package gosnmp
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"strings"
@@ -40,7 +39,6 @@ type fakeV3Agent struct {
 	users    map[string]*UsmSecurityParameters // keys localized to engineID
 	vbs      []SnmpPDU
 	counters map[string]uint32
-	salt     uint64
 
 	// script, when set, answers the n-th request (counted from 1) instead of
 	// the RFC 3414 checks; ok false leaves the request to them.
@@ -243,7 +241,9 @@ func (a *fakeV3Agent) check(data []byte, m v3Message, req *agentRequest) agentAn
 		}
 		// A scoped PDU that does not decode is dropped, as snmpd does
 		// (snmpInASNParseErrs): a wrong privacy passphrase gets no answer.
-		return agentAnswer{drop: true, why: err.Error()}
+		// The parse error is left out: after a wrong key it depends on the
+		// salt, the key and the width of the platform's int.
+		return agentAnswer{drop: true, why: "scoped PDU does not decode"}
 	}
 	return agentAnswer{level: req.flags & AuthPriv, why: "request accepted"}
 }
@@ -314,12 +314,7 @@ func (a *fakeV3Agent) answer(req agentRequest, ans agentAnswer) *SnmpPacket {
 			sp.AuthenticationProtocol, sp.SecretKey = user.AuthenticationProtocol, user.SecretKey
 		}
 		if ans.level&AuthPriv == AuthPriv {
-			a.salt++
 			sp.PrivacyProtocol, sp.PrivacyKey = user.PrivacyProtocol, user.PrivacyKey
-			sp.PrivacyParameters = binary.BigEndian.AppendUint64(nil, a.salt)
-			if user.PrivacyProtocol == DES {
-				sp.PrivacyParameters = binary.BigEndian.AppendUint32(binary.BigEndian.AppendUint32(nil, a.boots), uint32(a.salt)) //nolint:gosec // a 32-bit salt
-			}
 		}
 	}
 	out := &SnmpPacket{
