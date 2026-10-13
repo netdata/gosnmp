@@ -9,6 +9,7 @@
 package gosnmp
 
 import (
+	"math"
 	"time"
 )
 
@@ -264,12 +265,12 @@ func (x *snmpHandler) SetMaxOids(maxOids int) {
 }
 
 func (x *snmpHandler) MaxRepetitions() uint32 {
-	return (x.GoSNMP.MaxRepetitions & 0x7FFFFFFF)
+	return x.GoSNMP.MaxRepetitions
 }
 
 // SetMaxRepetitions sets MaxRepetitions with its top bit cleared.
 func (x *snmpHandler) SetMaxRepetitions(maxRepetitions uint32) {
-	x.GoSNMP.MaxRepetitions = (maxRepetitions & 0x7FFFFFFF)
+	x.GoSNMP.MaxRepetitions = maxRepetitions & math.MaxInt32
 }
 
 func (x *snmpHandler) MsgFlags() SnmpV3MsgFlags {

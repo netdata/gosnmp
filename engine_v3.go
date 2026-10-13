@@ -14,7 +14,7 @@ import (
 // does not know its engine ID, and derives the keys otherwise. Known bug: the
 // key derivation error is ignored when the engine ID is known.
 func (x *GoSNMP) negotiateInitialSecurityParameters(packetOut *SnmpPacket) error {
-	// mkSnmpPacket copies the client's version and security model into the
+	// MkSnmpPacket copies the client's version and security model into the
 	// packet; they differ here only when the client's Logger changed the client
 	// during send.
 	if x.Version != Version3 || packetOut.Version != Version3 {

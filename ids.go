@@ -33,20 +33,20 @@ func (x *GoSNMP) seedIDs() error {
 // nextRequestID advances the request ID counter and returns it without its
 // top bit, so request IDs wrap to 0 after 2147483647.
 func (x *GoSNMP) nextRequestID() uint32 {
-	return x.requestID.Add(1) & 0x7FFFFFFF
+	return x.requestID.Add(1) & math.MaxInt32
 }
 
 // nextMsgID advances the msg ID counter and returns it without its top bit.
 func (x *GoSNMP) nextMsgID() uint32 {
-	return x.msgID.Add(1) & 0x7FFFFFFF
+	return x.msgID.Add(1) & math.MaxInt32
 }
 
 // SetRequestID sets the base ID value for future requests
 func (x *GoSNMP) SetRequestID(reqID uint32) {
-	x.requestID.Store(reqID & 0x7fffffff)
+	x.requestID.Store(reqID & math.MaxInt32)
 }
 
 // SetMsgID sets the base ID value for future messages
 func (x *GoSNMP) SetMsgID(msgID uint32) {
-	x.msgID.Store(msgID & 0x7fffffff)
+	x.msgID.Store(msgID & math.MaxInt32)
 }

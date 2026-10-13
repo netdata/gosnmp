@@ -314,7 +314,7 @@ func (x *GoSNMP) SnmpEncodePacket(pdutype PDUType, pdus []SnmpPDU, nonRepeaters 
 	if err := x.prepare(); err != nil {
 		return []byte{}, err
 	}
-	pkt := x.mkSnmpPacket(pdutype, pdus, nonRepeaters, maxRepetitions)
+	pkt := x.MkSnmpPacket(pdutype, pdus, nonRepeaters, maxRepetitions)
 	pkt.RequestID = x.nextRequestID()
 	if x.Version == Version3 {
 		pkt.MsgID = x.nextMsgID()

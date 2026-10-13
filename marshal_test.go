@@ -1567,7 +1567,7 @@ func TestSendOneRequest_dups(t *testing.T) {
 
 	pdus := []SnmpPDU{{Name: ".1.2", Type: Null}}
 	// This is not actually a GetResponse, but we need something our test server can unmarshal.
-	reqPkt := x.mkSnmpPacket(GetResponse, pdus, 0, 0)
+	reqPkt := x.MkSnmpPacket(GetResponse, pdus, 0, 0)
 
 	_, _, err = x.sendOneRequest(reqPkt)
 	if err != nil {
@@ -1664,7 +1664,7 @@ func withUnconnectedSocket(t *testing.T, enable bool) {
 
 	pdus := []SnmpPDU{{Name: ".1.2", Type: Null}}
 	// This is not actually a GetResponse, but we need something our test server can unmarshal.
-	reqPkt := x.mkSnmpPacket(GetResponse, pdus, 0, 0)
+	reqPkt := x.MkSnmpPacket(GetResponse, pdus, 0, 0)
 
 	_, _, err = x.sendOneRequest(reqPkt)
 	if err != nil && enable {
@@ -1696,7 +1696,7 @@ func serveGetResponses(t *testing.T, srvr *net.UDPConn, x *GoSNMP, send func(rep
 			t.Errorf("error: %s", err)
 		}
 
-		rspPkt := x.mkSnmpPacket(GetResponse, []SnmpPDU{
+		rspPkt := x.MkSnmpPacket(GetResponse, []SnmpPDU{
 			{
 				Name:  ".1.2",
 				Type:  Integer,

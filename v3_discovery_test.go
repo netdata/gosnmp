@@ -262,9 +262,9 @@ func setupDiscoveryTest(t *testing.T) *GoSNMP {
 func TestV3DiscoveryUnknownUserNames(t *testing.T) {
 	ts := setupDiscoveryTest(t)
 
-	// mkSnmpPacket produces the same packet shape that Get() passes to
+	// MkSnmpPacket produces the same packet shape that Get() passes to
 	// negotiateInitialSecurityParameters internally.
-	pkt := ts.mkSnmpPacket(GetRequest, nil, 0, 0)
+	pkt := ts.MkSnmpPacket(GetRequest, nil, 0, 0)
 	err := ts.negotiateInitialSecurityParameters(pkt)
 	require.NoError(t, err, "negotiateInitialSecurityParameters must succeed even when the device "+
 		"responds with usmStatsUnknownUserNames during engine-ID discovery")
@@ -317,7 +317,7 @@ func TestV3DiscoveryUnknownUserNamesNoEngineID(t *testing.T) {
 	require.NoError(t, ts.Connect())
 	t.Cleanup(func() { ts.Conn.Close() })
 
-	pkt := ts.mkSnmpPacket(GetRequest, nil, 0, 0)
+	pkt := ts.MkSnmpPacket(GetRequest, nil, 0, 0)
 	err := ts.negotiateInitialSecurityParameters(pkt)
 	require.ErrorIs(t, err, ErrUnknownUsername,
 		"ErrUnknownUsername must not be suppressed when the Report carries an empty engine ID")
