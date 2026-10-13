@@ -7,7 +7,10 @@ package gosnmp
 import (
 	"math"
 	"math/big"
+	"strconv"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // -----------------------------------------------------------------------------
@@ -44,6 +47,13 @@ func TestPartition(t *testing.T) {
 			t.Errorf("#%d: Bad result: %v (expected %v)", i, ok, test.ok)
 		}
 	}
+}
+
+// TestPartitionSizeZero pins that a partition size of 0 panics (integer
+// divide by zero) for a position in range. Known bug.
+func TestPartitionSizeZero(t *testing.T) {
+	assert.Panics(t, func() { _ = Partition(0, 0, 3) })
+	assert.False(t, Partition(3, 0, 3), "out of range")
 }
 
 // ---------------------------------------------------------------------
@@ -84,6 +94,17 @@ func TestToBigInt(t *testing.T) {
 	}
 }
 
+// TestToBigIntLargeUint pins that a uint above math.MaxInt64, possible on
+// 64-bit platforms only, converts through int64 and comes out negative. Known
+// bug.
+func TestToBigIntLargeUint(t *testing.T) {
+	want := new(big.Int).SetUint64(uint64(^uint(0)))
+	if strconv.IntSize == 64 {
+		want = big.NewInt(-1)
+	}
+	assert.Equal(t, want, ToBigInt(^uint(0)))
+}
+
 // ---------------------------------------------------------------------
 
 var testsSnmpVersionString = []struct {
@@ -93,6 +114,7 @@ var testsSnmpVersionString = []struct {
 	{Version1, "1"},
 	{Version2c, "2c"},
 	{Version3, "3"},
+	{SnmpVersion(2), "3"}, // known bug: an unknown version prints as "3"
 }
 
 func TestSnmpVersionString(t *testing.T) {
