@@ -13,6 +13,7 @@ import (
 	"log"
 	"maps"
 	"net"
+	"os"
 	"regexp"
 	"runtime"
 	"slices"
@@ -142,6 +143,13 @@ var errEngineWrite = errors.New("codec write failure")
 // refused is the error of a read from a UDP socket whose target port is
 // closed.
 var refused = &net.OpError{Op: "read", Net: "udp", Err: syscall.ECONNREFUSED}
+
+// closedRead and closedWrite are the errors of a read and a write on a UDP
+// socket that Close closed during a request.
+var (
+	closedRead  = &net.OpError{Op: "read", Net: "udp", Err: net.ErrClosed}
+	closedWrite = &net.OpError{Op: "write", Net: "udp", Err: net.ErrClosed}
+)
 
 // withEngineTimeout gives a context that times out after d.
 func withEngineTimeout(d time.Duration) func() (context.Context, context.CancelFunc) {
@@ -411,6 +419,18 @@ func engineScenarios() map[string]engineScenario {
 		}},
 		"read-error/always": {agent: answer(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
 			c.failRead = func(int) error { return refused }
+		}},
+		"read-error/closed": {agent: answer(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
+			c.failRead = func(int) error { return closedRead }
+			c.failWrite = func(n int) error {
+				if n > 1 {
+					return closedWrite
+				}
+				return nil
+			}
+		}},
+		"write-error/closed": {agent: answer(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
+			c.failWrite = func(int) error { return closedWrite }
 		}},
 		"read-eof/udp": {agent: answerFromSecond(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
 			c.failRead = func(n int) error { return map[int]error{1: io.EOF}[n] }
@@ -714,6 +734,38 @@ func serveTCPRequests(conn net.Conn, handle func(req []byte) (reply []byte, keep
 			return
 		}
 	}
+}
+
+// TestEngineRequestTimeoutError checks what a caller that classifies errors
+// sees when every attempt of a request times out on a real socket: the text
+// "request timeout", unwrapping to the last attempt's read deadline, a
+// timeout net.Error.
+func TestEngineRequestTimeoutError(t *testing.T) {
+	agent, err := net.ListenPacket("udp4", "127.0.0.1:0") // it never answers
+	require.NoError(t, err)
+	defer agent.Close()
+
+	x := &GoSNMP{
+		Target:    "127.0.0.1",
+		Port:      uint16(agent.LocalAddr().(*net.UDPAddr).Port), //nolint:gosec // a UDP port
+		Community: "public",
+		Version:   Version2c,
+		Timeout:   50 * time.Millisecond,
+		Retries:   1,
+	}
+	require.NoError(t, x.Connect())
+	defer x.Close()
+
+	_, err = x.Get([]string{engineOID})
+	require.Error(t, err)
+	type classified struct {
+		text            string
+		deadline        bool
+		timeoutNetError bool
+	}
+	var ne net.Error
+	assert.Equal(t, classified{text: "request timeout (after 1 retries)", deadline: true, timeoutNetError: true},
+		classified{err.Error(), errors.Is(err, os.ErrDeadlineExceeded), errors.As(err, &ne) && ne.Timeout()})
 }
 
 // TestEngineReplyLogger pins that a reply carries the client's Logger.

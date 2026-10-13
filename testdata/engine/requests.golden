@@ -1054,6 +1054,28 @@
 0s    result: packet nil, error "error reading from socket: read udp: connection refused" *fmt.wrapError (is syscall.ECONNREFUSED)
 0s    client after: retries=2 next request id=1004
 
+== requests/read-error/closed
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: read udp: use of closed network connection
+0s    hook OnRetry
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    write #2 fails: write udp: use of closed network connection
+0s    hook OnRetry
+0s    deadline +1s
+0s    hook PreSend
+0s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+0s    write #3 fails: write udp: use of closed network connection
+0s    hook OnRetry
+0s    result: packet nil, error "write udp: use of closed network connection" *net.OpError (is net.ErrClosed)
+0s    client after: retries=2 next request id=1004
+
 == requests/read-error/once
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
@@ -1454,6 +1476,26 @@
 0s    write #3 fails: codec write failure
 0s    hook OnRetry
 0s    result: packet nil, error "codec write failure" *errors.errorString (equals errEngineWrite)
+0s    client after: retries=2 next request id=1004
+
+== requests/write-error/closed
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1 fails: write udp: use of closed network connection
+0s    hook OnRetry
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    write #2 fails: write udp: use of closed network connection
+0s    hook OnRetry
+0s    deadline +1s
+0s    hook PreSend
+0s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+0s    write #3 fails: write udp: use of closed network connection
+0s    hook OnRetry
+0s    result: packet nil, error "write udp: use of closed network connection" *net.OpError (is net.ErrClosed)
 0s    client after: retries=2 next request id=1004
 
 == requests/write-error/once
