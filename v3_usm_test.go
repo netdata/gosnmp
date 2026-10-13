@@ -550,6 +550,35 @@ func TestUSMTrapTableAttempts(t *testing.T) {
 	}
 }
 
+// TestUSMTrapTableSkipsV1V2c checks that a receiver with a trap table
+// decodes SNMPv1 and SNMPv2c traps without it.
+func TestUSMTrapTableSkipsV1V2c(t *testing.T) {
+	vbl := craftedVBL(craftedVB(intTLV(5)))
+	vars := []SnmpPDU{{Name: ".1.3.6.1.2.1.1.5.0", Type: Integer, Value: 5}}
+	tests := map[string]struct {
+		in          []byte
+		wantVersion SnmpVersion
+		wantPDUType PDUType
+	}{
+		"SNMPv1":  {in: craftedV1Trap(craftedEnterprise, craftedAgentAddress, intTLV(6), intTLV(1), craftedTimestamp, vbl), wantVersion: Version1, wantPDUType: Trap},
+		"SNMPv2c": {in: craftedMsg(1, craftedPDU(SNMPv2Trap, vbl)), wantVersion: Version2c, wantPDUType: SNMPv2Trap},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			tb := NewSnmpV3SecurityParametersTable(Logger{})
+			require.NoError(t, tb.Add("codec-user", &UsmSecurityParameters{UserName: "codec-user"}))
+			x := &GoSNMP{Version: Version3, TrapSecurityParametersTable: tb}
+			var res *SnmpPacket
+			var err error
+			require.NotPanics(t, func() { res, err = x.UnmarshalTrap(tc.in, false) })
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantVersion, res.Version)
+			assert.Equal(t, tc.wantPDUType, res.PDUType)
+			assert.Equal(t, vars, res.Variables)
+		})
+	}
+}
+
 // TestUSMReceiverAuthenticationWithoutProtocol checks that a single-user
 // UnmarshalTrap receiver whose flags require authentication, but whose
 // parameters have no authentication protocol, rejects a trap from its user
