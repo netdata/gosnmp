@@ -73,39 +73,55 @@ func (x *GoSNMP) connect(networkSuffix string) error {
 	return nil
 }
 
-// Performs the real socket opening network operation. This can be used to do a
-// reconnect (needed for TCP)
+// netConnect opens the connection to the agent, or for an unconnected UDP
+// socket a local socket; the TCP transport reconnects with it. A UDP or TCP
+// local address in IPv4 narrows the transport to IPv4.
 func (x *GoSNMP) netConnect() error {
-	var err error
-	var localAddr net.Addr
 	addr := net.JoinHostPort(x.Target, strconv.Itoa(int(x.Port)))
 
 	switch x.Transport {
 	case "udp", "udp4", "udp6":
-		if localAddr, err = net.ResolveUDPAddr(x.Transport, x.LocalAddr); err != nil {
+		local, err := net.ResolveUDPAddr(x.Transport, x.LocalAddr)
+		if err != nil {
 			return err
 		}
-		if addr4 := localAddr.(*net.UDPAddr).IP.To4(); addr4 != nil {
+		if local.IP.To4() != nil {
 			x.Transport = "udp4"
 		}
 		if x.UseUnconnectedUDPSocket {
-			x.uaddr, err = net.ResolveUDPAddr(x.Transport, addr)
-			if err != nil {
-				return err
-			}
-			x.Conn, err = net.ListenUDP(x.Transport, localAddr.(*net.UDPAddr))
-			return err
+			return x.listenUnconnectedUDP(local, addr)
 		}
+		return x.dial(local, addr)
 	case "tcp", "tcp4", "tcp6":
-		if localAddr, err = net.ResolveTCPAddr(x.Transport, x.LocalAddr); err != nil {
+		local, err := net.ResolveTCPAddr(x.Transport, x.LocalAddr)
+		if err != nil {
 			return err
 		}
-		if addr4 := localAddr.(*net.TCPAddr).IP.To4(); addr4 != nil {
+		if local.IP.To4() != nil {
 			x.Transport = "tcp4"
 		}
+		return x.dial(local, addr)
 	}
-	dialer := net.Dialer{Timeout: x.Timeout, LocalAddr: localAddr, Control: x.Control}
+	return x.dial(nil, addr)
+}
+
+// dial connects to addr from the local address, nil for any.
+func (x *GoSNMP) dial(local net.Addr, addr string) error {
+	dialer := net.Dialer{Timeout: x.Timeout, LocalAddr: local, Control: x.Control}
+	var err error
 	x.Conn, err = dialer.DialContext(x.Context, x.Transport, addr)
+	return err
+}
+
+// listenUnconnectedUDP opens a UDP socket on the local address that writes to
+// the agent at addr. Known bug: when the socket cannot be opened, Conn is left
+// holding a nil *net.UDPConn, which compares unequal to nil.
+func (x *GoSNMP) listenUnconnectedUDP(local *net.UDPAddr, addr string) error {
+	var err error
+	if x.uaddr, err = net.ResolveUDPAddr(x.Transport, addr); err != nil {
+		return err
+	}
+	x.Conn, err = net.ListenUDP(x.Transport, local)
 	return err
 }
 
