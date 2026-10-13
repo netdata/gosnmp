@@ -61,14 +61,12 @@ func End(dst []byte, start int) []byte {
 		dst[start-1] = byte(n) //nolint:gosec
 		return dst
 	}
-	k := (bits.Len(uint(n)) + 7) / 8
+	var buf [1 + 8]byte // the first length octet and up to eight more
+	length := AppendLength(buf[:0], n)
+	k := len(length) - 1
 	dst = append(dst, make([]byte, k)...)
 	copy(dst[start+k:], dst[start:start+n])
-	dst[start-1] = 0x80 | byte(k) //nolint:gosec
-	for i := k - 1; i >= 0; i-- {
-		dst[start+i] = byte(n)
-		n >>= 8
-	}
+	copy(dst[start-1:], length)
 	return dst
 }
 
@@ -114,26 +112,17 @@ func AppendFloat64(dst []byte, v float64) []byte {
 // trailing dots) are skipped. On error dst is returned unchanged.
 func AppendOID(dst []byte, oid string) ([]byte, error) {
 	start := len(dst)
-	var firstArc int64
+	var firstArc uint64
 	i := 0
-	for j := 0; j < len(oid); {
-		if oid[j] == '.' {
-			j++
+	for rest := oid; rest != ""; {
+		if rest[0] == '.' { // an empty sub-identifier: a leading, repeated or trailing dot
+			rest = rest[1:]
 			continue
 		}
-		var val int64
-		for j < len(oid) && oid[j] != '.' {
-			ch := int64(oid[j] - '0')
-			if ch > 9 {
-				return dst[:start], ErrInvalidOID
-			}
-			val = val*10 + ch
-			// Bounding each sub-identifier here also keeps the int64
-			// accumulator from wrapping on absurdly long digit runs.
-			if val > maxSubIdentifier {
-				return dst[:start], ErrOIDOutOfRange
-			}
-			j++
+		var val uint64
+		var err error
+		if val, rest, err = nextArc(rest); err != nil {
+			return dst[:start], err
 		}
 		switch i {
 		case 0:
@@ -162,22 +151,35 @@ func AppendOID(dst []byte, oid string) ([]byte, error) {
 	return dst, nil
 }
 
+// nextArc parses the sub-identifier at the start of s, up to the next dot,
+// and returns its value and what follows the dot. A sub-identifier is decimal
+// digits only (no sign, underscore or base prefix) with a value of at most
+// 2^32-1; nextArc fails at the first octet that is not a digit
+// (ErrInvalidOID) or at the digit taking the value past the limit
+// (ErrOIDOutOfRange). strconv.ParseUint decides the same way, but splitting
+// the OID first and parsing each arc with it costs about three times as much
+// per OID, and every request encodes its OIDs.
+func nextArc(s string) (v uint64, rest string, err error) {
+	for i := range len(s) {
+		if s[i] == '.' {
+			return v, s[i+1:], nil
+		}
+		d := s[i] - '0'
+		if d > 9 {
+			return 0, "", ErrInvalidOID
+		}
+		if v = v*10 + uint64(d); v > maxSubIdentifier {
+			return 0, "", ErrOIDOutOfRange
+		}
+	}
+	return v, "", nil
+}
+
 // appendBase128 appends n in base 128, most significant group first, with the
 // high bit set on every octet but the last.
-func appendBase128(dst []byte, n int64) []byte {
-	if n == 0 {
-		return append(dst, 0)
+func appendBase128(dst []byte, n uint64) []byte {
+	for i := (bits.Len64(n)+6)/7 - 1; i > 0; i-- {
+		dst = append(dst, byte(n>>(7*i))|0x80) //nolint:gosec // one 7-bit group
 	}
-	l := 0
-	for i := n; i > 0; i >>= 7 {
-		l++
-	}
-	for i := l - 1; i >= 0; i-- {
-		o := byte(n>>uint(i*7)) & 0x7f //nolint:gosec
-		if i != 0 {
-			o |= 0x80
-		}
-		dst = append(dst, o)
-	}
-	return dst
+	return append(dst, byte(n)&0x7f) //nolint:gosec // the last 7-bit group
 }
