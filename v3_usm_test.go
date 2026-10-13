@@ -756,8 +756,9 @@ func TestUSMShortPrivacyKey(t *testing.T) {
 // TestUSMEmptyPassphraseKeys pins the keys InitSecurityKeys derives without an
 // error from an empty passphrase: an empty authentication key, an empty DES
 // key, and for Blumenthal AES-256 with an HMAC-SHA-256 user a key extended
-// from nothing (the hash of the empty localized key). Known bug: none of them
-// is usable, and none is refused.
+// from nothing (the hash of the empty localized key). Known bug: none is
+// refused, though anyone can compute the authentication and Blumenthal keys
+// and DES panics on its empty key.
 func TestUSMEmptyPassphraseKeys(t *testing.T) {
 	sum := sha256.Sum256(nil)
 	tests := map[string]struct {

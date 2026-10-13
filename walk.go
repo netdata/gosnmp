@@ -25,9 +25,10 @@ type WalkFunc func(dataUnit SnmpPDU) error
 // at the first name past the subtree or an exception value (NoSuchObject,
 // NoSuchInstance, EndOfMibView). It returns at once the error of a failed
 // request or of walkFn, and an error for a name in the subtree that is not
-// after the requested one (unless AppOpts has "c"). Known bugs: an empty
-// answer, or one whose Error is TooBig through InconsistentName other than
-// NoSuchName (the end of an SNMPv1 MIB), ends the walk without an error.
+// after the requested one (unless AppOpts has "c"). An answer whose Error is
+// NoSuchName, the end of an SNMPv1 MIB, ends the walk without an error. Known
+// bugs: so do an empty answer and one whose Error is another of TooBig
+// through InconsistentName.
 func (x *GoSNMP) BulkWalk(rootOid string, walkFn WalkFunc) error {
 	return x.walk(GetBulkRequest, rootOid, walkFn)
 }
@@ -48,9 +49,9 @@ func (x *GoSNMP) BulkWalkAll(rootOid string) (results []SnmpPDU, err error) {
 // exception value (NoSuchObject, NoSuchInstance, EndOfMibView). It returns at
 // once the error of a failed request or of walkFn, and an error for a name in
 // the subtree that is not after the requested one (unless AppOpts has "c").
-// Known bugs: an empty answer, or one whose Error is TooBig through
-// InconsistentName other than NoSuchName (the end of an SNMPv1 MIB), ends the
-// walk without an error.
+// An answer whose Error is NoSuchName, the end of an SNMPv1 MIB, ends the walk
+// without an error. Known bugs: so do an empty answer and one whose Error is
+// another of TooBig through InconsistentName.
 func (x *GoSNMP) Walk(rootOid string, walkFn WalkFunc) error {
 	return x.walk(GetNextRequest, rootOid, walkFn)
 }

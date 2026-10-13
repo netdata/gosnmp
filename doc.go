@@ -83,9 +83,9 @@
 // Known bugs a client meets: once the agent's engine ID is known, a change of
 // it fails every authenticated request with [ErrUnknownEngineID], while a
 // client without authentication takes the new engine ID but keeps the old
-// context engine ID; the engine time is not advanced locally, so a request
-// after 150 s of silence is first answered with usmStatsNotInTimeWindows and
-// resent.
+// context engine ID; the engine time is not advanced locally, so an
+// authenticated request after 150 s of silence is first answered with
+// usmStatsNotInTimeWindows, and resent when the rules above allow it.
 //
 // # Walks
 //

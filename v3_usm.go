@@ -294,9 +294,10 @@ func (sp *UsmSecurityParameters) privacyKey() ([]byte, error) {
 // caller holds sp.mu or owns sp (a private copy). Known bugs: the engine ID is
 // adopted before the keys are derived, so a failed derivation leaves it
 // adopted with keys missing; keys given without passphrases are dropped too,
-// and the empty passphrases derive an empty authentication key, which
-// verifies a digest anyone can compute (isAuthentic), and no usable privacy
-// key.
+// and the empty passphrases derive keys as InitSecurityKeys does: an empty
+// authentication key, which verifies a digest anyone can compute
+// (isAuthentic), and an empty DES key, an AES key error, or a Blumenthal AES
+// key from nothing that anyone can compute.
 func (sp *UsmSecurityParameters) adoptEngineID(engineID string) error {
 	if sp.AuthoritativeEngineID == engineID {
 		return nil

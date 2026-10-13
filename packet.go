@@ -36,8 +36,9 @@ func (s SnmpVersion) String() string {
 
 // SnmpPacket is an SNMP message: a request, an answer or a trap. A decoded
 // packet holds the fields the message carried; its SecurityParameters are a
-// copy of the client's, protocols, passphrases and keys included, with the
-// message's fields decoded into them, and its Logger is the client's.
+// copy of the parameters it was decoded with (the client's, or on
+// UnmarshalTrap's table path the matching set's), protocols, passphrases and
+// keys included, with the message's fields decoded into them.
 type SnmpPacket struct {
 	// Version is the SNMP version.
 	Version SnmpVersion
