@@ -76,7 +76,7 @@ func (x *GoSNMP) settleReply(packetOut, reply *SnmpPacket, verified bool, err er
 		return reportKind{}, false, err
 	}
 	kind, isReport := reportKindOf(reply)
-	if !verified && (isReport || packetOut.MsgFlags&AuthNoPriv != 0) {
+	if !verified && (isReport || packetOut.MsgFlags.authFlag()) {
 		return kind, false, err
 	}
 	if x.Logger.enabled() {
@@ -102,7 +102,7 @@ func (x *GoSNMP) settleReply(packetOut, reply *SnmpPacket, verified bool, err er
 // an engine ID: the request would be signed for another engine with the same
 // credentials (section 1.5.2).
 func mayLend(packetOut, report *SnmpPacket, kind reportKind) bool {
-	if packetOut.MsgFlags&AuthNoPriv == 0 {
+	if !packetOut.MsgFlags.authFlag() {
 		return true
 	}
 	switch packetOut.PDUType {

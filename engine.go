@@ -257,7 +257,7 @@ func (e *exchange) encode() ([]byte, error) {
 	// agent's engine ID, and its answer checked with it; without one, anyone
 	// could sign either. The check follows the packet, as the signature does
 	// (SnmpPacket.authenticate).
-	if usp := usmOf(p.SecurityParameters); p.Version == Version3 && p.MsgFlags&AuthNoPriv != 0 &&
+	if usp := usmOf(p.SecurityParameters); p.Version == Version3 && p.MsgFlags.authFlag() &&
 		(usp == nil || len(usp.SecretKey) == 0) {
 		return nil, errAuthKeyRequired
 	}
@@ -359,10 +359,10 @@ func (e *exchange) decode(resp []byte) (_ *SnmpPacket, verified bool, _ error) {
 // request's key. It reports whether it checked the digest; any reply answers a
 // request without authentication unchecked.
 func (e *exchange) authenticate(resp []byte, reply *SnmpPacket) (bool, error) {
-	if e.packet.MsgFlags&AuthNoPriv == 0 {
+	if !e.packet.MsgFlags.authFlag() {
 		return false, nil
 	}
-	if reply.MsgFlags&AuthNoPriv == 0 {
+	if !reply.MsgFlags.authFlag() {
 		return false, errNotAuthentic
 	}
 	authentic, err := e.packet.SecurityParameters.usm().isAuthenticAnswer(resp, reply.SecurityParameters.usm())
@@ -385,7 +385,7 @@ func (e *exchange) authenticate(resp []byte, reply *SnmpPacket) (bool, error) {
 // authentication is invalid, RFC 3412 section 7.2) of the request's security
 // model that reportKindOf maps is kept.
 func (e *exchange) unauthenticatedReport(resp []byte, cursor int, reply *SnmpPacket) bool {
-	if reply.MsgFlags&AuthPriv != NoAuthNoPriv || reply.SecurityModel != e.packet.SecurityModel ||
+	if reply.MsgFlags.authFlag() || reply.MsgFlags.privFlag() || reply.SecurityModel != e.packet.SecurityModel ||
 		cursor >= len(resp) || PDUType(resp[cursor]) != Sequence {
 		return false
 	}
