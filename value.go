@@ -89,6 +89,16 @@ func decodeValue(tag Asn1BER, content []byte) (Asn1BER, any, error) {
 	}
 }
 
+// The identifier octet of the floats net-snmp wraps in an Opaque (see
+// decodeOpaque): AsnExtensionTag, a context-specific (AsnContext) tag in the
+// high-tag-number form (AsnExtensionID), whose number, OpaqueFloat or
+// OpaqueDouble, follows in the next octet.
+const (
+	AsnContext      = 0x80
+	AsnExtensionID  = 0x1F
+	AsnExtensionTag = (AsnContext | AsnExtensionID) // 0x9F
+)
+
 // decodeOpaque decodes the content of an Opaque value. net-snmp wraps floats
 // and doubles in an Opaque as a TLV whose identifier is the extension octet
 // 0x9f followed by the OpaqueFloat or OpaqueDouble tag: that TLV is read from

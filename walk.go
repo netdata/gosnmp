@@ -14,8 +14,8 @@ import (
 // SNMP Walk functions - Analogous to net-snmp's snmpwalk commands
 //
 
-// WalkFunc is the type of the function called for each data unit visited
-// by the Walk function.  If an error is returned processing stops.
+// WalkFunc is called for each value a walk visits; an error it returns ends
+// the walk with that error.
 type WalkFunc func(dataUnit SnmpPDU) error
 
 // BulkWalk walks the subtree under rootOid with GETBULK requests, calling
@@ -30,9 +30,9 @@ func (x *GoSNMP) BulkWalk(rootOid string, walkFn WalkFunc) error {
 }
 
 // BulkWalkAll is similar to BulkWalk but returns a filled array of all values
-// rather than using a callback function to stream results. Caution: if you
-// have set x.AppOpts to 'c', BulkWalkAll may loop indefinitely and cause an
-// Out Of Memory - use BulkWalk instead.
+// rather than using a callback function to stream results. Caution: when
+// AppOpts has "c", BulkWalkAll may loop until memory runs out; use BulkWalk
+// instead.
 func (x *GoSNMP) BulkWalkAll(rootOid string) (results []SnmpPDU, err error) {
 	return x.walkAll(GetBulkRequest, rootOid)
 }
@@ -50,9 +50,8 @@ func (x *GoSNMP) Walk(rootOid string, walkFn WalkFunc) error {
 }
 
 // WalkAll is similar to Walk but returns a filled array of all values rather
-// than using a callback function to stream results. Caution: if you have set
-// x.AppOpts to 'c', WalkAll may loop indefinitely and cause an Out Of Memory -
-// use Walk instead.
+// than using a callback function to stream results. Caution: when AppOpts
+// has "c", WalkAll may loop until memory runs out; use Walk instead.
 func (x *GoSNMP) WalkAll(rootOid string) (results []SnmpPDU, err error) {
 	return x.walkAll(GetNextRequest, rootOid)
 }
