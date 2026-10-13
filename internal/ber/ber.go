@@ -46,43 +46,37 @@ var (
 // an int holds wrap silently, while a length that overflows when the header is
 // added fails with ErrInvalidPacketLength. The indefinite form is rejected.
 func Length(bytes []byte) (int, int, error) {
-	var cursor, length int
 	switch {
 	case len(bytes) < 2:
 		// handle null octet strings ie "0x04 0x00"
-		cursor = len(bytes)
-		length = len(bytes)
-	case int(bytes[1]) <= 127:
-		length = int(bytes[1])
-		length += 2
-		cursor += 2
+		return len(bytes), len(bytes), nil
+	case bytes[1] <= 127:
+		return int(bytes[1]) + 2, 2, nil
 	case bytes[1] == 0x80:
 		// Indefinite length encoding (0x80) is prohibited in SNMP per RFC 3417 Section 8:
 		// "When encoding the length field, only the definite form is used;
 		// use of the indefinite form encoding is prohibited."
 		return 0, 0, fmt.Errorf("indefinite length encoding (0x80) is not permitted in SNMP")
-	default:
-		numOctets := int(bytes[1]) & 127
-		for i := range numOctets {
-			length <<= 8
-			if len(bytes) < 2+i+1 {
-				// Invalid data detected, return an error
-				return 0, 0, ErrInvalidPacketLength
-			}
-			length += int(bytes[2+i])
-			if length < 0 {
-				// Invalid length due to overflow, return an error
-				return 0, 0, ErrInvalidPacketLength
-			}
-		}
-		length += 2 + numOctets
-		cursor += 2 + numOctets
 	}
-	if length < 0 {
-		// Invalid data detected, return an error
+
+	numOctets := int(bytes[1]) & 127
+	if len(bytes) < 2+numOctets {
 		return 0, 0, ErrInvalidPacketLength
 	}
-	return length, cursor, nil
+	var length int
+	for _, b := range bytes[2 : 2+numOctets] {
+		length = length<<8 + int(b)
+		if length < 0 {
+			// Invalid length due to overflow, return an error
+			return 0, 0, ErrInvalidPacketLength
+		}
+	}
+	header := 2 + numOctets
+	if length += header; length < 0 {
+		// The header overflows the length.
+		return 0, 0, ErrInvalidPacketLength
+	}
+	return length, header, nil
 }
 
 // Int64 decodes the content octets of an INTEGER: a big-endian, two's

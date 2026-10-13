@@ -9,6 +9,8 @@ import (
 	"errors"
 	"math"
 	"math/bits"
+	"strconv"
+	"strings"
 )
 
 // Errors returned by AppendOID.
@@ -61,14 +63,12 @@ func End(dst []byte, start int) []byte {
 		dst[start-1] = byte(n) //nolint:gosec
 		return dst
 	}
-	k := (bits.Len(uint(n)) + 7) / 8
+	var buf [1 + 8]byte // the first length octet and up to eight more
+	length := AppendLength(buf[:0], n)
+	k := len(length) - 1
 	dst = append(dst, make([]byte, k)...)
 	copy(dst[start+k:], dst[start:start+n])
-	dst[start-1] = 0x80 | byte(k) //nolint:gosec
-	for i := k - 1; i >= 0; i-- {
-		dst[start+i] = byte(n)
-		n >>= 8
-	}
+	copy(dst[start-1:], length)
 	return dst
 }
 
@@ -114,26 +114,23 @@ func AppendFloat64(dst []byte, v float64) []byte {
 // trailing dots) are skipped. On error dst is returned unchanged.
 func AppendOID(dst []byte, oid string) ([]byte, error) {
 	start := len(dst)
-	var firstArc int64
+	var firstArc uint64
 	i := 0
-	for j := 0; j < len(oid); {
-		if oid[j] == '.' {
-			j++
+	for rest := oid; rest != ""; {
+		var arc string
+		arc, rest, _ = strings.Cut(rest, ".")
+		if arc == "" {
 			continue
 		}
-		var val int64
-		for j < len(oid) && oid[j] != '.' {
-			ch := int64(oid[j] - '0')
-			if ch > 9 {
-				return dst[:start], ErrInvalidOID
-			}
-			val = val*10 + ch
-			// Bounding each sub-identifier here also keeps the int64
-			// accumulator from wrapping on absurdly long digit runs.
-			if val > maxSubIdentifier {
-				return dst[:start], ErrOIDOutOfRange
-			}
-			j++
+		// Decimal digits only: no sign, underscore or base prefix. The
+		// first octet that is not a digit, or the digit taking the value
+		// past 2^32-1, decides the error.
+		val, err := strconv.ParseUint(arc, 10, 32)
+		if errors.Is(err, strconv.ErrRange) {
+			return dst[:start], ErrOIDOutOfRange
+		}
+		if err != nil {
+			return dst[:start], ErrInvalidOID
 		}
 		switch i {
 		case 0:
@@ -164,20 +161,9 @@ func AppendOID(dst []byte, oid string) ([]byte, error) {
 
 // appendBase128 appends n in base 128, most significant group first, with the
 // high bit set on every octet but the last.
-func appendBase128(dst []byte, n int64) []byte {
-	if n == 0 {
-		return append(dst, 0)
+func appendBase128(dst []byte, n uint64) []byte {
+	for i := (bits.Len64(n)+6)/7 - 1; i > 0; i-- {
+		dst = append(dst, byte(n>>(7*i))|0x80) //nolint:gosec // one 7-bit group
 	}
-	l := 0
-	for i := n; i > 0; i >>= 7 {
-		l++
-	}
-	for i := l - 1; i >= 0; i-- {
-		o := byte(n>>uint(i*7)) & 0x7f //nolint:gosec
-		if i != 0 {
-			o |= 0x80
-		}
-		dst = append(dst, o)
-	}
-	return dst
+	return append(dst, byte(n)&0x7f) //nolint:gosec // the last 7-bit group
 }
