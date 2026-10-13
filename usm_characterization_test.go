@@ -707,7 +707,7 @@ func TestUSMSalts(t *testing.T) {
 	t.Run("init seeds the counter of the AES or the DES protocols only", func(t *testing.T) {
 		for _, priv := range []SnmpV3PrivProtocol{0, NoPriv, DES, AES, AES192, AES256, AES192C, AES256C, 8} {
 			sp := &UsmSecurityParameters{PrivacyProtocol: priv}
-			require.NoError(t, sp.init(Logger{}))
+			sp.init(Logger{})
 			aes := priv >= AES && priv <= AES256C
 			assert.Equal(t, aes, sp.localAESSalt != 0, "%v AES counter", priv)
 			assert.Equal(t, priv == DES, sp.localDESSalt != 0, "%v DES counter", priv)

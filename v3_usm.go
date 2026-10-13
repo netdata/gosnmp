@@ -50,22 +50,21 @@ func (authProtocol SnmpV3AuthProtocol) HashType() crypto.Hash {
 	return crypto.MD5
 }
 
+// authSpecs describes the authentication protocols by value.
+var authSpecs = [...]usm.Auth{ //nolint:gochecknoglobals // a read-only table
+	MD5:    {Hash: crypto.MD5, MACLen: 12},
+	SHA:    {Hash: crypto.SHA1, MACLen: 12},
+	SHA224: {Hash: crypto.SHA224, MACLen: 16},
+	SHA256: {Hash: crypto.SHA256, MACLen: 24},
+	SHA384: {Hash: crypto.SHA384, MACLen: 32},
+	SHA512: {Hash: crypto.SHA512, MACLen: usm.MaxMACLen},
+}
+
 // spec describes the protocol; NoAuth, unset and unknown values have no
 // description.
 func (authProtocol SnmpV3AuthProtocol) spec() usm.Auth {
-	switch authProtocol {
-	case MD5:
-		return usm.Auth{Hash: crypto.MD5, MACLen: 12}
-	case SHA:
-		return usm.Auth{Hash: crypto.SHA1, MACLen: 12}
-	case SHA224:
-		return usm.Auth{Hash: crypto.SHA224, MACLen: 16}
-	case SHA256:
-		return usm.Auth{Hash: crypto.SHA256, MACLen: 24}
-	case SHA384:
-		return usm.Auth{Hash: crypto.SHA384, MACLen: 32}
-	case SHA512:
-		return usm.Auth{Hash: crypto.SHA512, MACLen: usm.MaxMACLen}
+	if int(authProtocol) < len(authSpecs) {
+		return authSpecs[authProtocol]
 	}
 	return usm.Auth{}
 }
@@ -96,22 +95,21 @@ const (
 
 //go:generate go tool -modfile=tools/go.mod stringer -type=SnmpV3PrivProtocol
 
+// privSpecs describes the privacy protocols by value.
+var privSpecs = [...]usm.Priv{ //nolint:gochecknoglobals // a read-only table
+	DES:     {Cipher: usm.DESCBC},
+	AES:     {Cipher: usm.AESCFB, KeyLen: 16},
+	AES192:  {Cipher: usm.AESCFB, KeyLen: 24, Extension: usm.Blumenthal},
+	AES256:  {Cipher: usm.AESCFB, KeyLen: 32, Extension: usm.Blumenthal},
+	AES192C: {Cipher: usm.AESCFB, KeyLen: 24, Extension: usm.Reeder},
+	AES256C: {Cipher: usm.AESCFB, KeyLen: 32, Extension: usm.Reeder},
+}
+
 // spec describes the protocol; NoPriv, unset and unknown values have no
 // description.
 func (privProtocol SnmpV3PrivProtocol) spec() usm.Priv {
-	switch privProtocol {
-	case DES:
-		return usm.Priv{Cipher: usm.DESCBC}
-	case AES:
-		return usm.Priv{Cipher: usm.AESCFB, KeyLen: 16}
-	case AES192:
-		return usm.Priv{Cipher: usm.AESCFB, KeyLen: 24, Extension: usm.Blumenthal}
-	case AES256:
-		return usm.Priv{Cipher: usm.AESCFB, KeyLen: 32, Extension: usm.Blumenthal}
-	case AES192C:
-		return usm.Priv{Cipher: usm.AESCFB, KeyLen: 24, Extension: usm.Reeder}
-	case AES256C:
-		return usm.Priv{Cipher: usm.AESCFB, KeyLen: 32, Extension: usm.Reeder}
+	if int(privProtocol) < len(privSpecs) {
+		return privSpecs[privProtocol]
 	}
 	return usm.Priv{}
 }
@@ -370,49 +368,34 @@ func (sp *UsmSecurityParameters) validate(flags SnmpV3MsgFlags) error {
 		return fmt.Errorf("validate: MsgFlags must be populated with an appropriate security level")
 	}
 
-	if sp.PrivacyProtocol > NoPriv && len(sp.PrivacyKey) == 0 {
-		if sp.PrivacyPassphrase == "" {
-			return fmt.Errorf("securityParameters.PrivacyPassphrase is required when a privacy protocol is specified")
-		}
+	if sp.PrivacyProtocol > NoPriv && len(sp.PrivacyKey) == 0 && sp.PrivacyPassphrase == "" {
+		return fmt.Errorf("securityParameters.PrivacyPassphrase is required when a privacy protocol is specified")
 	}
-
-	if sp.AuthenticationProtocol > NoAuth && len(sp.SecretKey) == 0 {
-		if sp.AuthenticationPassphrase == "" {
-			return fmt.Errorf("securityParameters.AuthenticationPassphrase is required when an authentication protocol is specified")
-		}
+	if sp.AuthenticationProtocol > NoAuth && len(sp.SecretKey) == 0 && sp.AuthenticationPassphrase == "" {
+		return fmt.Errorf("securityParameters.AuthenticationPassphrase is required when an authentication protocol is specified")
 	}
 
 	return nil
 }
 
 // init sets the logger and seeds the salt counter of the privacy protocol with
-// random bits.
-func (sp *UsmSecurityParameters) init(log Logger) error {
+// random bits. crypto/rand.Read never fails (Go 1.24 and later).
+func (sp *UsmSecurityParameters) init(log Logger) {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
-
-	var err error
 
 	sp.Logger = log
 
 	switch sp.PrivacyProtocol.spec().Cipher {
 	case usm.AESCFB:
-		salt := make([]byte, 8)
-		_, err = crand.Read(salt)
-		if err != nil {
-			return fmt.Errorf("error creating a cryptographically secure salt: %w", err)
-		}
-		sp.localAESSalt = binary.BigEndian.Uint64(salt)
+		var salt [8]byte
+		_, _ = crand.Read(salt[:])
+		sp.localAESSalt = binary.BigEndian.Uint64(salt[:])
 	case usm.DESCBC:
-		salt := make([]byte, 4)
-		_, err = crand.Read(salt)
-		if err != nil {
-			return fmt.Errorf("error creating a cryptographically secure salt: %w", err)
-		}
-		sp.localDESSalt = binary.BigEndian.Uint32(salt)
+		var salt [4]byte
+		_, _ = crand.Read(salt[:])
+		sp.localDESSalt = binary.BigEndian.Uint32(salt[:])
 	}
-
-	return nil
 }
 
 // passwordCache derives the keys of every UsmSecurityParameters.
