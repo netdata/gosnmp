@@ -30,27 +30,33 @@
 // request ID (and SNMPv3 msgID) and waits up to Timeout for an answer, or
 // until the Context's deadline when that comes first; ExponentialTimeout
 // doubles the timeout before each retry. An answer to any earlier attempt of
-// the same request answers it too. A write or read error, a timeout, a reply
-// that does not decode or authenticate, and a TCP connection the agent closed
-// (the client reopens it) start the next attempt. An answer ends the request,
-// and so do an encoding error, a Context that is done before an attempt
-// starts, a failure to set the deadline and a failed TCP reconnect. When the
-// attempts run out, the request fails with the last attempt's error, except
-// that a timeout gives an error whose text starts with "request timeout", and
-// a reconnect one that starts with "max retries"; the Context's deadline
-// ending an attempt gives [context.DeadlineExceeded]. An answer's error status
-// ([SnmpPacket].Error) is not an error of the request. Connect's dial uses
-// Timeout and the Context too. Known bugs: a cancellation is noticed only when
-// the attempt's deadline passes, and in the last attempt it ends as a request
-// timeout; a Response without varbinds or error status, or with request ID 0,
-// answers a request whatever its request ID.
+// the same request answers it too. A timeout (a write or read error matching
+// [os.ErrDeadlineExceeded]), another write or read error (except
+// [net.ErrClosed]), a reply that does not decode or authenticate, and a TCP
+// connection the agent closed (the client reopens it) start the next attempt,
+// unless the Context is done, which ends the request with the Context's
+// error, or the attempt timed out at the Context's deadline, which ends it
+// with [context.DeadlineExceeded] even before the Context reports its
+// deadline. An answer ends the request, and so do a connection closed under
+// it ([net.ErrClosed]), an encoding error, a Context that is done before an
+// attempt starts, a failure to set the deadline and a failed TCP reconnect (a
+// done Context fails it with an error that matches the Context's).
+// When the attempts run out, the request fails with the last attempt's error,
+// except that after a timeout the error's text is "request timeout (after N
+// retries)" and after a reconnect "max retries (N) exceeded"; both unwrap to
+// the attempt's reason (the timeout, a [net.Error]; [io.EOF]). An answer's
+// error status ([SnmpPacket].Error) is not an error of the request. Connect's
+// dial uses Timeout and the Context too. Known bugs: a cancellation is noticed
+// only when the attempt's deadline passes; a Response without varbinds or
+// error status, or with request ID 0, answers a request whatever its request
+// ID.
 //
 // # Hooks
 //
 // In each attempt, PreSend runs after the request is encoded, OnSent after it
 // is written, and OnRecv after each reply is read, before it is decoded.
-// OnRetry runs after an attempt that failed in a way the next attempt may
-// cure, OnFinish when an exchange ends without an error. An SNMPv3 request can
+// OnRetry runs before each retry, after the decision to make one, and
+// OnFinish when an exchange ends without an error. An SNMPv3 request can
 // make up to three exchanges, each with its own hooks: the engine discovery,
 // the request, and one resend (see below).
 //

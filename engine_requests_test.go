@@ -13,6 +13,7 @@ import (
 	"log"
 	"maps"
 	"net"
+	"os"
 	"regexp"
 	"runtime"
 	"slices"
@@ -143,6 +144,14 @@ var errEngineWrite = errors.New("codec write failure")
 // closed.
 var refused = &net.OpError{Op: "read", Net: "udp", Err: syscall.ECONNREFUSED}
 
+// closedRead, closedWrite and closedSet are the errors of a read, a write and
+// a deadline on a UDP socket that net.Conn.Close closed during a request.
+var (
+	closedRead  = &net.OpError{Op: "read", Net: "udp", Err: net.ErrClosed}
+	closedWrite = &net.OpError{Op: "write", Net: "udp", Err: net.ErrClosed}
+	closedSet   = &net.OpError{Op: "set", Net: "udp", Err: net.ErrClosed}
+)
+
 // withEngineTimeout gives a context that times out after d.
 func withEngineTimeout(d time.Duration) func() (context.Context, context.CancelFunc) {
 	return func() (context.Context, context.CancelFunc) {
@@ -151,11 +160,41 @@ func withEngineTimeout(d time.Duration) func() (context.Context, context.CancelF
 }
 
 // canceledAfter gives a context canceled after d.
+// canceledAfter gives a context canceled after d. A cancellation at the
+// instant an attempt's deadline passes races the read's timeout, so scenarios
+// cancel between attempt boundaries.
 func canceledAfter(d time.Duration) func() (context.Context, context.CancelFunc) {
 	return func() (context.Context, context.CancelFunc) {
 		ctx, cancel := context.WithCancel(context.Background())
 		time.AfterFunc(d, cancel)
 		return ctx, cancel
+	}
+}
+
+// canceledBeforeDeadline gives a context with deadline d, canceled after
+// cancelAt.
+func canceledBeforeDeadline(cancelAt, d time.Duration) func() (context.Context, context.CancelFunc) {
+	return func() (context.Context, context.CancelFunc) {
+		ctx, cancel := context.WithTimeout(context.Background(), d)
+		time.AfterFunc(cancelAt, cancel)
+		return ctx, cancel
+	}
+}
+
+// unreportedDeadline is a context with a deadline that it does not report as
+// passed: on a real clock, the moment between the deadline and the timer that
+// cancels the context, which a synctest bubble never shows.
+type unreportedDeadline struct {
+	context.Context
+	deadline time.Time
+}
+
+func (c unreportedDeadline) Deadline() (time.Time, bool) { return c.deadline, true }
+
+// withUnreportedDeadline gives an unreportedDeadline context with deadline d.
+func withUnreportedDeadline(d time.Duration) func() (context.Context, context.CancelFunc) {
+	return func() (context.Context, context.CancelFunc) {
+		return unreportedDeadline{context.Background(), time.Now().Add(d)}, func() {}
 	}
 }
 
@@ -230,7 +269,7 @@ func engineScenarios() map[string]engineScenario {
 		"custom-conn": {shape: shapeStream, agent: answer(sysDescr)},
 
 		// Timeouts and retries.
-		"timeout":                  {knownBug: "OnRetry runs even when no retry follows"},
+		"timeout":                  {},
 		"timeout/exponential":      {setup: func(x *GoSNMP, _ *fakeTransport) { x.ExponentialTimeout = true }},
 		"timeout/no-retries":       {setup: func(x *GoSNMP, _ *fakeTransport) { x.Retries = 0 }},
 		"timeout/negative-retries": {setup: func(x *GoSNMP, _ *fakeTransport) { x.Retries = -3 }},
@@ -397,12 +436,9 @@ func engineScenarios() map[string]engineScenario {
 		"write-error/always": {agent: answer(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
 			c.failWrite = func(int) error { return errEngineWrite }
 		}},
-		"write-error/timeout-in-text": {
-			agent: answer(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
-				c.failWrite = func(int) error { return errors.New("codec timeout of the write queue") }
-			},
-			knownBug: "a timeout is recognized by the word in the error's text, so another error with that word becomes a request timeout",
-		},
+		"write-error/timeout-in-text": {agent: answer(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
+			c.failWrite = func(int) error { return errors.New("codec timeout of the write queue") }
+		}},
 		"deadline-error": {agent: answer(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
 			c.deadlineErr = errors.New("codec deadline failure")
 		}},
@@ -411,6 +447,20 @@ func engineScenarios() map[string]engineScenario {
 		}},
 		"read-error/always": {agent: answer(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
 			c.failRead = func(int) error { return refused }
+		}},
+		// The connection closed under the read and under the write: from then
+		// on its deadline cannot be set either.
+		"read-error/closed": {agent: answer(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
+			c.failRead = func(int) error {
+				c.deadlineErr = closedSet
+				return closedRead
+			}
+		}},
+		"write-error/closed": {agent: answer(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
+			c.failWrite = func(int) error {
+				c.deadlineErr = closedSet
+				return closedWrite
+			}
 		}},
 		"read-eof/udp": {agent: answerFromSecond(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
 			c.failRead = func(n int) error { return map[int]error{1: io.EOF}[n] }
@@ -443,14 +493,33 @@ func engineScenarios() map[string]engineScenario {
 				}
 			},
 		},
+		// The deadline rule does not wait for the Context to report its
+		// deadline, also when the deadlines are equal.
+		"context/deadline-unreported-in-first-attempt": {context: withUnreportedDeadline(700 * time.Millisecond)},
+		"context/deadline-unreported-equal-to-timeout": {
+			context: withUnreportedDeadline(time.Second),
+			setup:   func(x *GoSNMP, _ *fakeTransport) { x.Retries = 0 },
+		},
+		// A Context whose deadline passed ends the request after an attempt
+		// that failed otherwise, before OnRetry.
+		"context/deadline-passed-in-hook": {
+			context: withEngineTimeout(700 * time.Millisecond),
+			setup: func(x *GoSNMP, c *fakeTransport) {
+				x.OnSent = func(*GoSNMP) {
+					c.tr.addf("hook OnSent, which takes 1s")
+					time.Sleep(time.Second)
+				}
+				c.failRead = func(int) error { return refused }
+			},
+		},
+		// A Context canceled before its deadline ends the request with
+		// context.Canceled, though the deadline ends the attempt.
+		"context/canceled-before-deadline": {context: canceledBeforeDeadline(300*time.Millisecond, 700*time.Millisecond)},
 		"context/canceled-while-waiting": {
 			context:  canceledAfter(300 * time.Millisecond),
 			knownBug: "cancellation is noticed only when the attempt's deadline passes",
 		},
-		"context/canceled-in-last-attempt": {
-			context:  canceledAfter(2300 * time.Millisecond),
-			knownBug: "a cancellation during the last attempt is reported as a request timeout",
-		},
+		"context/canceled-in-last-attempt": {context: canceledAfter(2300 * time.Millisecond)},
 
 		// Request IDs.
 		"request-id/wraps": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.requestID.Store(0x7FFFFFFF) }},
@@ -569,20 +638,19 @@ func TestEngineTCPReconnect(t *testing.T) {
 		wantErr        string        // describeEngineError, the dial address masked; "" for a reply
 		wantHooks      []string
 		wantRequests   int32 // requests the agent read
-		knownBug       string
 	}{
 		"retries run out": {
-			acceptAgain: true, wantErr: `error "max retries (1) exceeded" *errors.errorString`,
-			wantHooks: []string{"PreSend", "OnSent", "OnRetry", "PreSend", "OnSent", "OnRetry"}, wantRequests: 2,
+			acceptAgain: true, wantErr: `error "max retries (1) exceeded" *gosnmp.attemptsError (is io.EOF)`,
+			wantHooks: []string{"PreSend", "OnSent", "OnRetry", "PreSend", "OnSent"}, wantRequests: 2,
 		},
 		"retries run out, tcp4": {
-			transport: "tcp4", acceptAgain: true, wantErr: `error "max retries (1) exceeded" *errors.errorString`,
-			wantHooks: []string{"PreSend", "OnSent", "OnRetry", "PreSend", "OnSent", "OnRetry"}, wantRequests: 2,
+			transport: "tcp4", acceptAgain: true, wantErr: `error "max retries (1) exceeded" *gosnmp.attemptsError (is io.EOF)`,
+			wantHooks: []string{"PreSend", "OnSent", "OnRetry", "PreSend", "OnSent"}, wantRequests: 2,
 		},
 		"retries run out after a timeout": {
 			acceptAgain: true, ignoreFirst: true, timeout: 200 * time.Millisecond,
-			wantErr:   `error "max retries (1) exceeded" *errors.errorString`,
-			wantHooks: []string{"PreSend", "OnSent", "OnRetry", "PreSend", "OnSent", "OnRetry"}, wantRequests: 2,
+			wantErr:   `error "max retries (1) exceeded" *gosnmp.attemptsError (is io.EOF)`,
+			wantHooks: []string{"PreSend", "OnSent", "OnRetry", "PreSend", "OnSent"}, wantRequests: 2,
 		},
 		"reply to the first request after the reconnect": {
 			acceptAgain: true, staleReply: true, timeout: 500 * time.Millisecond,
@@ -593,11 +661,9 @@ func TestEngineTCPReconnect(t *testing.T) {
 			wantErr:   `error "dial tcp <address>: connect: connection refused" *net.OpError (is syscall.ECONNREFUSED)`,
 			wantHooks: []string{"PreSend", "OnSent"}, wantRequests: 1,
 		},
-		"context deadline": {
-			acceptAgain: true, contextTimeout: 5 * time.Second,
-			wantErr:   `error "recover: runtime error: invalid memory address or nil pointer dereference Stack: ..." *errors.errorString`,
-			wantHooks: []string{"PreSend", "OnSent", "OnRetry"}, wantRequests: 1,
-			knownBug: "after the reconnect under a context deadline, the engine reads the nil error of the reconnect",
+		"retries run out under a context deadline": {
+			acceptAgain: true, contextTimeout: 5 * time.Second, wantErr: `error "max retries (1) exceeded" *gosnmp.attemptsError (is io.EOF)`,
+			wantHooks: []string{"PreSend", "OnSent", "OnRetry", "PreSend", "OnSent"}, wantRequests: 2,
 		},
 	}
 	dialAddress := regexp.MustCompile(`dial tcp \S+: `)
@@ -684,7 +750,7 @@ func TestEngineTCPReconnect(t *testing.T) {
 			default:
 				require.Error(t, err)
 				got := dialAddress.ReplaceAllString(describeEngineError(err), "dial tcp <address>: ")
-				assert.Equal(t, tc.wantErr, got, "known bug: %q", tc.knownBug)
+				assert.Equal(t, tc.wantErr, got)
 			}
 			assert.Equal(t, tc.wantHooks, hooks, "hooks")
 			assert.Equal(t, tc.wantRequests, requests.Load(), "requests the agent read")
@@ -714,6 +780,38 @@ func serveTCPRequests(conn net.Conn, handle func(req []byte) (reply []byte, keep
 			return
 		}
 	}
+}
+
+// TestEngineRequestTimeoutError checks what a caller that classifies errors
+// sees when every attempt of a request times out on a real socket: the text
+// "request timeout", unwrapping to the last attempt's read deadline, a
+// timeout net.Error.
+func TestEngineRequestTimeoutError(t *testing.T) {
+	agent, err := net.ListenPacket("udp4", "127.0.0.1:0") // it never answers
+	require.NoError(t, err)
+	defer agent.Close()
+
+	x := &GoSNMP{
+		Target:    "127.0.0.1",
+		Port:      uint16(agent.LocalAddr().(*net.UDPAddr).Port), //nolint:gosec // a UDP port
+		Community: "public",
+		Version:   Version2c,
+		Timeout:   50 * time.Millisecond,
+		Retries:   1,
+	}
+	require.NoError(t, x.Connect())
+	defer x.Close()
+
+	_, err = x.Get([]string{engineOID})
+	require.Error(t, err)
+	type classified struct {
+		text            string
+		deadline        bool
+		timeoutNetError bool
+	}
+	var ne net.Error
+	assert.Equal(t, classified{text: "request timeout (after 1 retries)", deadline: true, timeoutNetError: true},
+		classified{err.Error(), errors.Is(err, os.ErrDeadlineExceeded), errors.As(err, &ne) && ne.Timeout()})
 }
 
 // TestEngineReplyLogger pins that a reply carries the client's Logger.

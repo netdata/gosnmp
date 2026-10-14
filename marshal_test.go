@@ -6,10 +6,12 @@ package gosnmp
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
+	"os"
 	"reflect"
 	"runtime"
 	"strings"
@@ -1626,7 +1628,8 @@ func TestSendOneRequest_TCP_EOF_Reconnect(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error due to EOF, got nil")
 	}
-	if !strings.Contains(err.Error(), "timeout") && !strings.Contains(err.Error(), "max retries") {
+	// The reconnected attempt times out or meets EOF again.
+	if !errors.Is(err, os.ErrDeadlineExceeded) && !errors.Is(err, io.EOF) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
