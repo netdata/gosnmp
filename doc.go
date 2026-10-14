@@ -63,8 +63,9 @@
 // connection the agent closed ([io.EOF]) start the next attempt, unless the
 // Context is done, which ends the request with the Context's error, or the
 // attempt timed out at the Context's deadline, which ends it with
-// [context.DeadlineExceeded] even before the Context reports its deadline. A Context that is done during an attempt ends its write or wait at
-// once. An answer ends the request, and so do a connection closed under it
+// [context.DeadlineExceeded] even before the Context reports its deadline. A
+// Context that is done during an attempt ends its write or wait at once. An
+// answer ends the request, and so do a connection closed under it
 // ([net.ErrClosed]), a client closed by Close, an encoding error, a Context
 // that is done before an attempt starts, a failure to set the deadline and a
 // failed TCP reopen (a done Context fails it with an error that matches the
