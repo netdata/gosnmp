@@ -98,9 +98,9 @@ type pendingReply struct {
 // write fails the same way once the write deadline has passed. Writes and
 // reads can be made to fail by number. A deadline set and a Close from another
 // goroutine wake a waiting read; after Close, reads, writes and deadlines fail
-// with net.ErrClosed, as on a socket. An io.EOF read on a TCP client makes
-// the engine reconnect with a real dial, so those cases run on loopback
-// sockets (TestEngineTCPReconnect).
+// with net.ErrClosed, as on a socket. A TCP client opens a lost connection
+// again with a real dial, so those cases run on loopback sockets
+// (TestEngineTCPReconnect, TestEngineTCPLostConnection).
 type fakeTransport struct {
 	tr    *engineTranscript
 	agent engineAgent

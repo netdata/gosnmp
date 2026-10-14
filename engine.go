@@ -38,7 +38,7 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 	}()
 
 	cfg := x.prepareRequest()
-	if _, _, err = x.clientConnection(); err != nil {
+	if _, _, _, err = x.clientConnection(); err != nil {
 		return nil, err
 	}
 	if x.Logger.enabled() {
@@ -114,7 +114,7 @@ type requestConfig struct {
 	timeout            time.Duration
 	retries            int
 	exponentialTimeout bool
-	// dial is how a TCP reconnect opens a Conn the caller set again.
+	// dial is how a TCP reopen opens a Conn the caller set again.
 	dial                                       dialSettings
 	preSend, onSent, onRecv, onRetry, onFinish func(*GoSNMP)
 }
@@ -178,9 +178,9 @@ const (
 	attemptTransportError
 	// attemptInvalidReply: a reply did not decode or authenticate.
 	attemptInvalidReply
-	// attemptReconnected: the agent closed the TCP connection (io.EOF), and the
-	// client opened a new one.
-	attemptReconnected
+	// attemptAgentClosed: the agent closed the TCP connection (io.EOF), which
+	// the next attempt opens again.
+	attemptAgentClosed
 	// attemptClosed: the write or the read failed on a closed connection
 	// (net.ErrClosed), or Close closed the client.
 	attemptClosed
@@ -195,7 +195,7 @@ const (
 // so.
 func (k attemptKind) retryable() bool {
 	switch k {
-	case attemptTimeout, attemptTransportError, attemptInvalidReply, attemptReconnected:
+	case attemptTimeout, attemptTransportError, attemptInvalidReply, attemptAgentClosed:
 		return true
 	}
 	return false
@@ -212,21 +212,34 @@ type attemptOutcome struct {
 	verified bool
 }
 
-// ioOutcome is the outcome of an attempt whose write or read failed with err.
-func ioOutcome(err error) attemptOutcome {
+// ioFailure is the outcome of an attempt whose write or read on c failed with
+// err. A TCP connection that fails otherwise than by the attempt's deadline
+// or a close (net.ErrClosed), as when the agent closed or reset it, is lost:
+// the next attempt opens it again.
+func (x *GoSNMP) ioFailure(c *connection, err error) attemptOutcome {
+	tcpConn := strings.HasPrefix(c.dial.network, tcp)
+	var out attemptOutcome
 	switch {
 	case errors.Is(err, os.ErrDeadlineExceeded):
 		return attemptOutcome{kind: attemptTimeout, err: err}
 	case errors.Is(err, net.ErrClosed):
 		return attemptOutcome{kind: attemptClosed, err: err}
+	case tcpConn && errors.Is(err, io.EOF):
+		out = attemptOutcome{kind: attemptAgentClosed, err: err}
+	default:
+		out = attemptOutcome{kind: attemptTransportError, err: err}
 	}
-	return attemptOutcome{kind: attemptTransportError, err: err}
+	if tcpConn {
+		x.Logger.Printf("ERROR: the TCP connection is lost: %v", err)
+		x.markLost(c.conn)
+	}
+	return out
 }
 
 // attemptsError is the error of a request whose attempts ran out after a
-// timeout or a reconnect: a text callers know, unwrapping to the last
-// attempt's reason (the write's or the read's deadline error, a timeout
-// net.Error; io.EOF).
+// timeout or with the agent closing the TCP connection: a text callers know,
+// unwrapping to the last attempt's reason (the write's or the read's deadline
+// error, a timeout net.Error; io.EOF).
 type attemptsError struct {
 	text   string
 	reason error
@@ -278,8 +291,8 @@ func (x *GoSNMP) sendOneRequest(cfg *requestConfig, packetOut *SnmpPacket) (*Snm
 // which ended with out, a failure another attempt may cure: it returns the
 // request's error when none follows. A done Context ends the request with its
 // error, a timeout at the Context's deadline with context.DeadlineExceeded,
-// and the last attempt with its own error, or, after a timeout or a
-// reconnect, with an attemptsError.
+// and the last attempt with its own error, or, after a timeout or the agent
+// closing the TCP connection, with an attemptsError.
 func (e *exchange) endErr(n int, out attemptOutcome) error {
 	if err := e.cfg.ctx.Err(); err != nil {
 		return err
@@ -293,7 +306,7 @@ func (e *exchange) endErr(n int, out attemptOutcome) error {
 	switch out.kind {
 	case attemptTimeout:
 		return &attemptsError{text: fmt.Sprintf("request timeout (after %d retries)", n), reason: out.err}
-	case attemptReconnected:
+	case attemptAgentClosed:
 		return &attemptsError{text: fmt.Sprintf("max retries (%d) exceeded", e.cfg.retries), reason: out.err}
 	}
 	return out.err
@@ -351,7 +364,7 @@ func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
 		x.Logger.Printf("SENDING PACKET: %s", e.packet.SafeString())
 	}
 	if err = c.write(outBuf); err != nil {
-		return ioOutcome(err)
+		return x.ioFailure(&c, err)
 	}
 	if e.cfg.onSent != nil {
 		e.cfg.onSent(x)
@@ -402,13 +415,13 @@ func (e *exchange) await(c *connection, earlier []sentIDs) attemptOutcome {
 			x.Logger.Print("WAITING RESPONSE...")
 		}
 		resp, err := c.receive(x.rxBuf)
-		if err == io.EOF && strings.HasPrefix(c.dial.network, tcp) {
-			// The agent closed the connection: reconnect for the next attempt.
-			x.Logger.Printf("ERROR: EOF. Performing reconnect")
-			return x.reconnect(e.cfg.ctx, e.cfg.timeout, c)
-		}
 		if err != nil {
-			return ioOutcome(err)
+			if errors.Is(err, errReplyTooBig) {
+				// The connection did not fail: a TCP reply is read whole only
+				// when one read takes it (receive's known bug).
+				return attemptOutcome{kind: attemptTransportError, err: err}
+			}
+			return x.ioFailure(c, err)
 		}
 		if e.cfg.onRecv != nil {
 			e.cfg.onRecv(x)

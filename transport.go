@@ -44,7 +44,7 @@ func (x *GoSNMP) ConnectIPv6() error {
 // once Close has run, a request whose attempt ends without a reply fails with
 // an error wrapping net.ErrClosed, as do later requests until Connect opens a
 // connection or Conn is set (see the package documentation). Close does not
-// cut a TCP reconnect's dial short; the dial's timeout and the Context bound
+// cut the dial of a TCP reopen short; the dial's timeout and the Context bound
 // it. Only the first call closes the connection; later calls, and calls on a
 // client without a connection, return nil.
 func (x *GoSNMP) Close() error {
@@ -173,51 +173,79 @@ func (x *GoSNMP) isClosed() bool {
 
 // connectionFor returns the client's connection for an attempt of the request
 // with configuration cfg: the connection the client opened, or a Conn the
-// caller set, with the request's settings (adopt). It fails without a
-// connection, with net.ErrClosed after Close.
+// caller set, with the request's settings (adopt); a lost TCP connection it
+// opens again first (reopen). It fails without a connection, with
+// net.ErrClosed after Close, and with the error of a failed reopen.
 func (x *GoSNMP) connectionFor(cfg *requestConfig) (connection, error) {
-	c, opened, err := x.clientConnection()
-	if err != nil || opened {
-		return c, err
+	c, opened, lost, err := x.clientConnection()
+	if err != nil {
+		return connection{}, err
 	}
-	return cfg.dial.adopt(c.conn)
+	if !opened {
+		if c, err = cfg.dial.adopt(c.conn); err != nil {
+			return connection{}, err
+		}
+	}
+	if lost {
+		return x.reopen(cfg.ctx, cfg.timeout, c)
+	}
+	return c, nil
 }
 
 // clientConnection returns the client's connection: the record of the one the
-// client opened (opened), or one that holds only a Conn the caller set. It
-// fails without a connection, with net.ErrClosed after Close.
-func (x *GoSNMP) clientConnection() (c connection, opened bool, err error) {
+// client opened (opened), or one that holds only a Conn the caller set, and
+// whether it is lost: the connection markLost recorded, while Conn holds it.
+// It fails without a connection, with net.ErrClosed after Close.
+func (x *GoSNMP) clientConnection() (c connection, opened, lost bool, err error) {
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	switch {
 	case x.Conn == nil && x.closed:
-		return connection{}, false, errClosed
+		return connection{}, false, false, errClosed
 	case x.Conn == nil:
-		return connection{}, false, errNoConn
+		return connection{}, false, false, errNoConn
+	}
+	if x.lost != nil && !sameConn(x.Conn, x.lost) {
+		x.lost = nil // Connect, a reopen or the caller replaced it
+	}
+	lost = x.lost != nil
 	// opened.conn is nil or a connection open made, of a comparable type, so
 	// == cannot panic: values of different types are unequal.
-	case x.Conn == x.opened.conn:
-		return x.opened, true, nil
+	if x.Conn == x.opened.conn {
+		return x.opened, true, lost, nil
 	}
-	return connection{conn: x.Conn}, false, nil
+	return connection{conn: x.Conn}, false, lost, nil
 }
 
-// reconnect opens c, the client's connection the agent closed, again, and
-// replaces it with the new one, which it closes instead when c is no longer
-// the client's connection (after Close, or a hook that replaced Conn, which
-// the next attempt then uses; sameConn says which replacement it cannot see).
-// A failed dial leaves c in place and ends the attempt with its error.
-func (x *GoSNMP) reconnect(ctx context.Context, timeout time.Duration, c *connection) attemptOutcome {
+// markLost records that conn, the TCP connection an attempt used, is lost:
+// while Conn holds it, the next attempt opens it again.
+func (x *GoSNMP) markLost(conn net.Conn) {
+	x.mu.Lock()
+	x.lost = conn
+	x.mu.Unlock()
+}
+
+// errReopenSuperseded is the error of a reopen whose connection is no longer
+// the client's when its dial completes: Close ran meanwhile.
+var errReopenSuperseded = errors.New("the client's connection changed while it was reopened")
+
+// reopen opens c, the client's lost TCP connection, again, with the settings
+// it was opened with, within ctx and timeout, and makes the new connection the
+// client's in its place, closing c; when c is no longer the client's
+// connection, it closes the new one instead and fails. A failed dial leaves c
+// the client's connection, still lost, for the next attempt.
+func (x *GoSNMP) reopen(ctx context.Context, timeout time.Duration, c connection) (connection, error) {
+	x.Logger.Print("Reopening the lost TCP connection")
 	nc, err := c.dial.open(ctx, timeout)
 	if err != nil {
-		return attemptOutcome{kind: attemptFailed, err: err}
+		return connection{}, err
 	}
-	if x.replace(c.conn, nc) {
-		_ = c.conn.Close()
-	} else {
+	if !x.replace(c.conn, nc) {
 		_ = nc.conn.Close()
+		return connection{}, errReopenSuperseded
 	}
-	return attemptOutcome{kind: attemptReconnected, err: io.EOF}
+	_ = c.conn.Close()
+	return nc, nil
 }
 
 // replace makes nc the client's connection while old is, and reports whether
@@ -252,7 +280,7 @@ func sameConn(conn, old net.Conn) bool {
 }
 
 // dialSettings are how the client opens a connection: what Connect reads from
-// the client, and what a TCP reconnect opens again.
+// the client, and what a TCP reopen opens again.
 type dialSettings struct {
 	// network is "udp" or "tcp", either with "4" or "6".
 	network   string
@@ -374,6 +402,9 @@ func (c *connection) write(b []byte) error {
 
 const rxBufSize = 65535 // max size of IPv4 & IPv6 packet
 
+// errReplyTooBig is the error of a read that filled the receive buffer.
+var errReplyTooBig = errors.New("response buffer too small")
+
 // receive reads one reply from the connection into buf. Known bug: a TCP
 // reply is taken from a single Read, so a reply split over several reads fails
 // to decode.
@@ -396,7 +427,7 @@ func (c *connection) receive(buf *[rxBufSize]byte) ([]byte, error) {
 	if n == rxBufSize {
 		// A read that fills the buffer may have cut the reply short: a datagram
 		// cannot be this large, a TCP stream can.
-		return nil, fmt.Errorf("response buffer too small")
+		return nil, errReplyTooBig
 	}
 
 	resp := make([]byte, n)

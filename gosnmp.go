@@ -49,7 +49,7 @@ type GoSNMP struct {
 	// Conn is the connection to the agent, opened by Connect, or set by the
 	// caller in its place: the client then lacks Connect's defaults and checks,
 	// so the caller sets the fields it needs (MaxOids, for one); a request
-	// supplies its Context default, receive buffer and IDs, a TCP reconnect
+	// supplies its Context default, receive buffer and IDs, a TCP reopen
 	// opens it again with the request's Transport, Target, Port, LocalAddr and
 	// Control, and with UseUnconnectedUDPSocket each request writes to the
 	// Target and Port it read. The client owns the connection Conn holds: Close
@@ -120,9 +120,9 @@ type GoSNMP struct {
 	// OnRetry is called before each retry: after an attempt that failed in a
 	// way another attempt may cure (a timeout, another write or read error
 	// than a closed connection, a reply that does not decode or authenticate,
-	// a TCP connection the agent closed and the client reopened), when another
-	// attempt follows. It is not called after the last attempt, nor when the
-	// Context is done.
+	// a TCP connection the agent closed, which the next attempt opens again),
+	// when another attempt follows. It is not called after the last attempt,
+	// nor when the Context is done.
 	OnRetry func(*GoSNMP)
 
 	// OnFinish is called each time an exchange (a request and the answer to
@@ -208,15 +208,18 @@ type GoSNMP struct {
 	// rxBuf is the receive buffer, allocated by the first request.
 	rxBuf *[rxBufSize]byte // has to be pointer due to https://github.com/golang/go/issues/11728
 
-	// mu guards Conn, opened, closed and attempt against Close, which may run
-	// on any goroutine: Connect, Close and the TCP reconnect change them under
-	// it, each attempt reads them and registers itself under it.
+	// mu guards Conn, opened, closed, lost and attempt against Close, which
+	// may run on any goroutine: Connect, Close and a TCP reopen change them
+	// under it, each attempt reads them and registers itself under it.
 	mu sync.Mutex
-	// opened is the connection the client opened (Connect or a TCP
-	// reconnect), while Conn holds it.
+	// opened is the connection the client opened (Connect or a TCP reopen),
+	// while Conn holds it.
 	opened connection
 	// closed reports that Close ran since the last successful Connect.
 	closed bool
+	// lost is the TCP connection an attempt found failed: while Conn holds
+	// it, the next attempt opens it again.
+	lost net.Conn
 	// attempt is the running attempt, which Close and the Context interrupt.
 	attempt runningAttempt
 }

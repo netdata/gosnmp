@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -865,9 +866,9 @@ func TestEngineContextInterruptUnregistered(t *testing.T) {
 }
 
 // TestEngineTCPReconnect pins, on loopback sockets, what the engine does when
-// a TCP agent closes the connection after reading a request: it reconnects
-// and sends again, and gives up on the reconnect's error or when the retries
-// run out, known bugs included.
+// a TCP agent closes the connection after reading a request: the next attempt
+// opens the connection again and sends again; the request fails with the
+// reopen's error or when the retries run out, known bugs included.
 func TestEngineTCPReconnect(t *testing.T) {
 	tests := map[string]struct {
 		transport      string        // "tcp" unless set
@@ -905,7 +906,7 @@ func TestEngineTCPReconnect(t *testing.T) {
 		},
 		"reconnect refused": {
 			wantErr:   `error "dial tcp <address>: connect: connection refused" *net.OpError (is syscall.ECONNREFUSED)`,
-			wantHooks: []string{"PreSend", "OnSent"}, wantRequests: 1,
+			wantHooks: []string{"PreSend", "OnSent", "OnRetry"}, wantRequests: 1,
 		},
 		"retries run out under a context deadline": {
 			acceptAgain: true, contextTimeout: 5 * time.Second, wantErr: `error "max retries (1) exceeded" *gosnmp.attemptsError (is io.EOF)`,
@@ -1043,10 +1044,10 @@ func TestEngineTCPReconnectCallerConn(t *testing.T) {
 	}
 }
 
-// TestEngineTCPReconnectConnection pins, on loopback sockets, what the TCP
-// reconnect does with the connection the agent closed: when the new one opens,
-// it closes the old one; when its dial is refused, the client keeps the old
-// one, so that a later request reconnects again.
+// TestEngineTCPReconnectConnection pins, on loopback sockets, what a TCP
+// reopen does with the connection the agent closed: when the new one opens, it
+// closes the old one; when its dial is refused, the client keeps the old one,
+// still lost, for a later attempt (TestEngineTCPLostConnection).
 func TestEngineTCPReconnectConnection(t *testing.T) {
 	type outcome struct {
 		err       bool
@@ -1090,7 +1091,147 @@ func TestEngineTCPReconnectConnection(t *testing.T) {
 	}
 }
 
-// TestEngineTCPReconnectDialSettings pins that the TCP reconnect opens the
+// TestEngineTCPLostConnection checks, on loopback sockets, that a client whose
+// TCP connection the agent closed or reset recovers once the agent accepts
+// again: the next attempt reopens the connection, and after a refused reopen
+// the next attempt, in this request or a later one, tries again. A timeout
+// keeps the connection, and a connection closed under the client stays
+// closed.
+func TestEngineTCPLostConnection(t *testing.T) {
+	type outcome struct {
+		failed []bool // per request
+		dials  int32  // Connect's and the reopens'
+	}
+	tests := map[string]struct {
+		// first is what the agent does after reading the first request on its
+		// first connection; it serves the connection on when it returns true.
+		first  func(conn net.Conn) bool
+		refuse []int32 // the dials the client's Control refuses, counted from 1 (Connect's)
+		// closeConn closes the client's connection, not the client, after the
+		// first request was written.
+		closeConn bool
+		want      outcome
+	}{
+		"the agent closes it, two reopens refused": {
+			first:  func(conn net.Conn) bool { _ = conn.Close(); return false },
+			refuse: []int32{2, 3},
+			want:   outcome{failed: []bool{true, true, false, false}, dials: 4},
+		},
+		"the agent resets it": {
+			first: func(conn net.Conn) bool {
+				_ = conn.(*net.TCPConn).SetLinger(0) // close with a reset
+				_ = conn.Close()
+				return false
+			},
+			want: outcome{failed: []bool{false, false, false, false}, dials: 2},
+		},
+		"a timeout keeps it": {
+			first: func(net.Conn) bool { return true }, // no reply to the first request
+			want:  outcome{failed: []bool{false, false, false, false}, dials: 1},
+		},
+		"a close keeps it closed": {
+			first:     func(net.Conn) bool { return true },
+			closeConn: true,
+			want:      outcome{failed: []bool{true, true, true, true}, dials: 1},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ln, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			var served sync.WaitGroup
+			t.Cleanup(func() {
+				ln.Close()
+				served.Wait()
+			})
+			answer := func(req []byte) ([]byte, bool) { return replyTo(req, nil, sysDescr), true }
+			served.Go(func() {
+				for first := true; ; first = false {
+					conn, acceptErr := ln.Accept()
+					if acceptErr != nil {
+						return
+					}
+					served.Go(func() {
+						if first {
+							if _, readErr := conn.Read(make([]byte, 2048)); readErr != nil || !tc.first(conn) {
+								_ = conn.Close()
+								return
+							}
+						}
+						serveTCPRequests(conn, answer)
+					})
+				}
+			})
+
+			var dials atomic.Int32
+			x := &GoSNMP{
+				Target: "127.0.0.1", Port: uint16(ln.Addr().(*net.TCPAddr).Port), Transport: "tcp", //nolint:gosec // a TCP port
+				Community: "public", Version: Version2c, Timeout: 300 * time.Millisecond, Retries: 1,
+				Control: func(string, string, syscall.RawConn) error {
+					if slices.Contains(tc.refuse, dials.Add(1)) {
+						return syscall.ECONNREFUSED
+					}
+					return nil
+				},
+			}
+			require.NoError(t, x.Connect())
+			defer x.Close()
+			if tc.closeConn {
+				x.OnSent = func(x *GoSNMP) {
+					x.OnSent = nil
+					_ = x.Conn.Close()
+				}
+			}
+			var got outcome
+			for range 4 {
+				_, err := x.Get([]string{engineOID})
+				got.failed = append(got.failed, err != nil)
+			}
+			got.dials = dials.Load()
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestEngineTCPReopenContext checks that the request's Context bounds the
+// dial of a TCP reopen: canceled during the dial, it fails the dial, and the
+// request with the dial's error, which matches context.Canceled.
+func TestEngineTCPReopenContext(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows may complete a TCP connect before it sees the cancellation")
+	}
+	var requests atomic.Int32
+	port := tcpAgent(t, false, func(req []byte) (reply []byte, keepOpen bool) {
+		if requests.Add(1) == 1 {
+			return nil, false // the agent closes the connection
+		}
+		return replyTo(req, nil, sysDescr), true
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var dials atomic.Int32
+	x := &GoSNMP{
+		Target: "127.0.0.1", Port: port, Transport: "tcp", Context: ctx,
+		Community: "public", Version: Version2c, Timeout: 10 * time.Second, Retries: 1,
+		Control: func(string, string, syscall.RawConn) error {
+			if dials.Add(1) == 2 { // the reopen's dial
+				cancel()
+			}
+			return nil
+		},
+	}
+	require.NoError(t, x.Connect())
+	defer x.Close()
+
+	_, err := x.Get([]string{engineOID})
+	require.ErrorIs(t, err, context.Canceled)
+	var opErr *net.OpError
+	require.ErrorAs(t, err, &opErr)
+	assert.Equal(t, "dial", opErr.Op)
+	assert.Equal(t, int32(1), requests.Load(), "requests the agent read")
+}
+
+// TestEngineTCPReconnectDialSettings pins that a TCP reopen opens the
 // connection with the settings Connect opened it with, or, for a Conn the
 // caller set, with the client's settings when the request started, and with
 // the request's Context and Timeout, though a hook changes the client's Port,
@@ -1155,9 +1296,9 @@ func TestEngineTCPReconnectDialSettings(t *testing.T) {
 	}
 }
 
-// TestEngineTCPReconnectClosedDuringDial checks that a Close during the TCP
-// reconnect's dial ends the request with net.ErrClosed: the client stays
-// closed, and closes the connection the dial opened.
+// TestEngineTCPReconnectClosedDuringDial checks that a Close during the dial of
+// a TCP reopen ends the request with net.ErrClosed: the client stays closed,
+// and closes the connection the dial opened.
 func TestEngineTCPReconnectClosedDuringDial(t *testing.T) {
 	for _, retries := range []int{0, 1} {
 		t.Run(fmt.Sprintf("refused, retries %d", retries), func(t *testing.T) {
@@ -1179,8 +1320,7 @@ func TestEngineTCPReconnectClosedDuringDial(t *testing.T) {
 			require.NoError(t, x.Connect())
 			defer x.Close()
 
-			_, err := x.Get([]string{engineOID})
-			require.ErrorIs(t, err, net.ErrClosed)
+			require.ErrorIs(t, getReopening(t, x, retries), net.ErrClosed)
 		})
 		t.Run(fmt.Sprintf("from another goroutine, retries %d", retries), func(t *testing.T) {
 			// The Close runs on another goroutine, unsynchronized with the
@@ -1207,8 +1347,7 @@ func TestEngineTCPReconnectClosedDuringDial(t *testing.T) {
 				closed <- x.Close()
 			}()
 
-			_, err := x.Get([]string{engineOID})
-			require.ErrorIs(t, err, net.ErrClosed)
+			require.ErrorIs(t, getReopening(t, x, retries), net.ErrClosed)
 			require.NoError(t, <-closed)
 		})
 		t.Run(fmt.Sprintf("retries %d", retries), func(t *testing.T) {
@@ -1228,18 +1367,32 @@ func TestEngineTCPReconnectClosedDuringDial(t *testing.T) {
 			require.NoError(t, x.Connect())
 			defer x.Close()
 
-			_, err := x.Get([]string{engineOID})
-			require.ErrorIs(t, err, net.ErrClosed)
+			require.ErrorIs(t, getReopening(t, x, retries), net.ErrClosed)
 			assert.Nil(t, x.Conn)
 			assert.ErrorIs(t, <-second, io.EOF, "the client closed the reconnect's connection")
 		})
 	}
 }
 
-// TestEngineTCPReconnectHookReplacedConn checks that the TCP reconnect leaves
-// a Conn a hook set during the attempt: it closes the connection it opened,
-// and the next attempt uses the hook's, also on a client closed before the
-// caller set its Conn, and for a hook's Conn of a type == cannot compare.
+// getReopening runs a request on a client whose TCP agent closes the
+// connection after the first request, up to the attempt that opens the
+// connection again: with retries, the request's retry; without, the next
+// request's attempt, after the first request failed on the close.
+func getReopening(t *testing.T, x *GoSNMP, retries int) error {
+	t.Helper()
+	_, err := x.Get([]string{engineOID})
+	if retries == 0 {
+		require.ErrorIs(t, err, io.EOF, "the request the agent closed the connection on")
+		_, err = x.Get([]string{engineOID})
+	}
+	return err
+}
+
+// TestEngineTCPReconnectHookReplacedConn checks that a TCP connection the
+// agent closed after a hook replaced Conn during the attempt is not opened
+// again: the next attempt uses the hook's connection, also on a client closed
+// before the caller set its Conn, and for a hook's Conn of a type == cannot
+// compare.
 func TestEngineTCPReconnectHookReplacedConn(t *testing.T) {
 	tests := map[string]struct {
 		before       func(t *testing.T, x *GoSNMP, portA uint16) // how the client gets its connection to agent A
@@ -1260,8 +1413,8 @@ func TestEngineTCPReconnectHookReplacedConn(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			portA, second := closingAgent(t)
-			var requestsB atomic.Int32
+			portA, _ := closingAgent(t)
+			var requestsB, dials atomic.Int32
 			portB := tcpAgent(t, false, func(req []byte) (reply []byte, keepOpen bool) {
 				requestsB.Add(1)
 				return replyTo(req, nil, sysDescr), true
@@ -1269,6 +1422,10 @@ func TestEngineTCPReconnectHookReplacedConn(t *testing.T) {
 			x := &GoSNMP{
 				Target: "127.0.0.1", Port: portA, Transport: "tcp",
 				Community: "public", Version: Version2c, Timeout: 10 * time.Second, Retries: 1,
+				Control: func(string, string, syscall.RawConn) error {
+					dials.Add(1)
+					return nil
+				},
 			}
 			tc.before(t, x, portA)
 			first := x.Conn
@@ -1284,8 +1441,7 @@ func TestEngineTCPReconnectHookReplacedConn(t *testing.T) {
 
 			_, err := x.Get([]string{engineOID})
 			require.NoError(t, err)
-			assert.Equal(t, int32(1), requestsB.Load(), "requests agent B read")
-			assert.ErrorIs(t, <-second, io.EOF, "the client closed the reconnect's connection")
+			assert.Equal(t, [2]int32{1, 1}, [2]int32{requestsB.Load(), dials.Load()}, "requests agent B read, dials (Connect's)")
 		})
 	}
 }

@@ -22,12 +22,16 @@
 // request. Exceptions: the Logger itself is used as it is set, the SNMPv3
 // engine state the client learns (in SecurityParameters and ContextEngineID)
 // is the running request's too, and each attempt uses the connection Conn
-// holds when it starts. A TCP reconnect opens the connection again, within the
+// holds when it starts. A TCP connection whose write or read fails otherwise
+// than by the attempt's deadline or a close ([net.ErrClosed]), as when the
+// agent closed or reset it, is lost while Conn holds it: the next attempt, of
+// the same request or a later one, opens it again before writing, within the
 // request's Timeout and Context, with the settings it was opened with (a Conn
 // the caller set: with the request's Transport, Target, Port, LocalAddr and
-// Control), and replaces it; a failed reconnect keeps it. A request over an
-// unconnected UDP socket writes to the address Connect resolved, over a Conn
-// the caller set to the request's Target and Port. The request IDs and
+// Control), and replaces it; a failed reopen keeps it, still lost, for the
+// attempt after. A request over an unconnected UDP socket writes to the
+// address Connect resolved, over a Conn the caller set to the request's Target
+// and Port. The request IDs and
 // msgIDs start at a random value on first use unless [GoSNMP.SetRequestID] and
 // [GoSNMP.SetMsgID] set them, and Connect does not reset them.
 //
@@ -41,8 +45,8 @@
 // uses, as a done Context does. Once Close has run, a request whose attempt
 // ends without a reply fails with an error wrapping [net.ErrClosed], whatever
 // else ended the attempt, a done Context included, and so do later requests
-// until Connect opens a connection or Conn is set. Close does not cut a TCP
-// reconnect's dial short; the dial's timeout and the Context bound it. The
+// until Connect opens a connection or Conn is set. Close does not cut the dial
+// of a TCP reopen short; the dial's timeout and the Context bound it. The
 // hooks run on the goroutine of the request. A
 // [SnmpV3SecurityParametersTable] and the key cache of [PasswordCaching] are
 // safe for concurrent use.
@@ -56,24 +60,23 @@
 // the same request answers it too. A timeout (a write or read error matching
 // [os.ErrDeadlineExceeded]), another write or read error (except
 // [net.ErrClosed]), a reply that does not decode or authenticate, and a TCP
-// connection the agent closed (the client reopens it) start the next attempt,
-// unless the Context is done, which ends the request with the Context's
-// error, or the attempt timed out at the Context's deadline, which ends it
-// with [context.DeadlineExceeded] even before the Context reports its
-// deadline. A Context that is done during an attempt ends its write or wait at
+// connection the agent closed ([io.EOF]) start the next attempt, unless the
+// Context is done, which ends the request with the Context's error, or the
+// attempt timed out at the Context's deadline, which ends it with
+// [context.DeadlineExceeded] even before the Context reports its deadline. A Context that is done during an attempt ends its write or wait at
 // once. An answer ends the request, and so do a connection closed under it
 // ([net.ErrClosed]), a client closed by Close, an encoding error, a Context
 // that is done before an attempt starts, a failure to set the deadline and a
-// failed TCP reconnect (a done Context fails it with an error that matches
-// the Context's).
+// failed TCP reopen (a done Context fails it with an error that matches the
+// Context's).
 // When the attempts run out, the request fails with the last attempt's error,
 // except that after a timeout the error's text is "request timeout (after N
-// retries)" and after a reconnect "max retries (N) exceeded"; both unwrap to
-// the attempt's reason (the timeout, a [net.Error]; [io.EOF]). An answer's
-// error status ([SnmpPacket].Error) is not an error of the request. Connect's
-// dial uses Timeout and the Context too. Known bugs: a Response without
-// varbinds or error status, or with request ID 0, answers a request whatever
-// its request ID.
+// retries)" and after the agent closed the TCP connection "max retries (N)
+// exceeded"; both unwrap to the attempt's reason (the timeout, a [net.Error];
+// [io.EOF]). An answer's error status ([SnmpPacket].Error) is not an error of
+// the request. Connect's dial uses Timeout and the Context too. Known bugs: a
+// Response without varbinds or error status, or with request ID 0, answers a
+// request whatever its request ID.
 //
 // # Hooks
 //
