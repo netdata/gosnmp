@@ -21,7 +21,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Connect() err: %v", err)
 	}
-	defer g.Default.Conn.Close()
+	defer g.Default.Close()
 
 	oids := []string{"1.3.6.1.2.1.1.4.0", "1.3.6.1.2.1.1.7.0"}
 	result, err2 := g.Default.Get(oids) // Get accepts up to MaxOids OIDs (60 by default)

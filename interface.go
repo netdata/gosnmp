@@ -17,7 +17,8 @@ import (
 
 // Handler is the interface of a GoSNMP, provided for mocks in tests; the
 // methods that act are documented on GoSNMP, the others get or set its
-// fields. Like a GoSNMP, a Handler is not safe for concurrent use.
+// fields. Like a GoSNMP, a Handler is not safe for concurrent use, Close
+// excepted.
 type Handler interface {
 	// Connect: see GoSNMP.Connect.
 	Connect() error
@@ -58,8 +59,7 @@ type Handler interface {
 	// Check: see GoSNMP.Check.
 	Check(err error)
 
-	// Close closes the connection; see NewHandler for how its Close differs
-	// from GoSNMP.Close.
+	// Close: see GoSNMP.Close.
 	Close() error
 
 	// Target gets the Target
@@ -160,8 +160,7 @@ type snmpHandler struct {
 
 // NewHandler returns a Handler backed by a new GoSNMP with the Port,
 // Community, Version, Timeout, Retries and MaxOids of Default; Transport and
-// ExponentialTimeout stay unset. Known bug: its Close closes Conn directly,
-// so it panics without a connection and leaves Conn set.
+// ExponentialTimeout stay unset.
 func NewHandler() Handler {
 	return &snmpHandler{
 		GoSNMP{
@@ -295,11 +294,4 @@ func (x *snmpHandler) ContextName() string {
 
 func (x *snmpHandler) SetContextName(contextName string) {
 	x.GoSNMP.ContextName = contextName
-}
-
-func (x *snmpHandler) Close() error {
-	// Known bug: it closes Conn itself instead of calling GoSNMP.Close, so a
-	// nil Conn panics, Conn is not cleared (a second call returns the
-	// connection's error), and the lock GoSNMP.Close takes is skipped.
-	return x.Conn.Close()
 }

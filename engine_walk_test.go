@@ -423,7 +423,7 @@ func runWalkScenario(t *testing.T, sc walkScenario) string {
 	if sc.knownBug != "" {
 		tr.addf("known bug: %s", sc.knownBug)
 	}
-	return strings.Join(tr.lines, "\n")
+	return tr.text()
 }
 
 // BenchmarkWalk runs WalkAll and BulkWalkAll, as the Netdata Agent's SNMP

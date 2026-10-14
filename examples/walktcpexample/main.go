@@ -50,7 +50,7 @@ func main() {
 		fmt.Printf("Connect err: %v\n", err)
 		os.Exit(1)
 	}
-	defer gosnmp.Default.Conn.Close()
+	defer gosnmp.Default.Close()
 
 	err = gosnmp.Default.BulkWalk(oid, printValue)
 	if err != nil {

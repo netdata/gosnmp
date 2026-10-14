@@ -54,7 +54,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Connect() err: %v", err)
 	}
-	defer params.Conn.Close()
+	defer params.Close()
 
 	// Function handles for collecting metrics on query latencies.
 	var sent time.Time

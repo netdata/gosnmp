@@ -16,6 +16,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -26,17 +27,18 @@ import (
 // The engine harness runs the request engine against a scripted agent over an
 // in-memory transport. Run inside a testing/synctest bubble, retries and
 // deadlines play out on the bubble's clock, so schedules are exact and a
-// scenario takes no real time. Everything runs in the client's goroutine: the
-// agent answers inside Write, and Read waits on the bubble's clock for the
-// next reply or the deadline. A transcript records every write, deadline,
-// read and hook call with the time since the scenario started, and the
-// agent's replies when it schedules them.
+// scenario takes no real time. The agent answers inside Write, and Read waits
+// on the bubble's clock for the next reply or the deadline, or until another
+// goroutine sets a deadline or closes the connection. A transcript records
+// every write, deadline, read and hook call with the time since the scenario
+// started, and the agent's replies when it schedules them.
 
-// engineTranscript is the ordered record of one engine scenario. A nil
-// transcript records nothing.
+// engineTranscript is the ordered record of one engine scenario, safe for
+// concurrent use. A nil transcript records nothing.
 type engineTranscript struct {
 	tb    testing.TB
 	start time.Time
+	mu    sync.Mutex
 	lines []string
 }
 
@@ -54,10 +56,19 @@ func (tr *engineTranscript) addf(format string, args ...any) {
 	if tr == nil {
 		return
 	}
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
 	if len(tr.lines) >= maxTranscriptLines {
 		tr.tb.Fatalf("transcript passed %d lines: the scenario does not end", maxTranscriptLines)
 	}
 	tr.lines = append(tr.lines, fmt.Sprintf("%-5s ", time.Since(tr.start))+fmt.Sprintf(format, args...))
+}
+
+// text returns the transcript's lines.
+func (tr *engineTranscript) text() string {
+	tr.mu.Lock()
+	defer tr.mu.Unlock()
+	return strings.Join(tr.lines, "\n")
 }
 
 // agentReply is a message the agent sends in answer to a request, after a delay
@@ -85,24 +96,38 @@ type pendingReply struct {
 // os.ErrDeadlineExceeded once the read deadline has passed: a reply due at
 // the deadline is not read, as on a real socket. A
 // write fails the same way once the write deadline has passed. Writes and
-// reads can be made to fail by number. An io.EOF read on a TCP client makes
-// the engine reconnect with a real dial, so those cases run on loopback
-// sockets (TestEngineTCPReconnect).
+// reads can be made to fail by number. A deadline set and a Close from another
+// goroutine wake a waiting read; after Close, reads, writes and deadlines fail
+// with net.ErrClosed, as on a socket. A TCP client opens a lost connection
+// again with a real dial, so those cases run on loopback sockets
+// (TestEngineTCPReconnect, TestEngineTCPLostConnection).
 type fakeTransport struct {
 	tr    *engineTranscript
 	agent engineAgent
 
+	// mu guards the state below, which the engine's goroutine shares with
+	// one that sets a deadline or closes the connection.
+	mu                          sync.Mutex
 	pending                     []pendingReply // by due time, then by order of scheduling
 	readDeadline, writeDeadline time.Time
 	writes, reads               int
+	closed                      bool
+	// wake wakes a waiting read when a deadline is set or the connection
+	// closes.
+	wake chan struct{}
 
 	failWrite   func(n int) error // the error of write n, or nil
 	failRead    func(n int) error // the error of read n, or nil
 	deadlineErr error
+	// holdInterrupt, when set, holds a deadline set in the past until it
+	// closes.
+	holdInterrupt chan struct{}
+	// beforeDeadline, when set, runs before a deadline in the future is set.
+	beforeDeadline func()
 }
 
 func newFakeTransport(tr *engineTranscript, agent engineAgent) *fakeTransport {
-	return &fakeTransport{tr: tr, agent: agent}
+	return &fakeTransport{tr: tr, agent: agent, wake: make(chan struct{}, 1)}
 }
 
 func (c *fakeTransport) Write(b []byte) (int, error) {
@@ -110,12 +135,18 @@ func (c *fakeTransport) Write(b []byte) (int, error) {
 }
 
 func (c *fakeTransport) write(b []byte, op string) (int, error) {
+	c.mu.Lock()
 	c.writes++
-	n := c.writes
+	n, closed, deadline := c.writes, c.closed, c.writeDeadline
+	c.mu.Unlock()
 	if c.tr != nil {
 		c.tr.addf("%s #%d: %s", op, n, describeMessage(b))
 	}
-	if !c.writeDeadline.IsZero() && !time.Now().Before(c.writeDeadline) {
+	if closed {
+		c.tr.addf("%s #%d fails: %v", op, n, closedWrite)
+		return 0, closedWrite
+	}
+	if !deadline.IsZero() && !time.Now().Before(deadline) {
 		c.tr.addf("%s #%d: deadline", op, n)
 		return 0, os.ErrDeadlineExceeded
 	}
@@ -131,11 +162,13 @@ func (c *fakeTransport) write(b []byte, op string) (int, error) {
 	for _, r := range c.agent(n, bytes.Clone(b)) {
 		c.tr.addf("agent answers #%d after %s", n, r.after)
 		due := time.Now().Add(r.after)
+		c.mu.Lock()
 		i := len(c.pending)
 		for i > 0 && c.pending[i-1].due.After(due) {
 			i--
 		}
 		c.pending = slices.Insert(c.pending, i, pendingReply{due: due, data: r.data})
+		c.mu.Unlock()
 	}
 	return len(b), nil
 }
@@ -147,14 +180,23 @@ func (c *fakeTransport) Read(b []byte) (int, error) {
 // read reads the earliest reply due into b, keeping what does not fit for the
 // next read when stream is set.
 func (c *fakeTransport) read(b []byte, op string, stream bool) (int, error) {
+	c.mu.Lock()
 	c.reads++
+	n := c.reads
+	c.mu.Unlock()
 	if c.failRead != nil {
-		if err := c.failRead(c.reads); err != nil {
+		if err := c.failRead(n); err != nil {
 			c.tr.addf("%s: %v", op, err)
 			return 0, err
 		}
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	for {
+		if c.closed {
+			c.tr.addf("%s: %v", op, closedRead)
+			return 0, closedRead
+		}
 		now := time.Now()
 		if !c.readDeadline.IsZero() && !now.Before(c.readDeadline) {
 			c.tr.addf("%s: deadline", op)
@@ -180,41 +222,100 @@ func (c *fakeTransport) read(b []byte, op string, stream bool) (int, error) {
 		if !c.readDeadline.IsZero() && (wake.IsZero() || c.readDeadline.Before(wake)) {
 			wake = c.readDeadline
 		}
-		if wake.IsZero() {
-			panic("fakeTransport: a read without a deadline would block forever")
-		}
-		time.Sleep(time.Until(wake))
+		c.mu.Unlock()
+		c.waitUntil(wake)
+		c.mu.Lock()
 	}
+}
+
+// waitUntil waits until t, or, when t is zero, without a time limit, unless a
+// deadline set or a Close wakes it first.
+func (c *fakeTransport) waitUntil(t time.Time) {
+	if t.IsZero() {
+		<-c.wake
+		return
+	}
+	timer := time.NewTimer(time.Until(t))
+	defer timer.Stop()
+	select {
+	case <-c.wake:
+	case <-timer.C:
+	}
+}
+
+// signal wakes a waiting read.
+func (c *fakeTransport) signal() {
+	select {
+	case c.wake <- struct{}{}:
+	default:
+	}
+}
+
+// setDeadlines sets the read deadline when read is set and the write deadline
+// when write is set, recording it as name. A deadline in the past, which the
+// engine sets to interrupt an attempt, is recorded only when it ends a
+// deadline that has not passed: when the Context's deadline is the attempt's,
+// the interrupt and the attempt's own deadline race, and change nothing.
+func (c *fakeTransport) setDeadlines(name string, t time.Time, read, write bool) error {
+	if c.holdInterrupt != nil && t.Before(time.Now()) {
+		<-c.holdInterrupt
+	}
+	if c.beforeDeadline != nil && !t.Before(time.Now()) {
+		c.beforeDeadline()
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := time.Now()
+	switch current := c.readDeadline; {
+	case c.tr == nil:
+	case !t.Before(now):
+		c.tr.addf("%s +%s", name, t.Sub(now))
+	case current.IsZero() || now.Before(current):
+		c.tr.addf("%s in the past", name)
+	}
+	if c.deadlineErr != nil {
+		return c.deadlineErr
+	}
+	if c.closed {
+		return closedSet
+	}
+	if read {
+		c.readDeadline = t
+	}
+	if write {
+		c.writeDeadline = t
+	}
+	c.signal()
+	return nil
 }
 
 func (c *fakeTransport) SetDeadline(t time.Time) error {
-	c.tr.addf("deadline +%s", time.Until(t))
-	if c.deadlineErr != nil {
-		return c.deadlineErr
-	}
-	c.readDeadline, c.writeDeadline = t, t
-	return nil
+	return c.setDeadlines("deadline", t, true, true)
 }
 
 func (c *fakeTransport) SetReadDeadline(t time.Time) error {
-	c.tr.addf("read deadline +%s", time.Until(t))
-	if c.deadlineErr != nil {
-		return c.deadlineErr
-	}
-	c.readDeadline = t
-	return nil
+	return c.setDeadlines("read deadline", t, true, false)
 }
 
 func (c *fakeTransport) SetWriteDeadline(t time.Time) error {
-	c.tr.addf("write deadline +%s", time.Until(t))
-	if c.deadlineErr != nil {
-		return c.deadlineErr
+	return c.setDeadlines("write deadline", t, false, true)
+}
+
+// Close closes the connection, waking a waiting read; closing it again fails,
+// as on a socket.
+func (c *fakeTransport) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		c.tr.addf("close fails: %v", closedClose)
+		return closedClose
 	}
-	c.writeDeadline = t
+	c.tr.addf("close")
+	c.closed = true
+	c.signal()
 	return nil
 }
 
-func (c *fakeTransport) Close() error { c.tr.addf("close"); return nil }
 func (c *fakeTransport) LocalAddr() net.Addr {
 	return &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 50000}
 }

@@ -42,14 +42,22 @@ const (
 
 // GoSNMP is an SNMP client: its exported fields configure it, Connect opens
 // its connection, and its methods send requests. A GoSNMP is not safe for
-// concurrent use: requests share its connection, receive buffer and deadline,
-// so run one request at a time, or give each goroutine its own GoSNMP.
+// concurrent use, Close excepted: requests share its connection, receive
+// buffer and deadline, so run one request at a time, or give each goroutine
+// its own GoSNMP.
 type GoSNMP struct {
 	// Conn is the connection to the agent, opened by Connect, or set by the
 	// caller in its place: the client then lacks Connect's defaults and checks,
 	// so the caller sets the fields it needs (MaxOids, for one); a request
-	// supplies its Context default, receive buffer and IDs, and takes the
-	// network from Transport.
+	// supplies its Context default, receive buffer and IDs, a TCP reopen
+	// opens it again with the request's Transport, Target, Port, LocalAddr and
+	// Control, and with UseUnconnectedUDPSocket a request writes to the
+	// agent's address the last successful Connect in that mode resolved (see
+	// UseUnconnectedUDPSocket). The client owns the connection Conn holds:
+	// Close and a later Connect close it; a connection the caller or a hook
+	// replaces in Conn is the caller's again. Each attempt of a request uses
+	// the connection Conn holds when it starts, which Close interrupts even
+	// after a hook replaced it. Set Conn only while no Close runs.
 	Conn net.Conn
 
 	// Target is the agent's host name or IP address.
@@ -71,15 +79,17 @@ type GoSNMP struct {
 	// Version is the SNMP version: Version1, Version2c or Version3.
 	Version SnmpVersion
 
-	// Context, when set, bounds Connect's dial and every request: no attempt
-	// starts once it is done, and its deadline ends an attempt. Connect sets
+	// Context, when set, bounds Connect (its name lookups and dial) and every
+	// request: no attempt starts once it is done, and its cancellation or
+	// deadline ends a running attempt at once. Connect sets
 	// context.Background() when it is nil, and a request without one uses
 	// context.Background().
 	Context context.Context
 
 	// Timeout is how long each attempt of a request waits for its answer, and
-	// Connect's dial timeout. It has no default: a zero Timeout times out
-	// every attempt at once, and leaves the dial without a timeout.
+	// how long Connect, and a TCP reopen, may take to look up names and dial.
+	// It has no default: a zero Timeout times out every attempt at once, and
+	// leaves Connect without a time limit.
 	Timeout time.Duration
 
 	// Retries is the number of attempts after the first; a negative value
@@ -113,9 +123,9 @@ type GoSNMP struct {
 	// OnRetry is called before each retry: after an attempt that failed in a
 	// way another attempt may cure (a timeout, another write or read error
 	// than a closed connection, a reply that does not decode or authenticate,
-	// a TCP connection the agent closed and the client reopened), when another
-	// attempt follows. It is not called after the last attempt, nor when the
-	// Context is done.
+	// a TCP connection the agent closed, which the next attempt opens again),
+	// when another attempt follows. It is not called after the last attempt,
+	// nor when the Context is done.
 	OnRetry func(*GoSNMP)
 
 	// OnFinish is called each time an exchange (a request and the answer to
@@ -143,7 +153,11 @@ type GoSNMP struct {
 	// UseUnconnectedUDPSocket makes a UDP client send from an unconnected
 	// socket, with sendto and recvfrom, for agents that answer from another
 	// address than the one the request went to, as some multi-homed devices
-	// do. Replies are then read from any address.
+	// do. Replies are then read from any address. A Conn the caller sets is
+	// then written to the agent's address the last successful Connect in
+	// this mode resolved, which Close keeps and a Connect in connected mode
+	// clears: a request resolves no name; without such a Connect there is
+	// none.
 	UseUnconnectedUDPSocket bool
 
 	// Control, when set, is the Control function of Connect's net.Dialer: it
@@ -197,21 +211,28 @@ type GoSNMP struct {
 	requestIDSet atomic.Bool
 	msgIDSet     atomic.Bool
 
-	// network is the network of networkConn, the connection the client last
-	// opened (Connect or a TCP reconnect): Transport with the suffix of
-	// ConnectIPv4 or ConnectIPv6, narrowed to IPv4 for an IPv4 LocalAddr. A
-	// request uses it while Conn is that connection, and Transport otherwise.
-	network     string
-	networkConn net.Conn
-
 	// rxBuf is the receive buffer, allocated by the first request.
 	rxBuf *[rxBufSize]byte // has to be pointer due to https://github.com/golang/go/issues/11728
 
-	// uaddr is the agent's address for an unconnected UDP socket.
-	uaddr *net.UDPAddr
-
-	// mu serializes Close calls.
+	// mu guards Conn, opened, closed, lost, attempt and unconnectedAddr against
+	// Close, which may run on any goroutine: Connect, Close and a TCP reopen
+	// change them under it, each attempt reads them and registers itself under
+	// it.
 	mu sync.Mutex
+	// opened is the connection the client opened (Connect or a TCP reopen),
+	// while Conn holds it.
+	opened connection
+	// closed reports that Close ran since the last successful Connect.
+	closed bool
+	// lost is the TCP connection an attempt found failed: while Conn holds
+	// it, the next attempt opens it again.
+	lost net.Conn
+	// attempt is the running attempt, which Close and the Context interrupt.
+	attempt runningAttempt
+	// unconnectedAddr is the agent's address the last successful Connect
+	// resolved for an unconnected UDP socket, nil after one in connected mode;
+	// Close keeps it. A Conn the caller sets in unconnected mode writes to it.
+	unconnectedAddr *net.UDPAddr
 }
 
 // Default is a client with default settings, used by the examples. Like any
