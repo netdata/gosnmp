@@ -795,10 +795,10 @@ func TestUSMKeyLengths(t *testing.T) {
 	assert.Len(t, derived.PrivacyKey, 20, "derived DES key")
 
 	tests := map[string]struct {
-		auth       SnmpV3AuthProtocol
-		priv       SnmpV3PrivProtocol
-		key, priv_ []byte
-		want       string // the error of InitSecurityKeys and of Add, "" for none
+		auth         SnmpV3AuthProtocol
+		priv         SnmpV3PrivProtocol
+		key, privKey []byte
+		want         string // the error of InitSecurityKeys and of Add, "" for none
 	}{
 		"SHA key of 16 octets":     {auth: SHA, key: make([]byte, 16)},
 		"SHA-256 key of 20 octets": {auth: SHA256, key: make([]byte, 20)},
