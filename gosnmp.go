@@ -388,9 +388,10 @@ func (x *GoSNMP) SnmpEncodePacket(pdutype PDUType, pdus []SnmpPDU, nonRepeaters 
 // SnmpDecodePacket decodes a message, from another transport or for tests,
 // with a copy of the client's security parameters, after preparing the client
 // as Connect does; keys are derived for an SNMPv3 message from another engine
-// ID. It does not check the digest, and it decodes in place (see the package
-// documentation). On an error it returns what it decoded so far. Known bug:
-// some malformed SNMPv3 messages make it panic (see the package
+// ID, so parameters with a key given without its passphrase decode no such
+// message. It does not check the digest, and it decodes in place (see the
+// package documentation). On an error it returns what it decoded so far. Known
+// bug: some malformed SNMPv3 messages make it panic (see the package
 // documentation).
 func (x *GoSNMP) SnmpDecodePacket(resp []byte) (*SnmpPacket, error) {
 	result := &SnmpPacket{}

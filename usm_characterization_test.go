@@ -383,6 +383,17 @@ func usmFlagsTrap(t testing.TB, priv SnmpV3PrivProtocol, flags SnmpV3MsgFlags, s
 // usmMalformedV3Header is an SNMPv3 message whose header is not a SEQUENCE.
 var usmMalformedV3Header = tlv(0x30, intTLV(3), tlv(0x31, intTLV(1)))
 
+// usmPlainVars are the variable bindings of usmPlainTrap.
+var usmPlainVars = []SnmpPDU{{Name: ".1.3.6.1.2.1.1.5.0", Type: Integer, Value: 5}}
+
+// usmPlainTrap is a noAuthNoPriv SNMPv2-Trap with a plaintext scoped PDU,
+// the given security model, engine ID and user name, and no digest or salt.
+func usmPlainTrap(model int64, engineID, user string) []byte {
+	usm := craftedUSM(octets(engineID), intTLV(0), intTLV(0), octets(user), octets(""), octets(""))
+	scoped := tlv(0x30, octets(""), octets(""), craftedPDU(SNMPv2Trap, craftedVBL(craftedVB(intTLV(5)))))
+	return craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(model), usm, scoped)
+}
+
 // TestUSMTrapUnauthenticated pins what UnmarshalTrap does, for a single user
 // requiring authPriv and through a credentials table, with messages it
 // decodes without checking a digest:
@@ -399,12 +410,6 @@ var usmMalformedV3Header = tlv(0x30, intTLV(3), tlv(0x31, intTLV(1)))
 // whatever the flags say. Cases with a knownBug note record wrong behavior
 // that the bug-fix phase changes.
 func TestUSMTrapUnauthenticated(t *testing.T) {
-	plainVars := []SnmpPDU{{Name: ".1.3.6.1.2.1.1.5.0", Type: Integer, Value: 5}}
-	plainTrap := func(model int64, engineID, user string) []byte {
-		usm := craftedUSM(octets(engineID), intTLV(0), intTLV(0), octets(user), octets(""), octets(""))
-		scoped := tlv(0x30, octets(""), octets(""), craftedPDU(SNMPv2Trap, craftedVBL(craftedVB(intTLV(5)))))
-		return craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(model), usm, scoped)
-	}
 	// wrappedTrap carries the plaintext scoped PDU's fields in an OCTET
 	// STRING, where an encrypted scoped PDU goes.
 	wrappedTrap := func() []byte {
@@ -429,7 +434,7 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 				UserName: "codec-user", AuthoritativeEngineID: usmCharEngineID, AuthenticationProtocol: SHA,
 				SecretKey: make([]byte, 20),
 			},
-			PDUType: SNMPv2Trap, Variables: plainVars,
+			PDUType: SNMPv2Trap, Variables: usmPlainVars,
 		}).MarshalMsg()
 		require.NoError(t, err)
 		return data
@@ -487,7 +492,7 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 		},
 		"noAuthNoPriv flags, OCTET STRING scoped PDU, table without privacy": {
 			in: wrappedTrap, priv: NoPriv, receiver: table,
-			want: "accepted", vars: plainVars, knownBug: "without a privacy protocol an OCTET STRING scoped PDU is read as plaintext",
+			want: "accepted", vars: usmPlainVars, knownBug: "without a privacy protocol an OCTET STRING scoped PDU is read as plaintext",
 		},
 		"privacy-only DES with a 7-octet salt, single user": {
 			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 7) }, priv: DES, want: "rejected",
@@ -505,7 +510,7 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 		},
 		"privacy-only DES, table with keys only": {
 			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 8) }, priv: DES, receiver: tableKeysOnly,
-			want: "rejected", errHas: "decrypting",
+			want: "rejected", errHas: "cannot be localized to another engine ID",
 		},
 		"authNoPriv signed with the empty key, table with keys only": {
 			in: emptyKeyTrap, priv: NoPriv, receiver: tableKeysOnly, want: "rejected", errHas: "authentication",
@@ -517,12 +522,12 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 			in: emptyKeyTrap, priv: NoPriv, receiver: table, want: "rejected",
 		},
 		"noAuthNoPriv plaintext, AES table with keys only": {
-			in: func() []byte { return plainTrap(3, usmCharEngineID, "codec-user") }, priv: AES, receiver: tableKeysOnly,
-			want: "accepted", vars: plainVars, knownBug: "the table path takes the security level from the message",
+			in: func() []byte { return usmPlainTrap(3, usmCharEngineID, "codec-user") }, priv: AES, receiver: tableKeysOnly,
+			want: "rejected", errHas: "cannot be localized to another engine ID",
 		},
 		"security model 2, plaintext, single user": {
-			in: func() []byte { return plainTrap(2, usmCharEngineID, "codec-user") }, priv: AES,
-			want: "accepted", vars: plainVars, knownBug: "the digest is checked only for the User-based Security Model",
+			in: func() []byte { return usmPlainTrap(2, usmCharEngineID, "codec-user") }, priv: AES,
+			want: "accepted", vars: usmPlainVars, knownBug: "the digest is checked only for the User-based Security Model",
 		},
 		"security model 2, authPriv flags, table": {
 			in: func() []byte { return encryptedWithModel(AES, 2, 8) }, priv: AES, receiver: table,
@@ -532,11 +537,11 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 			in: func() []byte { return encryptedWithModel(DES, 2, 7) }, priv: DES, want: "rejected", errHas: "decrypting",
 		},
 		"empty user name and engine ID, single user": {
-			in: func() []byte { return plainTrap(3, "", "") }, priv: AES,
-			want: "accepted", vars: plainVars, knownBug: "the engine discovery exception skips the digest for any message",
+			in: func() []byte { return usmPlainTrap(3, "", "") }, priv: AES,
+			want: "accepted", vars: usmPlainVars, knownBug: "the engine discovery exception skips the digest for any message",
 		},
 		"empty user name, engine ID set, single user": {
-			in: func() []byte { return plainTrap(3, usmCharEngineID, "") }, priv: AES, want: "rejected",
+			in: func() []byte { return usmPlainTrap(3, usmCharEngineID, "") }, priv: AES, want: "rejected",
 		},
 		"malformed header, single user": {
 			in: func() []byte { return usmMalformedV3Header }, priv: AES, want: "rejected",
@@ -565,6 +570,192 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 			}
 			if tc.errHas != "" {
 				assert.ErrorContains(t, err, tc.errHas)
+			}
+		})
+	}
+}
+
+// TestUSMKeysBoundToEngine pins that parameters with keys given without
+// passphrases decode only messages naming the engine ID the keys are
+// localized to, for every protocol pair: on the trap table path, for a single
+// trap user with its own or the message's flags, and with SnmpDecodePacket. A
+// message naming another engine ID is rejected whatever its security level,
+// security model or user name, with the error of adopting another engine ID
+// (the table finds no set for an empty user name), and the parameters keep
+// their engine ID and keys.
+func TestUSMKeysBoundToEngine(t *testing.T) {
+	type receiverKind int
+	const (
+		table receiverKind = iota
+		single
+		singleMessageFlags // useResponseSecurityParameters
+		decodePacket       // SnmpDecodePacket
+	)
+	receivers := map[receiverKind]string{
+		table: "table", single: "single", singleMessageFlags: "single, message flags", decodePacket: "SnmpDecodePacket",
+	}
+	const boundEngineID = usmOtherEngineID
+
+	// keysOnly is the user's parameters: keys localized to boundEngineID, no
+	// passphrases.
+	keysOnly := func(auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol) *UsmSecurityParameters {
+		return usmKeysOnly(&UsmSecurityParameters{
+			UserName: "codec-user", AuthenticationProtocol: auth, AuthenticationPassphrase: "codec-auth-pass",
+			PrivacyProtocol: priv, PrivacyPassphrase: "codec-priv-pass",
+		}, boundEngineID)
+	}
+	level := func(priv SnmpV3PrivProtocol) SnmpV3MsgFlags {
+		if priv > NoPriv {
+			return AuthPriv
+		}
+		return AuthNoPriv
+	}
+	// signedTrap is a trap from boundEngineID at the user's level, signed and
+	// encrypted with the user's keys.
+	signedTrap := func(auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol) []byte {
+		data, err := (&SnmpPacket{
+			Version: Version3, MsgFlags: level(priv), SecurityModel: UserSecurityModel,
+			SecurityParameters: keysOnly(auth, priv), PDUType: SNMPv2Trap, Variables: usmPlainVars,
+		}).MarshalMsg()
+		require.NoError(t, err)
+		return data
+	}
+	plainTrap := func(model int64, engineID, user string) func(SnmpV3AuthProtocol, SnmpV3PrivProtocol) []byte {
+		return func(SnmpV3AuthProtocol, SnmpV3PrivProtocol) []byte { return usmPlainTrap(model, engineID, user) }
+	}
+
+	tests := map[string]struct {
+		in          func(auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol) []byte
+		accepted    bool
+		unknownUser bool // the table holds no set for the message's user name
+	}{
+		"authenticated, from the keys' engine":  {in: signedTrap, accepted: true},
+		"noAuthNoPriv, from another engine":     {in: plainTrap(3, usmCharEngineID, "codec-user")},
+		"security model 2, from another engine": {in: plainTrap(2, usmCharEngineID, "codec-user")},
+		"empty user name and engine ID":         {in: plainTrap(3, "", ""), unknownUser: true},
+	}
+
+	for name, tc := range tests {
+		for _, auth := range usmAuthProtocols[1:] {
+			for _, priv := range usmPrivProtocols {
+				for rk, receiver := range receivers {
+					t.Run(fmt.Sprintf("%s/%s/%s/%s", name, auth, priv, receiver), func(t *testing.T) {
+						sp, want := keysOnly(auth, priv), keysOnly(auth, priv)
+						x := &GoSNMP{Version: Version3, MsgFlags: level(priv), SecurityModel: UserSecurityModel, SecurityParameters: sp}
+						if rk == table {
+							tb := NewSnmpV3SecurityParametersTable(Logger{})
+							require.NoError(t, tb.Add("codec-user", sp))
+							x.SecurityParameters, x.TrapSecurityParametersTable = nil, tb
+						}
+
+						var res *SnmpPacket
+						var err error
+						if rk == decodePacket {
+							res, err = x.SnmpDecodePacket(tc.in(auth, priv))
+						} else {
+							res, err = x.UnmarshalTrap(tc.in(auth, priv), rk == singleMessageFlags)
+						}
+						switch {
+						case tc.accepted:
+							require.NoError(t, err)
+							assert.Equal(t, usmPlainVars, res.Variables)
+						case rk == table && tc.unknownUser:
+							require.Error(t, err)
+						default:
+							require.ErrorIs(t, err, errAuthKeyBoundToEngine)
+						}
+						assert.Equal(t, []any{want.AuthoritativeEngineID, want.SecretKey, want.PrivacyKey},
+							[]any{sp.AuthoritativeEngineID, sp.SecretKey, sp.PrivacyKey}, "the user's engine ID and keys")
+					})
+				}
+			}
+		}
+	}
+}
+
+// TestUSMAdoptEngineID pins the rule of adopting an engine ID: keys localize
+// to one engine ID, so another one takes keys derived for it from the
+// passphrases, and parameters with a protocol whose passphrase is empty, with
+// a key given without it or none, refuse it with that protocol's error and
+// stay unchanged; the same engine ID changes nothing.
+func TestUSMAdoptEngineID(t *testing.T) {
+	// params returns SHA/AES parameters localized to usmOtherEngineID, with
+	// edit applied.
+	params := func(edit func(sp *UsmSecurityParameters)) *UsmSecurityParameters {
+		sp := usmDecoder(SHA, "codec-auth-pass", AES, "codec-priv-pass")().SecurityParameters.(*UsmSecurityParameters)
+		sp.AuthoritativeEngineID = usmOtherEngineID
+		require.NoError(t, sp.InitSecurityKeys())
+		if edit != nil {
+			edit(sp)
+		}
+		return sp
+	}
+	keysFor := func(engineID string) []any {
+		sp := params(nil)
+		sp.AuthoritativeEngineID, sp.SecretKey, sp.PrivacyKey = engineID, nil, nil
+		require.NoError(t, sp.InitSecurityKeys())
+		return []any{engineID, sp.SecretKey, sp.PrivacyKey}
+	}
+
+	tests := map[string]struct {
+		edit     func(sp *UsmSecurityParameters)
+		engineID string
+		wantErr  error // the parameters then stay unchanged
+	}{
+		"passphrases":                     {engineID: usmCharEngineID},
+		"passphrases, no keys yet":        {edit: func(sp *UsmSecurityParameters) { sp.SecretKey, sp.PrivacyKey = nil, nil }, engineID: usmCharEngineID},
+		"passphrases, the same engine ID": {engineID: usmOtherEngineID},
+		"keys only, the same engine ID": {
+			edit: func(sp *UsmSecurityParameters) { usmKeysOnly(sp, usmOtherEngineID) }, engineID: usmOtherEngineID,
+		},
+		"keys only": {
+			edit: func(sp *UsmSecurityParameters) { usmKeysOnly(sp, usmOtherEngineID) }, engineID: usmCharEngineID,
+			wantErr: errAuthKeyBoundToEngine,
+		},
+		"authentication key only": {
+			edit: func(sp *UsmSecurityParameters) { sp.AuthenticationPassphrase = "" }, engineID: usmCharEngineID,
+			wantErr: errAuthKeyBoundToEngine,
+		},
+		"privacy key only": {
+			edit: func(sp *UsmSecurityParameters) { sp.PrivacyPassphrase = "" }, engineID: usmCharEngineID,
+			wantErr: errPrivKeyBoundToEngine,
+		},
+		"no authentication key or passphrase": {
+			edit:     func(sp *UsmSecurityParameters) { sp.AuthenticationPassphrase, sp.SecretKey = "", nil },
+			engineID: usmCharEngineID, wantErr: errAuthKeyBoundToEngine,
+		},
+		"no privacy key or passphrase": {
+			edit:     func(sp *UsmSecurityParameters) { sp.PrivacyPassphrase, sp.PrivacyKey = "", nil },
+			engineID: usmCharEngineID, wantErr: errPrivKeyBoundToEngine,
+		},
+		"noAuthNoPriv": {
+			edit: func(sp *UsmSecurityParameters) {
+				sp.AuthenticationProtocol, sp.PrivacyProtocol = NoAuth, NoPriv
+				sp.AuthenticationPassphrase, sp.PrivacyPassphrase, sp.SecretKey, sp.PrivacyKey = "", "", nil, nil
+			},
+			engineID: usmCharEngineID,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			sp := params(tc.edit)
+			before := []any{sp.AuthoritativeEngineID, sp.SecretKey, sp.PrivacyKey}
+
+			err := sp.adoptEngineID(tc.engineID)
+			got := []any{sp.AuthoritativeEngineID, sp.SecretKey, sp.PrivacyKey}
+			switch {
+			case tc.wantErr != nil:
+				require.ErrorIs(t, err, tc.wantErr)
+				assert.Equal(t, before, got)
+			case tc.engineID == usmOtherEngineID:
+				require.NoError(t, err)
+				assert.Equal(t, before, got)
+			case sp.AuthenticationProtocol == NoAuth:
+				require.NoError(t, err)
+				assert.Equal(t, []any{tc.engineID, []byte(nil), []byte(nil)}, got)
+			default:
+				require.NoError(t, err)
+				assert.Equal(t, keysFor(tc.engineID), got)
 			}
 		})
 	}

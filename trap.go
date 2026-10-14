@@ -21,8 +21,10 @@ import (
 // and decodes trap in place (see the package documentation) with a copy of
 // them. When the flags ask for authentication, a User-based Security Model
 // message must name the user and carry a digest that checks with the user's
-// key, localized to the engine ID the message names. The flags and the user
-// are the client's, or, with useResponseSecurityParameters, the message's own.
+// key, localized to the engine ID the message names. Parameters with a key
+// given without its passphrase decode only messages naming the engine ID it
+// was localized to. The flags and the user are the client's, or, with
+// useResponseSecurityParameters, the message's own.
 //
 // Known bugs: these messages are accepted without the security their user
 // needs: one of another security model, and one with an empty user name and

@@ -185,10 +185,12 @@
 // and AES-CFB in FIPS 140-only mode, with an error. Keys derive from non-empty
 // passphrases of any length (RFC 3414 section 11.2 asks for at least 8 octets);
 // a key given without a passphrase serves only the engine ID it was localized
-// to. Deriving a key starts with hashing a megabyte of the passphrase (RFC 3414
-// appendix A.2.1). The package caches that result for every client, by
-// passphrase and hash, until [PasswordCaching] turns the cache off; it holds
-// the passphrases in memory meanwhile.
+// to: parameters holding one decode no message naming another engine ID,
+// whatever its security level, and take none from discovery. Deriving a key
+// starts with hashing a megabyte of the passphrase (RFC 3414 appendix A.2.1).
+// The package caches that result for every client, by passphrase and hash,
+// until [PasswordCaching] turns the cache off; it holds the passphrases in
+// memory meanwhile.
 //
 // # Traps
 //

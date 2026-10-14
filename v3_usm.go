@@ -149,9 +149,10 @@ type UsmSecurityParameters struct {
 	// localized to AuthoritativeEngineID: an authentication key of the size of
 	// its protocol's hash, a privacy key of its cipher's key length (DES: 16
 	// octets). InitSecurityKeys derives the missing ones from the passphrases.
-	// A new engine ID replaces both with keys derived for it; a key given
-	// without a passphrase cannot be derived again, so the parameters are then
-	// left without it, and its use fails.
+	// A new engine ID replaces both with keys derived for it from the
+	// passphrases, so parameters with a protocol whose passphrase is empty, a
+	// key given without one among them, cannot take another engine ID: they
+	// decode no message naming another one, and discovery cannot give them one.
 	SecretKey  []byte
 	PrivacyKey []byte
 
@@ -289,13 +290,21 @@ func (sp *UsmSecurityParameters) deriveKeys() error {
 
 // adoptEngineID takes engineID as the authoritative engine ID and, when it
 // differs from the current one, replaces both keys with keys derived for it
-// from the passphrases; a key given without a passphrase, localized to the old
-// engine ID only, is dropped. The caller holds sp.mu or owns sp (a private
-// copy). Known bug: the engine ID is adopted before the keys are derived, so a
-// failed derivation leaves it adopted with keys missing.
+// from the passphrases. A key localizes to one engine ID (RFC 3414 section
+// 2.6), so parameters with a protocol whose passphrase is empty, as when a key
+// was given without one, cannot adopt another engine ID: the error leaves
+// them unchanged. The caller holds sp.mu or owns sp (a private copy). Known
+// bug: the engine ID is adopted before the keys are derived, so a failed
+// derivation leaves it adopted with keys missing.
 func (sp *UsmSecurityParameters) adoptEngineID(engineID string) error {
 	if sp.AuthoritativeEngineID == engineID {
 		return nil
+	}
+	if sp.AuthenticationProtocol > NoAuth && sp.AuthenticationPassphrase == "" {
+		return errAuthKeyBoundToEngine
+	}
+	if sp.PrivacyProtocol > NoPriv && sp.PrivacyPassphrase == "" {
+		return errPrivKeyBoundToEngine
 	}
 	sp.AuthoritativeEngineID = engineID
 	sp.SecretKey = nil
@@ -334,6 +343,14 @@ func (sp *UsmSecurityParameters) setEngineTime(in *UsmSecurityParameters) {
 	sp.AuthoritativeEngineBoots = in.AuthoritativeEngineBoots
 	sp.AuthoritativeEngineTime = in.AuthoritativeEngineTime
 }
+
+// errAuthKeyBoundToEngine and errPrivKeyBoundToEngine are the errors of
+// adopting another engine ID without the passphrase a protocol's key derives
+// from.
+var (
+	errAuthKeyBoundToEngine = errors.New("usm: without a passphrase, the authentication key cannot be localized to another engine ID")
+	errPrivKeyBoundToEngine = errors.New("usm: without a passphrase, the privacy key cannot be localized to another engine ID")
+)
 
 var (
 	errAuthProtocolRequired = errors.New("securityParameters.AuthenticationProtocol is required")
@@ -562,7 +579,8 @@ func (sp *UsmSecurityParameters) marshal(dst []byte, flags SnmpV3MsgFlags, salt 
 // without enforcing its declared length. When the flags ask for
 // authentication, the authentication parameters are zeroed in the packet so
 // the digest can be verified (readAuthParams). A new engine ID is adopted with
-// keys derived for it (adoptEngineID): sp is the decoder's private copy.
+// keys derived for it, or fails the decode (adoptEngineID): sp is the
+// decoder's private copy.
 // Parameters with an unsupported protocol decode nothing.
 func (sp *UsmSecurityParameters) unmarshal(flags SnmpV3MsgFlags, r *ber.Reader) error {
 	if err := sp.checkProtocols(); err != nil {
