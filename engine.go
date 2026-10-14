@@ -385,17 +385,10 @@ func attemptDeadline(ctx context.Context, timeout time.Duration) (deadline time.
 }
 
 // encode marshals the request, for SNMPv3 with a new message ID (the encoder
-// draws the salt of an encrypted message).
+// draws the salt of an encrypted message). An authenticated request is signed
+// with the user's key, which must fit its protocol (usm.Auth.CheckKey).
 func (e *exchange) encode() ([]byte, error) {
 	x, p := e.x, e.packet
-	// An authenticated request is signed with the user's key localized to the
-	// agent's engine ID, and its answer checked with it; without one, anyone
-	// could sign either. The check follows the packet, as the signature does
-	// (SnmpPacket.sign).
-	if usp := usmOf(p.SecurityParameters); p.Version == Version3 && p.MsgFlags.authFlag() &&
-		(usp == nil || len(usp.SecretKey) == 0) {
-		return nil, errAuthKeyRequired
-	}
 	if p.Version == Version3 {
 		p.MsgID = x.nextMsgID()
 		p.SecurityParameters.Log()

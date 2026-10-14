@@ -2113,7 +2113,7 @@ reencode: identical
 unmarshal-trap: ok
 
 == crafted/v3/auth-priv-md5-des/engine-id-without-keys
-decode: panic
+decode: error
 unmarshal-trap: ok
 
 == crafted/v3/auth-no-priv-sha/localized-decoder

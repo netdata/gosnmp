@@ -26,8 +26,9 @@ func (x *GoSNMP) negotiateInitialSecurityParameters(cfg *requestConfig, packetOu
 // the client and packetOut. Known bugs: a discovery Report with another
 // security model fails the request instead of being discarded; an answer
 // without an engine ID is accepted, so the request goes out with an empty
-// engine ID, and an authenticated one fails for want of a key localized to an
-// engine ID (errAuthKeyRequired).
+// engine ID, and an authenticated one without a configured key fails for want
+// of one: keys are derived when an engine ID is adopted, and adopting the
+// empty one changes nothing.
 func (x *GoSNMP) discoverEngine(cfg *requestConfig, discoveryPacket, packetOut *SnmpPacket) error {
 	discoveryPacket.ContextName = packetOut.ContextName
 	result, _, err := x.sendOneRequest(cfg, discoveryPacket)

@@ -12,7 +12,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"runtime"
 
 	"github.com/netdata/gosnmp/internal/ber"
 	"github.com/netdata/gosnmp/internal/usm"
@@ -93,19 +92,9 @@ func (x *GoSNMP) validateParametersV3() error {
 }
 
 // sign writes the digest of the marshalled SNMPv3 message msg into it when
-// the flags ask for authentication. Known bugs: it signs with an empty key
-// when the parameters have none; it recovers a panic of the signing
-// (crypto/hmac's, for an HMAC-SHA-2 key shorter than 14 octets in FIPS
-// 140-only mode), writes it and the stack to stdout and returns no message
-// and no error.
+// the flags ask for authentication; a key that does not fit the protocol is an
+// error (usm.Auth.CheckKey).
 func (packet *SnmpPacket) sign(msg []byte) ([]byte, error) {
-	defer func() {
-		if e := recover(); e != nil {
-			buf := make([]byte, 8192)
-			runtime.Stack(buf, true)
-			fmt.Printf("[v3::authenticate]recover: %v. Stack=%v\n", e, string(buf))
-		}
-	}()
 	if packet.Version != Version3 {
 		return msg, nil
 	}

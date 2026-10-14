@@ -367,8 +367,8 @@ func (x *GoSNMP) prepare() error {
 // MkSnmpPacket and numbers it with the next request ID and, for SNMPv3, the
 // next msgID, as a request's attempt does. It runs no engine discovery and
 // derives no keys: an authenticated or private SNMPv3 message needs the keys
-// in SecurityParameters. Known bug: without an authentication key the message
-// is signed with an empty one. On an error it returns an empty message.
+// in SecurityParameters (InitSecurityKeys derives them), and fails without
+// them. On an error it returns an empty message.
 func (x *GoSNMP) SnmpEncodePacket(pdutype PDUType, pdus []SnmpPDU, nonRepeaters uint8, maxRepetitions uint32) ([]byte, error) {
 	if err := x.prepare(); err != nil {
 		return []byte{}, err
@@ -388,9 +388,10 @@ func (x *GoSNMP) SnmpEncodePacket(pdutype PDUType, pdus []SnmpPDU, nonRepeaters 
 // SnmpDecodePacket decodes a message, from another transport or for tests,
 // with a copy of the client's security parameters, after preparing the client
 // as Connect does; keys are derived for an SNMPv3 message from another engine
-// ID. It does not check the digest, and it decodes in place (see the package
-// documentation). On an error it returns what it decoded so far. Known bug:
-// some malformed SNMPv3 messages make it panic (see the package
+// ID, so parameters with a key given without its passphrase decode no such
+// message. It does not check the digest, and it decodes in place (see the
+// package documentation). On an error it returns what it decoded so far. Known
+// bug: some malformed SNMPv3 messages make it panic (see the package
 // documentation).
 func (x *GoSNMP) SnmpDecodePacket(resp []byte) (*SnmpPacket, error) {
 	result := &SnmpPacket{}

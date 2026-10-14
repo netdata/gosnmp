@@ -172,17 +172,25 @@
 // their values stay valid.
 //
 // Known bug: some malformed SNMPv3 messages make SnmpDecodePacket and
-// UnmarshalTrap panic, among them a DES salt shorter than eight octets, an
-// authenticated message too short for the digest it should carry, and, on the
-// table path, a header that fails before its security parameters; AES panics
-// in FIPS 140-only mode. Recover around them when decoding untrusted input.
+// UnmarshalTrap panic, among them an authenticated message too short for the
+// digest it should carry and, on the table path, a header that fails before its
+// security parameters. Recover around them when decoding untrusted input.
 //
 // # Keys
 //
-// Deriving an SNMPv3 key starts with hashing a megabyte of the passphrase (RFC
-// 3414 appendix A.2.1). The package caches that result for every client, by
-// passphrase and hash, until [PasswordCaching] turns the cache off; it holds
-// the passphrases in memory meanwhile.
+// An SNMPv3 key fits its protocol: an authentication key is the size of the
+// protocol's hash (RFC 3414, RFC 7860), a privacy key the cipher's key (AES's,
+// or DES's 16 octets of key and pre-IV); the salt of an encrypted message is 8
+// octets. Signing, verifying, encrypting and decrypting refuse anything else,
+// and AES-CFB in FIPS 140-only mode, with an error. Keys derive from non-empty
+// passphrases of any length (RFC 3414 section 11.2 asks for at least 8 octets);
+// a key given without a passphrase serves only the engine ID it was localized
+// to: parameters holding one decode no message naming another engine ID,
+// whatever its security level, and take none from discovery. Deriving a key
+// starts with hashing a megabyte of the passphrase (RFC 3414 appendix A.2.1).
+// The package caches that result for every client, by passphrase and hash,
+// until [PasswordCaching] turns the cache off; it holds the passphrases in
+// memory meanwhile.
 //
 // # Traps
 //

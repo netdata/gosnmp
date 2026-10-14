@@ -56,39 +56,34 @@ func (c *Cache) Enabled() bool {
 
 // LocalizedKey returns passphrase localized to engineID with hash h (RFC 3414
 // appendix A.2.2): the hash of the password-to-key result, the engine ID and
-// the password-to-key result again. Known bug: an error of the password-to-key
-// step, an empty passphrase in particular, is dropped and the key is empty.
+// the password-to-key result again. An empty passphrase is an error.
 func (c *Cache) LocalizedKey(h crypto.Hash, passphrase, engineID string) ([]byte, error) {
 	ku, err := c.passwordToKey(cacheKey{hash: h, password: passphrase}, h.New)
 	if err != nil {
-		return []byte{}, nil
+		return nil, err
 	}
 
 	local := h.New()
 	if _, err := local.Write(ku); err != nil {
-		return []byte{}, err
+		return nil, err
 	}
 	if _, err := local.Write([]byte(engineID)); err != nil {
-		return []byte{}, err
+		return nil, err
 	}
 	if _, err := local.Write(ku); err != nil {
-		return []byte{}, err
+		return nil, err
 	}
 	return local.Sum(nil), nil
 }
 
 // PrivacyKey returns the key of privacy protocol p: passphrase localized to
 // engineID with hash h, extended once when it is shorter than the cipher key,
-// and cut to the cipher key length. A key still too short fails with a
-// *ShortKeyError. A key length of 0 takes the localized key whole. Known bug:
-// for an empty passphrase that key is empty, and DES panics on it.
+// and cut to the cipher key length; the result passes p's CheckKey, or fails
+// with its error (a key still too short).
 func (c *Cache) PrivacyKey(p Priv, h crypto.Hash, passphrase, engineID string) ([]byte, error) {
 	key, err := c.LocalizedKey(h, passphrase, engineID)
 	if err != nil {
 		return nil, err
-	}
-	if p.KeyLen == 0 {
-		return key, nil
 	}
 
 	if len(key) < p.KeyLen {
@@ -101,20 +96,11 @@ func (c *Cache) PrivacyKey(p Priv, h crypto.Hash, passphrase, engineID string) (
 			key = extendBlumenthal(h, key)
 		}
 	}
-	if len(key) < p.KeyLen {
-		return nil, &ShortKeyError{Len: len(key), KeyLen: p.KeyLen}
+	key = key[:min(len(key), p.KeyLen)]
+	if err := p.CheckKey(key); err != nil {
+		return nil, fmt.Errorf("usm: %w", err)
 	}
-	return key[:p.KeyLen], nil
-}
-
-// ShortKeyError reports a privacy key shorter than its cipher key after the
-// extension.
-type ShortKeyError struct {
-	Len, KeyLen int
-}
-
-func (e *ShortKeyError) Error() string {
-	return fmt.Sprintf("privacy key of %d octets is shorter than the cipher key of %d", e.Len, e.KeyLen)
+	return key, nil
 }
 
 // extendReeder extends a localized key with the Reeder key extension
@@ -164,7 +150,7 @@ func (c *Cache) passwordToKey(k cacheKey, newHash func() hash.Hash) ([]byte, err
 // (RFC 3414 appendix A.2.1).
 func passwordToKey(h hash.Hash, password string) ([]byte, error) {
 	if password == "" {
-		return nil, errors.New("password is empty")
+		return nil, errors.New("usm: empty passphrase")
 	}
 	var block [64]byte
 	var pi int // password index

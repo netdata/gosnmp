@@ -182,6 +182,27 @@ func signedByOtherEngine(p *SnmpPacket) {
 	usp.SecretKey = other.SecretKey
 }
 
+// configuredKeys gives the client the user's keys localized to engineID, as
+// configured keys, and no passphrases.
+func configuredKeys(engineID string) func(*GoSNMP, *UsmSecurityParameters) {
+	return func(_ *GoSNMP, sp *UsmSecurityParameters) {
+		creds := agentCreds[sp.UserName]
+		k := &UsmSecurityParameters{
+			UserName:                 sp.UserName,
+			AuthenticationProtocol:   creds.auth,
+			AuthenticationPassphrase: creds.authPass,
+			PrivacyProtocol:          creds.priv,
+			PrivacyPassphrase:        creds.privPass,
+			AuthoritativeEngineID:    engineID,
+		}
+		if err := k.InitSecurityKeys(); err != nil {
+			panic(err)
+		}
+		sp.AuthoritativeEngineID, sp.SecretKey, sp.PrivacyKey = engineID, k.SecretKey, k.PrivacyKey
+		sp.AuthenticationPassphrase, sp.PrivacyPassphrase = "", ""
+	}
+}
+
 // presetKey gives the client the user's key localized to the agent's engine
 // ID, as a configured key.
 func presetKey(_ *GoSNMP, sp *UsmSecurityParameters) {
@@ -353,6 +374,16 @@ func v3Scenarios() map[string]v3Scenario {
 			user: "codec-md5", setup: func(_ *GoSNMP, sp *UsmSecurityParameters) {
 				sp.AuthoritativeEngineID = agentOtherEngineID
 			},
+		},
+		// Keys given without passphrases serve only the engine ID they were
+		// localized to: an answer naming another one does not decode, so the
+		// request is sent again, and ends with the error of adopting it.
+		"known-engine/other-engine/keys-only": {user: "codec-sha-aes", setup: configuredKeys(agentOtherEngineID)},
+		// The same makes a forged unauthenticated Report from another engine
+		// undecodable: the agent answers the request sent again.
+		"known-engine/keys-only/forged-report-from-other-engine": {
+			user: "codec-sha-aes", setup: configuredKeys(agentEngineID),
+			script: onRequest(1, agentAnswer{report: usmStatsUnknownEngineIDs, why: "forged, unauthenticated", edit: fromOtherEngine}),
 		},
 
 		// The agent changes between two requests.
@@ -662,11 +693,13 @@ func v3Scenarios() map[string]v3Scenario {
 			},
 			knownBug: "a discovery answer without an engine ID is accepted, and the request goes out with an empty engine ID",
 		},
-		// A configured key without an engine ID is replaced at discovery.
+		// A key given without a passphrase serves only the engine ID it was
+		// localized to, here none: discovery cannot give the client the agent's,
+		// and the request fails there, its security parameters unchanged (the
+		// context engine ID is taken before them).
 		"empty-key/key-only-user-empty-passphrase": {
 			user: "codec-md5", creds: &agentUser{auth: MD5, authPass: ""},
-			setup:    func(_ *GoSNMP, sp *UsmSecurityParameters) { sp.SecretKey = bytes.Repeat([]byte{0x11}, 16) },
-			knownBug: "discovery drops a configured key, and the error of deriving one from the empty passphrase too, so the request fails for want of a key instead of with that error",
+			setup: func(_ *GoSNMP, sp *UsmSecurityParameters) { sp.SecretKey = bytes.Repeat([]byte{0x11}, 16) },
 		},
 		"discovery/report-without-engine-id/sha256-des": {
 			user: "codec-sha256-des", script: onRequest(1, agentAnswer{

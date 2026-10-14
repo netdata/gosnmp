@@ -95,7 +95,7 @@ const (
 
 // privSpecs describes the privacy protocols by value.
 var privSpecs = [...]usm.Priv{ //nolint:gochecknoglobals // a read-only table
-	DES:     {Cipher: usm.DESCBC},
+	DES:     {Cipher: usm.DESCBC, KeyLen: 16},
 	AES:     {Cipher: usm.AESCFB, KeyLen: 16},
 	AES192:  {Cipher: usm.AESCFB, KeyLen: 24, Extension: usm.Blumenthal},
 	AES256:  {Cipher: usm.AESCFB, KeyLen: 32, Extension: usm.Blumenthal},
@@ -146,8 +146,13 @@ type UsmSecurityParameters struct {
 	PrivacyPassphrase        string
 
 	// SecretKey and PrivacyKey are the authentication and privacy keys,
-	// localized to AuthoritativeEngineID. InitSecurityKeys derives the missing
-	// ones from the passphrases, and a new engine ID replaces both.
+	// localized to AuthoritativeEngineID: an authentication key of the size of
+	// its protocol's hash, a privacy key of its cipher's key length (DES: 16
+	// octets). InitSecurityKeys derives the missing ones from the passphrases.
+	// A new engine ID replaces both with keys derived for it from the
+	// passphrases, so parameters with a protocol whose passphrase is empty, a
+	// key given without one among them, cannot take another engine ID: they
+	// decode no message naming another one, and discovery cannot give them one.
 	SecretKey  []byte
 	PrivacyKey []byte
 
@@ -233,36 +238,49 @@ func (sp *UsmSecurityParameters) Copy() SnmpV3SecurityParameters {
 }
 
 // InitSecurityKeys derives the keys the protocols need and the parameters
-// lack, from the passphrases and AuthoritativeEngineID. Known bug: an empty
-// passphrase is not refused: it gives an empty authentication or DES key, and
-// a Blumenthal AES key extended from nothing when the hash is long enough;
-// the other AES keys fail as too short.
+// lack, from the passphrases and AuthoritativeEngineID, and checks that each
+// protocol has a key that fits it (see SecretKey and PrivacyKey). An empty
+// passphrase derives no key: a protocol needs a key or a passphrase.
 func (sp *UsmSecurityParameters) InitSecurityKeys() error {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
 
-	return sp.initSecurityKeysNoLock()
-}
-
-// initSecurityKeysNoLock is InitSecurityKeys for a caller that holds sp.mu
-// or owns sp (a private copy).
-func (sp *UsmSecurityParameters) initSecurityKeysNoLock() error {
 	if err := sp.checkProtocols(); err != nil {
 		return err
 	}
+	if err := sp.deriveKeys(); err != nil {
+		return err
+	}
+	if sp.AuthenticationProtocol > NoAuth {
+		if err := sp.AuthenticationProtocol.spec().CheckKey(sp.SecretKey); err != nil {
+			return fmt.Errorf("usm: %w", err)
+		}
+	}
+	if sp.PrivacyProtocol > NoPriv {
+		if err := sp.PrivacyProtocol.spec().CheckKey(sp.PrivacyKey); err != nil {
+			return fmt.Errorf("usm: %w", err)
+		}
+	}
+	return nil
+}
 
+// deriveKeys derives the keys the protocols need and the parameters lack from
+// their passphrases, localized to AuthoritativeEngineID; a protocol whose
+// passphrase is empty keeps its key, or stays without one. The caller holds
+// sp.mu or owns sp (a private copy).
+func (sp *UsmSecurityParameters) deriveKeys() error {
 	var err error
-
-	if sp.AuthenticationProtocol > NoAuth && len(sp.SecretKey) == 0 {
+	if sp.AuthenticationProtocol > NoAuth && len(sp.SecretKey) == 0 && sp.AuthenticationPassphrase != "" {
 		sp.SecretKey, err = passwordCache.LocalizedKey(sp.AuthenticationProtocol.HashType(),
-			sp.AuthenticationPassphrase,
-			sp.AuthoritativeEngineID)
+			sp.AuthenticationPassphrase, sp.AuthoritativeEngineID)
 		if err != nil {
 			return err
 		}
 	}
-	if sp.PrivacyProtocol > NoPriv && len(sp.PrivacyKey) == 0 {
-		sp.PrivacyKey, err = sp.privacyKey()
+	if sp.PrivacyProtocol > NoPriv && len(sp.PrivacyKey) == 0 && sp.PrivacyPassphrase != "" {
+		// The privacy key derives with the authentication protocol's hash.
+		sp.PrivacyKey, err = passwordCache.PrivacyKey(sp.PrivacyProtocol.spec(),
+			sp.AuthenticationProtocol.HashType(), sp.PrivacyPassphrase, sp.AuthoritativeEngineID)
 		if err != nil {
 			return err
 		}
@@ -270,36 +288,28 @@ func (sp *UsmSecurityParameters) initSecurityKeysNoLock() error {
 	return nil
 }
 
-// privacyKey derives the key of the privacy protocol from the privacy
-// passphrase, with the hash of the authentication protocol.
-func (sp *UsmSecurityParameters) privacyKey() ([]byte, error) {
-	key, err := passwordCache.PrivacyKey(sp.PrivacyProtocol.spec(), sp.AuthenticationProtocol.HashType(),
-		sp.PrivacyPassphrase,
-		sp.AuthoritativeEngineID)
-	if short, ok := errors.AsType[*usm.ShortKeyError](err); ok {
-		return []byte{}, fmt.Errorf("genlocalPrivKey: privProtocol: %v len(localPrivKey): %d, keylen: %d",
-			sp.PrivacyProtocol, short.Len, short.KeyLen)
-	}
-	return key, err
-}
-
 // adoptEngineID takes engineID as the authoritative engine ID and, when it
-// differs from the current one, drops both keys and derives them for it. The
-// caller holds sp.mu or owns sp (a private copy). Known bugs: the engine ID is
-// adopted before the keys are derived, so a failed derivation leaves it
-// adopted with keys missing; keys given without passphrases are dropped too,
-// and the empty passphrases derive keys as InitSecurityKeys does: an empty
-// authentication key, which verifies a digest anyone can compute
-// (isAuthentic), and an empty DES key, an AES key error, or a Blumenthal AES
-// key from nothing that anyone can compute.
+// differs from the current one, replaces both keys with keys derived for it
+// from the passphrases. A key localizes to one engine ID (RFC 3414 section
+// 2.6), so parameters with a protocol whose passphrase is empty, as when a key
+// was given without one, cannot adopt another engine ID: the error leaves
+// them unchanged. The caller holds sp.mu or owns sp (a private copy). Known
+// bug: the engine ID is adopted before the keys are derived, so a failed
+// derivation leaves it adopted with keys missing.
 func (sp *UsmSecurityParameters) adoptEngineID(engineID string) error {
 	if sp.AuthoritativeEngineID == engineID {
 		return nil
 	}
+	if sp.AuthenticationProtocol > NoAuth && sp.AuthenticationPassphrase == "" {
+		return errAuthKeyBoundToEngine
+	}
+	if sp.PrivacyProtocol > NoPriv && sp.PrivacyPassphrase == "" {
+		return errPrivKeyBoundToEngine
+	}
 	sp.AuthoritativeEngineID = engineID
 	sp.SecretKey = nil
 	sp.PrivacyKey = nil
-	return sp.initSecurityKeysNoLock()
+	return sp.deriveKeys()
 }
 
 // setSecurityParameters adopts the engine ID, boots and time of in, deriving
@@ -334,10 +344,17 @@ func (sp *UsmSecurityParameters) setEngineTime(in *UsmSecurityParameters) {
 	sp.AuthoritativeEngineTime = in.AuthoritativeEngineTime
 }
 
+// errAuthKeyBoundToEngine and errPrivKeyBoundToEngine are the errors of
+// adopting another engine ID without the passphrase a protocol's key derives
+// from.
+var (
+	errAuthKeyBoundToEngine = errors.New("usm: without a passphrase, the authentication key cannot be localized to another engine ID")
+	errPrivKeyBoundToEngine = errors.New("usm: without a passphrase, the privacy key cannot be localized to another engine ID")
+)
+
 var (
 	errAuthProtocolRequired = errors.New("securityParameters.AuthenticationProtocol is required")
 	errPrivProtocolRequired = errors.New("securityParameters.PrivacyProtocol is required")
-	errAuthKeyRequired      = errors.New("securityParameters.SecretKey is required: no authentication key localized to the engine ID")
 )
 
 // checkProtocols rejects authentication and privacy protocol values outside
@@ -471,9 +488,7 @@ func (sp *UsmSecurityParameters) sign(packet []byte) error {
 
 // isAuthentic reports whether the message is from the user of sp and carries
 // the digest computed with the decoded message's parameters, which need an
-// authentication protocol. Known bug: it accepts their key when it is empty,
-// as the empty passphrase derives it, and a digest with the empty key is one
-// anyone can compute (isAuthenticAnswer refuses an empty key).
+// authentication protocol and a key that fits it.
 func (sp *UsmSecurityParameters) isAuthentic(packetBytes []byte, packet *SnmpPacket) (bool, error) {
 	packetSecParams := packet.SecurityParameters.usm()
 
@@ -501,9 +516,6 @@ func (sp *UsmSecurityParameters) isAuthenticAnswer(packet []byte, in *UsmSecurit
 	}
 	if sp.AuthenticationProtocol <= NoAuth {
 		return false, errAuthProtocolRequired
-	}
-	if len(sp.SecretKey) == 0 {
-		return false, errAuthKeyRequired
 	}
 	return sp.AuthenticationProtocol.spec().Verify(sp.SecretKey, packet, []byte(in.AuthenticationParameters))
 }
@@ -567,7 +579,8 @@ func (sp *UsmSecurityParameters) marshal(dst []byte, flags SnmpV3MsgFlags, salt 
 // without enforcing its declared length. When the flags ask for
 // authentication, the authentication parameters are zeroed in the packet so
 // the digest can be verified (readAuthParams). A new engine ID is adopted with
-// keys derived for it (adoptEngineID): sp is the decoder's private copy.
+// keys derived for it, or fails the decode (adoptEngineID): sp is the
+// decoder's private copy.
 // Parameters with an unsupported protocol decode nothing.
 func (sp *UsmSecurityParameters) unmarshal(flags SnmpV3MsgFlags, r *ber.Reader) error {
 	if err := sp.checkProtocols(); err != nil {
