@@ -19,6 +19,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/netdata/gosnmp"
+	"github.com/netdata/gosnmp/internal/usm"
 )
 
 // TestUSM checks gosnmp's User-based Security Model against net-snmp. For
@@ -52,6 +53,7 @@ func TestUSM(t *testing.T) {
 			}
 			sp := pkt.SecurityParameters.(*gosnmp.UsmSecurityParameters)
 			got := usmRecording{authKey: sp.SecretKey, privKey: sp.PrivacyKey}
+			c.setNextSalt()
 			msg, err := pkt.MarshalMsg()
 			if err != nil {
 				t.Fatal(err)
@@ -182,9 +184,10 @@ func usmCases() []usmCase {
 	)
 }
 
-// salt is the msgPrivacyParameters the message carries: for DES the engine
-// boots and a counter (RFC 3414 section 8.1.1.1), for AES a 64-bit integer
-// (RFC 3826 section 3.1.2.1).
+// salt is the msgPrivacyParameters the message carries, the one the
+// recordings were made with: for DES the engine boots and a counter (the
+// layout RFC 3414 section 8.1.1.1 suggests), for AES a 64-bit integer (RFC
+// 3826 section 3.1.2.1).
 func (c usmCase) salt() []byte {
 	switch c.priv {
 	case gosnmp.NoPriv:
@@ -213,14 +216,19 @@ func (c usmCase) usm() *gosnmp.UsmSecurityParameters {
 	}
 }
 
-// packet is the SNMPv2-Trap the authoritative sender secures, with the salt
-// set directly instead of by InitPacket.
+// setNextSalt makes the case's salt the next one the encoder draws.
+func (c usmCase) setNextSalt() {
+	if salt := c.salt(); salt != nil {
+		usm.Salts.Set(binary.BigEndian.Uint64(salt))
+	}
+}
+
+// packet is the SNMPv2-Trap the authoritative sender secures.
 func (c usmCase) packet() *gosnmp.SnmpPacket {
 	sp := c.usm()
 	sp.AuthoritativeEngineID = c.engineID
 	sp.AuthoritativeEngineBoots = usmBoots
 	sp.AuthoritativeEngineTime = usmTime
-	sp.PrivacyParameters = c.salt()
 	return &gosnmp.SnmpPacket{
 		Version:            gosnmp.Version3,
 		MsgFlags:           c.flags(),
@@ -310,6 +318,7 @@ func (c usmCase) marshal(flags gosnmp.SnmpV3MsgFlags) ([]byte, error) {
 	if err := pkt.SecurityParameters.InitSecurityKeys(); err != nil {
 		return nil, err
 	}
+	c.setNextSalt()
 	return pkt.MarshalMsg()
 }
 

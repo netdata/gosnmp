@@ -19,6 +19,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/netdata/gosnmp/internal/usm"
 )
 
 // TestDecodeCharacterization pins what SnmpDecodePacket returns for every
@@ -188,7 +190,15 @@ func dumpValue(v any) string {
 	}
 }
 
+// dumpReencode pins what MarshalMsg makes of a decoded packet. The encoder
+// draws the salt of an encrypted message: it gets the received salt when that
+// is eight octets, so that "identical" shows the codec round trip, and a fixed
+// one otherwise.
 func dumpReencode(d *dumpWriter, p *SnmpPacket, original []byte) {
+	usm.Salts.Set(0x0000000700000001)
+	if sp := usmOf(p.SecurityParameters); sp != nil && len(sp.PrivacyParameters) == 8 {
+		usm.Salts.Set(binary.BigEndian.Uint64(sp.PrivacyParameters))
+	}
 	var out []byte
 	var err error
 	panicked, wroteStdout := observe(func() { out, err = p.MarshalMsg() })
@@ -711,11 +721,11 @@ func decodeCraftedCases() []decodeCase {
 	}
 }
 
-// The v3 fixtures are GetResponse messages made by MarshalMsg (after
-// InitPacket) for user "codec-user", engine ID 80001f8804"codec-engine",
-// boots 7, time 1234, context "codec-context", authentication passphrase
-// "codec-auth-pass" and privacy passphrase "codec-priv-pass". They carry
-// sysName.0 = "codec-host" and sysUpTime.0 = 98765.
+// The v3 fixtures are GetResponse messages made by MarshalMsg for user
+// "codec-user", engine ID 80001f8804"codec-engine", boots 7, time 1234,
+// context "codec-context", authentication passphrase "codec-auth-pass" and
+// privacy passphrase "codec-priv-pass". They carry sysName.0 = "codec-host"
+// and sysUpTime.0 = 98765.
 
 func v3AuthNoPrivSHAResponse() []byte {
 	return []byte{

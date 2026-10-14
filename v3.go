@@ -15,6 +15,7 @@ import (
 	"runtime"
 
 	"github.com/netdata/gosnmp/internal/ber"
+	"github.com/netdata/gosnmp/internal/usm"
 )
 
 // SnmpV3MsgFlags is the msgFlags octet of an SNMPv3 message: its security
@@ -163,33 +164,35 @@ func (x *GoSNMP) testAuthentication(packet []byte, result *SnmpPacket, useRespon
 // needs, or whose user, engine ID or digest does not check.
 var errNotAuthentic = errors.New("incoming packet is not authentic, discarding")
 
-// initPacket draws a new salt when the client uses privacy, and sets it as the
-// privacy parameters of the outgoing SNMPv3 packet when the packet asks for
-// privacy too (a discovery packet does not); for the engine and
-// SnmpEncodePacket.
-func (x *GoSNMP) initPacket(packetOut *SnmpPacket) error {
-	if x.MsgFlags.privFlag() {
-		return x.SecurityParameters.InitPacket(packetOut)
-	}
-
-	return nil
-}
+// errNoSecurityParameters is the error of an SNMPv3 message to encode
+// without security parameters.
+var errNoSecurityParameters = errors.New("SNMPv3 message without security parameters")
 
 // appendV3 appends the SNMPv3 part of a message after the version: the header
 // (msgGlobalData), the security parameters in an OCTET STRING and the scoped
-// PDU.
+// PDU. A message the flags encrypt gets the next salt of usm.Salts, never the
+// packet's PrivacyParameters, so that no two messages share one, whatever the
+// caller copied into the packet.
 func (packet *SnmpPacket) appendV3(dst []byte) ([]byte, error) {
-	sp := packet.SecurityParameters.usm()
+	sp := usmOf(packet.SecurityParameters)
+	if sp == nil {
+		return nil, errNoSecurityParameters
+	}
 	if err := sp.checkProtocols(); err != nil {
 		return nil, err
 	}
 	if err := sp.checkLevel(packet.MsgFlags); err != nil {
 		return nil, err
 	}
+	var salt []byte
+	if packet.MsgFlags.privFlag() {
+		next := usm.Salts.Next()
+		salt = next[:]
+	}
 	dst = packet.appendV3Header(dst)
 	dst, start := ber.Begin(dst, byte(OctetString))
-	dst = ber.End(sp.marshal(dst, packet.MsgFlags), start)
-	return packet.appendV3ScopedPDU(dst)
+	dst = ber.End(sp.marshal(dst, packet.MsgFlags, salt), start)
+	return packet.appendV3ScopedPDU(dst, sp, salt)
 }
 
 // appendV3Header appends msgGlobalData: the message ID, which always takes
@@ -210,9 +213,9 @@ func (packet *SnmpPacket) appendV3Header(dst []byte) []byte {
 }
 
 // appendV3ScopedPDU appends the scoped PDU: a SEQUENCE of the context engine
-// ID, the context name and the PDU, encrypted into an OCTET STRING when the
-// flags ask for privacy.
-func (packet *SnmpPacket) appendV3ScopedPDU(dst []byte) ([]byte, error) {
+// ID, the context name and the PDU, encrypted with salt into an OCTET STRING
+// when there is one (appendV3 draws it when the flags ask for privacy).
+func (packet *SnmpPacket) appendV3ScopedPDU(dst []byte, sp *UsmSecurityParameters, salt []byte) ([]byte, error) {
 	scoped := len(dst)
 	dst, start := ber.Begin(dst, byte(Sequence))
 	dst = appendOctets(dst, OctetString, packet.ContextEngineID)
@@ -222,8 +225,8 @@ func (packet *SnmpPacket) appendV3ScopedPDU(dst []byte) ([]byte, error) {
 		return nil, err
 	}
 	dst = ber.End(dst, start)
-	if packet.MsgFlags.privFlag() {
-		ciphertext, err := packet.SecurityParameters.usm().encryptPacket(dst[scoped:])
+	if salt != nil {
+		ciphertext, err := sp.encryptPacket(dst[scoped:], salt)
 		if err != nil {
 			return nil, err
 		}

@@ -707,7 +707,7 @@ func v3Scenarios() map[string]v3Scenario {
 		"hooks/logger-changes-version-after-negotiation": {
 			user:     "codec-md5",
 			run:      onLogging("SEND END NEGOTIATE SECURITY PARAMS", func(x *GoSNMP) { x.Version = Version2c }),
-			knownBug: "a Logger that changes the client's version after the negotiation makes encode skip the msgID and the salt: the request goes out with msgID 0",
+			knownBug: "a Logger that changes the client's version after the negotiation makes encode skip the msgID: the request goes out with msgID 0",
 		},
 		"hooks/logger-changes-version-after-negotiation/engine-less-discovery": {
 			user: "codec-md5", script: onRequest(1, agentAnswer{
@@ -959,7 +959,6 @@ func v3Scenarios() map[string]v3Scenario {
 					usp := p.SecurityParameters.usm()
 					p.MsgFlags = AuthPriv
 					usp.PrivacyProtocol, usp.PrivacyKey = AES, bytes.Repeat([]byte{0x5a}, 16)
-					usp.PrivacyParameters = []byte{0, 0, 0, 0, 0, 0, 0, 1}
 				},
 			}, n > 1
 		}},

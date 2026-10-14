@@ -75,9 +75,8 @@ func (c rtCredentials) usm(engineID string) *UsmSecurityParameters {
 }
 
 // rtEncodeV3 makes an SNMPv3 SNMPv2-Trap or InformRequest. The sender is the
-// authoritative engine: its keys are localized to its own engine ID, and
-// InitPacket sets the privacy salt. Only informs are reportable (RFC 3412
-// section 6.4).
+// authoritative engine: its keys are localized to its own engine ID. Only
+// informs are reportable (RFC 3412 section 6.4).
 func rtEncodeV3(t *testing.T, sender rtCredentials, pduType PDUType) []byte {
 	t.Helper()
 
@@ -103,7 +102,6 @@ func rtEncodeV3(t *testing.T, sender rtCredentials, pduType PDUType) []byte {
 		RequestID:          42,
 		Variables:          rtVarbinds,
 	}
-	require.NoError(t, sp.InitPacket(pkt))
 	data, err := pkt.MarshalMsg()
 	require.NoError(t, err)
 	return data

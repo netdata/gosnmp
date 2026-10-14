@@ -160,9 +160,10 @@ func (packet *SnmpPacket) SafeString() string {
 }
 
 // MarshalMsg encodes the packet as it is, ready for the wire. An SNMPv3
-// message is encrypted with its PrivacyParameters as the salt and signed when
-// its flags ask for it, with the keys in its SecurityParameters; MarshalMsg
-// draws no new msgID or salt (GoSNMP.SnmpEncodePacket does).
+// message is encrypted and signed when its flags ask for it, with the keys in
+// its SecurityParameters, which it requires; each encrypted message gets a
+// new salt, whatever PrivacyParameters holds. MarshalMsg draws no new msgID
+// (GoSNMP.SnmpEncodePacket does).
 func (packet *SnmpPacket) MarshalMsg() ([]byte, error) {
 	return packet.marshalMsg()
 }
