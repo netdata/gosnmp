@@ -211,7 +211,7 @@ type GoSNMP struct {
 	// opened is the connection the client opened (Connect or a TCP
 	// reconnect), while Conn holds it.
 	opened connection
-	// closed reports that Close ran since the last Connect.
+	// closed reports that Close ran since the last successful Connect.
 	closed bool
 }
 

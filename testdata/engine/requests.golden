@@ -692,6 +692,20 @@
 0s    client after: retries=2 next request id=1002
 0s    known bug: a reply with request ID 0 is accepted for any request
 
+== requests/close/after-the-reply
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv closes the client
+0s    close
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    client after: retries=2 next request id=1002
+
 == requests/close/before-request
 0s    close
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -708,6 +722,17 @@
 1s    hook OnRetry closes the client
 1s    close
 1s    result: packet nil, error "the client was closed: use of closed network connection" *fmt.wrapError (is net.ErrClosed)
+1s    client after: retries=2 next request id=1002
+
+== requests/close/conn-removed-by-hook
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    hook OnSent
+1s    read from 127.0.0.2:161: deadline
+1s    hook OnRetry removes Conn
+1s    result: packet nil, error "&GoSNMP.Conn is missing. Provide a connection or use Connect()" *errors.errorString
 1s    client after: retries=2 next request id=1002
 
 == requests/close/connection-from-another-goroutine
@@ -729,7 +754,7 @@
 0s    hook OnSent closes the client
 0s    close
 0s    read from 127.0.0.2:161: read udp: use of closed network connection
-0s    result: packet nil, error "error reading from socket: read udp: use of closed network connection" *fmt.wrapError (is net.ErrClosed)
+0s    result: packet nil, error "the client was closed: use of closed network connection" *fmt.wrapError (is net.ErrClosed)
 0s    client after: retries=2 next request id=1002
 
 == requests/close/from-another-goroutine
@@ -740,7 +765,7 @@
 0s    hook OnSent
 300ms close
 300ms read from 127.0.0.2:161: read udp: use of closed network connection
-300ms result: packet nil, error "error reading from socket: read udp: use of closed network connection" *fmt.wrapError (is net.ErrClosed)
+300ms result: packet nil, error "the client was closed: use of closed network connection" *fmt.wrapError (is net.ErrClosed)
 300ms client after: retries=2 next request id=1002
 
 == requests/conn-without-connect

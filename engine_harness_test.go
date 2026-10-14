@@ -122,6 +122,8 @@ type fakeTransport struct {
 	// holdInterrupt, when set, holds a deadline set in the past until it
 	// closes.
 	holdInterrupt chan struct{}
+	// beforeDeadline, when set, runs before a deadline in the future is set.
+	beforeDeadline func()
 }
 
 func newFakeTransport(tr *engineTranscript, agent engineAgent) *fakeTransport {
@@ -258,10 +260,14 @@ func (c *fakeTransport) setDeadlines(name string, t time.Time, read, write bool)
 	if c.holdInterrupt != nil && t.Before(time.Now()) {
 		<-c.holdInterrupt
 	}
+	if c.beforeDeadline != nil && !t.Before(time.Now()) {
+		c.beforeDeadline()
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	now := time.Now()
 	switch current := c.readDeadline; {
+	case c.tr == nil:
 	case !t.Before(now):
 		c.tr.addf("%s +%s", name, t.Sub(now))
 	case current.IsZero() || now.Before(current):

@@ -33,10 +33,11 @@
 // and its deadline, the receive buffer and the SNMPv3 engine state, so run one
 // request at a time, or give each goroutine its own client. Close is the
 // exception: any goroutine may call it at any time, also to end a running
-// request, whose read or write then fails (with an error wrapping
-// [net.ErrClosed] for the standard library's connections); later requests fail
-// with an error wrapping net.ErrClosed until Connect opens a connection or Conn
-// is set. The hooks run on the goroutine of the request. A
+// request. A request not answered by then fails with an error wrapping
+// [net.ErrClosed], even when its Context is done too, and so do later requests
+// until Connect opens a connection or Conn is set. Close does not cut a TCP
+// reconnect's dial short; the dial's timeout and the Context bound it. The
+// hooks run on the goroutine of the request. A
 // [SnmpV3SecurityParametersTable] and the key cache of [PasswordCaching] are
 // safe for concurrent use.
 //

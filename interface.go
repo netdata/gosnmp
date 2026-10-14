@@ -17,7 +17,8 @@ import (
 
 // Handler is the interface of a GoSNMP, provided for mocks in tests; the
 // methods that act are documented on GoSNMP, the others get or set its
-// fields. Like a GoSNMP, a Handler is not safe for concurrent use.
+// fields. Like a GoSNMP, a Handler is not safe for concurrent use, Close
+// excepted.
 type Handler interface {
 	// Connect: see GoSNMP.Connect.
 	Connect() error
@@ -58,8 +59,7 @@ type Handler interface {
 	// Check: see GoSNMP.Check.
 	Check(err error)
 
-	// Close closes the connection; see NewHandler for how its Close differs
-	// from GoSNMP.Close.
+	// Close: see GoSNMP.Close.
 	Close() error
 
 	// Target gets the Target

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"reflect"
 	"strconv"
 	"syscall"
 	"time"
@@ -37,11 +38,12 @@ func (x *GoSNMP) ConnectIPv6() error {
 }
 
 // Close closes the client's connection. Any goroutine may call it, also while
-// a request runs: the request's read or write then fails, with an error
-// wrapping net.ErrClosed for the standard library's connections, and later
-// requests fail with an error wrapping net.ErrClosed until Connect opens a
-// connection or Conn is set. Only the first call closes the connection; later
-// calls, and calls on a client without a connection, return nil.
+// a request runs, which it ends: a request not answered by then fails with an
+// error wrapping net.ErrClosed, as do later requests until Connect opens a
+// connection or Conn is set. Close does not cut a TCP reconnect's dial short;
+// the dial's timeout and the Context bound it. Only the first call closes the
+// connection; later calls, and calls on a client without a connection, return
+// nil.
 func (x *GoSNMP) Close() error {
 	x.mu.Lock()
 	conn := x.Conn
@@ -80,6 +82,14 @@ func (x *GoSNMP) connect(networkSuffix string) error {
 	return nil
 }
 
+// isClosed reports whether Close closed the client's connection, which no
+// Connect or Conn has replaced since.
+func (x *GoSNMP) isClosed() bool {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	return x.Conn == nil && x.closed
+}
+
 // connectionFor returns the client's connection for an attempt of the request
 // with configuration cfg: the connection the client opened, or a Conn the
 // caller set, which a TCP reconnect opens again with the request's settings.
@@ -92,6 +102,8 @@ func (x *GoSNMP) connectionFor(cfg *requestConfig) (connection, error) {
 		return connection{}, errClosed
 	case x.Conn == nil:
 		return connection{}, errNoConn
+	// opened.conn is nil or a connection open made, of a comparable type, so
+	// == cannot panic: values of different types are unequal.
 	case x.Conn == x.opened.conn:
 		return x.opened, nil
 	}
@@ -100,30 +112,49 @@ func (x *GoSNMP) connectionFor(cfg *requestConfig) (connection, error) {
 
 // reconnect opens c, the client's connection the agent closed, again, and
 // replaces it with the new one, which it closes instead when c is no longer
-// the client's connection: after Close, the attempt ends with net.ErrClosed;
-// after a hook replaced Conn, the next attempt uses that. A failed dial leaves
-// c in place and ends the attempt with its error.
+// the client's connection (after Close, or a hook that replaced Conn, which
+// the next attempt then uses). A failed dial leaves c in place and ends the
+// attempt with its error.
 func (x *GoSNMP) reconnect(ctx context.Context, timeout time.Duration, c *connection) attemptOutcome {
 	nc, err := c.dial.open(ctx, timeout)
 	if err != nil {
 		return attemptOutcome{kind: attemptFailed, err: err}
 	}
-	x.mu.Lock()
-	current, closed := x.Conn == c.conn, x.Conn == nil && x.closed
-	if current {
-		x.Conn, x.opened = nc.conn, nc
-	}
-	x.mu.Unlock()
-	switch {
-	case current:
+	if x.replace(c.conn, nc) {
 		_ = c.conn.Close()
-	case closed:
-		_ = nc.conn.Close()
-		return attemptOutcome{kind: attemptClosed, err: errClosed}
-	default:
+	} else {
 		_ = nc.conn.Close()
 	}
 	return attemptOutcome{kind: attemptReconnected, err: io.EOF}
+}
+
+// replace makes nc the client's connection while old is, and reports whether
+// it did.
+func (x *GoSNMP) replace(old net.Conn, nc connection) bool {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	if !sameConn(x.Conn, old) {
+		return false
+	}
+	x.Conn, x.opened = nc.conn, nc
+	return true
+}
+
+// sameConn reports whether conn, the client's connection, is still old, the
+// connection an attempt took. Two values of a type == cannot compare (it would
+// panic) count as the same: a caller's Conn of such a type is more likely
+// than a hook replacing it by another of the same type.
+func sameConn(conn, old net.Conn) bool {
+	v, o := reflect.ValueOf(conn), reflect.ValueOf(old)
+	switch {
+	case !v.IsValid() || !o.IsValid():
+		return conn == nil && old == nil
+	case v.Type() != o.Type():
+		return false
+	case !v.Comparable():
+		return true
+	}
+	return conn == old
 }
 
 // dialSettings are how the client opens a connection: what Connect reads from

@@ -11,6 +11,8 @@ import (
 	"net"
 	"runtime"
 	"strconv"
+	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -353,21 +355,12 @@ func TestCloseDuringRequest(t *testing.T) {
 	require.NoError(t, h.Connect())
 	defer h.Close()
 
-	release := make(chan struct{})
-	go func() {
-		<-reads
-		close(release)
-	}()
-	for range 2 {
-		go func() {
-			<-release
-			_ = h.Close()
-		}()
-	}
+	closers := closeOnRelease(h, 2, func() { <-reads })
 	start := time.Now()
 	_, err := h.Get([]string{engineOID})
 	require.ErrorIs(t, err, net.ErrClosed)
 	assert.Less(t, time.Since(start), 10*time.Second, "the request ends before its timeout")
+	closers.Wait()
 
 	_, err = h.Get([]string{engineOID})
 	require.ErrorIs(t, err, net.ErrClosed)
@@ -377,6 +370,89 @@ func TestCloseDuringRequest(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []SnmpPDU{sysDescr}, res.Variables)
 	assert.Len(t, reads, 1, "the agent read the request after Connect, not the one after Close")
+}
+
+// TestCloseDuringWalk checks, on a loopback socket, Close as Netdata's SNMP
+// topology uses it during a walk: two goroutines close the client, through the
+// Handler, while the walk waits for an answer. The walk ends at once with
+// net.ErrClosed.
+func TestCloseDuringWalk(t *testing.T) {
+	const root = ".1.3.6.1.2.1.2.2.1.2"
+	port, reads := udpAgent(t, func(n int, req []byte) []byte {
+		if n == 5 {
+			return nil // the agent does not answer the fifth request
+		}
+		p, err := decodeMessage(req)
+		if err != nil || len(p.Variables) == 0 {
+			return nil
+		}
+		next := root + ".1"
+		if arc, ok := strings.CutPrefix(p.Variables[0].Name, root+"."); ok {
+			i, _ := strconv.Atoi(arc)
+			next = root + "." + strconv.Itoa(i+1)
+		}
+		return replyTo(req, nil, SnmpPDU{Name: next, Type: OctetString, Value: []byte("codec")})
+	})
+	h := NewHandler()
+	h.SetTarget("127.0.0.1")
+	h.SetPort(port)
+	h.SetTimeout(time.Minute)
+	require.NoError(t, h.Connect())
+	defer h.Close()
+
+	closers := closeOnRelease(h, 2, func() {
+		for n := range reads {
+			if n == 5 {
+				return
+			}
+		}
+	})
+	start := time.Now()
+	_, err := h.BulkWalkAll(root)
+	require.ErrorIs(t, err, net.ErrClosed)
+	assert.Less(t, time.Since(start), 10*time.Second, "the walk ends before its request's timeout")
+	closers.Wait()
+}
+
+// closeOnRelease starts n goroutines that close h once release returns, and
+// returns their WaitGroup.
+func closeOnRelease(h Handler, n int, release func()) *sync.WaitGroup {
+	released := make(chan struct{})
+	go func() {
+		release()
+		close(released)
+	}()
+	var closers sync.WaitGroup
+	for range n {
+		closers.Go(func() {
+			<-released
+			_ = h.Close()
+		})
+	}
+	return &closers
+}
+
+// TestCloseDuringConnect checks, under the race detector, a Close from another
+// goroutine at the time of a Connect: the client ends either closed, failing
+// requests with net.ErrClosed, or connected, without a race.
+func TestCloseDuringConnect(t *testing.T) {
+	port, _ := udpAgent(t, func(_ int, req []byte) []byte { return replyTo(req, nil, sysDescr) })
+	for range 20 {
+		x := &GoSNMP{Target: "127.0.0.1", Port: port, Version: Version2c, Community: "public", Timeout: 10 * time.Second}
+		require.NoError(t, x.Connect())
+		closed := make(chan error, 1)
+		go func() { closed <- x.Close() }()
+		require.NoError(t, x.Connect())
+		require.NoError(t, <-closed)
+
+		_, err := x.Get([]string{engineOID})
+		if x.Conn == nil {
+			assert.ErrorIs(t, err, net.ErrClosed)
+		} else {
+			assert.NoError(t, err)
+		}
+		_ = x.Close()
+	}
 }
 
 // TestContextCancelDuringRequest checks, on a loopback socket, that canceling

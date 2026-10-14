@@ -181,8 +181,8 @@ const (
 	// attemptReconnected: the agent closed the TCP connection (io.EOF), and the
 	// client opened a new one.
 	attemptReconnected
-	// attemptClosed: the client's connection was closed (net.ErrClosed), or
-	// Close closed the client.
+	// attemptClosed: the write or the read failed on a closed connection
+	// (net.ErrClosed), or Close closed the client.
 	attemptClosed
 	// attemptContextDone: the Context was done when the attempt would start.
 	attemptContextDone
@@ -223,15 +223,6 @@ func ioOutcome(err error) attemptOutcome {
 	return attemptOutcome{kind: attemptTransportError, err: err}
 }
 
-// failedOutcome is the outcome of an attempt that failed with err before its
-// write: closed for a closed connection, failed otherwise.
-func failedOutcome(err error) attemptOutcome {
-	if errors.Is(err, net.ErrClosed) {
-		return attemptOutcome{kind: attemptClosed, err: err}
-	}
-	return attemptOutcome{kind: attemptFailed, err: err}
-}
-
 // attemptsError is the error of a request whose attempts ran out after a
 // timeout or a reconnect: a text callers know, unwrapping to the last
 // attempt's reason (the write's or the read's deadline error, a timeout
@@ -252,7 +243,9 @@ type sentIDs struct {
 
 // sendOneRequest sends packetOut and returns the reply that answers it, and
 // whether the reply's digest checked against the request, retrying up to
-// cfg.retries times. OnFinish runs when it succeeds.
+// cfg.retries times. OnFinish runs when it succeeds. Once Close closed the
+// client, an attempt that ends without a reply ends the request with
+// net.ErrClosed, whatever else ended it.
 func (x *GoSNMP) sendOneRequest(cfg *requestConfig, packetOut *SnmpPacket) (*SnmpPacket, bool, error) {
 	e := exchange{x: x, packet: packetOut, cfg: *cfg, timeout: cfg.timeout}
 	// The IDs of the attempts before the current one, in a local array, not a
@@ -263,6 +256,9 @@ func (x *GoSNMP) sendOneRequest(cfg *requestConfig, packetOut *SnmpPacket) (*Snm
 	earlier := sent[:0]
 	for n := 0; ; n++ {
 		out := e.attempt(earlier)
+		if out.kind != attemptReply && x.isClosed() {
+			out = attemptOutcome{kind: attemptClosed, err: errClosed}
+		}
 		if !out.kind.retryable() {
 			if out.err == nil && cfg.onFinish != nil {
 				cfg.onFinish(x)
@@ -328,13 +324,15 @@ func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
 	}
 	c, err := x.connectionFor(&e.cfg)
 	if err != nil {
-		return failedOutcome(err)
+		return attemptOutcome{kind: attemptFailed, err: err}
 	}
 	var deadline time.Time
 	deadline, e.contextDeadline = attemptDeadline(e.cfg.ctx, e.timeout)
 	if err = c.conn.SetDeadline(deadline); err != nil {
-		return failedOutcome(err)
+		return attemptOutcome{kind: attemptFailed, err: err}
 	}
+	// The interrupt comes after the deadline: a cancellation between the two
+	// would otherwise set its deadline first, and the attempt's would undo it.
 	if stop := interruptWhenDone(e.cfg.ctx, c.conn); stop != nil {
 		defer stop()
 	}
