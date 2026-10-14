@@ -654,9 +654,10 @@ func udpAgent(t *testing.T, handle func(n int, req []byte) []byte) (port uint16,
 	return uint16(pc.LocalAddr().(*net.UDPAddr).Port), read //nolint:gosec // a UDP port
 }
 
-// TestSameConn pins the rule the TCP reconnect uses to tell whether the
-// client's connection is still the one an attempt took: by ==, without
-// panicking, and the same for two values == cannot compare.
+// TestSameConn pins the rule the client uses to tell whether its connection
+// is still the one an attempt took or found lost (a TCP reopen's commit, the
+// lost mark): by ==, without panicking, and the same for two values == cannot
+// compare.
 func TestSameConn(t *testing.T) {
 	type wrapped struct{ net.Conn } // comparable, holding any connection
 	type otherUncomparable struct {
