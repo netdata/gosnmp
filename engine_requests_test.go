@@ -865,6 +865,32 @@ func TestEngineContextInterruptUnregistered(t *testing.T) {
 	})
 }
 
+// TestEngineLateContextInterrupt checks that a Context's interrupt whose
+// callback runs only after its attempt ended and the next attempt registered
+// leaves the next attempt alone. With one CPU, the callback that cancel starts
+// runs only when the test's goroutine blocks: after the next registration.
+func TestEngineLateContextInterrupt(t *testing.T) {
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(1))
+	synctest.Test(t, func(t *testing.T) {
+		c := newFakeTransport(nil, nil)
+		x := newEngineClient(t, nil, Version2c, fakePacketTransport{c})
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		ended := x.interruptible(ctx, x.Conn)
+		cancel()
+		ended.end()
+		// The next attempt sets its deadline, then registers.
+		require.NoError(t, x.Conn.SetDeadline(time.Time{}))
+		next := x.interruptible(context.Background(), x.Conn)
+		synctest.Wait() // the late callback runs
+		c.mu.Lock()
+		deadline := c.readDeadline
+		c.mu.Unlock()
+		next.end()
+		assert.True(t, deadline.IsZero(), "the next attempt's deadline: %v", deadline)
+	})
+}
+
 // TestEngineTCPReconnect pins, on loopback sockets, what the engine does when
 // a TCP agent closes the connection after reading a request: the next attempt
 // opens the connection again and sends again; the request fails with the
