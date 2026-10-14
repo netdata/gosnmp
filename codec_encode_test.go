@@ -402,6 +402,13 @@ func encodeCases(t *testing.T) []encodeCase {
 		sp.PrivacyParameters = []byte{0xee, 0xee, 0xee, 0xee, 0xee, 0xee, 0xee, 0xee}
 		return sp
 	}
+	// fixedIDs starts the client's ID counters at 0, so that its request ID
+	// and msgID are 1 (a client draws random ones otherwise).
+	fixedIDs := func(x *GoSNMP) *GoSNMP {
+		x.SetRequestID(0)
+		x.SetMsgID(0)
+		return x
+	}
 	marshal := func(p *SnmpPacket) func() ([]byte, error) { return p.MarshalMsg }
 	edit := func(p *SnmpPacket, f func(*SnmpPacket)) *SnmpPacket { f(p); return p }
 
@@ -536,35 +543,35 @@ func encodeCases(t *testing.T) []encodeCase {
 
 		// SnmpEncodePacket builds the packet from the GoSNMP configuration.
 		{"encode-packet/v1/get-request", func() ([]byte, error) {
-			x := &GoSNMP{Version: Version1, Community: "public"}
+			x := fixedIDs(&GoSNMP{Version: Version1, Community: "public"})
 			return x.SnmpEncodePacket(GetRequest, nullVar, 0, 0)
 		}},
 		{"encode-packet/v2c/getbulk-request", func() ([]byte, error) {
-			x := &GoSNMP{Version: Version2c, Community: "public"}
+			x := fixedIDs(&GoSNMP{Version: Version2c, Community: "public"})
 			return x.SnmpEncodePacket(GetBulkRequest, nullVar, 1, 10)
 		}},
 		{"encode-packet/v2c/getbulk-request/max-repetitions-max-uint32", func() ([]byte, error) {
-			x := &GoSNMP{Version: Version2c, Community: "public"}
+			x := fixedIDs(&GoSNMP{Version: Version2c, Community: "public"})
 			return x.SnmpEncodePacket(GetBulkRequest, nullVar, 0, math.MaxUint32)
 		}},
 		{"encode-packet/v3/auth-no-priv/sha", func() ([]byte, error) {
-			x := &GoSNMP{
+			x := fixedIDs(&GoSNMP{
 				Version:            Version3,
 				MsgFlags:           AuthNoPriv,
 				SecurityModel:      UserSecurityModel,
 				SecurityParameters: codecUSM(t, SHA, NoPriv),
 				ContextName:        "codec-context",
-			}
+			})
 			return x.SnmpEncodePacket(GetRequest, nullVar, 0, 0)
 		}},
 		{"encode-packet/v3/auth-priv/sha-aes", func() ([]byte, error) {
-			x := &GoSNMP{
+			x := fixedIDs(&GoSNMP{
 				Version:            Version3,
 				MsgFlags:           AuthPriv,
 				SecurityModel:      UserSecurityModel,
 				SecurityParameters: codecUSM(t, SHA, AES),
 				ContextName:        "codec-context",
-			}
+			})
 			return x.SnmpEncodePacket(GetRequest, nullVar, 0, 0)
 		}},
 	}

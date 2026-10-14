@@ -5,10 +5,12 @@
 package gosnmp
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
 	"strconv"
+	"time"
 )
 
 // Connect readies the client and opens its connection to Target and Port
@@ -18,16 +20,14 @@ func (x *GoSNMP) Connect() error {
 	return x.connect("")
 }
 
-// ConnectIPv4 connects like Connect, over IPv4 only: it appends "4" to
-// Transport. Known bug: it appends it on every call, so the next ConnectIPv4
-// fails ("udp44").
+// ConnectIPv4 connects like Connect, over IPv4 only: over Transport with "4"
+// appended.
 func (x *GoSNMP) ConnectIPv4() error {
 	return x.connect("4")
 }
 
-// ConnectIPv6 connects like Connect, over IPv6 only: it appends "6" to
-// Transport. Known bug: it appends it on every call, so the next ConnectIPv6
-// fails ("udp66").
+// ConnectIPv6 connects like Connect, over IPv6 only: over Transport with "6"
+// appended.
 func (x *GoSNMP) ConnectIPv6() error {
 	return x.connect("6")
 }
@@ -49,79 +49,79 @@ func (x *GoSNMP) Close() error {
 	return err
 }
 
-// connect readies the client, appends networkSuffix ("", "4" or "6") to
-// Transport, opens the connection, seeds the IDs and allocates the receive
-// buffer.
+// connect readies the client and opens its connection over Transport with
+// networkSuffix ("", "4" or "6") appended.
 func (x *GoSNMP) connect(networkSuffix string) error {
-	err := x.prepare()
-	if err != nil {
+	if err := x.prepare(); err != nil {
 		return err
 	}
-
-	// Known bug: the suffix is appended on every call.
-	x.Transport += networkSuffix
-	if err = x.netConnect(); err != nil {
+	if err := x.netConnect(x.Context, x.Timeout, x.Transport+networkSuffix); err != nil {
 		return fmt.Errorf("error establishing connection to host: %w", err)
 	}
-
-	if err = x.seedIDs(); err != nil {
-		return err
-	}
-
-	x.rxBuf = new([rxBufSize]byte)
-
 	return nil
 }
 
-// netConnect opens the connection to the agent, or for an unconnected UDP
-// socket a local socket; the TCP transport reconnects with it. A UDP or TCP
-// local address in IPv4 narrows the transport to IPv4.
-func (x *GoSNMP) netConnect() error {
+// netConnect opens the connection to the agent over network, or for an
+// unconnected UDP socket a local socket, with ctx and timeout bounding the
+// dial; the TCP transport reconnects with it. A UDP or TCP local address in
+// IPv4 narrows the network to IPv4. The client records the network of the
+// connection it opened.
+func (x *GoSNMP) netConnect(ctx context.Context, timeout time.Duration, network string) error {
 	addr := net.JoinHostPort(x.Target, strconv.Itoa(int(x.Port)))
 
-	switch x.Transport {
+	var local net.Addr
+	switch network {
 	case "udp", "udp4", "udp6":
-		local, err := net.ResolveUDPAddr(x.Transport, x.LocalAddr)
+		udpLocal, err := net.ResolveUDPAddr(network, x.LocalAddr)
 		if err != nil {
 			return err
 		}
-		if local.IP.To4() != nil {
-			x.Transport = "udp4"
+		if udpLocal.IP.To4() != nil {
+			network = "udp4"
 		}
 		if x.UseUnconnectedUDPSocket {
-			return x.listenUnconnectedUDP(local, addr)
+			return x.opened(network, x.listenUnconnectedUDP(network, udpLocal, addr))
 		}
-		return x.dial(local, addr)
+		local = udpLocal
 	case "tcp", "tcp4", "tcp6":
-		local, err := net.ResolveTCPAddr(x.Transport, x.LocalAddr)
+		tcpLocal, err := net.ResolveTCPAddr(network, x.LocalAddr)
 		if err != nil {
 			return err
 		}
-		if local.IP.To4() != nil {
-			x.Transport = "tcp4"
+		if tcpLocal.IP.To4() != nil {
+			network = "tcp4"
 		}
-		return x.dial(local, addr)
+		local = tcpLocal
 	}
-	return x.dial(nil, addr)
+	return x.opened(network, x.dial(ctx, timeout, network, local, addr))
 }
 
-// dial connects to addr from the local address, nil for any.
-func (x *GoSNMP) dial(local net.Addr, addr string) error {
-	dialer := net.Dialer{Timeout: x.Timeout, LocalAddr: local, Control: x.Control}
+// opened records network as the network of Conn when err, the error of
+// opening Conn, is nil, and returns err.
+func (x *GoSNMP) opened(network string, err error) error {
+	if err == nil {
+		x.network, x.networkConn = network, x.Conn
+	}
+	return err
+}
+
+// dial connects to addr over network from the local address, nil for any.
+func (x *GoSNMP) dial(ctx context.Context, timeout time.Duration, network string, local net.Addr, addr string) error {
+	dialer := net.Dialer{Timeout: timeout, LocalAddr: local, Control: x.Control}
 	var err error
-	x.Conn, err = dialer.DialContext(x.Context, x.Transport, addr)
+	x.Conn, err = dialer.DialContext(ctx, network, addr)
 	return err
 }
 
 // listenUnconnectedUDP opens a UDP socket on the local address that writes to
 // the agent at addr. Known bug: when the socket cannot be opened, Conn is left
 // holding a nil *net.UDPConn, which compares unequal to nil.
-func (x *GoSNMP) listenUnconnectedUDP(local *net.UDPAddr, addr string) error {
+func (x *GoSNMP) listenUnconnectedUDP(network string, local *net.UDPAddr, addr string) error {
 	var err error
-	if x.uaddr, err = net.ResolveUDPAddr(x.Transport, addr); err != nil {
+	if x.uaddr, err = net.ResolveUDPAddr(network, addr); err != nil {
 		return err
 	}
-	x.Conn, err = net.ListenUDP(x.Transport, local)
+	x.Conn, err = net.ListenUDP(network, local)
 	return err
 }
 
@@ -138,9 +138,8 @@ func (x *GoSNMP) write(b []byte) error {
 
 const rxBufSize = 65535 // max size of IPv4 & IPv6 packet
 
-// receive reads one reply from the connection. Known bugs: a client given a
-// Conn without Connect has no receive buffer, and this panics (send recovers
-// it); a TCP reply is taken from a single Read, so a reply split over several
+// receive reads one reply from the connection into the receive buffer. Known
+// bug: a TCP reply is taken from a single Read, so a reply split over several
 // reads fails to decode.
 func (x *GoSNMP) receive() ([]byte, error) {
 	var n int

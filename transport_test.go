@@ -21,15 +21,17 @@ import (
 // connectResult is what TestConnect observes of a Connect.
 type connectResult struct {
 	err       string // "" for no error
-	transport string
+	transport string // Transport after the Connect
+	network   string // the network of the connection the client opened
 	connected bool   // Conn is set
 	local     string // the IP of Conn's local address
 	controls  []string
 }
 
 // TestConnect pins how Connect, ConnectIPv4 and ConnectIPv6 validate the
-// client, choose the network and dial, known bugs included, on loopback
-// sockets.
+// client, choose the network and dial, on loopback sockets: Transport keeps
+// its value (Connect fills in "udp" when it is empty), the network gets the
+// suffix and the narrowing.
 func TestConnect(t *testing.T) {
 	udpPort := unusedUDPPort(t)
 	tcp, err := net.Listen("tcp4", "127.0.0.1:0")
@@ -54,21 +56,21 @@ func TestConnect(t *testing.T) {
 		want    connectResult
 	}{
 		"udp": {
-			want: connectResult{transport: "udp", connected: true, local: "127.0.0.1"},
+			want: connectResult{transport: "udp", network: "udp", connected: true, local: "127.0.0.1"},
 		},
 		"udp with an IPv4 local address": {
 			setup: func(x *GoSNMP, _ *connectResult) { x.LocalAddr = "127.0.0.1:0" },
-			want:  connectResult{transport: "udp4", connected: true, local: "127.0.0.1"},
+			want:  connectResult{transport: "udp", network: "udp4", connected: true, local: "127.0.0.1"},
 		},
 		"tcp with an IPv4 local address": {
 			setup: func(x *GoSNMP, _ *connectResult) {
 				x.Transport, x.LocalAddr, x.Port = "tcp", "127.0.0.1:0", uint16(tcpPort) //nolint:gosec // a loopback port
 			},
-			want: connectResult{transport: "tcp4", connected: true, local: "127.0.0.1"},
+			want: connectResult{transport: "tcp", network: "tcp4", connected: true, local: "127.0.0.1"},
 		},
 		"ConnectIPv4": {
 			connect: (*GoSNMP).ConnectIPv4,
-			want:    connectResult{transport: "udp4", connected: true, local: "127.0.0.1"},
+			want:    connectResult{transport: "udp", network: "udp4", connected: true, local: "127.0.0.1"},
 		},
 		"ConnectIPv4 twice": {
 			connect: func(x *GoSNMP) error {
@@ -78,16 +80,13 @@ func TestConnect(t *testing.T) {
 				_ = x.Conn.Close()
 				return x.ConnectIPv4()
 			},
-			want: connectResult{
-				err:       "error establishing connection to host: dial udp44: unknown network udp44",
-				transport: "udp44", connected: false,
-			},
+			want: connectResult{transport: "udp", network: "udp4", connected: true, local: "127.0.0.1"},
 		},
 		"ConnectIPv6 to an IPv4 target": {
 			connect: (*GoSNMP).ConnectIPv6,
 			want: connectResult{
 				err:       "error establishing connection to host: dial udp6: address 127.0.0.1: no suitable address found",
-				transport: "udp6",
+				transport: "udp",
 			},
 		},
 		"invalid parameters": {
@@ -96,7 +95,7 @@ func TestConnect(t *testing.T) {
 		},
 		"Control": {
 			setup: func(x *GoSNMP, got *connectResult) { recordControl(x, got, 0) },
-			want:  connectResult{transport: "udp", connected: true, local: "127.0.0.1", controls: []string{"udp4"}},
+			want:  connectResult{transport: "udp", network: "udp", connected: true, local: "127.0.0.1", controls: []string{"udp4"}},
 		},
 		"dial timeout": {
 			unix: true,
@@ -134,7 +133,7 @@ func TestConnect(t *testing.T) {
 			if err := connect(x); err != nil {
 				got.err = err.Error()
 			}
-			got.transport = x.Transport
+			got.transport, got.network = x.Transport, x.network
 			if x.Conn != nil {
 				got.connected = true
 				host, _, err := net.SplitHostPort(x.Conn.LocalAddr().String())
@@ -158,7 +157,7 @@ func TestConnectUnconnectedUDPListenFailure(t *testing.T) {
 	}
 	err := x.Connect()
 	assert.ErrorContains(t, err, "error establishing connection to host: listen udp4 192.0.2.1:0")
-	assert.Equal(t, "udp4", x.Transport)
+	assert.Equal(t, [2]string{"udp", ""}, [2]string{x.Transport, x.network}, "Transport, network")
 	conn, ok := x.Conn.(*net.UDPConn)
 	assert.True(t, ok && conn == nil, "Conn = %#v, want a nil *net.UDPConn", x.Conn)
 }

@@ -85,54 +85,62 @@ func TestSnmpEncodePacketEmptyKey(t *testing.T) {
 	assert.True(t, ok, "not signed with an empty key")
 }
 
-// TestRequestAndMsgIDs pins, through the encoded messages, how Connect seeds
-// the request and msg IDs from the client's one random value, how
-// SetRequestID and SetMsgID move them and how both wrap to 0 after
-// 2147483647. Known bug: Connect reseeds both, discarding SetRequestID and
-// SetMsgID.
+// TestRequestAndMsgIDs pins, through the encoded messages, the request ID and
+// msgID counters: each starts at a random value on first use unless
+// SetRequestID or SetMsgID set it, counts up and wraps to 0 after 2147483647,
+// and Connect leaves both as they are.
 func TestRequestAndMsgIDs(t *testing.T) {
-	x := &GoSNMP{
-		Target:             "127.0.0.1",
-		Port:               unusedUDPPort(t),
-		Version:            Version3,
-		MsgFlags:           NoAuthNoPriv,
-		SecurityModel:      UserSecurityModel,
-		SecurityParameters: &UsmSecurityParameters{UserName: "codec-user"},
+	newClient := func() *GoSNMP {
+		return &GoSNMP{
+			Target:             "127.0.0.1",
+			Port:               unusedUDPPort(t),
+			Version:            Version3,
+			MsgFlags:           NoAuthNoPriv,
+			SecurityModel:      UserSecurityModel,
+			SecurityParameters: &UsmSecurityParameters{UserName: "codec-user"},
+		}
 	}
-	ids := func() (requestID, msgID uint32) {
+	ids := func(x *GoSNMP) [2]uint32 {
 		t.Helper()
 		data, err := x.SnmpEncodePacket(GetRequest, []SnmpPDU{{Name: engineOID, Type: Null}}, 0, 0)
 		require.NoError(t, err)
 		p, err := x.SnmpDecodePacket(data)
 		require.NoError(t, err)
-		return p.RequestID, p.MsgID
+		return [2]uint32{p.RequestID, p.MsgID}
 	}
-	connect := func() {
+	connect := func(x *GoSNMP) {
 		t.Helper()
 		require.NoError(t, x.Connect())
 		conn := x.Conn
 		t.Cleanup(func() { _ = conn.Close() })
 	}
+	next := func(id [2]uint32) [2]uint32 { return [2]uint32{(id[0] + 1) & 0x7FFFFFFF, (id[1] + 1) & 0x7FFFFFFF} }
 
-	connect()
-	seedReq, seedMsg := ids()
-	assert.Equal(t, seedReq, seedMsg, "one seed for both")
-	req, msg := ids()
-	assert.Equal(t, [2]uint32{(seedReq + 1) & 0x7FFFFFFF, (seedMsg + 1) & 0x7FFFFFFF}, [2]uint32{req, msg})
-
-	x.SetRequestID(5)
-	x.SetMsgID(70)
-	req, msg = ids()
-	assert.Equal(t, [2]uint32{6, 71}, [2]uint32{req, msg})
-
-	x.SetRequestID(0x7FFFFFFF)
-	x.SetMsgID(0x7FFFFFFF)
-	req, msg = ids()
-	assert.Equal(t, [2]uint32{0, 0}, [2]uint32{req, msg}, "wrap")
-
-	connect()
-	req, msg = ids()
-	assert.Equal(t, [2]uint32{seedReq, seedMsg}, [2]uint32{req, msg}, "Connect reseeds from the same random value")
+	t.Run("random start, counting on across Connect", func(t *testing.T) {
+		x := newClient()
+		connect(x)
+		first := ids(x)
+		assert.Equal(t, next(first), ids(x))
+		connect(x)
+		assert.Equal(t, next(next(first)), ids(x), "a second Connect resets nothing")
+	})
+	t.Run("set counters survive Connect", func(t *testing.T) {
+		x := newClient()
+		x.SetRequestID(5)
+		x.SetMsgID(70)
+		connect(x)
+		assert.Equal(t, [2]uint32{6, 71}, ids(x))
+		x.SetRequestID(0x7FFFFFFF)
+		x.SetMsgID(0x7FFFFFFF)
+		assert.Equal(t, [2]uint32{0, 0}, ids(x), "wrap")
+	})
+	t.Run("random start without Connect", func(t *testing.T) {
+		// An unseeded counter would start at 1 (a 2^-31 chance of a false
+		// failure for each).
+		id := ids(newClient())
+		assert.NotEqual(t, uint32(1), id[0], "request ID")
+		assert.NotEqual(t, uint32(1), id[1], "msgID")
+	})
 }
 
 // unusedUDPPort returns a local UDP port nothing listens on.
