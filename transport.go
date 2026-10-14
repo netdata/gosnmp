@@ -380,9 +380,12 @@ func (d dialSettings) agentAddr() string {
 // zones included: without a family, LookupIPAddr asks for both families and
 // keeps the zones; with one, LookupIP asks for that family alone but drops the
 // zones, which a scoped IPv6 address among the answers then takes from
-// LookupIPAddr. With a family, a zone a hosts file gives an address that is
-// not scoped (an IPv4 or a global IPv6 one) is therefore dropped: keeping it
-// would take a second query of every lookup.
+// LookupIPAddr.
+//
+// Intended difference from net.ResolveUDPAddr and net.ResolveTCPAddr, not a
+// bug: with a family, a zone a hosts file gives an address that is not scoped
+// (an IPv4 or a global IPv6 one) is dropped. A zone qualifies only a scoped
+// address, and keeping these would take a second query of every lookup.
 func lookupIPAddrs(ctx context.Context, r nameResolver, family, host string) ([]net.IPAddr, error) {
 	if family == "" {
 		return r.LookupIPAddr(ctx, host)
@@ -441,9 +444,9 @@ type nameResolver interface {
 // either with "4" or "6") with r within ctx, as net.ResolveUDPAddr and
 // net.ResolveTCPAddr resolve it with net.DefaultResolver without one: an
 // empty address or host is the unspecified address; of a host's addresses of
-// the network's family, zones included (see lookupIPAddrs), it takes the
-// first IPv4 one, the first IPv6 one for a host in brackets on a network
-// without a family, or else the first.
+// the network's family, zones included but for one intended difference (see
+// lookupIPAddrs), it takes the first IPv4 one, the first IPv6 one for a host
+// in brackets on a network without a family, or else the first.
 func resolveAddr(ctx context.Context, r nameResolver, network, address string) (net.IPAddr, int, error) {
 	if address == "" {
 		return net.IPAddr{}, 0, nil

@@ -585,7 +585,8 @@ func TestResolveAddrZones(t *testing.T) {
 		"udp6, link-local multicast":       {network: "udp6", address: "mlink.invalid:161", want: "[ff02::1%lo0]:161"},
 		"udp6, interface-local multicast":  {network: "udp6", address: "miface.invalid:161", want: "[ff01::1%lo0]:161"},
 		"udp, a zoned global address":      {network: "udp", address: "global.invalid:161", want: "[2001:db8::1%en0]:161"},
-		// Dropped: no zone qualifies a global address (see lookupIPAddrs).
+		// Dropped, an intended difference from the standard library, not a bug:
+		// no zone qualifies a global address (see lookupIPAddrs).
 		"udp6, a zoned global address": {network: "udp6", address: "global.invalid:161", want: "[2001:db8::1]:161"},
 	}
 	for name, tc := range tests {
