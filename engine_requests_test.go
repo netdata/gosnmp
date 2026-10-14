@@ -273,9 +273,45 @@ func engineScenarios() map[string]engineScenario {
 		"timeout/exponential":      {setup: func(x *GoSNMP, _ *fakeTransport) { x.ExponentialTimeout = true }},
 		"timeout/no-retries":       {setup: func(x *GoSNMP, _ *fakeTransport) { x.Retries = 0 }},
 		"timeout/negative-retries": {setup: func(x *GoSNMP, _ *fakeTransport) { x.Retries = -3 }},
-		"timeout/zero":             {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.Timeout = 0 }},
-		"timeout/tcp":              {shape: shapeStream, setup: func(x *GoSNMP, _ *fakeTransport) { x.Transport = "tcp" }},
-		"answer/second-attempt":    {agent: answerFromSecond(sysDescr)},
+
+		// A hook that changes the client during a request.
+		"hooks/retry-sets-retries": {setup: func(x *GoSNMP, c *fakeTransport) {
+			onRetry := x.OnRetry
+			x.OnRetry = func(x *GoSNMP) {
+				onRetry(x)
+				c.tr.addf("hook OnRetry sets Retries to 0")
+				x.Retries = 0
+			}
+		}},
+		"hooks/retry-sets-exponential-timeout": {setup: func(x *GoSNMP, c *fakeTransport) {
+			onRetry := x.OnRetry
+			x.OnRetry = func(x *GoSNMP) {
+				onRetry(x)
+				c.tr.addf("hook OnRetry sets ExponentialTimeout")
+				x.ExponentialTimeout = true
+			}
+		}},
+		"hooks/retry-cancels-context": {setup: func(x *GoSNMP, c *fakeTransport) {
+			onRetry := x.OnRetry
+			x.OnRetry = func(x *GoSNMP) {
+				onRetry(x)
+				c.tr.addf("hook OnRetry sets a canceled Context")
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				x.Context = ctx
+			}
+		}},
+		"hooks/retry-replaces-on-sent": {setup: func(x *GoSNMP, c *fakeTransport) {
+			onRetry := x.OnRetry
+			x.OnRetry = func(x *GoSNMP) {
+				onRetry(x)
+				c.tr.addf("hook OnRetry replaces OnSent")
+				x.OnSent = func(*GoSNMP) { c.tr.addf("hook OnSent, the replacement") }
+			}
+		}},
+		"timeout/zero":          {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.Timeout = 0 }},
+		"timeout/tcp":           {shape: shapeStream, setup: func(x *GoSNMP, _ *fakeTransport) { x.Transport = "tcp" }},
+		"answer/second-attempt": {agent: answerFromSecond(sysDescr)},
 
 		// Reply matching.
 		"answer/late": {agent: func(n int, req []byte) []agentReply {
