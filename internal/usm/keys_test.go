@@ -38,21 +38,21 @@ func TestLocalizedKeyRFC3414(t *testing.T) {
 	}
 }
 
-// TestLocalizedKeyEmptyPassphrase pins a known bug: localizing an empty
-// passphrase returns an empty key and no error.
+// TestLocalizedKeyEmptyPassphrase checks that localizing an empty passphrase
+// is an error, with no key.
 func TestLocalizedKeyEmptyPassphrase(t *testing.T) {
 	key, err := NewCache().LocalizedKey(crypto.SHA1, "", "codec-engine")
-	require.NoError(t, err)
-	assert.Equal(t, []byte{}, key)
+	require.EqualError(t, err, "usm: empty passphrase")
+	assert.Nil(t, key)
 }
 
 // TestPrivacyKeyTooShort checks that a privacy key still shorter than its
-// cipher key after the extension fails with a *ShortKeyError.
+// cipher key after the extension fails with the rule's *KeyError.
 func TestPrivacyKeyTooShort(t *testing.T) {
-	_, err := NewCache().PrivacyKey(Priv{Cipher: AESCFB, KeyLen: 32, Extension: Blumenthal}, crypto.SHA1, "", "codec-engine")
-	var short *ShortKeyError
+	_, err := NewCache().PrivacyKey(Priv{Cipher: AESCFB, KeyLen: 32}, crypto.MD5, "codec-pass", "codec-engine")
+	var short *KeyError
 	require.ErrorAs(t, err, &short)
-	assert.Equal(t, &ShortKeyError{Len: 20, KeyLen: 32}, short)
+	assert.Equal(t, &KeyError{Kind: "privacy", Len: 16, Want: 32}, short)
 }
 
 // TestCacheKeys checks that the cache keeps one password-to-key result per

@@ -7,7 +7,6 @@ package gosnmp
 import (
 	"bytes"
 	"crypto/fips140"
-	"crypto/sha256"
 	"encoding/hex"
 	"io"
 	"log"
@@ -674,21 +673,22 @@ func TestUSMFIPS140OnlyDigest(t *testing.T) {
 	}
 }
 
-// TestUSMFIPS140OnlyShortSHA2Key pins, when run with GODEBUG=fips140=only,
-// signing with an HMAC-SHA-2 key shorter than the 14 octets crypto/hmac
-// accepts in that mode, where it panics. Known bug: the signer recovers the
-// panic, writes the stack to stdout and returns no message and no error.
+// TestUSMFIPS140OnlyShortSHA2Key checks, when run with GODEBUG=fips140=only,
+// that signing with an HMAC-SHA-2 key shorter than the hash, as one shorter
+// than the 14 octets crypto/hmac accepts in that mode, where it panics, fails
+// with the rule's error, without a panic or output, and that a key of the
+// hash's size signs.
 func TestUSMFIPS140OnlyShortSHA2Key(t *testing.T) {
 	if !fips140.Enforced() {
 		t.Skip("run with GODEBUG=fips140=only")
 	}
 	tests := map[string]struct {
-		keyLen    int
-		wantMsg   bool
-		wantStack bool
+		keyLen  int
+		wantErr string
 	}{
-		"13-octet key": {keyLen: 13, wantStack: true},
-		"14-octet key": {keyLen: 14, wantMsg: true},
+		"13-octet key": {keyLen: 13, wantErr: "usm: authentication key of 13 octets, want 32"},
+		"14-octet key": {keyLen: 14, wantErr: "usm: authentication key of 14 octets, want 32"},
+		"32-octet key": {keyLen: 32},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -709,57 +709,32 @@ func TestUSMFIPS140OnlyShortSHA2Key(t *testing.T) {
 			var err error
 			panicked, wroteStdout := observe(func() { msg, err = pkt.MarshalMsg() })
 			assert.False(t, panicked, "encode panicked")
-			assert.NoError(t, err)
-			assert.Equal(t, tc.wantMsg, msg != nil, "message returned")
-			assert.Equal(t, tc.wantStack, wroteStdout, "stack written to stdout")
-		})
-	}
-}
-
-// TestUSMShortPrivacyKey checks the error and the empty key InitSecurityKeys
-// leaves when the privacy key stays shorter than the cipher key, as it does
-// for an empty privacy passphrase.
-func TestUSMShortPrivacyKey(t *testing.T) {
-	tests := map[string]struct {
-		auth    SnmpV3AuthProtocol
-		priv    SnmpV3PrivProtocol
-		wantErr string
-	}{
-		"no extension": {auth: MD5, priv: AES, wantErr: "genlocalPrivKey: privProtocol: AES len(localPrivKey): 0, keylen: 16"},
-		"Blumenthal":   {auth: SHA, priv: AES256, wantErr: "genlocalPrivKey: privProtocol: AES256 len(localPrivKey): 20, keylen: 32"},
-		"Reeder":       {auth: SHA, priv: AES256C, wantErr: "genlocalPrivKey: privProtocol: AES256C len(localPrivKey): 0, keylen: 32"},
-	}
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			sp := &UsmSecurityParameters{
-				AuthoritativeEngineID:    usmCharEngineID,
-				AuthenticationProtocol:   tc.auth,
-				AuthenticationPassphrase: "codec-auth-pass",
-				PrivacyProtocol:          tc.priv,
+			assert.False(t, wroteStdout, "wrote to stdout")
+			if tc.wantErr != "" {
+				assert.EqualError(t, err, tc.wantErr)
+				assert.Nil(t, msg)
+				return
 			}
-			assert.EqualError(t, sp.InitSecurityKeys(), tc.wantErr)
-			assert.Equal(t, []byte{}, sp.PrivacyKey)
+			assert.NoError(t, err)
+			assert.NotNil(t, msg)
 		})
 	}
 }
 
-// TestUSMEmptyPassphraseKeys pins the keys InitSecurityKeys derives without an
-// error from an empty passphrase: an empty authentication key, an empty DES
-// key, and for Blumenthal AES-256 with an HMAC-SHA-256 user a key extended
-// from nothing (the hash of the empty localized key). Known bug: none is
-// refused, though anyone can compute the authentication and Blumenthal keys
-// and DES panics on its empty key.
+// TestUSMEmptyPassphraseKeys checks that an empty passphrase derives no key:
+// InitSecurityKeys fails with the rule's error for the protocol left without
+// one, so no authentication key, DES key or Blumenthal key extended from
+// nothing is computed from it.
 func TestUSMEmptyPassphraseKeys(t *testing.T) {
-	sum := sha256.Sum256(nil)
 	tests := map[string]struct {
-		auth              SnmpV3AuthProtocol
-		authPass          string
-		priv              SnmpV3PrivProtocol
-		wantAuth, wantKey []byte
+		auth     SnmpV3AuthProtocol
+		authPass string
+		priv     SnmpV3PrivProtocol
+		wantErr  string
 	}{
-		"authentication": {auth: SHA, priv: NoPriv, wantAuth: []byte{}},
-		"DES":            {auth: SHA, authPass: "codec-auth-pass", priv: DES, wantKey: []byte{}},
-		"Blumenthal":     {auth: SHA256, authPass: "codec-auth-pass", priv: AES256, wantKey: sum[:]},
+		"authentication": {auth: SHA, priv: NoPriv, wantErr: "usm: no authentication key, want 20 octets"},
+		"DES":            {auth: SHA, authPass: "codec-auth-pass", priv: DES, wantErr: "usm: no privacy key, want 16 octets"},
+		"Blumenthal":     {auth: SHA256, authPass: "codec-auth-pass", priv: AES256, wantErr: "usm: no privacy key, want 32 octets"},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -769,20 +744,19 @@ func TestUSMEmptyPassphraseKeys(t *testing.T) {
 				AuthenticationPassphrase: tc.authPass,
 				PrivacyProtocol:          tc.priv,
 			}
-			require.NoError(t, sp.InitSecurityKeys())
-			if tc.wantAuth != nil {
-				assert.Equal(t, tc.wantAuth, sp.SecretKey)
+			require.EqualError(t, sp.InitSecurityKeys(), tc.wantErr)
+			if tc.authPass == "" {
+				assert.Nil(t, sp.SecretKey)
 			}
-			assert.Equal(t, tc.wantKey, sp.PrivacyKey)
+			assert.Nil(t, sp.PrivacyKey)
 		})
 	}
 }
 
-// TestUSMKeyLengths pins the key lengths InitSecurityKeys leaves and takes:
-// an HMAC-SHA user's derived DES key is the whole 20-octet localized key, and
-// keys given with another length than the protocol's are taken, by
-// InitSecurityKeys and by a table's Add. Known bug: a key that does not fit its
-// protocol fails only when it is used, if at all.
+// TestUSMKeyLengths checks the key lengths InitSecurityKeys leaves and takes:
+// an HMAC-SHA user's derived DES key is the localized key's first 16 octets,
+// and keys given with another length than the protocol's fail, at
+// InitSecurityKeys and at a table's Add.
 func TestUSMKeyLengths(t *testing.T) {
 	derived := &UsmSecurityParameters{
 		AuthoritativeEngineID:    usmCharEngineID,
@@ -792,7 +766,7 @@ func TestUSMKeyLengths(t *testing.T) {
 		PrivacyPassphrase:        "codec-priv-pass",
 	}
 	require.NoError(t, derived.InitSecurityKeys())
-	assert.Len(t, derived.PrivacyKey, 20, "derived DES key")
+	assert.Len(t, derived.PrivacyKey, 16, "derived DES key")
 
 	tests := map[string]struct {
 		auth         SnmpV3AuthProtocol
@@ -800,10 +774,10 @@ func TestUSMKeyLengths(t *testing.T) {
 		key, privKey []byte
 		want         string // the error of InitSecurityKeys and of Add, "" for none
 	}{
-		"SHA key of 16 octets":     {auth: SHA, key: make([]byte, 16)},
-		"SHA-256 key of 20 octets": {auth: SHA256, key: make([]byte, 20)},
-		"AES key of 32 octets":     {auth: SHA, key: make([]byte, 20), priv: AES, privKey: make([]byte, 32)},
-		"DES key of 8 octets":      {auth: SHA, key: make([]byte, 20), priv: DES, privKey: make([]byte, 8)},
+		"SHA key of 16 octets":     {auth: SHA, key: make([]byte, 16), want: "usm: authentication key of 16 octets, want 20"},
+		"SHA-256 key of 20 octets": {auth: SHA256, key: make([]byte, 20), want: "usm: authentication key of 20 octets, want 32"},
+		"AES key of 32 octets":     {auth: SHA, key: make([]byte, 20), priv: AES, privKey: make([]byte, 32), want: "usm: privacy key of 32 octets, want 16"},
+		"DES key of 8 octets":      {auth: SHA, key: make([]byte, 20), priv: DES, privKey: make([]byte, 8), want: "usm: privacy key of 8 octets, want 16"},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {

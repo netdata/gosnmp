@@ -13,7 +13,7 @@
 0s    hook OnFinish
 0s    first Get: packet empty, error "crypto/md5: use of MD5 is not allowed in FIPS 140-only mode" *errors.errorString
 0s    deadline +1s
-0s    result: packet nil, error "securityParameters.SecretKey is required: no authentication key localized to the engine ID" *errors.errorString
+0s    result: packet nil, error "marshal: usm: no authentication key, want 16 octets" *fmt.wrapError
 0s    client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=0 time=0 keys=none context engine="\x80\x00\x1f\x88\x04codec-agent"
 0s    known bug: a failed key derivation leaves the agent's engine ID adopted without keys, boots or time, so the next request skips the discovery; its error is dropped and the request ends for want of a key
 
@@ -53,7 +53,7 @@
 0s    hook OnFinish
 0s    first Get: packet empty, error "crypto/sha1: use of SHA-1 is not allowed in FIPS 140-only mode" *errors.errorString
 0s    deadline +1s
-0s    result: packet nil, error "securityParameters.SecretKey is required: no authentication key localized to the engine ID" *errors.errorString
+0s    result: packet nil, error "marshal: usm: encrypting: no privacy key, want 16 octets" *fmt.wrapError
 0s    client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=0 time=0 keys=none context engine="\x80\x00\x1f\x88\x04codec-agent"
 0s    known bug: a failed key derivation leaves the agent's engine ID adopted without keys, boots or time, so the next request skips the discovery; its error is dropped and the request ends for want of a key
 
@@ -69,9 +69,8 @@
 0s    hook OnRecv
 0s    hook OnFinish
 0s    deadline +1s
-0s    result: packet nil, error "recover: crypto/cipher: use of CFB is not allowed in FIPS 140-only mode Stack: ..." *errors.errorString
+0s    result: packet nil, error "marshal: usm: encrypting: AES-CFB is not allowed in FIPS 140-only mode" *fmt.wrapError
 0s    client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
-0s    known bug: AES-CFB panics in FIPS 140-only mode; send recovers it into an error that carries the stack
 
 == v3-fips/discovery/sha256-des
 0s    client: user="codec-sha256-des" authPriv+reportable timeout=1s retries=2
@@ -100,13 +99,12 @@
 0s    hook OnRecv
 0s    hook OnFinish
 0s    deadline +1s
-0s    result: packet nil, error "recover: crypto/cipher: use of CFB is not allowed in FIPS 140-only mode Stack: ..." *errors.errorString
+0s    result: packet nil, error "marshal: usm: encrypting: AES-CFB is not allowed in FIPS 140-only mode" *fmt.wrapError
 0s    client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
-0s    known bug: AES-CFB panics in FIPS 140-only mode; send recovers it into an error that carries the stack
 
 == v3-fips/known-engine/md5
 0s    client: user="codec-md5" authNoPriv+reportable timeout=1s retries=2
 0s    deadline +1s
-0s    result: packet nil, error "securityParameters.SecretKey is required: no authentication key localized to the engine ID" *errors.errorString
+0s    result: packet nil, error "marshal: usm: no authentication key, want 16 octets" *fmt.wrapError
 0s    client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=0 time=0 keys=none context engine=""
 0s    known bug: the key derivation error is ignored when the engine ID is known

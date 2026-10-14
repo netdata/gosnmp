@@ -39,7 +39,9 @@ func TestUSMKeysRFC3414(t *testing.T) {
 			require.NoError(t, sp.InitSecurityKeys())
 
 			assert.Equal(t, tc.want, hex.EncodeToString(sp.SecretKey), "authentication key")
-			assert.Equal(t, tc.want, hex.EncodeToString(sp.PrivacyKey), "privacy key")
+			// The DES key is the localized key's first 16 octets (RFC 3414
+			// section 8.1.1.1).
+			assert.Equal(t, tc.want[:32], hex.EncodeToString(sp.PrivacyKey), "privacy key")
 		})
 	}
 }

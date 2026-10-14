@@ -17,6 +17,8 @@ import (
 	_ "crypto/sha256" // Register hash function #4 (SHA224), #5 (SHA256)
 	_ "crypto/sha512" // Register hash function #6 (SHA384), #7 (SHA512)
 	"crypto/subtle"
+	"errors"
+	"fmt"
 )
 
 // Auth describes an authentication protocol: the hash of its key derivation
@@ -30,12 +32,46 @@ type Auth struct {
 // MaxMACLen is the longest MACLen, HMAC-SHA-512's.
 const MaxMACLen = 48
 
+// KeyError reports a key that does not fit its protocol: an authentication key
+// that is not the size of the protocol's hash (RFC 3414 sections 6 and 7, RFC
+// 7860 section 4.2.1), or a privacy key that is not the cipher key.
+type KeyError struct {
+	// Kind is "authentication" or "privacy".
+	Kind      string
+	Len, Want int
+}
+
+func (e *KeyError) Error() string {
+	if e.Len == 0 {
+		return fmt.Sprintf("no %s key, want %d octets", e.Kind, e.Want)
+	}
+	return fmt.Sprintf("%s key of %d octets, want %d", e.Kind, e.Len, e.Want)
+}
+
+var errNoAuth = errors.New("usm: no authentication protocol")
+
+// CheckKey returns a *KeyError unless key is exactly the size of the
+// protocol's hash, the one rule for authentication keys.
+func (a Auth) CheckKey(key []byte) error {
+	if !a.Hash.Available() {
+		return errNoAuth
+	}
+	if len(key) != a.Hash.Size() {
+		return &KeyError{Kind: "authentication", Len: len(key), Want: a.Hash.Size()}
+	}
+	return nil
+}
+
 // Digest returns the HMAC of msg keyed with key, cut to the MAC length:
 // HMAC-MD5-96 and HMAC-SHA-96 as RFC 3414 sections 6.3.1 and 7.3.1 spell them
-// out, the SHA-2 protocols with crypto/hmac (RFC 7860 section 4.2.1). Known
-// bug: in FIPS 140-only mode crypto/hmac panics for a key shorter than 14
-// octets.
+// out, the SHA-2 protocols with crypto/hmac (RFC 7860 section 4.2.1). It
+// refuses a key CheckKey refuses, so the key is never shorter than the 14
+// octets crypto/hmac needs in FIPS 140-only mode nor longer than the hash's
+// block.
 func (a Auth) Digest(key, msg []byte) ([]byte, error) {
+	if err := a.CheckKey(key); err != nil {
+		return nil, fmt.Errorf("usm: %w", err)
+	}
 	var mac []byte
 	switch a.Hash {
 	case crypto.MD5, crypto.SHA1:
@@ -61,11 +97,11 @@ func (a Auth) Verify(key, msg, mac []byte) (bool, error) {
 	return subtle.ConstantTimeCompare(digest, mac) == 1, nil
 }
 
-// hmacRFC3414 computes the HMAC of RFC 3414 sections 6.3.1 and 7.3.1: the key
-// zero-padded to the 64-octet block, XORed with ipad and opad around two hash
-// passes. Unlike crypto/hmac, which panics, it returns the error a hash
-// reports, as MD5 and SHA-1 do in FIPS 140-only mode. Known bug: a key longer
-// than the block is cut, not hashed as RFC 2104 does.
+// hmacRFC3414 computes the HMAC of RFC 3414 sections 6.3.1 and 7.3.1: the key,
+// of the hash's size (Digest checks it), zero-padded to the 64-octet block,
+// XORed with ipad and opad around two hash passes. Unlike crypto/hmac, which
+// panics, it returns the error a hash reports, as MD5 and SHA-1 do in FIPS
+// 140-only mode.
 func hmacRFC3414(hash crypto.Hash, key, msg []byte) ([]byte, error) {
 	var ipad, opad [64]byte
 	copy(ipad[:], key)

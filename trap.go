@@ -27,11 +27,9 @@ import (
 // needs: one of another security model, and one with an empty user name and
 // engine ID, as in engine discovery, both unchecked; with
 // useResponseSecurityParameters, so on the table path, one without the
-// authentication flag; one without privacy, for a client at authPriv (the
-// client's flags decide only whether a digest is checked); and, for a user
-// configured with keys instead of passphrases, one that names another engine
-// ID and is signed with the empty key, which anyone can compute. Some
-// malformed messages make it panic (see the package documentation).
+// authentication flag; and one without privacy, for a client at authPriv (the
+// client's flags decide only whether a digest is checked). Some malformed
+// messages make it panic (see the package documentation).
 func (x *GoSNMP) UnmarshalTrap(trap []byte, useResponseSecurityParameters bool) (*SnmpPacket, error) {
 	version, _, err := readVersion(trap)
 	if err != nil {

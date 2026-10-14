@@ -511,8 +511,8 @@ func encodeCases(t *testing.T) []encodeCase {
 		{"v3/auth-no-priv/sha256", marshal(v3(AuthNoPriv, GetRequest, codecUSM(t, SHA256, NoPriv)))},
 		{"v3/auth-no-priv/sha384", marshal(v3(AuthNoPriv, GetRequest, codecUSM(t, SHA384, NoPriv)))},
 		{"v3/auth-no-priv/sha512", marshal(v3(AuthNoPriv, GetRequest, codecUSM(t, SHA512, NoPriv)))},
-		// Authentication keys longer than the 64-octet HMAC block: MD5 and SHA-1
-		// cut them to the block, the SHA-2 protocols hash them.
+		// Authentication keys of 80 octets, longer than the hash and the 64-octet
+		// HMAC block: refused, as any key of another size than the hash's.
 		{"v3/auth-no-priv/md5/key-80", marshal(edit(v3(AuthNoPriv, GetRequest, codecUSM(t, MD5, NoPriv)), func(p *SnmpPacket) {
 			p.SecurityParameters.(*UsmSecurityParameters).SecretKey = []byte(strings.Repeat("k", 80))
 		}))},

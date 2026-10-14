@@ -23,7 +23,7 @@ func TestPrivRoundTrip(t *testing.T) {
 		priv Priv
 		key  []byte
 	}{
-		"DES":    {priv: Priv{Cipher: DESCBC}, key: key[:16]},
+		"DES":    {priv: Priv{Cipher: DESCBC, KeyLen: 16}, key: key[:16]},
 		"AES":    {priv: Priv{Cipher: AESCFB, KeyLen: 16}, key: key[:16]},
 		"AES192": {priv: Priv{Cipher: AESCFB, KeyLen: 24}, key: key[:24]},
 		"AES256": {priv: Priv{Cipher: AESCFB, KeyLen: 32}, key: key},
@@ -57,55 +57,31 @@ func TestPrivErrors(t *testing.T) {
 	_, err = Priv{}.Decrypt(key, salt, 0, 0, make([]byte, 8))
 	require.ErrorIs(t, err, errNoCipher, "decrypt without a cipher")
 
-	_, err = Priv{Cipher: DESCBC}.Decrypt(key, salt, 0, 0, make([]byte, 9))
+	_, err = Priv{Cipher: DESCBC, KeyLen: 16}.Decrypt(key, salt, 0, 0, make([]byte, 9))
 	require.EqualError(t, err, "error decrypting ScopedPDU: not multiple of des block size")
-	_, err = Priv{Cipher: AESCFB, KeyLen: 16}.Decrypt(key[:15], salt, 0, 0, make([]byte, 9))
-	require.EqualError(t, err, "crypto/aes: invalid key size 15")
 }
 
-// TestPrivDESShortKeyOrSalt pins a known bug and the order of the DES checks:
-// Decrypt rejects a ciphertext that is not whole blocks before it reads the
-// key and salt, and a key shorter than 16 octets or a salt shorter than 8
-// panics in desIV at the first missing octet, in Encrypt and Decrypt alike.
-// The short inputs have no spare capacity, so nothing reads past their length.
-func TestPrivDESShortKeyOrSalt(t *testing.T) {
-	des := Priv{Cipher: DESCBC}
-	key, salt := make([]byte, 16), make([]byte, 8)
-
-	_, err := des.Decrypt(key, salt[:7:7], 0, 0, make([]byte, 9))
-	require.EqualError(t, err, "error decrypting ScopedPDU: not multiple of des block size")
-
-	tests := map[string]struct {
-		key, salt []byte
-		want      string
-	}{
-		"salt of 7 octets": {key: key, salt: salt[:7:7], want: "runtime error: index out of range [7] with length 7"},
-		"key of 12 octets": {key: key[:12:12], salt: salt, want: "runtime error: index out of range [4] with length 4"},
-		"key of 7 octets":  {key: key[:7:7], salt: salt, want: "runtime error: slice bounds out of range [8:7]"},
-	}
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			assert.PanicsWithError(t, tc.want, func() { _, _ = des.Encrypt(tc.key, tc.salt, 0, 0, make([]byte, 3)) }, "encrypt")
-			assert.PanicsWithError(t, tc.want, func() { _, _ = des.Decrypt(tc.key, tc.salt, 0, 0, make([]byte, 8)) }, "decrypt")
-		})
-	}
-}
-
-// TestPrivKeyAndSaltLengths pins which key and salt lengths Encrypt and
-// Decrypt take beyond those of the protocol. Known bugs: AES takes any key
-// aes.NewCipher takes, so an AES-128 key of 32 octets encrypts with AES-256,
-// and a salt longer than 8 octets; DES takes a key longer than 16 octets.
+// TestPrivKeyAndSaltLengths checks the rule of Encrypt and Decrypt: a key of
+// exactly the protocol's KeyLen and an 8-octet salt; anything else fails with
+// an error naming it, before either is used, so no length makes DES index past
+// its inputs or AES pick another key size.
 func TestPrivKeyAndSaltLengths(t *testing.T) {
-	aes128, des := Priv{Cipher: AESCFB, KeyLen: 16}, Priv{Cipher: DESCBC}
+	aes128, des := Priv{Cipher: AESCFB, KeyLen: 16}, Priv{Cipher: DESCBC, KeyLen: 16}
 	tests := map[string]struct {
 		p         Priv
 		key, salt int
-		want      string // the error of Encrypt and of Decrypt, "" for none
+		want      string // the error after "usm: encrypting: " and "usm: decrypting: ", "" for none
 	}{
-		"AES-128 with a 32-octet key": {p: aes128, key: 32, salt: 8},
-		"AES with a 9-octet salt":     {p: aes128, key: 16, salt: 9},
-		"AES with a 16-octet salt":    {p: aes128, key: 16, salt: 16},
-		"DES with a 20-octet key":     {p: des, key: 20, salt: 8},
+		"AES-128":                     {p: aes128, key: 16, salt: 8},
+		"DES":                         {p: des, key: 16, salt: 8},
+		"AES-128 with a 32-octet key": {p: aes128, key: 32, salt: 8, want: "privacy key of 32 octets, want 16"},
+		"AES with a 9-octet salt":     {p: aes128, key: 16, salt: 9, want: "salt of 9 octets, want 8"},
+		"AES with a 16-octet salt":    {p: aes128, key: 16, salt: 16, want: "salt of 16 octets, want 8"},
+		"AES without a salt":          {p: aes128, key: 16, salt: 0, want: "salt of 0 octets, want 8"},
+		"DES with a 20-octet key":     {p: des, key: 20, salt: 8, want: "privacy key of 20 octets, want 16"},
+		"DES with a 12-octet key":     {p: des, key: 12, salt: 8, want: "privacy key of 12 octets, want 16"},
+		"DES without a key":           {p: des, key: 0, salt: 8, want: "no privacy key, want 16 octets"},
+		"DES with a 7-octet salt":     {p: des, key: 16, salt: 7, want: "salt of 7 octets, want 8"},
 	}
 	errText := func(err error) string {
 		if err == nil {
@@ -115,10 +91,15 @@ func TestPrivKeyAndSaltLengths(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
+			// Inputs without spare capacity: a read past their length panics.
 			key, salt := make([]byte, tc.key), make([]byte, tc.salt)
-			_, encErr := tc.p.Encrypt(key, salt, 0, 0, make([]byte, 8))
-			_, decErr := tc.p.Decrypt(key, salt, 0, 0, make([]byte, 8))
-			assert.Equal(t, [2]string{tc.want, tc.want}, [2]string{errText(encErr), errText(decErr)})
+			_, encErr := tc.p.Encrypt(key[:tc.key:tc.key], salt[:tc.salt:tc.salt], 0, 0, make([]byte, 3))
+			_, decErr := tc.p.Decrypt(key[:tc.key:tc.key], salt[:tc.salt:tc.salt], 0, 0, make([]byte, 16))
+			want := [2]string{}
+			if tc.want != "" {
+				want = [2]string{"usm: encrypting: " + tc.want, "usm: decrypting: " + tc.want}
+			}
+			assert.Equal(t, want, [2]string{errText(encErr), errText(decErr)})
 		})
 	}
 }

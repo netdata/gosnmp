@@ -662,11 +662,12 @@ func v3Scenarios() map[string]v3Scenario {
 			},
 			knownBug: "a discovery answer without an engine ID is accepted, and the request goes out with an empty engine ID",
 		},
-		// A configured key without an engine ID is replaced at discovery.
+		// A key given without a passphrase serves only the engine ID it was
+		// localized to, here none: discovery adopts the agent's and drops it,
+		// and the request fails for want of a key.
 		"empty-key/key-only-user-empty-passphrase": {
 			user: "codec-md5", creds: &agentUser{auth: MD5, authPass: ""},
-			setup:    func(_ *GoSNMP, sp *UsmSecurityParameters) { sp.SecretKey = bytes.Repeat([]byte{0x11}, 16) },
-			knownBug: "discovery drops a configured key, and the error of deriving one from the empty passphrase too, so the request fails for want of a key instead of with that error",
+			setup: func(_ *GoSNMP, sp *UsmSecurityParameters) { sp.SecretKey = bytes.Repeat([]byte{0x11}, 16) },
 		},
 		"discovery/report-without-engine-id/sha256-des": {
 			user: "codec-sha256-des", script: onRequest(1, agentAnswer{

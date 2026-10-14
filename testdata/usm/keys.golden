@@ -78,7 +78,7 @@ priv-key: nil
 == protocols/sha-des
 init: ok
 auth-key: e6ebbb0192266110c363efe53ab6fe7b79665ab5
-priv-key: 3fc0b7809586854c358031a62b5775d160cfe89a
+priv-key: 3fc0b7809586854c358031a62b5775d1
 
 == protocols/sha-aes
 init: ok
@@ -113,7 +113,7 @@ priv-key: nil
 == protocols/sha224-des
 init: ok
 auth-key: ecade298df3a48adcfb45f3de8072c646811a0ef7c47ba8e7b8ee526
-priv-key: c0af75aafc0a98dd22561353009042dcacf76318059fb647104421a5
+priv-key: c0af75aafc0a98dd22561353009042dc
 
 == protocols/sha224-aes
 init: ok
@@ -148,7 +148,7 @@ priv-key: nil
 == protocols/sha256-des
 init: ok
 auth-key: f01072ec222099947eb3c33d8a4321c0cf9dc3f95ca1561e3989c01f3690a2aa
-priv-key: e080a27e2b2e8849b5bd09ac65a86c2c7e73e542eabd054fe1284a8f2949b2e2
+priv-key: e080a27e2b2e8849b5bd09ac65a86c2c
 
 == protocols/sha256-aes
 init: ok
@@ -183,7 +183,7 @@ priv-key: nil
 == protocols/sha384-des
 init: ok
 auth-key: ba89d9d1b1f9a028691ecefb3580442b235d3522c6461e46d2d8947988feeb7c606f44d5fb8dca6d011b45240b7b127b
-priv-key: 1518fe6b4bdf76b34612c087c5199c3a3936cc0c002b0e4a3bc328dd85a420c20d676ae2c35aeeb47234208e5df1fe45
+priv-key: 1518fe6b4bdf76b34612c087c5199c3a
 
 == protocols/sha384-aes
 init: ok
@@ -218,7 +218,7 @@ priv-key: nil
 == protocols/sha512-des
 init: ok
 auth-key: 414f0dc68d6b1931a842b76cb03f750792d7224bbb81d1654abdb783a7ecc7e79d8157ea5681b99279213bcf514becfb1df87ec7c538fe681315de3b26d710ba
-priv-key: 70860c8eb7ceae31a87b20844c507c34f3cc286ae8b543f646af35308ce24d3737f89c8ebd14206d5dfc2ebf4a3e8c9ec20d5ab9a804cdc0a8f65b80b3281ba0
+priv-key: 70860c8eb7ceae31a87b20844c507c34
 
 == protocols/sha512-aes
 init: ok
@@ -246,9 +246,9 @@ auth-key: 414f0dc68d6b1931a842b76cb03f750792d7224bbb81d1654abdb783a7ecc7e79d8157
 priv-key: 70860c8eb7ceae31a87b20844c507c34f3cc286ae8b543f646af35308ce24d37
 
 == passphrase-empty/md5-des
-init: ok
-auth-key: empty
-priv-key: empty
+init: error
+auth-key: nil
+priv-key: nil
 
 == passphrase-1/md5-des
 init: ok
@@ -281,14 +281,14 @@ auth-key: 4019e50fe6cebb4820f95f006f4af04e
 priv-key: 4019e50fe6cebb4820f95f006f4af04e
 
 == auth-passphrase-empty/md5-des
-init: ok
-auth-key: empty
+init: error
+auth-key: nil
 priv-key: d2dec74f35b82c55d9d8408e0132a91b
 
 == priv-passphrase-empty/md5-des
-init: ok
+init: error
 auth-key: fbedc7081c51d52a9fccddcd987b43fe
-priv-key: empty
+priv-key: nil
 
 == engine-id-empty/md5-des
 init: ok
@@ -317,8 +317,8 @@ priv-key: 82465440d7dcc1dcfb09863a8a625bb7
 
 == passphrase-empty/sha-aes256
 init: error
-auth-key: empty
-priv-key: empty
+auth-key: nil
+priv-key: nil
 
 == passphrase-1/sha-aes256
 init: ok
@@ -351,14 +351,14 @@ auth-key: f909dd2c2abfed260fa50b6e710d8fdb097303fe
 priv-key: f909dd2c2abfed260fa50b6e710d8fdb097303fe4a8d236427eac6c64f2753a9
 
 == auth-passphrase-empty/sha-aes256
-init: ok
-auth-key: empty
+init: error
+auth-key: nil
 priv-key: 3fc0b7809586854c358031a62b5775d160cfe89a55b8314ad3a6684ad77894fc
 
 == priv-passphrase-empty/sha-aes256
 init: error
 auth-key: e6ebbb0192266110c363efe53ab6fe7b79665ab5
-priv-key: empty
+priv-key: nil
 
 == engine-id-empty/sha-aes256
 init: ok
@@ -387,8 +387,8 @@ priv-key: d8d316a67757ff08a5696fb30add27926acf3ebb6ccf105364c35f876235b6e2
 
 == passphrase-empty/sha-aes256c
 init: error
-auth-key: empty
-priv-key: empty
+auth-key: nil
+priv-key: nil
 
 == passphrase-1/sha-aes256c
 init: ok
@@ -421,14 +421,14 @@ auth-key: f909dd2c2abfed260fa50b6e710d8fdb097303fe
 priv-key: f909dd2c2abfed260fa50b6e710d8fdb097303fefd5db0dabdf2a6a37c5e2017
 
 == auth-passphrase-empty/sha-aes256c
-init: ok
-auth-key: empty
+init: error
+auth-key: nil
 priv-key: 3fc0b7809586854c358031a62b5775d160cfe89a03bd069b816c6bd7a2ab5016
 
 == priv-passphrase-empty/sha-aes256c
 init: error
 auth-key: e6ebbb0192266110c363efe53ab6fe7b79665ab5
-priv-key: empty
+priv-key: nil
 
 == engine-id-empty/sha-aes256c
 init: ok
@@ -457,8 +457,8 @@ priv-key: d8d316a67757ff08a5696fb30add27926acf3ebb65660b90b4f617b96132830e
 
 == passphrase-empty/sha512-aes
 init: error
-auth-key: empty
-priv-key: empty
+auth-key: nil
+priv-key: nil
 
 == passphrase-1/sha512-aes
 init: ok
@@ -491,14 +491,14 @@ auth-key: 0be9c798cffdda5f5b83d1938d64ad50c5a8978ddd4016fa22f1978bdf1a9189efd0d0
 priv-key: 0be9c798cffdda5f5b83d1938d64ad50
 
 == auth-passphrase-empty/sha512-aes
-init: ok
-auth-key: empty
+init: error
+auth-key: nil
 priv-key: 70860c8eb7ceae31a87b20844c507c34
 
 == priv-passphrase-empty/sha512-aes
 init: error
 auth-key: 414f0dc68d6b1931a842b76cb03f750792d7224bbb81d1654abdb783a7ecc7e79d8157ea5681b99279213bcf514becfb1df87ec7c538fe681315de3b26d710ba
-priv-key: empty
+priv-key: nil
 
 == engine-id-empty/sha512-aes
 init: ok

@@ -191,8 +191,7 @@ func panicSite(stack string) string {
 // v3DecodeKnownPanic names the known bug behind a FuzzDecodeV3 panic, by the
 // function that panicked, the runtime error and the input that leads there,
 // or returns "" for an unknown panic. Fixing a bug removes its case; each is
-// also pinned by TestUSMDecryptCharacterization, TestUSMTrapUnauthenticated
-// or TestUSMAuthFieldZeroing.
+// also pinned by TestUSMTrapUnauthenticated or TestUSMAuthFieldZeroing.
 func v3DecodeKnownPanic(receiver string, p usmFuzzPair, data []byte, v any, stack string) string {
 	msg := fmt.Sprint(v)
 
@@ -215,26 +214,6 @@ func v3DecodeKnownPanic(receiver string, p usmFuzzPair, data []byte, v any, stac
 		if _, err := fmt.Sscanf(msg, "runtime error: slice bounds out of range [:%d] with capacity %d", &n, &c); err == nil &&
 			n == 2+p.auth.spec().MACLen && c < n {
 			return "USM unmarshal zeroes the digest past the end of the input"
-		}
-
-	// The DES IV indexes the privacy parameters as 8 octets and the privacy
-	// key as 16 (key and pre-IV) without checking their lengths, so it fails
-	// at the first missing octet (index equal to the length) or slicing the
-	// pre-IV off a key shorter than 8 octets. The key is shorter when it was
-	// never derived (SnmpDecodePacket derives keys only for a new engine ID)
-	// or derived from an empty passphrase (localization drops the error).
-	// TestUSMTrapUnauthenticated pins the paths that decrypt without checking
-	// a digest.
-	case "github.com/netdata/gosnmp/internal/usm.desIV":
-		if p.priv != DES {
-			break
-		}
-		var i, n int
-		if _, err := fmt.Sscanf(msg, "runtime error: index out of range [%d] with length %d", &i, &n); err == nil && i == n && n < 8 {
-			return "DES decryption of short privacy parameters or a short key"
-		}
-		if _, err := fmt.Sscanf(msg, "runtime error: slice bounds out of range [8:%d]", &n); err == nil && n < 8 {
-			return "DES decryption of short privacy parameters or a short key"
 		}
 	}
 	return ""
