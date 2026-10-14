@@ -38,9 +38,10 @@ func (x *GoSNMP) ConnectIPv6() error {
 }
 
 // Close closes the client's connection. Any goroutine may call it, also while
-// a request runs, which it ends: a request not answered by then fails with an
-// error wrapping net.ErrClosed, as do later requests until Connect opens a
-// connection or Conn is set. Close does not cut a TCP reconnect's dial short;
+// a request runs, which it ends: once Close has run, a request whose attempt
+// ends without a reply fails with an error wrapping net.ErrClosed, as do later
+// requests until Connect opens a connection or Conn is set (see the package
+// documentation). Close does not cut a TCP reconnect's dial short;
 // the dial's timeout and the Context bound it. Only the first call closes the
 // connection; later calls, and calls on a client without a connection, return
 // nil.
@@ -113,8 +114,8 @@ func (x *GoSNMP) connectionFor(cfg *requestConfig) (connection, error) {
 // reconnect opens c, the client's connection the agent closed, again, and
 // replaces it with the new one, which it closes instead when c is no longer
 // the client's connection (after Close, or a hook that replaced Conn, which
-// the next attempt then uses). A failed dial leaves c in place and ends the
-// attempt with its error.
+// the next attempt then uses; sameConn says which replacement it cannot see).
+// A failed dial leaves c in place and ends the attempt with its error.
 func (x *GoSNMP) reconnect(ctx context.Context, timeout time.Duration, c *connection) attemptOutcome {
 	nc, err := c.dial.open(ctx, timeout)
 	if err != nil {
@@ -141,9 +142,11 @@ func (x *GoSNMP) replace(old net.Conn, nc connection) bool {
 }
 
 // sameConn reports whether conn, the client's connection, is still old, the
-// connection an attempt took. Two values of a type == cannot compare (it would
-// panic) count as the same: a caller's Conn of such a type is more likely
-// than a hook replacing it by another of the same type.
+// connection an attempt took. == cannot panic when either value is
+// comparable: where the dynamic types match, both values are. Two values that
+// are not comparable (== would panic) count as the same: a caller's Conn of
+// such a type is more likely than a hook replacing it by another of the same
+// type.
 func sameConn(conn, old net.Conn) bool {
 	v, o := reflect.ValueOf(conn), reflect.ValueOf(old)
 	switch {
@@ -151,7 +154,7 @@ func sameConn(conn, old net.Conn) bool {
 		return conn == nil && old == nil
 	case v.Type() != o.Type():
 		return false
-	case !v.Comparable():
+	case !v.Comparable() && !o.Comparable():
 		return true
 	}
 	return conn == old

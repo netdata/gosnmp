@@ -351,7 +351,8 @@ func TestCloseDuringRequest(t *testing.T) {
 	h := NewHandler()
 	h.SetTarget("127.0.0.1")
 	h.SetPort(port)
-	h.SetTimeout(time.Minute)
+	h.SetTimeout(10 * time.Second)
+	h.SetRetries(0)
 	require.NoError(t, h.Connect())
 	defer h.Close()
 
@@ -359,7 +360,7 @@ func TestCloseDuringRequest(t *testing.T) {
 	start := time.Now()
 	_, err := h.Get([]string{engineOID})
 	require.ErrorIs(t, err, net.ErrClosed)
-	assert.Less(t, time.Since(start), 10*time.Second, "the request ends before its timeout")
+	assert.Less(t, time.Since(start), 5*time.Second, "the request ends before its timeout")
 	closers.Wait()
 
 	_, err = h.Get([]string{engineOID})
@@ -396,7 +397,8 @@ func TestCloseDuringWalk(t *testing.T) {
 	h := NewHandler()
 	h.SetTarget("127.0.0.1")
 	h.SetPort(port)
-	h.SetTimeout(time.Minute)
+	h.SetTimeout(10 * time.Second)
+	h.SetRetries(0)
 	require.NoError(t, h.Connect())
 	defer h.Close()
 
@@ -410,7 +412,7 @@ func TestCloseDuringWalk(t *testing.T) {
 	start := time.Now()
 	_, err := h.BulkWalkAll(root)
 	require.ErrorIs(t, err, net.ErrClosed)
-	assert.Less(t, time.Since(start), 10*time.Second, "the walk ends before its request's timeout")
+	assert.Less(t, time.Since(start), 5*time.Second, "the walk ends before its request's timeout")
 	closers.Wait()
 }
 
@@ -469,7 +471,7 @@ func TestContextCancelDuringRequest(t *testing.T) {
 	defer cancel()
 	x := &GoSNMP{
 		Target: "127.0.0.1", Port: port, Version: Version2c, Community: "public",
-		Timeout: time.Minute, Retries: 2, Context: ctx,
+		Timeout: 10 * time.Second, Context: ctx,
 	}
 	require.NoError(t, x.Connect())
 	defer x.Close()
@@ -481,7 +483,7 @@ func TestContextCancelDuringRequest(t *testing.T) {
 	start := time.Now()
 	_, err := x.Get([]string{engineOID})
 	require.ErrorIs(t, err, context.Canceled)
-	assert.Less(t, time.Since(start), 10*time.Second, "the request ends before its timeout")
+	assert.Less(t, time.Since(start), 5*time.Second, "the request ends before its timeout")
 
 	x.Context = context.Background()
 	res, err := x.Get([]string{engineOID})
@@ -520,4 +522,38 @@ func udpAgent(t *testing.T, handle func(n int, req []byte) []byte) (port uint16,
 		<-done
 	})
 	return uint16(pc.LocalAddr().(*net.UDPAddr).Port), read //nolint:gosec // a UDP port
+}
+
+// TestSameConn pins the rule the TCP reconnect uses to tell whether the
+// client's connection is still the one an attempt took: by ==, without
+// panicking, and the same for two values == cannot compare.
+func TestSameConn(t *testing.T) {
+	type wrapped struct{ net.Conn } // comparable, holding any connection
+	type otherUncomparable struct {
+		net.Conn
+		values []int
+	}
+	a, b := &net.TCPConn{}, &net.TCPConn{}
+	u1 := uncomparableConn{Conn: a, onClose: func() {}}
+	u2 := uncomparableConn{Conn: b, onClose: func() {}}
+	tests := map[string]struct {
+		conn, old net.Conn
+		want      bool
+	}{
+		"both nil":                     {want: true},
+		"no connection any more":       {old: a},
+		"the same pointer":             {conn: a, old: a, want: true},
+		"another pointer":              {conn: b, old: a},
+		"another type":                 {conn: u1, old: a},
+		"two values == cannot compare": {conn: u1, old: u2, want: true},
+		"two values == cannot compare, of two types":      {conn: otherUncomparable{Conn: a, values: []int{1}}, old: u1},
+		"a wrapper that cannot compare, another that can": {conn: wrapped{u1}, old: wrapped{a}},
+		"a wrapper that can, another that cannot":         {conn: wrapped{a}, old: wrapped{u1}},
+		"two wrappers of one pointer":                     {conn: wrapped{a}, old: wrapped{a}, want: true},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tc.want, sameConn(tc.conn, tc.old))
+		})
+	}
 }
