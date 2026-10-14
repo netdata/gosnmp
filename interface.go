@@ -160,8 +160,7 @@ type snmpHandler struct {
 
 // NewHandler returns a Handler backed by a new GoSNMP with the Port,
 // Community, Version, Timeout, Retries and MaxOids of Default; Transport and
-// ExponentialTimeout stay unset. Known bug: its Close closes Conn directly,
-// so it panics without a connection and leaves Conn set.
+// ExponentialTimeout stay unset.
 func NewHandler() Handler {
 	return &snmpHandler{
 		GoSNMP{
@@ -295,11 +294,4 @@ func (x *snmpHandler) ContextName() string {
 
 func (x *snmpHandler) SetContextName(contextName string) {
 	x.GoSNMP.ContextName = contextName
-}
-
-func (x *snmpHandler) Close() error {
-	// Known bug: it closes Conn itself instead of calling GoSNMP.Close, so a
-	// nil Conn panics, Conn is not cleared (a second call returns the
-	// connection's error), and the lock GoSNMP.Close takes is skipped.
-	return x.Conn.Close()
 }

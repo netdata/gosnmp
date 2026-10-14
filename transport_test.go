@@ -5,6 +5,7 @@
 package gosnmp
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net"
@@ -133,7 +134,7 @@ func TestConnect(t *testing.T) {
 			if err := connect(x); err != nil {
 				got.err = err.Error()
 			}
-			got.transport, got.network = x.Transport, x.network
+			got.transport, got.network = x.Transport, x.opened.dial.network
 			if x.Conn != nil {
 				got.connected = true
 				host, _, err := net.SplitHostPort(x.Conn.LocalAddr().String())
@@ -147,8 +148,7 @@ func TestConnect(t *testing.T) {
 }
 
 // TestConnectUnconnectedUDPListenFailure pins what Connect leaves when the
-// unconnected UDP socket cannot be opened: its error and, a known bug, a Conn
-// holding a nil *net.UDPConn, which is not nil.
+// unconnected UDP socket cannot be opened: its error, and no connection.
 func TestConnectUnconnectedUDPListenFailure(t *testing.T) {
 	x := &GoSNMP{
 		Target: "127.0.0.1", Port: 161, Version: Version2c, Community: "public", Timeout: time.Second,
@@ -157,9 +157,8 @@ func TestConnectUnconnectedUDPListenFailure(t *testing.T) {
 	}
 	err := x.Connect()
 	assert.ErrorContains(t, err, "error establishing connection to host: listen udp4 192.0.2.1:0")
-	assert.Equal(t, [2]string{"udp", ""}, [2]string{x.Transport, x.network}, "Transport, network")
-	conn, ok := x.Conn.(*net.UDPConn)
-	assert.True(t, ok && conn == nil, "Conn = %#v, want a nil *net.UDPConn", x.Conn)
+	assert.Equal(t, [2]string{"udp", ""}, [2]string{x.Transport, x.opened.dial.network}, "Transport, network")
+	assert.Nil(t, x.Conn)
 }
 
 // TestConnectTCPLocalAddr pins that a TCP connection is made from the
@@ -207,9 +206,9 @@ func TestCloseOnce(t *testing.T) {
 	assert.Equal(t, 1, c.closes)
 }
 
-// TestHandlerClose pins the Handler's Close on a client without a connection
-// and closing one twice. Known bug: it closes Conn itself, so it panics
-// without a connection, leaves Conn set and closes it again.
+// TestHandlerClose pins that the Handler's Close is the client's: on a client
+// without a connection it returns nil, and it closes a connection once, leaving
+// no connection.
 func TestHandlerClose(t *testing.T) {
 	type outcome struct {
 		panics        bool
@@ -221,8 +220,8 @@ func TestHandlerClose(t *testing.T) {
 		conn bool
 		want outcome
 	}{
-		"without a connection": {want: outcome{panics: true}},
-		"twice":                {conn: true, want: outcome{first: errCloseConn, second: errCloseConn, connSet: true, closes: 2}},
+		"without a connection": {want: outcome{}},
+		"twice":                {conn: true, want: outcome{first: errCloseConn, closes: 1}},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -244,9 +243,8 @@ func TestHandlerClose(t *testing.T) {
 }
 
 // TestConnectReplacesConnection pins what a second Connect does with the
-// client's connection, when it opens a new one and when its dial fails. Known
-// bugs: the first connection is left open, and a failed dial drops it without
-// closing it.
+// client's connection: when it opens a new one, it closes the first; when its
+// dial fails, the client keeps the first.
 func TestConnectReplacesConnection(t *testing.T) {
 	type outcome struct {
 		err       bool
@@ -259,8 +257,8 @@ func TestConnectReplacesConnection(t *testing.T) {
 		failDial bool
 		want     outcome
 	}{
-		"opens":      {want: outcome{firstOpen: true}},
-		"dial fails": {failDial: true, want: outcome{err: true, connNil: true, firstOpen: true}},
+		"opens":      {want: outcome{}},
+		"dial fails": {failDial: true, want: outcome{err: true, connFirst: true, firstOpen: true}},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -287,4 +285,163 @@ func TestConnectReplacesConnection(t *testing.T) {
 			})
 		})
 	}
+}
+
+// TestRequestWithoutConnection pins the result of a request on a client
+// without a connection: no packet, and net.ErrClosed after Close, until
+// Connect, "Conn is missing" otherwise; an SNMPv3 request does not discover
+// the engine first.
+func TestRequestWithoutConnection(t *testing.T) {
+	tests := map[string]struct {
+		v3     bool
+		before func(t *testing.T, x *GoSNMP)
+		want   error
+	}{
+		"never connected": {want: errNoConn},
+		"after Close": {want: errClosed, before: func(t *testing.T, x *GoSNMP) {
+			require.NoError(t, x.Connect())
+			require.NoError(t, x.Close())
+		}},
+		"SNMPv3 after Close": {v3: true, want: errClosed, before: func(t *testing.T, x *GoSNMP) {
+			require.NoError(t, x.Connect())
+			require.NoError(t, x.Close())
+		}},
+		"Conn removed after Close and Connect": {want: errNoConn, before: func(t *testing.T, x *GoSNMP) {
+			require.NoError(t, x.Connect())
+			require.NoError(t, x.Close())
+			require.NoError(t, x.Connect())
+			require.NoError(t, x.Conn.Close())
+			x.Conn = nil
+		}},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			x := &GoSNMP{
+				Target: "127.0.0.1", Port: unusedUDPPort(t), Version: Version2c, Community: "public",
+				Timeout: time.Second, MaxOids: MaxOids,
+			}
+			if tc.v3 {
+				x.Version, x.SecurityModel, x.MsgFlags = Version3, UserSecurityModel, NoAuthNoPriv
+				x.SecurityParameters = &UsmSecurityParameters{UserName: "codec"}
+			}
+			if tc.before != nil {
+				tc.before(t, x)
+			}
+			res, err := x.Get([]string{engineOID})
+			assert.Nil(t, res)
+			assert.Equal(t, tc.want, err)
+		})
+	}
+}
+
+// TestCloseDuringRequest checks, on a loopback socket, Close as Netdata's SNMP
+// topology uses it: two goroutines close the client, through the Handler,
+// while a request waits for its answer. The request ends at once with
+// net.ErrClosed, the next one fails the same way without being sent, and
+// Connect opens the client again.
+func TestCloseDuringRequest(t *testing.T) {
+	port, reads := udpAgent(t, func(n int, req []byte) []byte {
+		if n == 1 {
+			return nil // the agent does not answer the first request
+		}
+		return replyTo(req, nil, sysDescr)
+	})
+	h := NewHandler()
+	h.SetTarget("127.0.0.1")
+	h.SetPort(port)
+	h.SetTimeout(time.Minute)
+	require.NoError(t, h.Connect())
+	defer h.Close()
+
+	release := make(chan struct{})
+	go func() {
+		<-reads
+		close(release)
+	}()
+	for range 2 {
+		go func() {
+			<-release
+			_ = h.Close()
+		}()
+	}
+	start := time.Now()
+	_, err := h.Get([]string{engineOID})
+	require.ErrorIs(t, err, net.ErrClosed)
+	assert.Less(t, time.Since(start), 10*time.Second, "the request ends before its timeout")
+
+	_, err = h.Get([]string{engineOID})
+	require.ErrorIs(t, err, net.ErrClosed)
+
+	require.NoError(t, h.Connect())
+	res, err := h.Get([]string{engineOID})
+	require.NoError(t, err)
+	assert.Equal(t, []SnmpPDU{sysDescr}, res.Variables)
+	assert.Len(t, reads, 1, "the agent read the request after Connect, not the one after Close")
+}
+
+// TestContextCancelDuringRequest checks, on a loopback socket, that canceling
+// the Context ends a request waiting for its answer at once, and that the
+// client's next request, with another Context, is answered.
+func TestContextCancelDuringRequest(t *testing.T) {
+	port, reads := udpAgent(t, func(n int, req []byte) []byte {
+		if n == 1 {
+			return nil // the agent does not answer the first request
+		}
+		return replyTo(req, nil, sysDescr)
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	x := &GoSNMP{
+		Target: "127.0.0.1", Port: port, Version: Version2c, Community: "public",
+		Timeout: time.Minute, Retries: 2, Context: ctx,
+	}
+	require.NoError(t, x.Connect())
+	defer x.Close()
+
+	go func() {
+		<-reads
+		cancel()
+	}()
+	start := time.Now()
+	_, err := x.Get([]string{engineOID})
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Less(t, time.Since(start), 10*time.Second, "the request ends before its timeout")
+
+	x.Context = context.Background()
+	res, err := x.Get([]string{engineOID})
+	require.NoError(t, err)
+	assert.Equal(t, []SnmpPDU{sysDescr}, res.Variables)
+}
+
+// udpAgent listens on a loopback UDP port and answers request n (counted from
+// 1) with the reply handle returns, if any; reads receives the number of each
+// request it reads. The socket closes when the test ends.
+func udpAgent(t *testing.T, handle func(n int, req []byte) []byte) (port uint16, reads <-chan int) {
+	t.Helper()
+	pc, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	read := make(chan int, 16)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buf := make([]byte, 2048)
+		for n := 1; ; n++ {
+			m, from, readErr := pc.ReadFrom(buf)
+			if readErr != nil {
+				return
+			}
+			select {
+			case read <- n:
+			default:
+			}
+			if reply := handle(n, bytes.Clone(buf[:m])); reply != nil {
+				_, _ = pc.WriteTo(reply, from)
+			}
+		}
+	}()
+	t.Cleanup(func() {
+		pc.Close()
+		<-done
+	})
+	return uint16(pc.LocalAddr().(*net.UDPAddr).Port), read //nolint:gosec // a UDP port
 }

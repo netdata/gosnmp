@@ -42,14 +42,18 @@ const (
 
 // GoSNMP is an SNMP client: its exported fields configure it, Connect opens
 // its connection, and its methods send requests. A GoSNMP is not safe for
-// concurrent use: requests share its connection, receive buffer and deadline,
-// so run one request at a time, or give each goroutine its own GoSNMP.
+// concurrent use, Close excepted: requests share its connection, receive
+// buffer and deadline, so run one request at a time, or give each goroutine
+// its own GoSNMP.
 type GoSNMP struct {
 	// Conn is the connection to the agent, opened by Connect, or set by the
 	// caller in its place: the client then lacks Connect's defaults and checks,
 	// so the caller sets the fields it needs (MaxOids, for one); a request
-	// supplies its Context default, receive buffer and IDs, and takes the
-	// network from Transport.
+	// supplies its Context default, receive buffer and IDs, and a TCP
+	// reconnect opens it again with the request's Transport, Target, Port,
+	// LocalAddr and Control. The client owns the connection Conn holds: Close
+	// and a later Connect close it. Each attempt of a request uses the
+	// connection Conn holds when it starts. Set Conn only while no Close runs.
 	Conn net.Conn
 
 	// Target is the agent's host name or IP address.
@@ -72,9 +76,9 @@ type GoSNMP struct {
 	Version SnmpVersion
 
 	// Context, when set, bounds Connect's dial and every request: no attempt
-	// starts once it is done, and its deadline ends an attempt. Connect sets
-	// context.Background() when it is nil, and a request without one uses
-	// context.Background().
+	// starts once it is done, and its cancellation or deadline ends a running
+	// attempt at once. Connect sets context.Background() when it is nil, and a
+	// request without one uses context.Background().
 	Context context.Context
 
 	// Timeout is how long each attempt of a request waits for its answer, and
@@ -197,21 +201,18 @@ type GoSNMP struct {
 	requestIDSet atomic.Bool
 	msgIDSet     atomic.Bool
 
-	// network is the network of networkConn, the connection the client last
-	// opened (Connect or a TCP reconnect): Transport with the suffix of
-	// ConnectIPv4 or ConnectIPv6, narrowed to IPv4 for an IPv4 LocalAddr. A
-	// request uses it while Conn is that connection, and Transport otherwise.
-	network     string
-	networkConn net.Conn
-
 	// rxBuf is the receive buffer, allocated by the first request.
 	rxBuf *[rxBufSize]byte // has to be pointer due to https://github.com/golang/go/issues/11728
 
-	// uaddr is the agent's address for an unconnected UDP socket.
-	uaddr *net.UDPAddr
-
-	// mu serializes Close calls.
+	// mu guards Conn, opened and closed against Close, which may run on any
+	// goroutine: Connect, Close and the TCP reconnect change them under it,
+	// and each attempt reads them under it.
 	mu sync.Mutex
+	// opened is the connection the client opened (Connect or a TCP
+	// reconnect), while Conn holds it.
+	opened connection
+	// closed reports that Close ran since the last Connect.
+	closed bool
 }
 
 // Default is a client with default settings, used by the examples. Like any

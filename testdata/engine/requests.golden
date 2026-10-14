@@ -695,9 +695,8 @@
 == requests/close/before-request
 0s    close
 0s    client: 2c timeout=1s retries=2 exponential=false
-0s    result: packet nil, error "&GoSNMP.Conn is missing. Provide a connection or use Connect()" *errors.errorString
+0s    result: packet nil, error "the client was closed: use of closed network connection" *fmt.wrapError (is net.ErrClosed)
 0s    client after: retries=2 next request id=1001
-0s    known bug: a request after Close fails without net.ErrClosed
 
 == requests/close/between-attempts
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -708,9 +707,8 @@
 1s    read from 127.0.0.2:161: deadline
 1s    hook OnRetry closes the client
 1s    close
-1s    result: packet nil, error "recover: runtime error: invalid memory address or nil pointer dereference Stack: ..." *errors.errorString
+1s    result: packet nil, error "the client was closed: use of closed network connection" *fmt.wrapError (is net.ErrClosed)
 1s    client after: retries=2 next request id=1002
-1s    known bug: a Close during a request makes it dereference a nil Conn
 
 == requests/close/connection-from-another-goroutine
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -730,9 +728,20 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    hook OnSent closes the client
 0s    close
-0s    result: packet nil, error "recover: runtime error: invalid memory address or nil pointer dereference Stack: ..." *errors.errorString
+0s    read from 127.0.0.2:161: read udp: use of closed network connection
+0s    result: packet nil, error "error reading from socket: read udp: use of closed network connection" *fmt.wrapError (is net.ErrClosed)
 0s    client after: retries=2 next request id=1002
-0s    known bug: a Close during a request makes it dereference a nil Conn
+
+== requests/close/from-another-goroutine
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    hook OnSent
+300ms close
+300ms read from 127.0.0.2:161: read udp: use of closed network connection
+300ms result: packet nil, error "error reading from socket: read udp: use of closed network connection" *fmt.wrapError (is net.ErrClosed)
+300ms client after: retries=2 next request id=1002
 
 == requests/conn-without-connect
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -760,10 +769,46 @@
 0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1002
 
+== requests/context/canceled-after-request
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #2 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    client after: retries=2 next request id=1003
+
 == requests/context/canceled-before
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    result: packet nil, error "context canceled" *errors.errorString (equals context.Canceled)
 0s    client after: retries=2 next request id=1001
+
+== requests/context/canceled-before-a-reply
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #1 after 100ms
+0s    hook OnSent
+100ms read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+100ms hook OnRecv
+200ms interrupt released
+200ms deadline in the past
+200ms hook OnFinish
+200ms result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+200ms client after: retries=2 next request id=1002
 
 == requests/context/canceled-before-deadline
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -771,9 +816,10 @@
 0s    hook PreSend
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    hook OnSent
-700ms read from 127.0.0.2:161: deadline
-700ms result: packet nil, error "context canceled" *errors.errorString (equals context.Canceled)
-700ms client after: retries=2 next request id=1002
+300ms deadline in the past
+300ms read from 127.0.0.2:161: deadline
+300ms result: packet nil, error "context canceled" *errors.errorString (equals context.Canceled)
+300ms client after: retries=2 next request id=1002
 
 == requests/context/canceled-in-last-attempt
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -793,9 +839,10 @@
 2s    hook PreSend
 2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
 2s    hook OnSent
-3s    read from 127.0.0.2:161: deadline
-3s    result: packet nil, error "context canceled" *errors.errorString (equals context.Canceled)
-3s    client after: retries=2 next request id=1004
+2.3s  deadline in the past
+2.3s  read from 127.0.0.2:161: deadline
+2.3s  result: packet nil, error "context canceled" *errors.errorString (equals context.Canceled)
+2.3s  client after: retries=2 next request id=1004
 
 == requests/context/canceled-while-waiting
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -803,10 +850,10 @@
 0s    hook PreSend
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    hook OnSent
-1s    read from 127.0.0.2:161: deadline
-1s    result: packet nil, error "context canceled" *errors.errorString (equals context.Canceled)
-1s    client after: retries=2 next request id=1002
-1s    known bug: cancellation is noticed only when the attempt's deadline passes
+300ms deadline in the past
+300ms read from 127.0.0.2:161: deadline
+300ms result: packet nil, error "context canceled" *errors.errorString (equals context.Canceled)
+300ms client after: retries=2 next request id=1002
 
 == requests/context/canceled-with-cause-before
 0s    client: 2c timeout=1s retries=2 exponential=false

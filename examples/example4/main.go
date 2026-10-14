@@ -31,7 +31,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Connect() err: %v", err)
 	}
-	defer Client.Conn.Close()
+	defer Client.Close()
 	mySnmpPDU := []g.SnmpPDU{{
 		Name:  "1.3.6.1.4.1.318.1.1.4.4.2.1.3.15",
 		Type:  g.Integer,

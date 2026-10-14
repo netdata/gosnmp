@@ -119,6 +119,9 @@ type fakeTransport struct {
 	failWrite   func(n int) error // the error of write n, or nil
 	failRead    func(n int) error // the error of read n, or nil
 	deadlineErr error
+	// holdInterrupt, when set, holds a deadline set in the past until it
+	// closes.
+	holdInterrupt chan struct{}
 }
 
 func newFakeTransport(tr *engineTranscript, agent engineAgent) *fakeTransport {
@@ -246,23 +249,27 @@ func (c *fakeTransport) signal() {
 	}
 }
 
-// describeDeadline describes deadline t for a transcript.
-func describeDeadline(t time.Time) string {
-	if d := time.Until(t); d >= 0 {
-		return "+" + d.String()
-	}
-	return "in the past"
-}
-
 // setDeadlines sets the read deadline when read is set and the write deadline
-// when write is set, recording what as name.
+// when write is set, recording it as name. A deadline in the past, which the
+// engine sets to interrupt an attempt, is recorded only when it ends a
+// deadline that has not passed: when the Context's deadline is the attempt's,
+// the interrupt and the attempt's own deadline race, and change nothing.
 func (c *fakeTransport) setDeadlines(name string, t time.Time, read, write bool) error {
-	c.tr.addf("%s %s", name, describeDeadline(t))
-	if c.deadlineErr != nil {
-		return c.deadlineErr
+	if c.holdInterrupt != nil && t.Before(time.Now()) {
+		<-c.holdInterrupt
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	now := time.Now()
+	switch current := c.readDeadline; {
+	case !t.Before(now):
+		c.tr.addf("%s +%s", name, t.Sub(now))
+	case current.IsZero() || now.Before(current):
+		c.tr.addf("%s in the past", name)
+	}
+	if c.deadlineErr != nil {
+		return c.deadlineErr
+	}
 	if c.closed {
 		return closedSet
 	}

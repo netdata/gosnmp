@@ -22,13 +22,13 @@ func main() {
 		Community: "public",
 	}
 	_ = params.Connect() // no logger specified, logging is disabled
-	params.Conn.Close()
+	params.Close()
 
 	params.Logger = stdoutLogger
 	_ = params.Connect() // logging enabled using stdout
-	params.Conn.Close()
+	params.Close()
 
 	params.Logger = disabledLogger
 	_ = params.Connect() // logging is disabled
-	params.Conn.Close()
+	params.Close()
 }

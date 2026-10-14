@@ -37,10 +37,10 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 		}
 	}()
 
-	if x.Conn == nil {
-		return nil, fmt.Errorf("&GoSNMP.Conn is missing. Provide a connection or use Connect()")
-	}
 	cfg := x.prepareRequest()
+	if _, err = x.connectionFor(&cfg); err != nil {
+		return nil, err
+	}
 	if x.Logger.enabled() {
 		x.Logger.Print("SEND INIT")
 	}
@@ -107,15 +107,15 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 // its start: a change a hook or the Logger makes to the client applies from
 // the next request. The packet carries the rest (version, security level and
 // model, context). Not part of it: the Logger, the learned SNMPv3 engine
-// state, and the connection, which a TCP reconnect dials with the client's
-// Target, Port, LocalAddr and Control at that moment.
+// state, and the connection, which each attempt takes from the client
+// (connectionFor).
 type requestConfig struct {
 	ctx                context.Context
 	timeout            time.Duration
 	retries            int
 	exponentialTimeout bool
-	// network is the connection's network, for the TCP reconnect.
-	network                                    string
+	// dial is how a TCP reconnect opens a Conn the caller set again.
+	dial                                       dialSettings
 	preSend, onSent, onRecv, onRetry, onFinish func(*GoSNMP)
 }
 
@@ -130,16 +130,12 @@ func (x *GoSNMP) prepareRequest() requestConfig {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	network := cmp.Or(x.Transport, udp)
-	if x.networkConn != nil && x.Conn == x.networkConn {
-		network = x.network
-	}
 	return requestConfig{
 		ctx:                ctx,
 		timeout:            x.Timeout,
 		retries:            max(x.Retries, 0),
 		exponentialTimeout: x.ExponentialTimeout,
-		network:            network,
+		dial:               x.dialSettings(cmp.Or(x.Transport, udp)),
 		preSend:            x.PreSend,
 		onSent:             x.OnSent,
 		onRecv:             x.OnRecv,
@@ -185,12 +181,13 @@ const (
 	// attemptReconnected: the agent closed the TCP connection (io.EOF), and the
 	// client opened a new one.
 	attemptReconnected
-	// attemptClosed: the client's connection was closed (net.ErrClosed).
+	// attemptClosed: the client's connection was closed (net.ErrClosed), or
+	// Close closed the client.
 	attemptClosed
 	// attemptContextDone: the Context was done when the attempt would start.
 	attemptContextDone
-	// attemptFailed: setting the deadline, encoding the request or reopening
-	// the TCP connection failed.
+	// attemptFailed: the client had no connection, or setting the deadline,
+	// encoding the request or reopening the TCP connection failed.
 	attemptFailed
 )
 
@@ -224,6 +221,15 @@ func ioOutcome(err error) attemptOutcome {
 		return attemptOutcome{kind: attemptClosed, err: err}
 	}
 	return attemptOutcome{kind: attemptTransportError, err: err}
+}
+
+// failedOutcome is the outcome of an attempt that failed with err before its
+// write: closed for a closed connection, failed otherwise.
+func failedOutcome(err error) attemptOutcome {
+	if errors.Is(err, net.ErrClosed) {
+		return attemptOutcome{kind: attemptClosed, err: err}
+	}
+	return attemptOutcome{kind: attemptFailed, err: err}
 }
 
 // attemptsError is the error of a request whose attempts ran out after a
@@ -312,18 +318,25 @@ func (e *exchange) beforeRetry(n int, lastErr error) {
 	}
 }
 
-// attempt sends the request once and reads until a reply answers it or the
-// attempt's deadline passes. A reply to an earlier attempt, one of earlier,
-// answers it too.
+// attempt sends the request once, on the client's connection, and reads until
+// a reply answers it, the attempt's deadline passes or the Context is done. A
+// reply to an earlier attempt, one of earlier, answers it too.
 func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
 	x := e.x
 	if err := e.cfg.ctx.Err(); err != nil {
 		return attemptOutcome{kind: attemptContextDone, err: err}
 	}
+	c, err := x.connectionFor(&e.cfg)
+	if err != nil {
+		return failedOutcome(err)
+	}
 	var deadline time.Time
 	deadline, e.contextDeadline = attemptDeadline(e.cfg.ctx, e.timeout)
-	if err := x.Conn.SetDeadline(deadline); err != nil {
-		return attemptOutcome{kind: attemptFailed, err: err}
+	if err = c.conn.SetDeadline(deadline); err != nil {
+		return failedOutcome(err)
+	}
+	if stop := interruptWhenDone(e.cfg.ctx, c.conn); stop != nil {
+		defer stop()
 	}
 
 	e.packet.RequestID = x.nextRequestID()
@@ -340,13 +353,34 @@ func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
 	if x.Logger.enabled() {
 		x.Logger.Printf("SENDING PACKET: %s", e.packet.SafeString())
 	}
-	if err := x.write(outBuf); err != nil {
+	if err = c.write(outBuf); err != nil {
 		return ioOutcome(err)
 	}
 	if e.cfg.onSent != nil {
 		e.cfg.onSent(x)
 	}
-	return e.await(earlier)
+	return e.await(&c, earlier)
+}
+
+// interruptWhenDone makes the pending and later reads and writes on conn fail
+// with os.ErrDeadlineExceeded once ctx is done, by setting a deadline in the
+// past, until stop runs; it returns nil for a ctx that is never done. stop
+// waits for an interrupt that has started, so that its deadline cannot land
+// after a later attempt's.
+func interruptWhenDone(ctx context.Context, conn net.Conn) (stop func()) {
+	if ctx.Done() == nil {
+		return nil
+	}
+	interrupted := make(chan struct{})
+	stopAfter := context.AfterFunc(ctx, func() {
+		defer close(interrupted)
+		_ = conn.SetDeadline(time.Unix(1, 0))
+	})
+	return func() {
+		if !stopAfter() {
+			<-interrupted
+		}
+	}
 }
 
 // attemptDeadline returns when an attempt with timeout ends: after the
@@ -384,23 +418,18 @@ func (e *exchange) encode() ([]byte, error) {
 	return out, nil
 }
 
-// await reads replies until one answers the request. Known bug: it does not
-// watch the context, so a cancellation is noticed only when the attempt's
-// deadline passes.
-func (e *exchange) await(earlier []sentIDs) attemptOutcome {
+// await reads replies on c until one answers the request.
+func (e *exchange) await(c *connection, earlier []sentIDs) attemptOutcome {
 	x := e.x
 	for {
 		if x.Logger.enabled() {
 			x.Logger.Print("WAITING RESPONSE...")
 		}
-		resp, err := x.receive()
-		if err == io.EOF && strings.HasPrefix(e.cfg.network, tcp) {
+		resp, err := c.receive(x.rxBuf)
+		if err == io.EOF && strings.HasPrefix(c.dial.network, tcp) {
 			// The agent closed the connection: reconnect for the next attempt.
 			x.Logger.Printf("ERROR: EOF. Performing reconnect")
-			if err = x.netConnect(e.cfg.ctx, e.cfg.timeout, e.cfg.network); err != nil {
-				return attemptOutcome{kind: attemptFailed, err: err}
-			}
-			return attemptOutcome{kind: attemptReconnected, err: io.EOF}
+			return x.reconnect(e.cfg.ctx, e.cfg.timeout, c)
 		}
 		if err != nil {
 			return ioOutcome(err)
