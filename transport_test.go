@@ -163,6 +163,67 @@ func TestConnectUnconnectedUDPListenFailure(t *testing.T) {
 	assert.Nil(t, x.Conn)
 }
 
+// packetConnWrapper wraps an unconnected UDP socket, as a caller may to
+// instrument it: a net.Conn and a net.PacketConn of another type than the
+// socket's.
+type packetConnWrapper struct {
+	net.Conn
+	pc net.PacketConn
+}
+
+func (w packetConnWrapper) ReadFrom(b []byte) (int, net.Addr, error) { return w.pc.ReadFrom(b) }
+
+func (w packetConnWrapper) WriteTo(b []byte, addr net.Addr) (int, error) {
+	return w.pc.WriteTo(b, addr)
+}
+
+// TestUnconnectedUDPAgentAddress checks where a client in unconnected UDP mode
+// sends a request after Port changed: from the socket Connect opened, to the
+// address Connect resolved; from a Conn the caller set (a wrapper of that
+// socket, or a socket the caller opened), to the request's Target and Port.
+func TestUnconnectedUDPAgentAddress(t *testing.T) {
+	tests := map[string]struct {
+		conn func(t *testing.T, x *GoSNMP) // gives the client its connection
+		want string                        // the agent that answers
+	}{
+		"the socket Connect opened": {want: "A", conn: func(t *testing.T, x *GoSNMP) {
+			require.NoError(t, x.Connect())
+		}},
+		"a wrapper of the socket Connect opened": {want: "B", conn: func(t *testing.T, x *GoSNMP) {
+			require.NoError(t, x.Connect())
+			x.Conn = packetConnWrapper{Conn: x.Conn, pc: x.Conn.(net.PacketConn)}
+		}},
+		"a socket the caller opened": {want: "B", conn: func(t *testing.T, x *GoSNMP) {
+			pc, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+			require.NoError(t, err)
+			x.Conn = pc
+		}},
+	}
+	agent := func(name string) uint16 {
+		port, _ := udpAgent(t, func(_ int, req []byte) []byte {
+			return replyTo(req, nil, SnmpPDU{Name: engineOID, Type: OctetString, Value: []byte(name)})
+		})
+		return port
+	}
+	portA, portB := agent("A"), agent("B")
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			x := &GoSNMP{
+				Target: "127.0.0.1", Port: portA, Version: Version2c, Community: "public",
+				Timeout: 2 * time.Second, MaxOids: MaxOids, UseUnconnectedUDPSocket: true,
+			}
+			tc.conn(t, x)
+			defer x.Close()
+			x.Port = portB
+
+			res, err := x.Get([]string{engineOID})
+			require.NoError(t, err)
+			require.Len(t, res.Variables, 1)
+			assert.Equal(t, tc.want, string(res.Variables[0].Value.([]byte)))
+		})
+	}
+}
+
 // TestConnectTCPLocalAddr pins that a TCP connection is made from the
 // configured local address, port included.
 func TestConnectTCPLocalAddr(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 	"net"
 	"reflect"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -172,22 +173,33 @@ func (x *GoSNMP) isClosed() bool {
 
 // connectionFor returns the client's connection for an attempt of the request
 // with configuration cfg: the connection the client opened, or a Conn the
-// caller set, which a TCP reconnect opens again with the request's settings.
-// It fails without a connection, with net.ErrClosed after Close.
+// caller set, with the request's settings (adopt). It fails without a
+// connection, with net.ErrClosed after Close.
 func (x *GoSNMP) connectionFor(cfg *requestConfig) (connection, error) {
+	c, opened, err := x.clientConnection()
+	if err != nil || opened {
+		return c, err
+	}
+	return cfg.dial.adopt(c.conn)
+}
+
+// clientConnection returns the client's connection: the record of the one the
+// client opened (opened), or one that holds only a Conn the caller set. It
+// fails without a connection, with net.ErrClosed after Close.
+func (x *GoSNMP) clientConnection() (c connection, opened bool, err error) {
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	switch {
 	case x.Conn == nil && x.closed:
-		return connection{}, errClosed
+		return connection{}, false, errClosed
 	case x.Conn == nil:
-		return connection{}, errNoConn
+		return connection{}, false, errNoConn
 	// opened.conn is nil or a connection open made, of a comparable type, so
 	// == cannot panic: values of different types are unequal.
 	case x.Conn == x.opened.conn:
-		return x.opened, nil
+		return x.opened, true, nil
 	}
-	return connection{conn: x.Conn, dial: cfg.dial}, nil
+	return connection{conn: x.Conn}, false, nil
 }
 
 // reconnect opens c, the client's connection the agent closed, again, and
@@ -264,8 +276,9 @@ func (x *GoSNMP) dialSettings(network string) dialSettings {
 	}
 }
 
-// connection is a connection to the agent and how it was opened: with dial,
-// whose network a local address narrowed; uaddr is the agent's address for an
+// connection is a connection to the agent and how it is opened: with dial,
+// whose network a local address narrowed (for a Conn the caller set: the
+// request's settings, see adopt); uaddr is the agent's address for an
 // unconnected UDP socket.
 type connection struct {
 	conn  net.Conn
@@ -277,8 +290,6 @@ type connection struct {
 // local socket, with ctx and timeout bounding the dial. A UDP or TCP local
 // address in IPv4 narrows the network to IPv4.
 func (d dialSettings) open(ctx context.Context, timeout time.Duration) (connection, error) {
-	addr := net.JoinHostPort(d.target, strconv.Itoa(int(d.port)))
-
 	var local net.Addr
 	switch d.network {
 	case "udp", "udp4", "udp6":
@@ -290,7 +301,7 @@ func (d dialSettings) open(ctx context.Context, timeout time.Duration) (connecti
 			d.network = "udp4"
 		}
 		if d.unconnected {
-			return d.listenUnconnectedUDP(udpLocal, addr)
+			return d.listenUnconnectedUDP(udpLocal)
 		}
 		local = udpLocal
 	case "tcp", "tcp4", "tcp6":
@@ -304,17 +315,42 @@ func (d dialSettings) open(ctx context.Context, timeout time.Duration) (connecti
 		local = tcpLocal
 	}
 	dialer := net.Dialer{Timeout: timeout, LocalAddr: local, Control: d.control}
-	conn, err := dialer.DialContext(ctx, d.network, addr)
+	conn, err := dialer.DialContext(ctx, d.network, d.agentAddr())
 	if err != nil {
 		return connection{}, err
 	}
 	return connection{conn: conn, dial: d}, nil
 }
 
+// adopt returns the record of conn, a Conn the caller set, with d, the
+// request's settings: for an unconnected UDP socket also the agent's address.
+func (d dialSettings) adopt(conn net.Conn) (connection, error) {
+	c := connection{conn: conn, dial: d}
+	if d.unconnected && strings.HasPrefix(d.network, udp) {
+		uaddr, err := d.agentUDPAddr()
+		if err != nil {
+			return connection{}, err
+		}
+		c.uaddr = uaddr
+	}
+	return c, nil
+}
+
+// agentAddr is the agent's address, "host:port".
+func (d dialSettings) agentAddr() string {
+	return net.JoinHostPort(d.target, strconv.Itoa(int(d.port)))
+}
+
+// agentUDPAddr resolves the agent's address, to which an unconnected UDP
+// socket writes.
+func (d dialSettings) agentUDPAddr() (*net.UDPAddr, error) {
+	return net.ResolveUDPAddr(d.network, d.agentAddr())
+}
+
 // listenUnconnectedUDP opens a UDP socket on the local address that writes to
-// the agent at addr.
-func (d dialSettings) listenUnconnectedUDP(local *net.UDPAddr, addr string) (connection, error) {
-	uaddr, err := net.ResolveUDPAddr(d.network, addr)
+// the agent.
+func (d dialSettings) listenUnconnectedUDP(local *net.UDPAddr) (connection, error) {
+	uaddr, err := d.agentUDPAddr()
 	if err != nil {
 		return connection{}, err
 	}

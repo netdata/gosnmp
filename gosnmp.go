@@ -49,9 +49,10 @@ type GoSNMP struct {
 	// Conn is the connection to the agent, opened by Connect, or set by the
 	// caller in its place: the client then lacks Connect's defaults and checks,
 	// so the caller sets the fields it needs (MaxOids, for one); a request
-	// supplies its Context default, receive buffer and IDs, and a TCP
-	// reconnect opens it again with the request's Transport, Target, Port,
-	// LocalAddr and Control. The client owns the connection Conn holds: Close
+	// supplies its Context default, receive buffer and IDs, a TCP reconnect
+	// opens it again with the request's Transport, Target, Port, LocalAddr and
+	// Control, and with UseUnconnectedUDPSocket each request writes to the
+	// Target and Port it read. The client owns the connection Conn holds: Close
 	// and a later Connect close it; a connection the caller or a hook replaces
 	// in Conn is the caller's again. Each attempt of a request uses the
 	// connection Conn holds when it starts, which Close interrupts even after a
@@ -149,7 +150,8 @@ type GoSNMP struct {
 	// UseUnconnectedUDPSocket makes a UDP client send from an unconnected
 	// socket, with sendto and recvfrom, for agents that answer from another
 	// address than the one the request went to, as some multi-homed devices
-	// do. Replies are then read from any address.
+	// do. Replies are then read from any address. A Conn the caller sets is
+	// then written to Target and Port as each request reads them.
 	UseUnconnectedUDPSocket bool
 
 	// Control, when set, is the Control function of Connect's net.Dialer: it

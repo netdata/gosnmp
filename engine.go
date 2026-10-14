@@ -38,7 +38,7 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 	}()
 
 	cfg := x.prepareRequest()
-	if _, err = x.connectionFor(&cfg); err != nil {
+	if _, _, err = x.clientConnection(); err != nil {
 		return nil, err
 	}
 	if x.Logger.enabled() {
