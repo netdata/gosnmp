@@ -327,7 +327,7 @@ func (d dialSettings) open(ctx context.Context, timeout time.Duration) (connecti
 	var local net.Addr
 	switch d.network {
 	case "udp", "udp4", "udp6":
-		ip, port, err := resolveAddr(ctx, d.network, d.localAddr)
+		ip, port, err := resolveAddr(ctx, net.DefaultResolver, d.network, d.localAddr)
 		if err != nil {
 			return connection{}, err
 		}
@@ -340,7 +340,7 @@ func (d dialSettings) open(ctx context.Context, timeout time.Duration) (connecti
 		}
 		local = udpLocal
 	case "tcp", "tcp4", "tcp6":
-		ip, port, err := resolveAddr(ctx, d.network, d.localAddr)
+		ip, port, err := resolveAddr(ctx, net.DefaultResolver, d.network, d.localAddr)
 		if err != nil {
 			return connection{}, err
 		}
@@ -375,10 +375,51 @@ func (d dialSettings) agentAddr() string {
 	return net.JoinHostPort(d.target, strconv.Itoa(int(d.port)))
 }
 
+// lookupIPAddrs looks up host's addresses of family ("", "4" or "6") with r,
+// with the query the standard library makes for a network of that family,
+// zones included: without a family, LookupIPAddr asks for both families and
+// keeps the zones; with one, LookupIP asks for that family alone but drops the
+// zones, which a scoped IPv6 address among the answers then takes from
+// LookupIPAddr. With a family, a zone a hosts file gives an address that is
+// not scoped (an IPv4 or a global IPv6 one) is therefore dropped: keeping it
+// would take a second query of every lookup.
+func lookupIPAddrs(ctx context.Context, r nameResolver, family, host string) ([]net.IPAddr, error) {
+	if family == "" {
+		return r.LookupIPAddr(ctx, host)
+	}
+	ips, err := r.LookupIP(ctx, "ip"+family, host)
+	if err != nil {
+		return nil, err
+	}
+	addrs := make([]net.IPAddr, len(ips))
+	for i, ip := range ips {
+		addrs[i].IP = ip
+	}
+	if !slices.ContainsFunc(ips, scopedIPv6) {
+		return addrs, nil
+	}
+	zoned, err := r.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	for i := range addrs {
+		if j := slices.IndexFunc(zoned, func(z net.IPAddr) bool { return z.IP.Equal(addrs[i].IP) }); j >= 0 {
+			addrs[i].Zone = zoned[j].Zone
+		}
+	}
+	return addrs, nil
+}
+
+// scopedIPv6 reports whether ip is an IPv6 address a zone qualifies: a
+// link-local or interface-local one.
+func scopedIPv6(ip net.IP) bool {
+	return ip.To4() == nil && (ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast())
+}
+
 // listenUnconnectedUDP opens a UDP socket on the local address that writes to
 // the agent, whose address it looks up within ctx.
 func (d dialSettings) listenUnconnectedUDP(ctx context.Context, local *net.UDPAddr) (connection, error) {
-	ip, port, err := resolveAddr(ctx, d.network, d.agentAddr())
+	ip, port, err := resolveAddr(ctx, net.DefaultResolver, d.network, d.agentAddr())
 	if err != nil {
 		return connection{}, err
 	}
@@ -389,14 +430,21 @@ func (d dialSettings) listenUnconnectedUDP(ctx context.Context, local *net.UDPAd
 	return connection{conn: conn, dial: d, uaddr: &net.UDPAddr{IP: ip.IP, Port: port, Zone: ip.Zone}}, nil
 }
 
+// nameResolver is what resolveAddr asks of a *net.Resolver.
+type nameResolver interface {
+	LookupPort(ctx context.Context, network, service string) (int, error)
+	LookupIP(ctx context.Context, network, host string) ([]net.IP, error)
+	LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error)
+}
+
 // resolveAddr resolves address, "host:port", over network ("udp" or "tcp",
-// either with "4" or "6") within ctx, as net.ResolveUDPAddr and
-// net.ResolveTCPAddr resolve it without one: an empty address or host is the
-// unspecified address; of a host's addresses of the network's family, it
-// takes the first IPv4 one, the first IPv6 one for a host in brackets on a
-// network without a family, or else the first. Unlike them, it drops the zone
-// a hosts file gives a name.
-func resolveAddr(ctx context.Context, network, address string) (net.IPAddr, int, error) {
+// either with "4" or "6") with r within ctx, as net.ResolveUDPAddr and
+// net.ResolveTCPAddr resolve it with net.DefaultResolver without one: an
+// empty address or host is the unspecified address; of a host's addresses of
+// the network's family, zones included (see lookupIPAddrs), it takes the
+// first IPv4 one, the first IPv6 one for a host in brackets on a network
+// without a family, or else the first.
+func resolveAddr(ctx context.Context, r nameResolver, network, address string) (net.IPAddr, int, error) {
 	if address == "" {
 		return net.IPAddr{}, 0, nil
 	}
@@ -404,7 +452,7 @@ func resolveAddr(ctx context.Context, network, address string) (net.IPAddr, int,
 	if err != nil {
 		return net.IPAddr{}, 0, err
 	}
-	port, err := net.DefaultResolver.LookupPort(ctx, network, service)
+	port, err := r.LookupPort(ctx, network, service)
 	if err != nil {
 		return net.IPAddr{}, 0, err
 	}
@@ -415,14 +463,8 @@ func resolveAddr(ctx context.Context, network, address string) (net.IPAddr, int,
 	var ips []net.IPAddr
 	if ip, parseErr := netip.ParseAddr(host); parseErr == nil {
 		ips = []net.IPAddr{{IP: ip.AsSlice(), Zone: ip.Zone()}}
-	} else {
-		found, lookupErr := net.DefaultResolver.LookupIP(ctx, "ip"+family, host)
-		if lookupErr != nil {
-			return net.IPAddr{}, 0, lookupErr
-		}
-		for _, ip := range found {
-			ips = append(ips, net.IPAddr{IP: ip})
-		}
+	} else if ips, err = lookupIPAddrs(ctx, r, family, host); err != nil {
+		return net.IPAddr{}, 0, err
 	}
 	// As the standard library does (Go issue 18806): the IPv6 unspecified
 	// address stands for the IPv4 one too.

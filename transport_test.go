@@ -11,6 +11,7 @@ import (
 	"errors"
 	"net"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -506,7 +507,7 @@ func TestResolveAddrMatchesStdlib(t *testing.T) {
 	}
 	for _, network := range []string{"udp", "udp4", "udp6", "tcp", "tcp4", "tcp6"} {
 		for _, address := range addresses {
-			ip, port, err := resolveAddr(context.Background(), network, address)
+			ip, port, err := resolveAddr(context.Background(), net.DefaultResolver, network, address)
 			var got, want string
 			if strings.HasPrefix(network, "udp") {
 				got = describe(&net.UDPAddr{IP: ip.IP, Port: port, Zone: ip.Zone}, err)
@@ -517,6 +518,105 @@ func TestResolveAddrMatchesStdlib(t *testing.T) {
 			}
 			assert.Equal(t, want, got, "%s %q", network, address)
 		}
+	}
+}
+
+// hostsResolver answers lookups from a table, as a hosts file does, zones
+// included; its LookupIP, as *net.Resolver's does, keeps the addresses of the
+// family asked for, fails when none is left and drops the zones.
+type hostsResolver map[string][]net.IPAddr
+
+func (r hostsResolver) LookupPort(_ context.Context, _, service string) (int, error) {
+	return strconv.Atoi(service)
+}
+
+func (r hostsResolver) LookupIPAddr(_ context.Context, host string) ([]net.IPAddr, error) {
+	addrs, ok := r[host]
+	if !ok {
+		return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+	}
+	return slices.Clone(addrs), nil
+}
+
+func (r hostsResolver) LookupIP(ctx context.Context, network, host string) ([]net.IP, error) {
+	addrs, err := r.LookupIPAddr(ctx, host)
+	if err != nil {
+		return nil, err
+	}
+	var ips []net.IP
+	for _, a := range addrs {
+		if network == "ip" || (network == "ip4") == (a.IP.To4() != nil) {
+			ips = append(ips, a.IP)
+		}
+	}
+	if len(ips) == 0 {
+		return nil, &net.AddrError{Err: "no suitable address found", Addr: host}
+	}
+	return ips, nil
+}
+
+// TestResolveAddrZones checks that resolveAddr keeps the zone a hosts file
+// gives a name's scoped IPv6 address, on every network, as
+// net.ResolveUDPAddr and net.ResolveTCPAddr do, and picks a name's address
+// by their rules; the zones come from the lookup that keeps them.
+func TestResolveAddrZones(t *testing.T) {
+	linkLocal := net.ParseIP("fe80::1")
+	hosts := hostsResolver{
+		"scoped.invalid": {{IP: linkLocal, Zone: "lo0"}},
+		"mixed.invalid":  {{IP: net.ParseIP("127.0.0.1")}, {IP: linkLocal, Zone: "lo0"}},
+		"twice.invalid":  {{IP: linkLocal, Zone: "lo0"}, {IP: linkLocal, Zone: "en0"}},
+		"global.invalid": {{IP: net.ParseIP("2001:db8::1"), Zone: "en0"}},
+		"mlink.invalid":  {{IP: net.ParseIP("ff02::1"), Zone: "lo0"}},
+		"miface.invalid": {{IP: net.ParseIP("ff01::1"), Zone: "lo0"}},
+	}
+	tests := map[string]struct {
+		network, address string
+		want             string // the address, or the error's text
+	}{
+		"udp, a scoped address":            {network: "udp", address: "scoped.invalid:161", want: "[fe80::1%lo0]:161"},
+		"udp6, a scoped address":           {network: "udp6", address: "scoped.invalid:161", want: "[fe80::1%lo0]:161"},
+		"tcp6, a scoped address":           {network: "tcp6", address: "scoped.invalid:0", want: "[fe80::1%lo0]:0"},
+		"udp4, a scoped address":           {network: "udp4", address: "scoped.invalid:161", want: "address scoped.invalid: no suitable address found"},
+		"udp, IPv4 first":                  {network: "udp", address: "mixed.invalid:161", want: "127.0.0.1:161"},
+		"udp in brackets, IPv6":            {network: "udp", address: "[mixed.invalid]:161", want: "[fe80::1%lo0]:161"},
+		"udp6, mixed":                      {network: "udp6", address: "mixed.invalid:161", want: "[fe80::1%lo0]:161"},
+		"tcp4, mixed":                      {network: "tcp4", address: "mixed.invalid:161", want: "127.0.0.1:161"},
+		"udp6, one address with two zones": {network: "udp6", address: "twice.invalid:161", want: "[fe80::1%lo0]:161"},
+		"udp6, link-local multicast":       {network: "udp6", address: "mlink.invalid:161", want: "[ff02::1%lo0]:161"},
+		"udp6, interface-local multicast":  {network: "udp6", address: "miface.invalid:161", want: "[ff01::1%lo0]:161"},
+		"udp, a zoned global address":      {network: "udp", address: "global.invalid:161", want: "[2001:db8::1%en0]:161"},
+		// Dropped: no zone qualifies a global address (see lookupIPAddrs).
+		"udp6, a zoned global address": {network: "udp6", address: "global.invalid:161", want: "[2001:db8::1]:161"},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ip, port, err := resolveAddr(context.Background(), hosts, tc.network, tc.address)
+			got := (&net.UDPAddr{IP: ip.IP, Port: port, Zone: ip.Zone}).String()
+			if err != nil {
+				got = err.Error()
+			}
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestScopedIPv6 pins which addresses take a zone from a second lookup: the
+// IPv6 link-local and interface-local ones; an IPv4 link-local address takes
+// no second lookup.
+func TestScopedIPv6(t *testing.T) {
+	tests := map[string]bool{
+		"fe80::1":     true,  // link-local unicast
+		"ff02::1":     true,  // link-local multicast
+		"ff01::1":     true,  // interface-local multicast
+		"2001:db8::1": false, // global
+		"::1":         false, // loopback
+		"169.254.1.1": false, // IPv4 link-local
+		"127.0.0.1":   false,
+	}
+	for address, want := range tests {
+		t.Run(address, func(t *testing.T) {
+			assert.Equal(t, want, scopedIPv6(net.ParseIP(address)))
+		})
 	}
 }
 
