@@ -11,10 +11,13 @@
 // A client is a [GoSNMP] whose exported fields configure it: a literal, the
 // shared [Default], or [NewHandler] for code that takes the [Handler]
 // interface. [GoSNMP.Connect] fills in defaults (UDP, [MaxOids], a background
-// Context), checks the SNMPv3 configuration, opens the connection, seeds the
-// request IDs and allocates the receive buffer; every request needs it.
-// [GoSNMP.Close] closes the connection. Connect may be called again after
-// Close.
+// Context), checks the SNMPv3 configuration and opens the connection; a
+// client may instead be given a Conn. [GoSNMP.Close] closes the connection.
+// Connect may be called again after Close. A request reads the client's
+// configuration when it starts and does not change it: a change a hook or the
+// Logger makes applies from the next request. The request IDs and msgIDs start
+// at a random value on first use unless [GoSNMP.SetRequestID] and
+// [GoSNMP.SetMsgID] set them, and Connect does not reset them.
 //
 // # Concurrency
 //
@@ -58,7 +61,8 @@
 // OnRetry runs before each retry, after the decision to make one, and
 // OnFinish when an exchange ends without an error. An SNMPv3 request can
 // make up to three exchanges, each with its own hooks: the engine discovery,
-// the request, and one resend (see below).
+// the request, and one resend (see below). A request calls the hooks set when
+// it starts.
 //
 // # SNMPv3
 //

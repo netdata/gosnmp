@@ -5,6 +5,7 @@
 package gosnmp
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -39,9 +40,7 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 	if x.Conn == nil {
 		return nil, fmt.Errorf("&GoSNMP.Conn is missing. Provide a connection or use Connect()")
 	}
-	if x.Retries < 0 {
-		x.Retries = 0
-	}
+	cfg := x.prepareRequest()
 	if x.Logger.enabled() {
 		x.Logger.Print("SEND INIT")
 	}
@@ -49,7 +48,7 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 		if x.Logger.enabled() {
 			x.Logger.Print("SEND INIT NEGOTIATE SECURITY PARAMS")
 		}
-		if err = x.negotiateInitialSecurityParameters(packetOut); err != nil {
+		if err = x.negotiateInitialSecurityParameters(&cfg, packetOut); err != nil {
 			return &SnmpPacket{}, err
 		}
 		if x.Logger.enabled() {
@@ -58,7 +57,7 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 	}
 
 	var verified bool
-	result, verified, err = x.sendOneRequest(packetOut)
+	result, verified, err = x.sendOneRequest(&cfg, packetOut)
 	if err != nil {
 		x.Logger.Printf("SEND Error on the first Request Error: %s", err)
 	}
@@ -91,7 +90,7 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 		x.Logger.Printf("ERROR lendEngineParameters error: %s", err)
 		return nil, err
 	}
-	result, verified, err = x.sendOneRequest(packetOut)
+	result, verified, err = x.sendOneRequest(&cfg, packetOut)
 	if err != nil && x.Logger.enabled() {
 		x.Logger.Printf("ERROR "+kind.name+" retransmit error: %s", err)
 	}
@@ -104,11 +103,54 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 	return result, err
 }
 
+// requestConfig is the client's configuration as a request reads it, once, at
+// its start: a change a hook or the Logger makes to the client applies from
+// the next request. The packet carries the rest (version, security level and
+// model, context).
+type requestConfig struct {
+	ctx                context.Context
+	timeout            time.Duration
+	retries            int
+	exponentialTimeout bool
+	// network is the connection's network, for the TCP reconnect.
+	network                                    string
+	preSend, onSent, onRecv, onRetry, onFinish func(*GoSNMP)
+}
+
+// prepareRequest reads the request configuration, with a background Context
+// when the client has none and no negative retries, and allocates the receive
+// buffer the first time: a client given a Conn without Connect works too.
+func (x *GoSNMP) prepareRequest() requestConfig {
+	if x.rxBuf == nil {
+		x.rxBuf = new([rxBufSize]byte)
+	}
+	ctx := x.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return requestConfig{
+		ctx:                ctx,
+		timeout:            x.Timeout,
+		retries:            max(x.Retries, 0),
+		exponentialTimeout: x.ExponentialTimeout,
+		network:            cmp.Or(x.network, x.Transport, udp),
+		preSend:            x.PreSend,
+		onSent:             x.OnSent,
+		onRecv:             x.OnRecv,
+		onRetry:            x.OnRetry,
+		onFinish:           x.OnFinish,
+	}
+}
+
 // exchange is one request on its way through the attempts sendOneRequest
 // makes.
 type exchange struct {
 	x      *GoSNMP
 	packet *SnmpPacket
+	// cfg is a copy of the request's configuration: escape analysis is
+	// field-insensitive, so a pointer beside packet would move the request's
+	// configuration to the heap.
+	cfg requestConfig
 
 	// timeout is the current attempt's timeout; ExponentialTimeout doubles it
 	// before each retry.
@@ -198,20 +240,20 @@ type sentIDs struct {
 
 // sendOneRequest sends packetOut and returns the reply that answers it, and
 // whether the reply's digest checked against the request, retrying up to
-// x.Retries times. OnFinish runs when it succeeds.
-func (x *GoSNMP) sendOneRequest(packetOut *SnmpPacket) (*SnmpPacket, bool, error) {
-	e := exchange{x: x, packet: packetOut, timeout: x.Timeout}
+// cfg.retries times. OnFinish runs when it succeeds.
+func (x *GoSNMP) sendOneRequest(cfg *requestConfig, packetOut *SnmpPacket) (*SnmpPacket, bool, error) {
+	e := exchange{x: x, packet: packetOut, cfg: *cfg, timeout: cfg.timeout}
 	// The IDs of the attempts before the current one, in a local array, not a
 	// field of exchange, so that eight of them stay on the stack: a field
-	// would always escape to the heap, and a slice made for x.Retries+1 of
+	// would always escape to the heap, and a slice made for cfg.retries+1 of
 	// them escapes beyond 32 bytes.
 	var sent [8]sentIDs
 	earlier := sent[:0]
 	for n := 0; ; n++ {
 		out := e.attempt(earlier)
 		if !out.kind.retryable() {
-			if out.err == nil && x.OnFinish != nil {
-				x.OnFinish(x)
+			if out.err == nil && cfg.onFinish != nil {
+				cfg.onFinish(x)
 			}
 			return out.packet, out.verified, out.err
 		}
@@ -231,21 +273,20 @@ func (x *GoSNMP) sendOneRequest(packetOut *SnmpPacket) (*SnmpPacket, bool, error
 // and the last attempt with its own error, or, after a timeout or a
 // reconnect, with an attemptsError.
 func (e *exchange) endErr(n int, out attemptOutcome) error {
-	x := e.x
-	if err := x.Context.Err(); err != nil {
+	if err := e.cfg.ctx.Err(); err != nil {
 		return err
 	}
 	if out.kind == attemptTimeout && e.contextDeadline {
 		return context.DeadlineExceeded
 	}
-	if n < x.Retries {
+	if n < e.cfg.retries {
 		return nil
 	}
 	switch out.kind {
 	case attemptTimeout:
 		return &attemptsError{text: fmt.Sprintf("request timeout (after %d retries)", n), reason: out.err}
 	case attemptReconnected:
-		return &attemptsError{text: fmt.Sprintf("max retries (%d) exceeded", x.Retries), reason: out.err}
+		return &attemptsError{text: fmt.Sprintf("max retries (%d) exceeded", e.cfg.retries), reason: out.err}
 	}
 	return out.err
 }
@@ -255,11 +296,11 @@ func (e *exchange) endErr(n int, out attemptOutcome) error {
 // doubles the timeout.
 func (e *exchange) beforeRetry(n int, lastErr error) {
 	x := e.x
-	if x.OnRetry != nil {
-		x.OnRetry(x)
+	if e.cfg.onRetry != nil {
+		e.cfg.onRetry(x)
 	}
 	x.Logger.Printf("Retry number %d. Last error was: %v", n, lastErr)
-	if x.ExponentialTimeout {
+	if e.cfg.exponentialTimeout {
 		// https://www.webnms.com/snmp/help/snmpapi/snmpv3/v1/timeout.html
 		e.timeout *= 2
 	}
@@ -270,13 +311,11 @@ func (e *exchange) beforeRetry(n int, lastErr error) {
 // answers it too.
 func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
 	x := e.x
-	// Known bug: a client given a Conn without Connect has no Context, and this
-	// panics (send recovers it).
-	if err := x.Context.Err(); err != nil {
+	if err := e.cfg.ctx.Err(); err != nil {
 		return attemptOutcome{kind: attemptContextDone, err: err}
 	}
 	var deadline time.Time
-	deadline, e.contextDeadline = x.attemptDeadline(e.timeout)
+	deadline, e.contextDeadline = attemptDeadline(e.cfg.ctx, e.timeout)
 	if err := x.Conn.SetDeadline(deadline); err != nil {
 		return attemptOutcome{kind: attemptFailed, err: err}
 	}
@@ -289,8 +328,8 @@ func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
 		return attemptOutcome{kind: attemptFailed, err: err}
 	}
 
-	if x.PreSend != nil {
-		x.PreSend(x)
+	if e.cfg.preSend != nil {
+		e.cfg.preSend(x)
 	}
 	if x.Logger.enabled() {
 		x.Logger.Printf("SENDING PACKET: %s", e.packet.SafeString())
@@ -298,8 +337,8 @@ func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
 	if err := x.write(outBuf); err != nil {
 		return ioOutcome(err)
 	}
-	if x.OnSent != nil {
-		x.OnSent(x)
+	if e.cfg.onSent != nil {
+		e.cfg.onSent(x)
 	}
 	return e.await(earlier)
 }
@@ -308,19 +347,16 @@ func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
 // timeout, or at the context's deadline if that comes first or at the same
 // time (byContext): the Context's deadline has then passed when the attempt
 // times out.
-func (x *GoSNMP) attemptDeadline(timeout time.Duration) (deadline time.Time, byContext bool) {
+func attemptDeadline(ctx context.Context, timeout time.Duration) (deadline time.Time, byContext bool) {
 	deadline = time.Now().Add(timeout)
-	if ctxDeadline, ok := x.Context.Deadline(); ok && !ctxDeadline.After(deadline) {
+	if ctxDeadline, ok := ctx.Deadline(); ok && !ctxDeadline.After(deadline) {
 		return ctxDeadline, true
 	}
 	return deadline, false
 }
 
 // encode marshals the request, for SNMPv3 with a new message ID (the encoder
-// draws the salt of an encrypted message). Known bug: it draws the message ID
-// by the client's version, not the packet's, so a change of the client's
-// version during a request (by its Logger or a hook) sends an SNMPv3 request
-// with msgID 0.
+// draws the salt of an encrypted message).
 func (e *exchange) encode() ([]byte, error) {
 	x, p := e.x, e.packet
 	// An authenticated request is signed with the user's key localized to the
@@ -331,7 +367,7 @@ func (e *exchange) encode() ([]byte, error) {
 		(usp == nil || len(usp.SecretKey) == 0) {
 		return nil, errAuthKeyRequired
 	}
-	if x.Version == Version3 {
+	if p.Version == Version3 {
 		p.MsgID = x.nextMsgID()
 		p.SecurityParameters.Log()
 	}
@@ -352,10 +388,10 @@ func (e *exchange) await(earlier []sentIDs) attemptOutcome {
 			x.Logger.Print("WAITING RESPONSE...")
 		}
 		resp, err := x.receive()
-		if err == io.EOF && strings.HasPrefix(x.Transport, tcp) {
+		if err == io.EOF && strings.HasPrefix(e.cfg.network, tcp) {
 			// The agent closed the connection: reconnect for the next attempt.
 			x.Logger.Printf("ERROR: EOF. Performing reconnect")
-			if err = x.netConnect(); err != nil {
+			if err = x.netConnect(e.cfg.ctx, e.cfg.timeout, e.cfg.network); err != nil {
 				return attemptOutcome{kind: attemptFailed, err: err}
 			}
 			return attemptOutcome{kind: attemptReconnected, err: io.EOF}
@@ -363,8 +399,8 @@ func (e *exchange) await(earlier []sentIDs) attemptOutcome {
 		if err != nil {
 			return ioOutcome(err)
 		}
-		if x.OnRecv != nil {
-			x.OnRecv(x)
+		if e.cfg.onRecv != nil {
+			e.cfg.onRecv(x)
 		}
 		if x.Logger.enabled() {
 			x.Logger.Printf("GET RESPONSE OK: %+v", resp)

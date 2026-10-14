@@ -45,9 +45,11 @@ const (
 // concurrent use: requests share its connection, receive buffer and deadline,
 // so run one request at a time, or give each goroutine its own GoSNMP.
 type GoSNMP struct {
-	// Conn is the connection to the agent, opened by Connect. A Conn set
-	// without Connect cannot carry requests: the client then lacks its receive
-	// buffer, and its context unless Context is set.
+	// Conn is the connection to the agent, opened by Connect, or set by the
+	// caller in its place: the client then lacks Connect's defaults and checks,
+	// so the caller sets the fields it needs (MaxOids, for one); a request
+	// supplies its Context default, receive buffer and IDs, and takes the
+	// network from Transport.
 	Conn net.Conn
 
 	// Target is the agent's host name or IP address.
@@ -57,8 +59,10 @@ type GoSNMP struct {
 	Port uint16
 
 	// Transport is the network: "udp" (when empty) or "tcp", or either with
-	// "4" or "6" for IPv4 or IPv6 only. Connect narrows it to IPv4 for an IPv4
-	// LocalAddr; ConnectIPv4 and ConnectIPv6 add the suffix.
+	// "4" or "6" for IPv4 or IPv6 only. Connect fills in "udp" when it is empty
+	// and connects over it narrowed to IPv4 for an IPv4 LocalAddr, ConnectIPv4
+	// and ConnectIPv6 over it with the suffix; it does not change Transport
+	// otherwise.
 	Transport string
 
 	// Community is the community of SNMPv1 and SNMPv2c messages.
@@ -69,7 +73,8 @@ type GoSNMP struct {
 
 	// Context, when set, bounds Connect's dial and every request: no attempt
 	// starts once it is done, and its deadline ends an attempt. Connect sets
-	// context.Background() when it is nil.
+	// context.Background() when it is nil, and a request without one uses
+	// context.Background().
 	Context context.Context
 
 	// Timeout is how long each attempt of a request waits for its answer, and
@@ -77,8 +82,8 @@ type GoSNMP struct {
 	// every attempt at once, and leaves the dial without a timeout.
 	Timeout time.Duration
 
-	// Retries is the number of attempts after the first; a request sets a
-	// negative value to 0.
+	// Retries is the number of attempts after the first; a negative value
+	// counts as 0.
 	Retries int
 
 	// ExponentialTimeout doubles the timeout for each retry.
@@ -92,7 +97,8 @@ type GoSNMP struct {
 
 	// The message hooks are called at points of a request, each with the
 	// client, for example to time requests, count them or trace them. The
-	// package documentation gives their order.
+	// package documentation gives their order. A request calls the hooks set
+	// when it starts.
 	//
 	// PreSend is called in each attempt after the request is encoded, before
 	// it is written.
@@ -183,13 +189,20 @@ type GoSNMP struct {
 	// ContextName is the SNMPv3 context name of requests.
 	ContextName string
 
-	// requestID and msgID count the request IDs and the SNMPv3 msgIDs from
-	// random, a seed drawn once.
-	requestID atomic.Uint32
-	msgID     atomic.Uint32
-	random    uint32
+	// requestID and msgID count the request IDs and the SNMPv3 msgIDs;
+	// requestIDSet and msgIDSet report that they were started, at a random
+	// value on first use or by SetRequestID and SetMsgID.
+	requestID    atomic.Uint32
+	msgID        atomic.Uint32
+	requestIDSet atomic.Bool
+	msgIDSet     atomic.Bool
 
-	// rxBuf is the receive buffer, allocated by Connect.
+	// network is the network of the connection: Transport, with the suffix of
+	// ConnectIPv4 or ConnectIPv6, narrowed to IPv4 for an IPv4 LocalAddr;
+	// empty before Connect.
+	network string
+
+	// rxBuf is the receive buffer, allocated by the first request.
 	rxBuf *[rxBufSize]byte // has to be pointer due to https://github.com/golang/go/issues/11728
 
 	// uaddr is the agent's address for an unconnected UDP socket.

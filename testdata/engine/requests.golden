@@ -694,9 +694,16 @@
 
 == requests/conn-without-connect
 0s    client: 2c timeout=1s retries=2 exponential=false
-0s    result: packet nil, error "recover: runtime error: invalid memory address or nil pointer dereference Stack: ..." *errors.errorString
-0s    client after: retries=2 next request id=1001
-0s    known bug: a client given a Conn without Connect has no Context and no receive buffer: the missing Context panics before the write, and send recovers the nil dereference into an error
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    client after: retries=2 next request id=1002
 
 == requests/conn-without-receive-buffer
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -705,9 +712,11 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    result: packet nil, error "recover: runtime error: invalid memory address or nil pointer dereference Stack: ..." *errors.errorString
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1002
-0s    known bug: a client given a Conn and a Context without Connect has no receive buffer: the read after the write panics, and send recovers the nil dereference into an error
 
 == requests/context/canceled-before
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -1023,10 +1032,22 @@
 1s    read from 127.0.0.2:161: deadline
 1s    hook OnRetry
 1s    hook OnRetry sets a canceled Context
-1s    result: packet nil, error "context canceled" *errors.errorString (equals context.Canceled)
-1s    client after: retries=2 next request id=1002
+1s    deadline +1s
+1s    hook PreSend
+1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+1s    hook OnSent
+2s    read from 127.0.0.2:161: deadline
+2s    hook OnRetry
+2s    hook OnRetry sets a canceled Context
+2s    deadline +1s
+2s    hook PreSend
+2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+2s    hook OnSent
+3s    read from 127.0.0.2:161: deadline
+3s    result: packet nil, error "request timeout (after 2 retries)" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
+3s    client after: retries=2 next request id=1004
 
-== requests/hooks/retry-replaces-on-sent
+== requests/hooks/retry-replaces-hooks
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
 0s    hook PreSend
@@ -1034,21 +1055,24 @@
 0s    hook OnSent
 1s    read from 127.0.0.2:161: deadline
 1s    hook OnRetry
-1s    hook OnRetry replaces OnSent
+1s    hook OnRetry replaces the hooks
 1s    deadline +1s
 1s    hook PreSend
 1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
-1s    hook OnSent, the replacement
+1s    hook OnSent
 2s    read from 127.0.0.2:161: deadline
 2s    hook OnRetry
-2s    hook OnRetry replaces OnSent
+2s    hook OnRetry replaces the hooks
 2s    deadline +1s
 2s    hook PreSend
 2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
-2s    hook OnSent, the replacement
-3s    read from 127.0.0.2:161: deadline
-3s    result: packet nil, error "request timeout (after 2 retries)" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
-3s    client after: retries=2 next request id=1004
+2s    agent answers #3 after 0s
+2s    hook OnSent
+2s    read from 127.0.0.2:161: 2c "public" GetResponse id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+2s    hook OnRecv
+2s    hook OnFinish
+2s    result: packet 2c "public" GetResponse id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+2s    client after: retries=2 next request id=1004
 
 == requests/hooks/retry-sets-exponential-timeout
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -1059,20 +1083,20 @@
 1s    read from 127.0.0.2:161: deadline
 1s    hook OnRetry
 1s    hook OnRetry sets ExponentialTimeout
-1s    deadline +2s
+1s    deadline +1s
 1s    hook PreSend
 1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 1s    hook OnSent
+2s    read from 127.0.0.2:161: deadline
+2s    hook OnRetry
+2s    hook OnRetry sets ExponentialTimeout
+2s    deadline +1s
+2s    hook PreSend
+2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+2s    hook OnSent
 3s    read from 127.0.0.2:161: deadline
-3s    hook OnRetry
-3s    hook OnRetry sets ExponentialTimeout
-3s    deadline +4s
-3s    hook PreSend
-3s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
-3s    hook OnSent
-7s    read from 127.0.0.2:161: deadline
-7s    result: packet nil, error "request timeout (after 2 retries)" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
-7s    client after: retries=2 next request id=1004
+3s    result: packet nil, error "request timeout (after 2 retries)" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
+3s    client after: retries=2 next request id=1004
 
 == requests/hooks/retry-sets-retries
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -1088,8 +1112,15 @@
 1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 1s    hook OnSent
 2s    read from 127.0.0.2:161: deadline
-2s    result: packet nil, error "request timeout (after 1 retries)" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
-2s    client after: retries=0 next request id=1003
+2s    hook OnRetry
+2s    hook OnRetry sets Retries to 0
+2s    deadline +1s
+2s    hook PreSend
+2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+2s    hook OnSent
+3s    read from 127.0.0.2:161: deadline
+3s    result: packet nil, error "request timeout (after 2 retries)" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
+3s    client after: retries=0 next request id=1004
 
 == requests/mk-snmp-packet
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -1468,7 +1499,7 @@
 0s    hook OnSent
 1s    read from 127.0.0.2:161: deadline
 1s    result: packet nil, error "request timeout (after 0 retries)" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
-1s    client after: retries=0 next request id=1002
+1s    client after: retries=-3 next request id=1002
 
 == requests/timeout/no-retries
 0s    client: 2c timeout=1s retries=0 exponential=false

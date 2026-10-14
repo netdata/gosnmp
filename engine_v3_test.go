@@ -701,13 +701,16 @@ func v3Scenarios() map[string]v3Scenario {
 			user: "codec-md5",
 			run:  onLogging("SEND INIT", func(x *GoSNMP) { x.Version = Version2c }),
 		},
-		// The packet stays SNMPv3 when the Logger changes the client's version
+		"hooks/logger-changes-context-name": {
+			user: "codec-md5",
+			run:  onLogging("SEND INIT", func(x *GoSNMP) { x.ContextName = "codec-other-name" }),
+		},
+		// The request stays SNMPv3 when the Logger changes the client's version
 		// after the negotiation; after a discovery answer without an engine ID
 		// the client has no key.
 		"hooks/logger-changes-version-after-negotiation": {
-			user:     "codec-md5",
-			run:      onLogging("SEND END NEGOTIATE SECURITY PARAMS", func(x *GoSNMP) { x.Version = Version2c }),
-			knownBug: "a Logger that changes the client's version after the negotiation makes encode skip the msgID: the request goes out with msgID 0",
+			user: "codec-md5",
+			run:  onLogging("SEND END NEGOTIATE SECURITY PARAMS", func(x *GoSNMP) { x.Version = Version2c }),
 		},
 		"hooks/logger-changes-version-after-negotiation/engine-less-discovery": {
 			user: "codec-md5", script: onRequest(1, agentAnswer{

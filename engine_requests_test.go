@@ -6,6 +6,7 @@ package gosnmp
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -119,8 +120,14 @@ func bareV3Answer(req []byte, msgID uint32, pduType PDUType, vbs ...SnmpPDU) []b
 // answerFromSecond is an agent that answers the requests from the second on
 // with vbs.
 func answerFromSecond(vbs ...SnmpPDU) engineAgent {
+	return answerFrom(2, vbs...)
+}
+
+// answerFrom is an agent that answers the requests from the first-th on with
+// vbs.
+func answerFrom(first int, vbs ...SnmpPDU) engineAgent {
 	return func(n int, req []byte) []agentReply {
-		if n < 2 {
+		if n < first {
 			return nil
 		}
 		return []agentReply{{data: replyTo(req, nil, vbs...)}}
@@ -258,14 +265,14 @@ func engineScenarios() map[string]engineScenario {
 
 		// The client.
 		"get/no-conn": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.Conn = nil }},
-		"conn-without-connect": {
-			agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.Context, x.rxBuf = nil, nil },
-			knownBug: "a client given a Conn without Connect has no Context and no receive buffer: the missing Context panics before the write, and send recovers the nil dereference into an error",
-		},
-		"conn-without-receive-buffer": {
-			agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.rxBuf = nil },
-			knownBug: "a client given a Conn and a Context without Connect has no receive buffer: the read after the write panics, and send recovers the nil dereference into an error",
-		},
+		// A client given a Conn without Connect: the request supplies the
+		// Context and the receive buffer.
+		"conn-without-connect": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) {
+			x.Context, x.rxBuf = nil, nil
+		}},
+		"conn-without-receive-buffer": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) {
+			x.rxBuf = nil
+		}},
 		"custom-conn": {shape: shapeStream, agent: answer(sysDescr)},
 
 		// Timeouts and retries.
@@ -301,12 +308,16 @@ func engineScenarios() map[string]engineScenario {
 				x.Context = ctx
 			}
 		}},
-		"hooks/retry-replaces-on-sent": {setup: func(x *GoSNMP, c *fakeTransport) {
+		"hooks/retry-replaces-hooks": {agent: answerFrom(3, sysDescr), setup: func(x *GoSNMP, c *fakeTransport) {
 			onRetry := x.OnRetry
 			x.OnRetry = func(x *GoSNMP) {
 				onRetry(x)
-				c.tr.addf("hook OnRetry replaces OnSent")
-				x.OnSent = func(*GoSNMP) { c.tr.addf("hook OnSent, the replacement") }
+				c.tr.addf("hook OnRetry replaces the hooks")
+				replacement := func(name string) func(*GoSNMP) {
+					return func(*GoSNMP) { c.tr.addf("hook %s, the replacement", name) }
+				}
+				x.PreSend, x.OnSent, x.OnRecv = replacement("PreSend"), replacement("OnSent"), replacement("OnRecv")
+				x.OnRetry, x.OnFinish = replacement("OnRetry"), replacement("OnFinish")
 			}
 		}},
 		"timeout/zero":          {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.Timeout = 0 }},
@@ -558,9 +569,9 @@ func engineScenarios() map[string]engineScenario {
 		"context/canceled-in-last-attempt": {context: canceledAfter(2300 * time.Millisecond)},
 
 		// Request IDs.
-		"request-id/wraps": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.requestID.Store(0x7FFFFFFF) }},
+		"request-id/wraps": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.SetRequestID(0x7FFFFFFF) }},
 		"request-id/wraps-between-attempts": {agent: answerFromSecond(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) {
-			x.requestID.Store(0x7FFFFFFE)
+			x.SetRequestID(0x7FFFFFFE)
 		}},
 		"request-id/set": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.SetRequestID(5) }},
 
@@ -670,6 +681,7 @@ func TestEngineTCPReconnect(t *testing.T) {
 		ignoreFirst    bool          // the agent reads the first request and keeps the connection open
 		staleReply     bool          // the agent answers the request after the reconnect with a reply to the first
 		timeout        time.Duration // the client's Timeout; 10 s unless set
+		retries        int           // the client's Retries; 1 unless set
 		contextTimeout time.Duration // a context deadline before the timeout
 		wantErr        string        // describeEngineError, the dial address masked; "" for a reply
 		wantHooks      []string
@@ -692,6 +704,10 @@ func TestEngineTCPReconnect(t *testing.T) {
 			acceptAgain: true, staleReply: true, timeout: 500 * time.Millisecond,
 			wantHooks:    []string{"PreSend", "OnSent", "OnRetry", "PreSend", "OnSent", "OnRecv", "OnFinish"},
 			wantRequests: 2,
+		},
+		"negative retries count as 0": {
+			acceptAgain: true, retries: -2, wantErr: `error "max retries (0) exceeded" *gosnmp.attemptsError (is io.EOF)`,
+			wantHooks: []string{"PreSend", "OnSent"}, wantRequests: 1,
 		},
 		"reconnect refused": {
 			wantErr:   `error "dial tcp <address>: connect: connection refused" *net.OpError (is syscall.ECONNREFUSED)`,
@@ -761,7 +777,7 @@ func TestEngineTCPReconnect(t *testing.T) {
 				Community: "public",
 				Version:   Version2c,
 				Timeout:   timeout,
-				Retries:   1,
+				Retries:   cmp.Or(tc.retries, 1),
 				Context:   ctx,
 				PreSend:   hook("PreSend"),
 				OnSent:    hook("OnSent"),
@@ -792,6 +808,57 @@ func TestEngineTCPReconnect(t *testing.T) {
 			assert.Equal(t, tc.wantRequests, requests.Load(), "requests the agent read")
 		})
 	}
+}
+
+// TestEngineTCPReconnectWithoutConnect pins that a request over a TCP Conn
+// the caller set, without Connect and without a Context, reconnects over the
+// network it read at its start when the agent closes the connection, though a
+// hook changes Transport during the request.
+func TestEngineTCPReconnectWithoutConnect(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	var requests atomic.Int32
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			conn, acceptErr := ln.Accept()
+			if acceptErr != nil {
+				return
+			}
+			go serveTCPRequests(conn, func(req []byte) (reply []byte, keepOpen bool) {
+				if requests.Add(1) == 1 {
+					return nil, false // the agent closes the connection
+				}
+				return replyTo(req, nil, sysDescr), true
+			})
+		}
+	}()
+	defer func() {
+		ln.Close()
+		<-done
+	}()
+
+	conn, err := net.Dial("tcp", ln.Addr().String())
+	require.NoError(t, err)
+	x := &GoSNMP{
+		Target:    "127.0.0.1",
+		Port:      uint16(ln.Addr().(*net.TCPAddr).Port), //nolint:gosec // a TCP port
+		Transport: "tcp",
+		Community: "public",
+		Version:   Version2c,
+		Timeout:   10 * time.Second,
+		Retries:   1,
+		MaxOids:   MaxOids,
+		Conn:      conn,
+		OnSent:    func(x *GoSNMP) { x.Transport = "udp" },
+	}
+	defer x.Close()
+
+	res, err := x.Get([]string{engineOID})
+	require.NoError(t, err)
+	assert.Equal(t, []SnmpPDU{sysDescr}, res.Variables)
+	assert.Equal(t, int32(2), requests.Load(), "requests the agent read")
 }
 
 // serveTCPRequests reads requests from conn, one per read, and hands each to
@@ -872,10 +939,11 @@ func BenchmarkSendOneRequest(b *testing.B) {
 	})
 	x := newEngineClient(b, nil, Version2c, fakePacketTransport{c})
 	pkt := x.MkSnmpPacket(GetRequest, []SnmpPDU{{Name: oid, Type: Null}}, 0, 0)
+	cfg := x.prepareRequest()
 
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, _, err := x.sendOneRequest(pkt); err != nil {
+		if _, _, err := x.sendOneRequest(&cfg, pkt); err != nil {
 			b.Fatal(err)
 		}
 	}

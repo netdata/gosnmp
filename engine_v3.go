@@ -13,18 +13,9 @@ import (
 // before an SNMPv3 request: it discovers the agent's engine while the client
 // does not know its engine ID, and derives the keys otherwise. Known bug: the
 // key derivation error is ignored when the engine ID is known.
-func (x *GoSNMP) negotiateInitialSecurityParameters(packetOut *SnmpPacket) error {
-	// MkSnmpPacket copies the client's version and security model into the
-	// packet; they differ here only when the client's Logger changed the client
-	// during send.
-	if x.Version != Version3 || packetOut.Version != Version3 {
-		return fmt.Errorf("negotiateInitialSecurityParameters called with non Version3 connection or packet")
-	}
-	if x.SecurityModel != packetOut.SecurityModel {
-		return fmt.Errorf("connection security model does not match security model defined in packet")
-	}
+func (x *GoSNMP) negotiateInitialSecurityParameters(cfg *requestConfig, packetOut *SnmpPacket) error {
 	if discovery := packetOut.SecurityParameters.usm().discoveryPacket(); discovery != nil {
-		return x.discoverEngine(discovery, packetOut)
+		return x.discoverEngine(cfg, discovery, packetOut)
 	}
 	_ = packetOut.SecurityParameters.InitSecurityKeys()
 	return nil
@@ -37,13 +28,13 @@ func (x *GoSNMP) negotiateInitialSecurityParameters(packetOut *SnmpPacket) error
 // without an engine ID is accepted, so the request goes out with an empty
 // engine ID, and an authenticated one fails for want of a key localized to an
 // engine ID (errAuthKeyRequired).
-func (x *GoSNMP) discoverEngine(discoveryPacket, packetOut *SnmpPacket) error {
-	discoveryPacket.ContextName = x.ContextName
-	result, _, err := x.sendOneRequest(discoveryPacket)
+func (x *GoSNMP) discoverEngine(cfg *requestConfig, discoveryPacket, packetOut *SnmpPacket) error {
+	discoveryPacket.ContextName = packetOut.ContextName
+	result, _, err := x.sendOneRequest(cfg, discoveryPacket)
 	if err != nil && !engineFoundDespiteUnknownUser(result, err) {
 		return err
 	}
-	if err = x.storeSecurityParameters(result); err != nil {
+	if err = x.storeSecurityParameters(discoveryPacket, result); err != nil {
 		return err
 	}
 	return x.updatePktSecurityParameters(packetOut)
@@ -83,7 +74,7 @@ func (x *GoSNMP) settleReply(packetOut, reply *SnmpPacket, verified bool) (kind 
 	if x.Logger.enabled() {
 		x.Logger.Printf("SEND STORE SECURITY PARAMS from result: %s", reply.SecurityParameters.SafeString())
 	}
-	if err := x.storeSecurityParameters(reply); err != nil {
+	if err := x.storeSecurityParameters(packetOut, reply); err != nil {
 		if isReport && !kind.resync {
 			return kind, false, nil
 		}
@@ -125,12 +116,6 @@ func mayLend(packetOut, report *SnmpPacket, kind reportKind) bool {
 // section 3.2 checks the engine ID before the time window). The client takes
 // the agent's from the authenticated answer.
 func (x *GoSNMP) lendEngineParameters(packetOut, report *SnmpPacket, kind reportKind) error {
-	if x.Version != Version3 || packetOut.Version != Version3 {
-		return fmt.Errorf("lendEngineParameters called with non Version3 connection or packet")
-	}
-	if x.SecurityModel != packetOut.SecurityModel {
-		return fmt.Errorf("connection security model does not match security model defined in packet")
-	}
 	from := report.SecurityParameters.usm()
 	if !kind.namesEngine {
 		packetOut.SecurityParameters.usm().setEngineTime(from)
@@ -146,15 +131,12 @@ func (x *GoSNMP) lendEngineParameters(packetOut, report *SnmpPacket, kind report
 }
 
 // storeSecurityParameters takes the engine parameters of result, an SNMPv3
-// answer, into the client: the engine ID, with keys derived for a new one,
-// the boots and time, and the engine ID as the context engine ID when the
-// client has none.
-func (x *GoSNMP) storeSecurityParameters(result *SnmpPacket) error {
-	if x.Version != Version3 || result.Version != Version3 {
-		return fmt.Errorf("storeParameters called with non Version3 connection or packet")
-	}
-
-	if x.SecurityModel != result.SecurityModel {
+// answer to packet, into the client: the engine ID, with keys derived for a
+// new one, the boots and time, and the engine ID as the context engine ID when
+// the client has none. A result of another security model than packet's is an
+// error.
+func (x *GoSNMP) storeSecurityParameters(packet, result *SnmpPacket) error {
+	if packet.SecurityModel != result.SecurityModel {
 		return fmt.Errorf("connection security model does not match security model extracted from packet")
 	}
 
@@ -171,14 +153,6 @@ func (x *GoSNMP) storeSecurityParameters(result *SnmpPacket) error {
 // updatePktSecurityParameters takes the client's engine parameters into
 // packetOut, and the client's context engine ID when the packet has none.
 func (x *GoSNMP) updatePktSecurityParameters(packetOut *SnmpPacket) error {
-	if x.Version != Version3 || packetOut.Version != Version3 {
-		return fmt.Errorf("updatePktSecurityParameters called with non Version3 connection or packet")
-	}
-
-	if x.SecurityModel != packetOut.SecurityModel {
-		return fmt.Errorf("connection security model does not match security model extracted from packet")
-	}
-
 	err := packetOut.SecurityParameters.usm().setSecurityParameters(x.SecurityParameters.usm())
 	if err != nil {
 		return err
