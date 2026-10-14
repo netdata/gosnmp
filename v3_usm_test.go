@@ -777,3 +777,55 @@ func TestUSMEmptyPassphraseKeys(t *testing.T) {
 		})
 	}
 }
+
+// TestUSMKeyLengths pins the key lengths InitSecurityKeys leaves and takes:
+// an HMAC-SHA user's derived DES key is the whole 20-octet localized key, and
+// keys given with another length than the protocol's are taken, by
+// InitSecurityKeys and by a table's Add. Known bug: a key that does not fit its
+// protocol fails only when it is used, if at all.
+func TestUSMKeyLengths(t *testing.T) {
+	derived := &UsmSecurityParameters{
+		AuthoritativeEngineID:    usmCharEngineID,
+		AuthenticationProtocol:   SHA,
+		AuthenticationPassphrase: "codec-auth-pass",
+		PrivacyProtocol:          DES,
+		PrivacyPassphrase:        "codec-priv-pass",
+	}
+	require.NoError(t, derived.InitSecurityKeys())
+	assert.Len(t, derived.PrivacyKey, 20, "derived DES key")
+
+	tests := map[string]struct {
+		auth       SnmpV3AuthProtocol
+		priv       SnmpV3PrivProtocol
+		key, priv_ []byte
+		want       string // the error of InitSecurityKeys and of Add, "" for none
+	}{
+		"SHA key of 16 octets":     {auth: SHA, key: make([]byte, 16)},
+		"SHA-256 key of 20 octets": {auth: SHA256, key: make([]byte, 20)},
+		"AES key of 32 octets":     {auth: SHA, key: make([]byte, 20), priv: AES, privKey: make([]byte, 32)},
+		"DES key of 8 octets":      {auth: SHA, key: make([]byte, 20), priv: DES, privKey: make([]byte, 8)},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			sp := func() *UsmSecurityParameters {
+				return &UsmSecurityParameters{
+					UserName:               "codec-user",
+					AuthoritativeEngineID:  usmCharEngineID,
+					AuthenticationProtocol: tc.auth,
+					PrivacyProtocol:        tc.priv,
+					SecretKey:              tc.key,
+					PrivacyKey:             tc.privKey,
+				}
+			}
+			initErr := sp().InitSecurityKeys()
+			addErr := NewSnmpV3SecurityParametersTable(Logger{}).Add("codec-user", sp())
+			got := [2]string{}
+			for i, err := range []error{initErr, addErr} {
+				if err != nil {
+					got[i] = err.Error()
+				}
+			}
+			assert.Equal(t, [2]string{tc.want, tc.want}, got)
+		})
+	}
+}

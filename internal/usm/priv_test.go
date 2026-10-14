@@ -90,3 +90,35 @@ func TestPrivDESShortKeyOrSalt(t *testing.T) {
 		})
 	}
 }
+
+// TestPrivKeyAndSaltLengths pins which key and salt lengths Encrypt and
+// Decrypt take beyond those of the protocol. Known bugs: AES takes any key
+// aes.NewCipher takes, so an AES-128 key of 32 octets encrypts with AES-256,
+// and a salt longer than 8 octets; DES takes a key longer than 16 octets.
+func TestPrivKeyAndSaltLengths(t *testing.T) {
+	aes128, des := Priv{Cipher: AESCFB, KeyLen: 16}, Priv{Cipher: DESCBC}
+	tests := map[string]struct {
+		p         Priv
+		key, salt int
+		want      string // the error of Encrypt and of Decrypt, "" for none
+	}{
+		"AES-128 with a 32-octet key": {p: aes128, key: 32, salt: 8},
+		"AES with a 9-octet salt":     {p: aes128, key: 16, salt: 9},
+		"AES with a 16-octet salt":    {p: aes128, key: 16, salt: 16},
+		"DES with a 20-octet key":     {p: des, key: 20, salt: 8},
+	}
+	errText := func(err error) string {
+		if err == nil {
+			return ""
+		}
+		return err.Error()
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			key, salt := make([]byte, tc.key), make([]byte, tc.salt)
+			_, encErr := tc.p.Encrypt(key, salt, 0, 0, make([]byte, 8))
+			_, decErr := tc.p.Decrypt(key, salt, 0, 0, make([]byte, 8))
+			assert.Equal(t, [2]string{tc.want, tc.want}, [2]string{errText(encErr), errText(decErr)})
+		})
+	}
+}
