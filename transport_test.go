@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -178,25 +179,63 @@ func (w packetConnWrapper) WriteTo(b []byte, addr net.Addr) (int, error) {
 }
 
 // TestUnconnectedUDPAgentAddress checks where a client in unconnected UDP mode
-// sends a request after Port changed: from the socket Connect opened, to the
-// address Connect resolved; from a Conn the caller set (a wrapper of that
-// socket, or a socket the caller opened), to the request's Target and Port.
+// sends a request after Port changed from agent A's to agent B's: to the
+// address the last Connect resolved (A's), from the socket Connect opened and
+// from a Conn the caller set, also after Close; a caller's socket without such
+// a Connect has no address, and a connected socket the caller set with
+// UseUnconnectedUDPSocket off writes to its peer.
 func TestUnconnectedUDPAgentAddress(t *testing.T) {
+	callerSocket := func(t *testing.T) net.Conn {
+		pc, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = pc.Close() })
+		return pc
+	}
+	// replaceConn sets conn in place of the client's connection, which is the
+	// caller's again.
+	replaceConn := func(t *testing.T, x *GoSNMP, conn net.Conn) {
+		replaced := x.Conn
+		t.Cleanup(func() { _ = replaced.Close() })
+		x.Conn = conn
+	}
 	tests := map[string]struct {
-		conn func(t *testing.T, x *GoSNMP) // gives the client its connection
-		want string                        // the agent that answers
+		// conn gives the client its connection; portB is agent B's port.
+		conn func(t *testing.T, x *GoSNMP, portB uint16)
+		want string // the agent that answers; "" when the request fails
 	}{
-		"the socket Connect opened": {want: "A", conn: func(t *testing.T, x *GoSNMP) {
+		"the socket Connect opened": {want: "A", conn: func(t *testing.T, x *GoSNMP, _ uint16) {
 			require.NoError(t, x.Connect())
 		}},
-		"a wrapper of the socket Connect opened": {want: "B", conn: func(t *testing.T, x *GoSNMP) {
+		"a wrapper of the socket Connect opened": {want: "A", conn: func(t *testing.T, x *GoSNMP, _ uint16) {
 			require.NoError(t, x.Connect())
 			x.Conn = packetConnWrapper{Conn: x.Conn, pc: x.Conn.(net.PacketConn)}
 		}},
-		"a socket the caller opened": {want: "B", conn: func(t *testing.T, x *GoSNMP) {
-			pc, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+		"a socket the caller opened after Connect": {want: "A", conn: func(t *testing.T, x *GoSNMP, _ uint16) {
+			require.NoError(t, x.Connect())
+			replaceConn(t, x, callerSocket(t))
+		}},
+		"a socket the caller opened after Connect and Close": {want: "A", conn: func(t *testing.T, x *GoSNMP, _ uint16) {
+			require.NoError(t, x.Connect())
+			require.NoError(t, x.Close())
+			x.Conn = callerSocket(t)
+		}},
+		"a socket the caller opened without Connect": {conn: func(t *testing.T, x *GoSNMP, _ uint16) {
+			x.Conn = callerSocket(t)
+		}},
+		"a socket the caller opened after a Connect in connected mode": {conn: func(t *testing.T, x *GoSNMP, _ uint16) {
+			require.NoError(t, x.Connect())
+			x.UseUnconnectedUDPSocket = false
+			require.NoError(t, x.Connect())
+			x.UseUnconnectedUDPSocket = true
+			replaceConn(t, x, callerSocket(t))
+		}},
+		"a connected socket the caller set in connected mode": {want: "B", conn: func(t *testing.T, x *GoSNMP, portB uint16) {
+			require.NoError(t, x.Connect())
+			x.UseUnconnectedUDPSocket = false
+			conn, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: int(portB)})
 			require.NoError(t, err)
-			x.Conn = pc
+			t.Cleanup(func() { _ = conn.Close() })
+			replaceConn(t, x, conn)
 		}},
 	}
 	agent := func(name string) uint16 {
@@ -210,18 +249,89 @@ func TestUnconnectedUDPAgentAddress(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			x := &GoSNMP{
 				Target: "127.0.0.1", Port: portA, Version: Version2c, Community: "public",
-				Timeout: 2 * time.Second, MaxOids: MaxOids, UseUnconnectedUDPSocket: true,
+				Timeout: 500 * time.Millisecond, MaxOids: MaxOids, UseUnconnectedUDPSocket: true,
 			}
-			tc.conn(t, x)
+			tc.conn(t, x, portB)
 			defer x.Close()
 			x.Port = portB
 
 			res, err := x.Get([]string{engineOID})
+			if tc.want == "" {
+				require.Error(t, err)
+				return
+			}
 			require.NoError(t, err)
 			require.Len(t, res.Variables, 1)
 			assert.Equal(t, tc.want, string(res.Variables[0].Value.([]byte)))
 		})
 	}
+}
+
+// TestUnconnectedUDPWrapperIPv6 checks that a wrapper of the unconnected
+// socket ConnectIPv6 opened writes to the IPv6 address ConnectIPv6 resolved
+// for a Target that has an IPv4 one too.
+func TestUnconnectedUDPWrapperIPv6(t *testing.T) {
+	if _, err := net.ResolveUDPAddr("udp6", "localhost:161"); err != nil {
+		t.Skipf("localhost has no IPv6 address: %v", err)
+	}
+	agent, err := net.ListenUDP("udp6", &net.UDPAddr{IP: net.IPv6loopback})
+	if err != nil {
+		t.Skipf("no IPv6 loopback: %v", err)
+	}
+	served := make(chan struct{})
+	go func() {
+		defer close(served)
+		buf := make([]byte, 2048)
+		for {
+			n, from, readErr := agent.ReadFromUDP(buf)
+			if readErr != nil {
+				return
+			}
+			_, _ = agent.WriteToUDP(replyTo(buf[:n], nil, sysDescr), from)
+		}
+	}()
+	defer func() {
+		_ = agent.Close()
+		<-served
+	}()
+	x := &GoSNMP{
+		Target: "localhost", Port: uint16(agent.LocalAddr().(*net.UDPAddr).Port), //nolint:gosec // a UDP port
+		Version: Version2c, Community: "public", Timeout: 500 * time.Millisecond, UseUnconnectedUDPSocket: true,
+	}
+	require.NoError(t, x.ConnectIPv6())
+	defer x.Close()
+	_, err = x.Get([]string{engineOID})
+	require.NoError(t, err, "the socket ConnectIPv6 opened")
+	x.Conn = packetConnWrapper{Conn: x.Conn, pc: x.Conn.(net.PacketConn)}
+	_, err = x.Get([]string{engineOID})
+	require.NoError(t, err, "a wrapper of it")
+}
+
+// TestUnconnectedUDPNoLookup checks that a request over a Conn the caller set
+// in unconnected UDP mode resolves no name: after Target changed to a name
+// since Connect, it writes to the address Connect resolved, with no lookup.
+func TestUnconnectedUDPNoLookup(t *testing.T) {
+	var lookups atomic.Int32
+	defaultResolver := net.DefaultResolver
+	net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: func(context.Context, string, string) (net.Conn, error) {
+		lookups.Add(1)
+		return nil, errors.New("codec: no lookups during a request")
+	}}
+	defer func() { net.DefaultResolver = defaultResolver }()
+
+	port, _ := udpAgent(t, func(_ int, req []byte) []byte { return replyTo(req, nil, sysDescr) })
+	x := &GoSNMP{
+		Target: "127.0.0.1", Port: port, Version: Version2c, Community: "public",
+		Timeout: 500 * time.Millisecond, UseUnconnectedUDPSocket: true,
+	}
+	require.NoError(t, x.Connect())
+	defer x.Close()
+	x.Conn = packetConnWrapper{Conn: x.Conn, pc: x.Conn.(net.PacketConn)}
+	x.Target = "agent.invalid"
+
+	_, err := x.Get([]string{engineOID})
+	require.NoError(t, err)
+	assert.Equal(t, int32(0), lookups.Load(), "lookups")
 }
 
 // TestConnectTCPLocalAddr pins that a TCP connection is made from the

@@ -51,8 +51,8 @@ type GoSNMP struct {
 	// so the caller sets the fields it needs (MaxOids, for one); a request
 	// supplies its Context default, receive buffer and IDs, a TCP reopen
 	// opens it again with the request's Transport, Target, Port, LocalAddr and
-	// Control, and with UseUnconnectedUDPSocket each request writes to the
-	// Target and Port it read. The client owns the connection Conn holds: Close
+	// Control, and with UseUnconnectedUDPSocket a request writes to the
+	// agent's address the last Connect resolved. The client owns the connection Conn holds: Close
 	// and a later Connect close it; a connection the caller or a hook replaces
 	// in Conn is the caller's again. Each attempt of a request uses the
 	// connection Conn holds when it starts, which Close interrupts even after a
@@ -151,7 +151,8 @@ type GoSNMP struct {
 	// socket, with sendto and recvfrom, for agents that answer from another
 	// address than the one the request went to, as some multi-homed devices
 	// do. Replies are then read from any address. A Conn the caller sets is
-	// then written to Target and Port as each request reads them.
+	// then written to the agent's address the last Connect resolved: a
+	// request resolves no name; without such a Connect there is none.
 	UseUnconnectedUDPSocket bool
 
 	// Control, when set, is the Control function of Connect's net.Dialer: it
@@ -208,9 +209,10 @@ type GoSNMP struct {
 	// rxBuf is the receive buffer, allocated by the first request.
 	rxBuf *[rxBufSize]byte // has to be pointer due to https://github.com/golang/go/issues/11728
 
-	// mu guards Conn, opened, closed, lost and attempt against Close, which
-	// may run on any goroutine: Connect, Close and a TCP reopen change them
-	// under it, each attempt reads them and registers itself under it.
+	// mu guards Conn, opened, closed, lost, attempt and unconnectedAddr against
+	// Close, which may run on any goroutine: Connect, Close and a TCP reopen
+	// change them under it, each attempt reads them and registers itself under
+	// it.
 	mu sync.Mutex
 	// opened is the connection the client opened (Connect or a TCP reopen),
 	// while Conn holds it.
@@ -222,6 +224,10 @@ type GoSNMP struct {
 	lost net.Conn
 	// attempt is the running attempt, which Close and the Context interrupt.
 	attempt runningAttempt
+	// unconnectedAddr is the agent's address the last successful Connect
+	// resolved for an unconnected UDP socket, nil after one in connected mode;
+	// Close keeps it. A Conn the caller sets in unconnected mode writes to it.
+	unconnectedAddr *net.UDPAddr
 }
 
 // Default is a client with default settings, used by the examples. Like any

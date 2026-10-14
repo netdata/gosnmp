@@ -155,7 +155,7 @@ func (x *GoSNMP) connect(networkSuffix string) error {
 	}
 	x.mu.Lock()
 	old := x.Conn
-	x.Conn, x.opened, x.closed = c.conn, c, false
+	x.Conn, x.opened, x.closed, x.unconnectedAddr = c.conn, c, false, c.uaddr
 	x.mu.Unlock()
 	if old != nil {
 		_ = old.Close()
@@ -172,19 +172,13 @@ func (x *GoSNMP) isClosed() bool {
 }
 
 // connectionFor returns the client's connection for an attempt of the request
-// with configuration cfg: the connection the client opened, or a Conn the
-// caller set, with the request's settings (adopt); a lost TCP connection it
-// opens again first (reopen). It fails without a connection, with
-// net.ErrClosed after Close, and with the error of a failed reopen.
+// with configuration cfg (clientConnection); a lost TCP connection it opens
+// again first (reopen). It fails without a connection, with net.ErrClosed
+// after Close, and with the error of a failed reopen.
 func (x *GoSNMP) connectionFor(cfg *requestConfig) (connection, error) {
-	c, opened, lost, err := x.clientConnection()
+	c, lost, err := x.clientConnection(cfg)
 	if err != nil {
 		return connection{}, err
-	}
-	if !opened {
-		if c, err = cfg.dial.adopt(c.conn); err != nil {
-			return connection{}, err
-		}
 	}
 	if lost {
 		return x.reopen(cfg.ctx, cfg.timeout, c)
@@ -192,18 +186,19 @@ func (x *GoSNMP) connectionFor(cfg *requestConfig) (connection, error) {
 	return c, nil
 }
 
-// clientConnection returns the client's connection: the record of the one the
-// client opened (opened), or one that holds only a Conn the caller set, and
-// whether it is lost: the connection markLost recorded, while Conn holds it.
-// It fails without a connection, with net.ErrClosed after Close.
-func (x *GoSNMP) clientConnection() (c connection, opened, lost bool, err error) {
+// clientConnection returns the client's connection for a request with
+// configuration cfg: the record of the one the client opened, or for a Conn
+// the caller set one with the request's settings (adopt), and whether it is
+// lost: the connection markLost recorded, while Conn holds it. It fails
+// without a connection, with net.ErrClosed after Close.
+func (x *GoSNMP) clientConnection(cfg *requestConfig) (c connection, lost bool, err error) {
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	switch {
 	case x.Conn == nil && x.closed:
-		return connection{}, false, false, errClosed
+		return connection{}, false, errClosed
 	case x.Conn == nil:
-		return connection{}, false, false, errNoConn
+		return connection{}, false, errNoConn
 	}
 	if x.lost != nil && !sameConn(x.Conn, x.lost) {
 		x.lost = nil // Connect, a reopen or the caller replaced it
@@ -212,9 +207,9 @@ func (x *GoSNMP) clientConnection() (c connection, opened, lost bool, err error)
 	// opened.conn is nil or a connection open made, of a comparable type, so
 	// == cannot panic: values of different types are unequal.
 	if x.Conn == x.opened.conn {
-		return x.opened, true, lost, nil
+		return x.opened, lost, nil
 	}
-	return connection{conn: x.Conn}, false, lost, nil
+	return cfg.dial.adopt(x.Conn, x.unconnectedAddr), lost, nil
 }
 
 // markLost records that conn, the TCP connection an attempt used, is lost:
@@ -351,17 +346,15 @@ func (d dialSettings) open(ctx context.Context, timeout time.Duration) (connecti
 }
 
 // adopt returns the record of conn, a Conn the caller set, with d, the
-// request's settings: for an unconnected UDP socket also the agent's address.
-func (d dialSettings) adopt(conn net.Conn) (connection, error) {
+// request's settings: for an unconnected UDP socket also uaddr, the agent's
+// address the last Connect resolved, if any. It resolves no name: a request
+// does not.
+func (d dialSettings) adopt(conn net.Conn, uaddr *net.UDPAddr) connection {
 	c := connection{conn: conn, dial: d}
 	if d.unconnected && strings.HasPrefix(d.network, udp) {
-		uaddr, err := d.agentUDPAddr()
-		if err != nil {
-			return connection{}, err
-		}
 		c.uaddr = uaddr
 	}
-	return c, nil
+	return c
 }
 
 // agentAddr is the agent's address, "host:port".
@@ -369,16 +362,10 @@ func (d dialSettings) agentAddr() string {
 	return net.JoinHostPort(d.target, strconv.Itoa(int(d.port)))
 }
 
-// agentUDPAddr resolves the agent's address, to which an unconnected UDP
-// socket writes.
-func (d dialSettings) agentUDPAddr() (*net.UDPAddr, error) {
-	return net.ResolveUDPAddr(d.network, d.agentAddr())
-}
-
 // listenUnconnectedUDP opens a UDP socket on the local address that writes to
 // the agent.
 func (d dialSettings) listenUnconnectedUDP(local *net.UDPAddr) (connection, error) {
-	uaddr, err := d.agentUDPAddr()
+	uaddr, err := net.ResolveUDPAddr(d.network, d.agentAddr())
 	if err != nil {
 		return connection{}, err
 	}

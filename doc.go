@@ -29,10 +29,10 @@
 // request's Timeout and Context, with the settings it was opened with (a Conn
 // the caller set: with the request's Transport, Target, Port, LocalAddr and
 // Control), and replaces it; a failed reopen keeps it, still lost, for the
-// attempt after. A request over an unconnected UDP socket writes to the
-// address Connect resolved, over a Conn the caller set to the request's Target
-// and Port. The request IDs and
-// msgIDs start at a random value on first use unless [GoSNMP.SetRequestID] and
+// attempt after. A request over an unconnected UDP socket, also one the caller
+// set, writes to the agent's address the last Connect resolved, which Close
+// keeps: a request resolves no name. The request IDs and msgIDs start at a
+// random value on first use unless [GoSNMP.SetRequestID] and
 // [GoSNMP.SetMsgID] set them, and Connect does not reset them.
 //
 // # Concurrency
