@@ -52,8 +52,10 @@ type GoSNMP struct {
 	// supplies its Context default, receive buffer and IDs, and a TCP
 	// reconnect opens it again with the request's Transport, Target, Port,
 	// LocalAddr and Control. The client owns the connection Conn holds: Close
-	// and a later Connect close it. Each attempt of a request uses the
-	// connection Conn holds when it starts. Set Conn only while no Close runs.
+	// and a later Connect close it; a connection the caller or a hook replaces
+	// in Conn is the caller's again. Each attempt of a request uses the
+	// connection Conn holds when it starts, which Close interrupts even after a
+	// hook replaced it. Set Conn only while no Close runs.
 	Conn net.Conn
 
 	// Target is the agent's host name or IP address.
@@ -204,15 +206,17 @@ type GoSNMP struct {
 	// rxBuf is the receive buffer, allocated by the first request.
 	rxBuf *[rxBufSize]byte // has to be pointer due to https://github.com/golang/go/issues/11728
 
-	// mu guards Conn, opened and closed against Close, which may run on any
-	// goroutine: Connect, Close and the TCP reconnect change them under it,
-	// and each attempt reads them under it.
+	// mu guards Conn, opened, closed and attempt against Close, which may run
+	// on any goroutine: Connect, Close and the TCP reconnect change them under
+	// it, each attempt reads them and registers itself under it.
 	mu sync.Mutex
 	// opened is the connection the client opened (Connect or a TCP
 	// reconnect), while Conn holds it.
 	opened connection
 	// closed reports that Close ran since the last successful Connect.
 	closed bool
+	// attempt is the running attempt, which Close and the Context interrupt.
+	attempt runningAttempt
 }
 
 // Default is a client with default settings, used by the examples. Like any

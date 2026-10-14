@@ -37,23 +37,102 @@ func (x *GoSNMP) ConnectIPv6() error {
 	return x.connect("6")
 }
 
-// Close closes the client's connection. Any goroutine may call it, also while
-// a request runs, which it ends: once Close has run, a request whose attempt
-// ends without a reply fails with an error wrapping net.ErrClosed, as do later
-// requests until Connect opens a connection or Conn is set (see the package
-// documentation). Close does not cut a TCP reconnect's dial short;
-// the dial's timeout and the Context bound it. Only the first call closes the
-// connection; later calls, and calls on a client without a connection, return
-// nil.
+// Close closes the client's connection, the one Conn holds, and interrupts the
+// running attempt, whatever connection it uses (a hook may have replaced
+// Conn). Any goroutine may call it, also while a request runs, which it ends:
+// once Close has run, a request whose attempt ends without a reply fails with
+// an error wrapping net.ErrClosed, as do later requests until Connect opens a
+// connection or Conn is set (see the package documentation). Close does not
+// cut a TCP reconnect's dial short; the dial's timeout and the Context bound
+// it. Only the first call closes the connection; later calls, and calls on a
+// client without a connection, return nil.
 func (x *GoSNMP) Close() error {
-	x.mu.Lock()
-	conn := x.Conn
-	x.Conn, x.opened, x.closed = nil, connection{}, true
-	x.mu.Unlock()
+	conn, attempt := x.markClosed()
+	x.interrupt(attempt)
 	if conn == nil {
 		return nil
 	}
 	return conn.Close()
+}
+
+// markClosed marks the client closed and returns the connection Conn held,
+// which it removes, and the number of the running attempt, for Close to
+// interrupt.
+func (x *GoSNMP) markClosed() (net.Conn, uint64) {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+	conn := x.Conn
+	x.Conn, x.opened, x.closed = nil, connection{}, true
+	return conn, x.attempt.seq
+}
+
+// runningAttempt is the attempt a request runs, which Close and the request's
+// Context interrupt: the connection it uses, nil once it ends; its number,
+// which keeps a late interrupt from reaching a later attempt; and interrupted,
+// which closes once an interrupt that started has set its deadline.
+type runningAttempt struct {
+	conn        net.Conn
+	seq         uint64
+	interrupted chan struct{}
+}
+
+// interruptible makes the attempt that uses conn the client's running attempt,
+// which Close interrupts, and which ctx interrupts once it is done. The
+// attempt calls it after setting its deadline, which would otherwise undo an
+// interrupt, and ends it with end.
+func (x *GoSNMP) interruptible(ctx context.Context, conn net.Conn) attemptInterrupts {
+	x.mu.Lock()
+	x.attempt.seq++
+	x.attempt.conn = conn
+	seq := x.attempt.seq
+	x.mu.Unlock()
+	a := attemptInterrupts{x: x, seq: seq}
+	if ctx.Done() != nil {
+		a.stopContext = context.AfterFunc(ctx, func() { x.interrupt(seq) })
+	}
+	return a
+}
+
+// attemptInterrupts are the interrupts of attempt seq.
+type attemptInterrupts struct {
+	x           *GoSNMP
+	seq         uint64
+	stopContext func() bool
+}
+
+// end ends the attempt's interrupts: it waits for one that has started, so
+// that its deadline cannot land after a later attempt's, and one that runs
+// later finds the attempt ended.
+func (a attemptInterrupts) end() {
+	if a.stopContext != nil {
+		a.stopContext()
+	}
+	x := a.x
+	x.mu.Lock()
+	interrupted := x.attempt.interrupted
+	x.attempt.conn, x.attempt.interrupted = nil, nil
+	x.mu.Unlock()
+	if interrupted != nil {
+		<-interrupted
+	}
+}
+
+// interrupt makes the pending and later reads and writes of attempt seq fail
+// at once, with a deadline in the past on its connection, while the attempt
+// runs; once one interrupt has started, others do nothing. It sets the
+// deadline without mu, which a slow SetDeadline then cannot hold.
+func (x *GoSNMP) interrupt(seq uint64) {
+	x.mu.Lock()
+	conn := x.attempt.conn
+	if conn == nil || x.attempt.seq != seq || x.attempt.interrupted != nil {
+		x.mu.Unlock()
+		return
+	}
+	interrupted := make(chan struct{})
+	x.attempt.interrupted = interrupted
+	x.mu.Unlock()
+	defer close(interrupted)
+	_ = conn.SetDeadline(time.Unix(1, 0))
 }
 
 // errNoConn is the error of a request on a client without a connection, and

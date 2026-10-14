@@ -331,11 +331,10 @@ func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
 	if err = c.conn.SetDeadline(deadline); err != nil {
 		return attemptOutcome{kind: attemptFailed, err: err}
 	}
-	// The interrupt comes after the deadline: a cancellation between the two
-	// would otherwise set its deadline first, and the attempt's would undo it.
-	if stop := interruptWhenDone(e.cfg.ctx, c.conn); stop != nil {
-		defer stop()
-	}
+	// Close and the Context interrupt the attempt from here on, after its
+	// deadline: an interrupt before it would be undone by it. A Close before
+	// that closed the attempt's connection: no hook has replaced Conn yet.
+	defer x.interruptible(e.cfg.ctx, c.conn).end()
 
 	e.packet.RequestID = x.nextRequestID()
 	// An encoding failure is not retried: another attempt would fail the same
@@ -358,27 +357,6 @@ func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
 		e.cfg.onSent(x)
 	}
 	return e.await(&c, earlier)
-}
-
-// interruptWhenDone makes the pending and later reads and writes on conn fail
-// with os.ErrDeadlineExceeded once ctx is done, by setting a deadline in the
-// past, until stop runs; it returns nil for a ctx that is never done. stop
-// waits for an interrupt that has started, so that its deadline cannot land
-// after a later attempt's.
-func interruptWhenDone(ctx context.Context, conn net.Conn) (stop func()) {
-	if ctx.Done() == nil {
-		return nil
-	}
-	interrupted := make(chan struct{})
-	stopAfter := context.AfterFunc(ctx, func() {
-		defer close(interrupted)
-		_ = conn.SetDeadline(time.Unix(1, 0))
-	})
-	return func() {
-		if !stopAfter() {
-			<-interrupted
-		}
-	}
 }
 
 // attemptDeadline returns when an attempt with timeout ends: after the

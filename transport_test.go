@@ -416,6 +416,75 @@ func TestCloseDuringWalk(t *testing.T) {
 	closers.Wait()
 }
 
+// TestCloseDuringRequestConnReplaced checks, on loopback sockets, a Close from
+// another goroutine after a hook removed or replaced Conn during the attempt,
+// with and without a Context that can be canceled: the request ends at once
+// with net.ErrClosed. Close closes the connection Conn holds and leaves the
+// one the hook replaced, the caller's again, open.
+func TestCloseDuringRequestConnReplaced(t *testing.T) {
+	type outcome struct {
+		errClosed      bool // the request failed with net.ErrClosed
+		beforeTimeout  bool // the request ended well before its timeout
+		replacedOpen   bool // the connection the hook replaced is open
+		hookConnClosed bool // the connection the hook set is closed
+	}
+	tests := map[string]struct {
+		hookConn bool // the hook sets another connection; it removes Conn otherwise
+		context  bool // the client has a Context that can be canceled
+		want     outcome
+	}{
+		"Conn removed":                  {want: outcome{errClosed: true, beforeTimeout: true, replacedOpen: true}},
+		"Conn removed, with a Context":  {context: true, want: outcome{errClosed: true, beforeTimeout: true, replacedOpen: true}},
+		"Conn replaced":                 {hookConn: true, want: outcome{true, true, true, true}},
+		"Conn replaced, with a Context": {hookConn: true, context: true, want: outcome{true, true, true, true}},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			port, _ := udpAgent(t, func(int, []byte) []byte { return nil }) // the agent never answers
+			const timeout = 2 * time.Second
+			x := &GoSNMP{Target: "127.0.0.1", Port: port, Version: Version2c, Community: "public", Timeout: timeout}
+			if tc.context {
+				x.Context = t.Context()
+			}
+			require.NoError(t, x.Connect())
+			replaced := x.Conn
+			defer replaced.Close()
+			defer x.Close()
+			var hookConn net.Conn
+			if tc.hookConn {
+				var err error
+				hookConn, err = net.Dial("udp4", replaced.RemoteAddr().String())
+				require.NoError(t, err)
+				defer hookConn.Close()
+			}
+			ready, closed := make(chan struct{}), make(chan struct{})
+			go func() {
+				<-ready
+				_ = x.Close()
+				close(closed)
+			}()
+			x.OnSent = func(x *GoSNMP) {
+				x.OnSent = nil
+				x.Conn = hookConn
+				close(ready)
+				<-closed // the attempt reads after Close returned
+			}
+
+			start := time.Now()
+			_, err := x.Get([]string{engineOID})
+			got := outcome{
+				errClosed:     errors.Is(err, net.ErrClosed),
+				beforeTimeout: time.Since(start) < timeout/2,
+				replacedOpen:  replaced.SetDeadline(time.Time{}) == nil,
+			}
+			if hookConn != nil {
+				got.hookConnClosed = errors.Is(hookConn.SetDeadline(time.Time{}), net.ErrClosed)
+			}
+			assert.Equal(t, tc.want, got, "error %v", err)
+		})
+	}
+}
+
 // closeOnRelease starts n goroutines that close h once release returns, and
 // returns their WaitGroup.
 func closeOnRelease(h Handler, n int, release func()) *sync.WaitGroup {

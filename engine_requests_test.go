@@ -592,6 +592,26 @@ func engineScenarios() map[string]engineScenario {
 				}()
 			},
 		},
+		// A Close while the canceled Context's interrupt still sets its
+		// deadline, held until 200 ms: the attempt's interrupt has started, so
+		// Close closes the connection without waiting for it, and the request
+		// ends when the interrupt does.
+		"context/canceled-then-closed-while-interrupting": {
+			context: canceledAfter(50 * time.Millisecond),
+			setup: func(x *GoSNMP, c *fakeTransport) {
+				hold := make(chan struct{})
+				c.holdInterrupt = hold
+				time.AfterFunc(100*time.Millisecond, func() {
+					c.tr.addf("Close from another goroutine")
+					_ = x.Close()
+					c.tr.addf("Close returned")
+				})
+				time.AfterFunc(200*time.Millisecond, func() {
+					c.tr.addf("interrupt released")
+					close(hold)
+				})
+			},
+		},
 		// A Context canceled after its request leaves the connection alone:
 		// the next request, with another Context, is answered.
 		"context/canceled-after-request": {agent: answer(sysDescr), run: func(x *GoSNMP) (*SnmpPacket, error) {
@@ -637,6 +657,24 @@ func engineScenarios() map[string]engineScenario {
 				_ = x.Close()
 			}
 		}},
+		// A Close after a request in which a hook replaced Conn closes the
+		// hook's connection and leaves the one the ended attempt used, the
+		// caller's again, alone.
+		"close/after-a-request-conn-replaced-by-hook": {
+			agent: answer(sysDescr),
+			setup: func(x *GoSNMP, c *fakeTransport) {
+				hookConn := fakePacketTransport{newFakeTransport(c.tr, nil)}
+				x.OnSent = func(x *GoSNMP) {
+					c.tr.addf("hook OnSent replaces Conn")
+					x.Conn = hookConn
+				}
+			},
+			run: func(x *GoSNMP) (*SnmpPacket, error) {
+				res, err := x.Get([]string{engineOID})
+				_ = x.Close()
+				return res, err
+			},
+		},
 		// A hook removes Conn: the request fails for want of a connection, not
 		// as closed.
 		"close/conn-removed-by-hook": {setup: func(x *GoSNMP, c *fakeTransport) {
@@ -789,6 +827,40 @@ func TestEngineCancelWhileSettingDeadline(t *testing.T) {
 		_, err := x.Get([]string{engineOID})
 		require.ErrorIs(t, err, context.Canceled)
 		assert.Equal(t, time.Duration(0), time.Since(start), "the request ends at the cancellation")
+	})
+}
+
+// countingContext is a Context that is never done and counts the functions
+// registered to run when it is done (context.AfterFunc calls its AfterFunc
+// method) and those unregistered again.
+type countingContext struct {
+	context.Context
+	done                chan struct{}
+	registered, stopped int
+}
+
+func (c *countingContext) Done() <-chan struct{} { return c.done }
+
+func (c *countingContext) AfterFunc(func()) func() bool {
+	c.registered++
+	return func() bool {
+		c.stopped++
+		return true
+	}
+}
+
+// TestEngineContextInterruptUnregistered checks that each attempt
+// unregisters the interrupt it registers with the request's Context, so that
+// a Context used for many requests does not keep one per attempt.
+func TestEngineContextInterruptUnregistered(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		c := newFakeTransport(nil, answerFromSecond(sysDescr))
+		x := newEngineClient(t, nil, Version2c, fakePacketTransport{c})
+		ctx := &countingContext{Context: context.Background(), done: make(chan struct{})}
+		x.Context = ctx
+		_, err := x.Get([]string{engineOID})
+		require.NoError(t, err)
+		assert.Equal(t, [2]int{2, 2}, [2]int{ctx.registered, ctx.stopped}, "registered, unregistered")
 	})
 }
 
