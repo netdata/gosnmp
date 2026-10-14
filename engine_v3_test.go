@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -1260,7 +1259,7 @@ func runV3Scenario(t *testing.T, sc v3Scenario) string {
 	if sc.knownBug != "" {
 		tr.addf("known bug: %s", sc.knownBug)
 	}
-	return strings.Join(tr.lines, "\n")
+	return tr.text()
 }
 
 // describeKeys names the engine ID the keys of sp are localized to: "current"

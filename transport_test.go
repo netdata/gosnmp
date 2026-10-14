@@ -206,3 +206,85 @@ func TestCloseOnce(t *testing.T) {
 	assert.NoError(t, x.Close())
 	assert.Equal(t, 1, c.closes)
 }
+
+// TestHandlerClose pins the Handler's Close on a client without a connection
+// and closing one twice. Known bug: it closes Conn itself, so it panics
+// without a connection, leaves Conn set and closes it again.
+func TestHandlerClose(t *testing.T) {
+	type outcome struct {
+		panics        bool
+		first, second error
+		connSet       bool // Conn is still set after the two calls
+		closes        int  // the connection's Close calls
+	}
+	tests := map[string]struct {
+		conn bool
+		want outcome
+	}{
+		"without a connection": {want: outcome{panics: true}},
+		"twice":                {conn: true, want: outcome{first: errCloseConn, second: errCloseConn, connSet: true, closes: 2}},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			h := NewHandler()
+			c := &closeErrConn{}
+			if tc.conn {
+				h.(*snmpHandler).Conn = c
+			}
+			var got outcome
+			if v, _ := recoverPanic(func() { got.first = h.Close() }); v != nil {
+				got.panics = true
+			} else {
+				got.second = h.Close()
+			}
+			got.connSet, got.closes = h.(*snmpHandler).Conn != nil, c.closes
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestConnectReplacesConnection pins what a second Connect does with the
+// client's connection, when it opens a new one and when its dial fails. Known
+// bugs: the first connection is left open, and a failed dial drops it without
+// closing it.
+func TestConnectReplacesConnection(t *testing.T) {
+	type outcome struct {
+		err       bool
+		connFirst bool // Conn is the first connection
+		connNil   bool
+		firstOpen bool // the first connection is still open
+	}
+	errControl := errors.New("codec control refuses")
+	tests := map[string]struct {
+		failDial bool
+		want     outcome
+	}{
+		"opens":      {want: outcome{firstOpen: true}},
+		"dial fails": {failDial: true, want: outcome{err: true, connNil: true, firstOpen: true}},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			agent, err := net.ListenPacket("udp4", "127.0.0.1:0")
+			require.NoError(t, err)
+			defer agent.Close()
+			x := &GoSNMP{
+				Target: "127.0.0.1", Port: uint16(agent.LocalAddr().(*net.UDPAddr).Port), //nolint:gosec // a UDP port
+				Version: Version2c, Community: "public", Timeout: time.Second,
+			}
+			require.NoError(t, x.Connect())
+			first := x.Conn
+			defer first.Close()
+			defer x.Close()
+			if tc.failDial {
+				x.Control = func(string, string, syscall.RawConn) error { return errControl }
+			}
+			err = x.Connect()
+			assert.Equal(t, tc.want, outcome{
+				err:       err != nil,
+				connFirst: x.Conn == first,
+				connNil:   x.Conn == nil,
+				firstOpen: first.SetDeadline(time.Time{}) == nil,
+			})
+		})
+	}
+}

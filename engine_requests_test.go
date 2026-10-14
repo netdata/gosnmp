@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -151,12 +152,14 @@ var errEngineWrite = errors.New("codec write failure")
 // closed.
 var refused = &net.OpError{Op: "read", Net: "udp", Err: syscall.ECONNREFUSED}
 
-// closedRead, closedWrite and closedSet are the errors of a read, a write and
-// a deadline on a UDP socket that net.Conn.Close closed during a request.
+// closedRead, closedWrite, closedSet and closedClose are the errors of a
+// read, a write, a deadline and a Close on a UDP socket that net.Conn.Close
+// closed.
 var (
 	closedRead  = &net.OpError{Op: "read", Net: "udp", Err: net.ErrClosed}
 	closedWrite = &net.OpError{Op: "write", Net: "udp", Err: net.ErrClosed}
 	closedSet   = &net.OpError{Op: "set", Net: "udp", Err: net.ErrClosed}
+	closedClose = &net.OpError{Op: "close", Net: "udp", Err: net.ErrClosed}
 )
 
 // withEngineTimeout gives a context that times out after d.
@@ -576,6 +579,41 @@ func engineScenarios() map[string]engineScenario {
 		},
 		"context/canceled-in-last-attempt": {context: canceledAfter(2300 * time.Millisecond)},
 
+		// Close.
+		"close/before-request": {
+			agent:    answer(sysDescr),
+			setup:    func(x *GoSNMP, _ *fakeTransport) { _ = x.Close() },
+			knownBug: "a request after Close fails without net.ErrClosed",
+		},
+		"close/during-attempt": {
+			agent: answerFromSecond(sysDescr),
+			setup: func(x *GoSNMP, c *fakeTransport) {
+				x.OnSent = func(x *GoSNMP) {
+					c.tr.addf("hook OnSent closes the client")
+					_ = x.Close()
+				}
+			},
+			knownBug: "a Close during a request makes it dereference a nil Conn",
+		},
+		"close/between-attempts": {
+			agent: answerFromSecond(sysDescr),
+			setup: func(x *GoSNMP, c *fakeTransport) {
+				x.OnRetry = func(x *GoSNMP) {
+					c.tr.addf("hook OnRetry closes the client")
+					_ = x.Close()
+				}
+			},
+			knownBug: "a Close during a request makes it dereference a nil Conn",
+		},
+		// The connection itself closed from another goroutine, as Netdata's
+		// SNMP vnode acquisition does when its context ends.
+		"close/connection-from-another-goroutine": {setup: func(_ *GoSNMP, c *fakeTransport) {
+			go func() {
+				time.Sleep(300 * time.Millisecond)
+				_ = c.Close()
+			}()
+		}},
+
 		// Request IDs.
 		"request-id/wraps": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.SetRequestID(0x7FFFFFFF) }},
 		"request-id/wraps-between-attempts": {agent: answerFromSecond(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) {
@@ -677,7 +715,7 @@ func runEngineScenario(t *testing.T, sc engineScenario) string {
 	if sc.knownBug != "" {
 		tr.addf("known bug: %s", sc.knownBug)
 	}
-	return strings.Join(tr.lines, "\n")
+	return tr.text()
 }
 
 // TestEngineTCPReconnect pins, on loopback sockets, what the engine does when
@@ -731,38 +769,18 @@ func TestEngineTCPReconnect(t *testing.T) {
 	dialAddress := regexp.MustCompile(`dial tcp \S+: `)
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			ln, err := net.Listen("tcp", "127.0.0.1:0")
-			require.NoError(t, err)
-			port := uint16(ln.Addr().(*net.TCPAddr).Port) //nolint:gosec // a TCP port
 			var requests atomic.Int32
 			var firstRequest atomic.Pointer[[]byte]
-			done := make(chan struct{})
-			go func() {
-				defer close(done)
-				for first := true; ; first = false {
-					conn, acceptErr := ln.Accept()
-					if acceptErr != nil {
-						return
-					}
-					if first && !tc.acceptAgain {
-						ln.Close()
-					}
-					go serveTCPRequests(conn, func(req []byte) (reply []byte, keepOpen bool) {
-						switch n := requests.Add(1); {
-						case n == 1:
-							firstRequest.Store(&req)
-							return nil, tc.ignoreFirst
-						case tc.staleReply:
-							return replyTo(*firstRequest.Load(), nil, sysDescr), true
-						}
-						return nil, false
-					})
+			port := tcpAgent(t, !tc.acceptAgain, func(req []byte) (reply []byte, keepOpen bool) {
+				switch n := requests.Add(1); {
+				case n == 1:
+					firstRequest.Store(&req)
+					return nil, tc.ignoreFirst
+				case tc.staleReply:
+					return replyTo(*firstRequest.Load(), nil, sysDescr), true
 				}
-			}()
-			defer func() {
-				ln.Close()
-				<-done
-			}()
+				return nil, false
+			})
 
 			ctx := context.Background()
 			if tc.contextTimeout > 0 {
@@ -842,29 +860,13 @@ func TestEngineTCPReconnectCallerConn(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			ln, err := net.Listen("tcp", "127.0.0.1:0")
-			require.NoError(t, err)
 			var requests atomic.Int32
-			done := make(chan struct{})
-			go func() {
-				defer close(done)
-				for {
-					conn, acceptErr := ln.Accept()
-					if acceptErr != nil {
-						return
-					}
-					go serveTCPRequests(conn, func(req []byte) (reply []byte, keepOpen bool) {
-						if requests.Add(1) == 1 {
-							return nil, false // the agent closes the connection
-						}
-						return replyTo(req, nil, sysDescr), true
-					})
+			port := tcpAgent(t, false, func(req []byte) (reply []byte, keepOpen bool) {
+				if requests.Add(1) == 1 {
+					return nil, false // the agent closes the connection
 				}
-			}()
-			defer func() {
-				ln.Close()
-				<-done
-			}()
+				return replyTo(req, nil, sysDescr), true
+			})
 
 			x := &GoSNMP{
 				Target:    "127.0.0.1",
@@ -878,10 +880,10 @@ func TestEngineTCPReconnectCallerConn(t *testing.T) {
 			if tc.before != nil {
 				tc.before(t, x)
 			}
-			conn, err := net.Dial("tcp", ln.Addr().String())
+			conn, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(int(port))))
 			require.NoError(t, err)
 			x.Conn, x.Context = conn, nil
-			x.Transport, x.Port = "tcp", uint16(ln.Addr().(*net.TCPAddr).Port) //nolint:gosec // a TCP port
+			x.Transport, x.Port = "tcp", port
 			x.OnSent = func(x *GoSNMP) { x.Transport = "udp" }
 			defer x.Close()
 
@@ -891,6 +893,120 @@ func TestEngineTCPReconnectCallerConn(t *testing.T) {
 			assert.Equal(t, int32(2), requests.Load(), "requests the agent read")
 		})
 	}
+}
+
+// TestEngineTCPReconnectConnection pins, on loopback sockets, what the TCP
+// reconnect does with the connection the agent closed, when the new one opens
+// and when its dial is refused. Known bugs: the closed connection is left
+// open, and a refused dial leaves the client without a connection.
+func TestEngineTCPReconnectConnection(t *testing.T) {
+	type outcome struct {
+		err       bool
+		connFirst bool // Conn is the first connection
+		connNil   bool
+		firstOpen bool // the client has not closed the first connection
+	}
+	tests := map[string]struct {
+		refuse bool // the agent stops listening after the first connection
+		want   outcome
+	}{
+		"opens":   {want: outcome{firstOpen: true}},
+		"refused": {refuse: true, want: outcome{err: true, connNil: true, firstOpen: true}},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			var requests atomic.Int32
+			port := tcpAgent(t, tc.refuse, func(req []byte) (reply []byte, keepOpen bool) {
+				if requests.Add(1) == 1 {
+					return nil, false // the agent closes the connection
+				}
+				return replyTo(req, nil, sysDescr), true
+			})
+			x := &GoSNMP{
+				Target: "127.0.0.1", Port: port, Transport: "tcp",
+				Community: "public", Version: Version2c, Timeout: 10 * time.Second, Retries: 1,
+			}
+			require.NoError(t, x.Connect())
+			first := x.Conn
+			defer first.Close()
+			defer x.Close()
+
+			_, err := x.Get([]string{engineOID})
+			assert.Equal(t, tc.want, outcome{
+				err:       err != nil,
+				connFirst: x.Conn == first,
+				connNil:   x.Conn == nil,
+				firstOpen: first.SetDeadline(time.Time{}) == nil,
+			})
+		})
+	}
+}
+
+// TestEngineTCPReconnectDialSettings pins which agent the TCP reconnect dials
+// when a hook changes the client's Port and Control before the agent closes
+// the connection. Known bug: it dials with the client's settings at that
+// moment, so a hook redirects the running request.
+func TestEngineTCPReconnectDialSettings(t *testing.T) {
+	var requestsA, requestsB, hookControls atomic.Int32
+	portA := tcpAgent(t, false, func(req []byte) (reply []byte, keepOpen bool) {
+		if requestsA.Add(1) == 1 {
+			return nil, false // the agent closes the connection
+		}
+		return replyTo(req, nil, sysDescr), true
+	})
+	portB := tcpAgent(t, false, func(req []byte) (reply []byte, keepOpen bool) {
+		requestsB.Add(1)
+		return replyTo(req, nil, sysDescr), true
+	})
+	x := &GoSNMP{
+		Target: "127.0.0.1", Port: portA, Transport: "tcp",
+		Community: "public", Version: Version2c, Timeout: 10 * time.Second, Retries: 1,
+	}
+	require.NoError(t, x.Connect())
+	defer x.Close()
+	x.OnSent = func(x *GoSNMP) {
+		x.OnSent = nil
+		x.Port = portB
+		x.Control = func(string, string, syscall.RawConn) error {
+			hookControls.Add(1)
+			return nil
+		}
+	}
+
+	_, err := x.Get([]string{engineOID})
+	require.NoError(t, err)
+	type outcome struct{ requestsA, requestsB, hookControls int32 }
+	assert.Equal(t, outcome{requestsA: 1, requestsB: 1, hookControls: 1},
+		outcome{requestsA.Load(), requestsB.Load(), hookControls.Load()})
+}
+
+// tcpAgent listens on a loopback TCP port and serves each connection with
+// serveTCPRequests and handle; with refuseAgain it stops listening after the
+// first connection. It returns the port; the listener closes when the test
+// ends.
+func tcpAgent(t *testing.T, refuseAgain bool, handle func(req []byte) (reply []byte, keepOpen bool)) uint16 {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for first := true; ; first = false {
+			conn, acceptErr := ln.Accept()
+			if acceptErr != nil {
+				return
+			}
+			if first && refuseAgain {
+				ln.Close()
+			}
+			go serveTCPRequests(conn, handle)
+		}
+	}()
+	t.Cleanup(func() {
+		ln.Close()
+		<-done
+	})
+	return uint16(ln.Addr().(*net.TCPAddr).Port) //nolint:gosec // a TCP port
 }
 
 // serveTCPRequests reads requests from conn, one per read, and hands each to
