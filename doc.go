@@ -30,8 +30,9 @@
 // the caller set: with the request's Transport, Target, Port, LocalAddr and
 // Control), and replaces it; a failed reopen keeps it, still lost, for the
 // attempt after. A request over an unconnected UDP socket, also one the caller
-// set, writes to the agent's address the last Connect resolved, which Close
-// keeps: a request resolves no name. The request IDs and msgIDs start at a
+// set, writes to the agent's address the last successful Connect in
+// unconnected mode resolved, which Close keeps and a Connect in connected mode
+// clears: a request resolves no name. The request IDs and msgIDs start at a
 // random value on first use unless [GoSNMP.SetRequestID] and
 // [GoSNMP.SetMsgID] set them, and Connect does not reset them.
 //
@@ -75,9 +76,9 @@
 // retries)" and after the agent closed the TCP connection "max retries (N)
 // exceeded"; both unwrap to the attempt's reason (the timeout, a [net.Error];
 // [io.EOF]). An answer's error status ([SnmpPacket].Error) is not an error of
-// the request. Connect's dial uses Timeout and the Context too. Known bugs: a
-// Response without varbinds or error status, or with request ID 0, answers a
-// request whatever its request ID.
+// the request. Connect uses Timeout and the Context too, for its name lookups
+// and its dial together. Known bugs: a Response without varbinds or error
+// status, or with request ID 0, answers a request whatever its request ID.
 //
 // # Hooks
 //

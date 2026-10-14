@@ -7,6 +7,7 @@ package gosnmp
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"net"
 	"runtime"
@@ -110,6 +111,13 @@ func TestConnect(t *testing.T) {
 			want: connectResult{
 				err:       "error establishing connection to host: dial udp :0->127.0.0.1:" + strconv.Itoa(int(udpPort)) + ": i/o timeout",
 				transport: "udp", controls: []string{"udp4"},
+			},
+		},
+		"negative timeout": {
+			setup: func(x *GoSNMP, _ *connectResult) { x.Timeout = -time.Second },
+			want: connectResult{
+				err:       "error establishing connection to host: dial udp :0->127.0.0.1:" + strconv.Itoa(int(udpPort)) + ": i/o timeout",
+				transport: "udp",
 			},
 		},
 		"canceled context": {
@@ -332,6 +340,184 @@ func TestUnconnectedUDPNoLookup(t *testing.T) {
 	_, err := x.Get([]string{engineOID})
 	require.NoError(t, err)
 	assert.Equal(t, int32(0), lookups.Load(), "lookups")
+}
+
+// stubDNS is net.DefaultResolver for a test: a Go resolver whose DNS server
+// on loopback answers each A query with 127.0.0.1, and each other query with
+// no records, while answering is set; otherwise a lookup reaches no server
+// and waits until its context ends or release runs, after a send on held.
+// The names tests look up end in ".invalid.", so that no hosts file has them.
+type stubDNS struct {
+	answering atomic.Bool
+	held      chan struct{}
+	release   func()
+}
+
+// newStubDNS makes a stubDNS net.DefaultResolver until the test ends.
+func newStubDNS(t *testing.T) *stubDNS {
+	t.Helper()
+	pc, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	served := make(chan struct{})
+	go func() {
+		defer close(served)
+		buf := make([]byte, 512)
+		for {
+			n, from, readErr := pc.ReadFrom(buf)
+			if readErr != nil {
+				return
+			}
+			if reply := stubDNSReply(buf[:n]); reply != nil {
+				_, _ = pc.WriteTo(reply, from)
+			}
+		}
+	}()
+	released := make(chan struct{})
+	var once sync.Once
+	dns := &stubDNS{held: make(chan struct{}, 16), release: func() { once.Do(func() { close(released) }) }}
+	dns.answering.Store(true)
+	resolver := net.DefaultResolver
+	net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		if dns.answering.Load() {
+			var d net.Dialer
+			return d.DialContext(ctx, "udp4", pc.LocalAddr().String())
+		}
+		select {
+		case dns.held <- struct{}{}:
+		default:
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-released:
+			return nil, errors.New("codec: the stub DNS released the lookup")
+		}
+	}}
+	t.Cleanup(func() {
+		dns.release()
+		net.DefaultResolver = resolver
+		_ = pc.Close()
+		<-served
+	})
+	return dns
+}
+
+// stubDNSReply answers query, a DNS message with one question: an A question
+// with 127.0.0.1, any other with no records.
+func stubDNSReply(query []byte) []byte {
+	const header = 12
+	end := header
+	for end < len(query) && query[end] != 0 {
+		end += int(query[end]) + 1
+	}
+	end += 5 // the root label, QTYPE and QCLASS
+	if end > len(query) {
+		return nil
+	}
+	reply := bytes.Clone(query[:end])
+	binary.BigEndian.PutUint16(reply[2:], 0x8180)    // a response, recursion desired and available, no error
+	binary.BigEndian.PutUint16(reply[6:], 0)         // ANCOUNT
+	binary.BigEndian.PutUint16(reply[8:], 0)         // NSCOUNT
+	binary.BigEndian.PutUint16(reply[10:], 0)        // ARCOUNT
+	if binary.BigEndian.Uint16(reply[end-4:]) == 1 { // QTYPE A
+		binary.BigEndian.PutUint16(reply[6:], 1)
+		// The question's name (a pointer to offset 12), A, IN, TTL 60, 4 octets.
+		reply = append(reply, 0xc0, 0x0c, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 127, 0, 0, 1)
+	}
+	return reply
+}
+
+// awaitHeld waits until a lookup waits in dns.
+func (dns *stubDNS) awaitHeld(t *testing.T) {
+	t.Helper()
+	select {
+	case <-dns.held:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no lookup reached the stub DNS")
+	}
+}
+
+// TestConnectLookupWithinBounds checks that Connect looks up every name, the
+// local address's, an unconnected socket's agent and the dialed agent, within
+// its Context and Timeout: a lookup that does not end fails Connect once the
+// Context is canceled or the Timeout passes, with an error that matches it.
+func TestConnectLookupWithinBounds(t *testing.T) {
+	settings := map[string]func(x *GoSNMP){
+		"TCP local address":     func(x *GoSNMP) { x.Transport, x.LocalAddr = "tcp", "bind.codec.invalid.:0" },
+		"UDP local address":     func(x *GoSNMP) { x.LocalAddr = "bind.codec.invalid.:0" },
+		"unconnected UDP agent": func(x *GoSNMP) { x.Target, x.UseUnconnectedUDPSocket = "agent.codec.invalid.", true },
+		"TCP agent":             func(x *GoSNMP) { x.Transport, x.Target = "tcp", "agent.codec.invalid." },
+	}
+	bounds := map[string]struct {
+		timeout time.Duration
+		cancel  bool
+		want    error
+	}{
+		"canceled Context": {timeout: time.Minute, cancel: true, want: context.Canceled},
+		"Timeout":          {timeout: 50 * time.Millisecond, want: context.DeadlineExceeded},
+	}
+	for settingsName, set := range settings {
+		for boundName, bound := range bounds {
+			t.Run(settingsName+", "+boundName, func(t *testing.T) {
+				dns := newStubDNS(t)
+				dns.answering.Store(false)
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				x := &GoSNMP{
+					Target: "127.0.0.1", Port: 161, Version: Version2c, Community: "public",
+					Timeout: bound.timeout, Context: ctx,
+				}
+				set(x)
+				result := make(chan error, 1)
+				go func() { result <- x.Connect() }()
+				dns.awaitHeld(t)
+				if bound.cancel {
+					cancel()
+				}
+				select {
+				case err := <-result:
+					assert.ErrorIs(t, err, bound.want)
+				case <-time.After(2 * time.Second):
+					dns.release()
+					t.Errorf("Connect waits for the lookup; after its release: %v", <-result)
+				}
+				assert.Nil(t, x.Conn)
+			})
+		}
+	}
+}
+
+// TestResolveAddrMatchesStdlib checks resolveAddr against net.ResolveUDPAddr
+// and net.ResolveTCPAddr, which it follows within a Context, over a stub DNS
+// that has an IPv4 address only: the same address or error for each network
+// and address.
+func TestResolveAddrMatchesStdlib(t *testing.T) {
+	newStubDNS(t)
+	addresses := []string{
+		"", ":0", ":161", ":snmp", "127.0.0.1:0", "127.0.0.1:161", "0.0.0.0:0", "[::1]:161", "[::]:0",
+		"[fe80::1%lo0]:161", "[::ffff:127.0.0.1]:161", "agent.codec.invalid.:161", "[agent.codec.invalid.]:161",
+		"127.0.0.1", "127.0.0.1:99999", "127.0.0.1:no-such-service", "[::1:161",
+	}
+	describe := func(addr net.Addr, err error) string {
+		if err != nil {
+			return "error: " + err.Error()
+		}
+		return addr.String()
+	}
+	for _, network := range []string{"udp", "udp4", "udp6", "tcp", "tcp4", "tcp6"} {
+		for _, address := range addresses {
+			ip, port, err := resolveAddr(context.Background(), network, address)
+			var got, want string
+			if strings.HasPrefix(network, "udp") {
+				got = describe(&net.UDPAddr{IP: ip.IP, Port: port, Zone: ip.Zone}, err)
+				want = describe(net.ResolveUDPAddr(network, address))
+			} else {
+				got = describe(&net.TCPAddr{IP: ip.IP, Port: port, Zone: ip.Zone}, err)
+				want = describe(net.ResolveTCPAddr(network, address))
+			}
+			assert.Equal(t, want, got, "%s %q", network, address)
+		}
+	}
 }
 
 // TestConnectTCPLocalAddr pins that a TCP connection is made from the

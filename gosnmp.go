@@ -52,11 +52,12 @@ type GoSNMP struct {
 	// supplies its Context default, receive buffer and IDs, a TCP reopen
 	// opens it again with the request's Transport, Target, Port, LocalAddr and
 	// Control, and with UseUnconnectedUDPSocket a request writes to the
-	// agent's address the last Connect resolved. The client owns the connection Conn holds: Close
-	// and a later Connect close it; a connection the caller or a hook replaces
-	// in Conn is the caller's again. Each attempt of a request uses the
-	// connection Conn holds when it starts, which Close interrupts even after a
-	// hook replaced it. Set Conn only while no Close runs.
+	// agent's address the last successful Connect in that mode resolved (see
+	// UseUnconnectedUDPSocket). The client owns the connection Conn holds:
+	// Close and a later Connect close it; a connection the caller or a hook
+	// replaces in Conn is the caller's again. Each attempt of a request uses
+	// the connection Conn holds when it starts, which Close interrupts even
+	// after a hook replaced it. Set Conn only while no Close runs.
 	Conn net.Conn
 
 	// Target is the agent's host name or IP address.
@@ -78,15 +79,17 @@ type GoSNMP struct {
 	// Version is the SNMP version: Version1, Version2c or Version3.
 	Version SnmpVersion
 
-	// Context, when set, bounds Connect's dial and every request: no attempt
-	// starts once it is done, and its cancellation or deadline ends a running
-	// attempt at once. Connect sets context.Background() when it is nil, and a
-	// request without one uses context.Background().
+	// Context, when set, bounds Connect (its name lookups and dial) and every
+	// request: no attempt starts once it is done, and its cancellation or
+	// deadline ends a running attempt at once. Connect sets
+	// context.Background() when it is nil, and a request without one uses
+	// context.Background().
 	Context context.Context
 
 	// Timeout is how long each attempt of a request waits for its answer, and
-	// Connect's dial timeout. It has no default: a zero Timeout times out
-	// every attempt at once, and leaves the dial without a timeout.
+	// how long Connect, and a TCP reopen, may take to look up names and dial.
+	// It has no default: a zero Timeout times out every attempt at once, and
+	// leaves Connect without a time limit.
 	Timeout time.Duration
 
 	// Retries is the number of attempts after the first; a negative value
@@ -151,8 +154,10 @@ type GoSNMP struct {
 	// socket, with sendto and recvfrom, for agents that answer from another
 	// address than the one the request went to, as some multi-homed devices
 	// do. Replies are then read from any address. A Conn the caller sets is
-	// then written to the agent's address the last Connect resolved: a
-	// request resolves no name; without such a Connect there is none.
+	// then written to the agent's address the last successful Connect in
+	// this mode resolved, which Close keeps and a Connect in connected mode
+	// clears: a request resolves no name; without such a Connect there is
+	// none.
 	UseUnconnectedUDPSocket bool
 
 	// Control, when set, is the Control function of Connect's net.Dialer: it

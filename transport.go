@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -310,34 +312,45 @@ type connection struct {
 }
 
 // open opens a connection to the agent, or for an unconnected UDP socket a
-// local socket, with ctx and timeout bounding the dial. A UDP or TCP local
-// address in IPv4 narrows the network to IPv4.
+// local socket, with ctx and timeout bounding every step: the lookups of the
+// local address and of an unconnected socket's agent, and the dial, which
+// looks up the agent. A UDP or TCP local address in IPv4 narrows the network
+// to IPv4.
 func (d dialSettings) open(ctx context.Context, timeout time.Duration) (connection, error) {
+	// One deadline for the whole opening: a Dialer's Timeout would bound the
+	// dial only. A zero timeout sets none, as a zero Dialer.Timeout does.
+	if timeout != 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
 	var local net.Addr
 	switch d.network {
 	case "udp", "udp4", "udp6":
-		udpLocal, err := net.ResolveUDPAddr(d.network, d.localAddr)
+		ip, port, err := resolveAddr(ctx, d.network, d.localAddr)
 		if err != nil {
 			return connection{}, err
 		}
+		udpLocal := &net.UDPAddr{IP: ip.IP, Port: port, Zone: ip.Zone}
 		if udpLocal.IP.To4() != nil {
 			d.network = "udp4"
 		}
 		if d.unconnected {
-			return d.listenUnconnectedUDP(udpLocal)
+			return d.listenUnconnectedUDP(ctx, udpLocal)
 		}
 		local = udpLocal
 	case "tcp", "tcp4", "tcp6":
-		tcpLocal, err := net.ResolveTCPAddr(d.network, d.localAddr)
+		ip, port, err := resolveAddr(ctx, d.network, d.localAddr)
 		if err != nil {
 			return connection{}, err
 		}
+		tcpLocal := &net.TCPAddr{IP: ip.IP, Port: port, Zone: ip.Zone}
 		if tcpLocal.IP.To4() != nil {
 			d.network = "tcp4"
 		}
 		local = tcpLocal
 	}
-	dialer := net.Dialer{Timeout: timeout, LocalAddr: local, Control: d.control}
+	dialer := net.Dialer{LocalAddr: local, Control: d.control}
 	conn, err := dialer.DialContext(ctx, d.network, d.agentAddr())
 	if err != nil {
 		return connection{}, err
@@ -363,9 +376,9 @@ func (d dialSettings) agentAddr() string {
 }
 
 // listenUnconnectedUDP opens a UDP socket on the local address that writes to
-// the agent.
-func (d dialSettings) listenUnconnectedUDP(local *net.UDPAddr) (connection, error) {
-	uaddr, err := net.ResolveUDPAddr(d.network, d.agentAddr())
+// the agent, whose address it looks up within ctx.
+func (d dialSettings) listenUnconnectedUDP(ctx context.Context, local *net.UDPAddr) (connection, error) {
+	ip, port, err := resolveAddr(ctx, d.network, d.agentAddr())
 	if err != nil {
 		return connection{}, err
 	}
@@ -373,7 +386,65 @@ func (d dialSettings) listenUnconnectedUDP(local *net.UDPAddr) (connection, erro
 	if err != nil {
 		return connection{}, err
 	}
-	return connection{conn: conn, dial: d, uaddr: uaddr}, nil
+	return connection{conn: conn, dial: d, uaddr: &net.UDPAddr{IP: ip.IP, Port: port, Zone: ip.Zone}}, nil
+}
+
+// resolveAddr resolves address, "host:port", over network ("udp" or "tcp",
+// either with "4" or "6") within ctx, as net.ResolveUDPAddr and
+// net.ResolveTCPAddr resolve it without one: an empty address or host is the
+// unspecified address; of a host's addresses of the network's family, it
+// takes the first IPv4 one, the first IPv6 one for a host in brackets on a
+// network without a family, or else the first. Unlike them, it drops the zone
+// a hosts file gives a name.
+func resolveAddr(ctx context.Context, network, address string) (net.IPAddr, int, error) {
+	if address == "" {
+		return net.IPAddr{}, 0, nil
+	}
+	host, service, err := net.SplitHostPort(address)
+	if err != nil {
+		return net.IPAddr{}, 0, err
+	}
+	port, err := net.DefaultResolver.LookupPort(ctx, network, service)
+	if err != nil {
+		return net.IPAddr{}, 0, err
+	}
+	if host == "" {
+		return net.IPAddr{}, port, nil
+	}
+	family := network[len(udp):] // "", "4" or "6"; udp and tcp have the same length
+	var ips []net.IPAddr
+	if ip, parseErr := netip.ParseAddr(host); parseErr == nil {
+		ips = []net.IPAddr{{IP: ip.AsSlice(), Zone: ip.Zone()}}
+	} else {
+		found, lookupErr := net.DefaultResolver.LookupIP(ctx, "ip"+family, host)
+		if lookupErr != nil {
+			return net.IPAddr{}, 0, lookupErr
+		}
+		for _, ip := range found {
+			ips = append(ips, net.IPAddr{IP: ip})
+		}
+	}
+	// As the standard library does (Go issue 18806): the IPv6 unspecified
+	// address stands for the IPv4 one too.
+	if len(ips) == 1 && ips[0].IP.Equal(net.IPv6unspecified) {
+		ips = append(ips, net.IPAddr{IP: net.IPv4zero})
+	}
+	switch family {
+	case "4":
+		ips = slices.DeleteFunc(ips, func(ip net.IPAddr) bool { return ip.IP.To4() == nil })
+	case "6":
+		ips = slices.DeleteFunc(ips, func(ip net.IPAddr) bool { return len(ip.IP) != net.IPv6len || ip.IP.To4() != nil })
+	}
+	if len(ips) == 0 {
+		return net.IPAddr{}, 0, &net.AddrError{Err: "no suitable address found", Addr: host}
+	}
+	want6 := (network == udp || network == tcp) && strings.Contains(address, "[")
+	for _, ip := range ips {
+		if (ip.IP.To4() == nil) == want6 {
+			return ip, port, nil
+		}
+	}
+	return ips[0], port, nil
 }
 
 // write sends b to the agent: to its address on an unconnected UDP socket, on

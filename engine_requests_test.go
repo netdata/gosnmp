@@ -1219,6 +1219,82 @@ func TestEngineTCPLostConnection(t *testing.T) {
 	}
 }
 
+// TestEngineTCPReopenLookupWithinBounds checks that a TCP reopen looks up its
+// named local address within the request's Context and Timeout, for the
+// connection Connect opened and for a Conn the caller set: a lookup that does
+// not end fails the request at once when the Context is canceled, and when the
+// Timeout passes, with an error that matches it, also after a Close, which
+// does not cut the lookup short.
+func TestEngineTCPReopenLookupWithinBounds(t *testing.T) {
+	origins := map[string]bool{"the connection Connect opened": false, "a Conn the caller set": true}
+	ends := map[string]struct {
+		timeout time.Duration
+		end     func(x *GoSNMP, cancel context.CancelFunc)
+		want    error
+	}{
+		"Context canceled": {timeout: time.Minute, end: func(_ *GoSNMP, cancel context.CancelFunc) { cancel() }, want: context.Canceled},
+		"Timeout":          {timeout: 100 * time.Millisecond, want: context.DeadlineExceeded},
+		"Close":            {timeout: 100 * time.Millisecond, end: func(x *GoSNMP, _ context.CancelFunc) { _ = x.Close() }, want: net.ErrClosed},
+	}
+	for originName, callerConn := range origins {
+		for endName, end := range ends {
+			t.Run(originName+", "+endName, func(t *testing.T) {
+				dns := newStubDNS(t)
+				// The agent resets its first connection after the first request.
+				ln, err := net.Listen("tcp4", "127.0.0.1:0")
+				require.NoError(t, err)
+				served := make(chan struct{})
+				go func() {
+					defer close(served)
+					conn, acceptErr := ln.Accept()
+					if acceptErr != nil {
+						return
+					}
+					_, _ = conn.Read(make([]byte, 2048))
+					_ = conn.(*net.TCPConn).SetLinger(0)
+					_ = conn.Close()
+				}()
+				defer func() {
+					ln.Close()
+					<-served
+				}()
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				port := uint16(ln.Addr().(*net.TCPAddr).Port) //nolint:gosec // a TCP port
+				x := &GoSNMP{
+					Target: "127.0.0.1", Port: port, Transport: "tcp", LocalAddr: "bind.codec.invalid.:0",
+					Community: "public", Version: Version2c, MaxOids: MaxOids,
+					Timeout: end.timeout, Retries: 1, Context: ctx,
+				}
+				if callerConn {
+					x.Conn = dialTCPAgent(t, port)
+				} else {
+					require.NoError(t, x.Connect())
+				}
+				defer x.Close()
+				dns.answering.Store(false)
+
+				result := make(chan error, 1)
+				go func() {
+					_, err := x.Get([]string{engineOID})
+					result <- err
+				}()
+				dns.awaitHeld(t) // the reopen's lookup of the local address
+				if end.end != nil {
+					end.end(x, cancel)
+				}
+				select {
+				case err := <-result:
+					assert.ErrorIs(t, err, end.want)
+				case <-time.After(2 * time.Second):
+					dns.release()
+					t.Errorf("the request waits for the lookup; after its release: %v", <-result)
+				}
+			})
+		}
+	}
+}
+
 // TestEngineTCPReopenContext checks that the request's Context bounds the
 // dial of a TCP reopen: canceled during the dial, it fails the dial, and the
 // request with the dial's error, which matches context.Canceled.
