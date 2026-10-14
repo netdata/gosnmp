@@ -22,7 +22,7 @@ import (
 type connectResult struct {
 	err       string // "" for no error
 	transport string // Transport after the Connect
-	network   string // the network the client connected over
+	network   string // the network of the connection the client opened
 	connected bool   // Conn is set
 	local     string // the IP of Conn's local address
 	controls  []string
@@ -86,7 +86,7 @@ func TestConnect(t *testing.T) {
 			connect: (*GoSNMP).ConnectIPv6,
 			want: connectResult{
 				err:       "error establishing connection to host: dial udp6: address 127.0.0.1: no suitable address found",
-				transport: "udp", network: "udp6",
+				transport: "udp",
 			},
 		},
 		"invalid parameters": {
@@ -105,14 +105,14 @@ func TestConnect(t *testing.T) {
 			},
 			want: connectResult{
 				err:       "error establishing connection to host: dial udp :0->127.0.0.1:" + strconv.Itoa(int(udpPort)) + ": i/o timeout",
-				transport: "udp", network: "udp", controls: []string{"udp4"},
+				transport: "udp", controls: []string{"udp4"},
 			},
 		},
 		"canceled context": {
 			setup: func(x *GoSNMP, _ *connectResult) { x.Context = canceled },
 			want: connectResult{
 				err:       "error establishing connection to host: dial udp :0->127.0.0.1:" + strconv.Itoa(int(udpPort)) + ": operation was canceled",
-				transport: "udp", network: "udp",
+				transport: "udp",
 			},
 		},
 	}
@@ -157,7 +157,7 @@ func TestConnectUnconnectedUDPListenFailure(t *testing.T) {
 	}
 	err := x.Connect()
 	assert.ErrorContains(t, err, "error establishing connection to host: listen udp4 192.0.2.1:0")
-	assert.Equal(t, [2]string{"udp", "udp4"}, [2]string{x.Transport, x.network}, "Transport, network")
+	assert.Equal(t, [2]string{"udp", ""}, [2]string{x.Transport, x.network}, "Transport, network")
 	conn, ok := x.Conn.(*net.UDPConn)
 	assert.True(t, ok && conn == nil, "Conn = %#v, want a nil *net.UDPConn", x.Conn)
 }

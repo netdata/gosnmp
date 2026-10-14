@@ -268,7 +268,7 @@ func engineScenarios() map[string]engineScenario {
 		// A client given a Conn without Connect: the request supplies the
 		// Context and the receive buffer.
 		"conn-without-connect": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) {
-			x.Context, x.rxBuf = nil, nil
+			x.Context, x.Transport, x.rxBuf = nil, "", nil
 		}},
 		"conn-without-receive-buffer": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) {
 			x.rxBuf = nil
@@ -306,6 +306,14 @@ func engineScenarios() map[string]engineScenario {
 				ctx, cancel := context.WithCancel(context.Background())
 				cancel()
 				x.Context = ctx
+			}
+		}},
+		"hooks/retry-sets-context-deadline": {setup: func(x *GoSNMP, c *fakeTransport) {
+			onRetry := x.OnRetry
+			x.OnRetry = func(x *GoSNMP) {
+				onRetry(x)
+				c.tr.addf("hook OnRetry sets a Context with a deadline in 500ms")
+				x.Context = unreportedDeadline{context.Background(), time.Now().Add(500 * time.Millisecond)}
 			}
 		}},
 		"hooks/retry-replaces-hooks": {agent: answerFrom(3, sysDescr), setup: func(x *GoSNMP, c *fakeTransport) {
@@ -658,11 +666,13 @@ func runEngineScenario(t *testing.T, sc engineScenario) string {
 	tr.addf("client: %v timeout=%s retries=%d exponential=%t", x.Version, x.Timeout, x.Retries, x.ExponentialTimeout)
 	var res *SnmpPacket
 	var err error
+	before := configOf(x)
 	if v, _ := recoverPanic(func() { res, err = run(x) }); v != nil {
 		tr.addf("panic: %v", v)
 	} else {
 		tr.addf("result: %s", describeEngineResult(res, err))
 	}
+	tr.addConfigChanges(before, x)
 	tr.addf("client after: retries=%d next request id=%d", x.Retries, (x.requestID.Load()+1)&0x7FFFFFFF)
 	if sc.knownBug != "" {
 		tr.addf("known bug: %s", sc.knownBug)
@@ -810,55 +820,77 @@ func TestEngineTCPReconnect(t *testing.T) {
 	}
 }
 
-// TestEngineTCPReconnectWithoutConnect pins that a request over a TCP Conn
-// the caller set, without Connect and without a Context, reconnects over the
-// network it read at its start when the agent closes the connection, though a
-// hook changes Transport during the request.
-func TestEngineTCPReconnectWithoutConnect(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	var requests atomic.Int32
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for {
-			conn, acceptErr := ln.Accept()
-			if acceptErr != nil {
-				return
-			}
-			go serveTCPRequests(conn, func(req []byte) (reply []byte, keepOpen bool) {
-				if requests.Add(1) == 1 {
-					return nil, false // the agent closes the connection
-				}
-				return replyTo(req, nil, sysDescr), true
-			})
-		}
-	}()
-	defer func() {
-		ln.Close()
-		<-done
-	}()
-
-	conn, err := net.Dial("tcp", ln.Addr().String())
-	require.NoError(t, err)
-	x := &GoSNMP{
-		Target:    "127.0.0.1",
-		Port:      uint16(ln.Addr().(*net.TCPAddr).Port), //nolint:gosec // a TCP port
-		Transport: "tcp",
-		Community: "public",
-		Version:   Version2c,
-		Timeout:   10 * time.Second,
-		Retries:   1,
-		MaxOids:   MaxOids,
-		Conn:      conn,
-		OnSent:    func(x *GoSNMP) { x.Transport = "udp" },
+// TestEngineTCPReconnectCallerConn pins that a request over a TCP Conn the
+// caller set, without a Context, reconnects over the network it read from
+// Transport at its start when the agent closes the connection, though a hook
+// changes Transport during the request, and whatever network an earlier
+// Connect of the client used.
+func TestEngineTCPReconnectCallerConn(t *testing.T) {
+	tests := map[string]struct {
+		before func(t *testing.T, x *GoSNMP) // what the client did before the caller set Conn
+	}{
+		"without Connect": {},
+		"after a UDP Connect and Close": {before: func(t *testing.T, x *GoSNMP) {
+			require.NoError(t, x.Connect())
+			require.NoError(t, x.Close())
+		}},
+		"after a UDP Connect, Conn replaced": {before: func(t *testing.T, x *GoSNMP) {
+			require.NoError(t, x.Connect())
+			conn := x.Conn
+			t.Cleanup(func() { _ = conn.Close() })
+		}},
 	}
-	defer x.Close()
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ln, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			var requests atomic.Int32
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				for {
+					conn, acceptErr := ln.Accept()
+					if acceptErr != nil {
+						return
+					}
+					go serveTCPRequests(conn, func(req []byte) (reply []byte, keepOpen bool) {
+						if requests.Add(1) == 1 {
+							return nil, false // the agent closes the connection
+						}
+						return replyTo(req, nil, sysDescr), true
+					})
+				}
+			}()
+			defer func() {
+				ln.Close()
+				<-done
+			}()
 
-	res, err := x.Get([]string{engineOID})
-	require.NoError(t, err)
-	assert.Equal(t, []SnmpPDU{sysDescr}, res.Variables)
-	assert.Equal(t, int32(2), requests.Load(), "requests the agent read")
+			x := &GoSNMP{
+				Target:    "127.0.0.1",
+				Port:      unusedUDPPort(t),
+				Community: "public",
+				Version:   Version2c,
+				Timeout:   10 * time.Second,
+				Retries:   1,
+				MaxOids:   MaxOids,
+			}
+			if tc.before != nil {
+				tc.before(t, x)
+			}
+			conn, err := net.Dial("tcp", ln.Addr().String())
+			require.NoError(t, err)
+			x.Conn, x.Context = conn, nil
+			x.Transport, x.Port = "tcp", uint16(ln.Addr().(*net.TCPAddr).Port) //nolint:gosec // a TCP port
+			x.OnSent = func(x *GoSNMP) { x.Transport = "udp" }
+			defer x.Close()
+
+			res, err := x.Get([]string{engineOID})
+			require.NoError(t, err)
+			assert.Equal(t, []SnmpPDU{sysDescr}, res.Variables)
+			assert.Equal(t, int32(2), requests.Load(), "requests the agent read")
+		})
+	}
 }
 
 // serveTCPRequests reads requests from conn, one per read, and hands each to

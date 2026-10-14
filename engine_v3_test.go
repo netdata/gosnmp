@@ -701,6 +701,50 @@ func v3Scenarios() map[string]v3Scenario {
 			user: "codec-md5",
 			run:  onLogging("SEND INIT", func(x *GoSNMP) { x.Version = Version2c }),
 		},
+		// The discovery exchange's OnFinish changes the client: the request
+		// keeps its retries, timeout and hooks.
+		"hooks/discovery-changes-client": {
+			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				return agentAnswer{drop: true, why: "no answer"}, n == 2 || n == 3
+			},
+			run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+				onFinish, done := x.OnFinish, false
+				x.OnFinish = func(x *GoSNMP) {
+					onFinish(x)
+					if !done {
+						done = true
+						a.tr.addf("hook OnFinish sets Retries to 0, Timeout to 5s and replaces OnSent")
+						x.Retries, x.Timeout = 0, 5*time.Second
+						x.OnSent = func(*GoSNMP) { a.tr.addf("hook OnSent, the replacement") }
+					}
+				}
+				return x.Get([]string{engineOID})
+			},
+		},
+		// The resync exchange's OnFinish changes the client before the resend.
+		"hooks/resync-changes-client": {
+			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				switch n {
+				case 2:
+					return agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "not in time window"}, true
+				case 3:
+					return agentAnswer{drop: true, why: "no answer"}, true
+				}
+				return agentAnswer{}, false
+			},
+			run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+				onFinish, calls := x.OnFinish, 0
+				x.OnFinish = func(x *GoSNMP) {
+					onFinish(x)
+					if calls++; calls == 2 {
+						a.tr.addf("hook OnFinish sets Retries to 0 and replaces OnSent")
+						x.Retries = 0
+						x.OnSent = func(*GoSNMP) { a.tr.addf("hook OnSent, the replacement") }
+					}
+				}
+				return x.Get([]string{engineOID})
+			},
+		},
 		"hooks/logger-changes-context-name": {
 			user: "codec-md5",
 			run:  onLogging("SEND INIT", func(x *GoSNMP) { x.ContextName = "codec-other-name" }),
@@ -1203,11 +1247,13 @@ func runV3Scenario(t *testing.T, sc v3Scenario) string {
 	tr.addf("client: user=%q %s timeout=%s retries=%d", sc.user, describeFlags(x.MsgFlags), x.Timeout, x.Retries)
 	var res *SnmpPacket
 	var err error
+	before := configOf(x)
 	if v, _ := recoverPanic(func() { res, err = run(x, agent) }); v != nil {
 		tr.addf("panic: %v", v)
 	} else {
 		tr.addf("result: %s", describeEngineResult(res, err))
 	}
+	tr.addConfigChanges(before, x)
 	usp := x.SecurityParameters.usm()
 	tr.addf("client after: engine=%q boots=%d time=%d keys=%s context engine=%q", usp.AuthoritativeEngineID,
 		usp.AuthoritativeEngineBoots, usp.AuthoritativeEngineTime, describeKeys(usp), x.ContextEngineID)

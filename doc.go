@@ -15,7 +15,11 @@
 // client may instead be given a Conn. [GoSNMP.Close] closes the connection.
 // Connect may be called again after Close. A request reads the client's
 // configuration when it starts and does not change it: a change a hook or the
-// Logger makes applies from the next request. The request IDs and msgIDs start
+// Logger makes applies from the next request. Exceptions: the Logger itself is
+// used as it is set, the SNMPv3 engine state the client learns (in
+// SecurityParameters and ContextEngineID) is the running request's too, and a
+// TCP reconnect dials with the client's Target, Port, LocalAddr and Control at
+// that moment, and replaces Conn. The request IDs and msgIDs start
 // at a random value on first use unless [GoSNMP.SetRequestID] and
 // [GoSNMP.SetMsgID] set them, and Connect does not reset them.
 //

@@ -10,8 +10,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"os"
+	"reflect"
 	"slices"
 	"strings"
 	"syscall"
@@ -270,6 +272,44 @@ func newEngineClientFrom(tb testing.TB, tr *engineTranscript, conn net.Conn, x *
 		x.OnFinish = func(*GoSNMP) { tr.addf("hook OnFinish") }
 	}
 	return x
+}
+
+// configOf returns the client's configuration a request must not write: its
+// exported fields, but for the hooks and the Logger (user code), Conn (the
+// connection) and the SNMPv3 engine state the client learns
+// (SecurityParameters, ContextEngineID).
+func configOf(x *GoSNMP) map[string]any {
+	v := reflect.ValueOf(x).Elem()
+	cfg := make(map[string]any)
+	for i := range v.NumField() {
+		f := v.Type().Field(i)
+		switch {
+		case !f.IsExported(), f.Type.Kind() == reflect.Func:
+			continue
+		}
+		switch f.Name {
+		case "Logger", "Conn", "SecurityParameters", "ContextEngineID":
+			continue
+		}
+		cfg[f.Name] = v.Field(i).Interface()
+	}
+	return cfg
+}
+
+// addConfigChanges records the configuration fields whose values changed
+// from before to the client's current ones: a test's hooks may change them,
+// the library may not.
+func (tr *engineTranscript) addConfigChanges(before map[string]any, x *GoSNMP) {
+	after := configOf(x)
+	var changed []string
+	for _, name := range slices.Sorted(maps.Keys(before)) {
+		if !reflect.DeepEqual(before[name], after[name]) {
+			changed = append(changed, name)
+		}
+	}
+	if len(changed) > 0 {
+		tr.addf("client configuration changed: %s", strings.Join(changed, ", "))
+	}
 }
 
 // decodeMessage decodes a v1/v2c message, as an agent reads a request.

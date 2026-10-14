@@ -197,10 +197,12 @@ type GoSNMP struct {
 	requestIDSet atomic.Bool
 	msgIDSet     atomic.Bool
 
-	// network is the network of the connection: Transport, with the suffix of
-	// ConnectIPv4 or ConnectIPv6, narrowed to IPv4 for an IPv4 LocalAddr;
-	// empty before Connect.
-	network string
+	// network is the network of networkConn, the connection the client last
+	// opened (Connect or a TCP reconnect): Transport with the suffix of
+	// ConnectIPv4 or ConnectIPv6, narrowed to IPv4 for an IPv4 LocalAddr. A
+	// request uses it while Conn is that connection, and Transport otherwise.
+	network     string
+	networkConn net.Conn
 
 	// rxBuf is the receive buffer, allocated by the first request.
 	rxBuf *[rxBufSize]byte // has to be pointer due to https://github.com/golang/go/issues/11728

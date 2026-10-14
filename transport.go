@@ -64,57 +64,64 @@ func (x *GoSNMP) connect(networkSuffix string) error {
 // netConnect opens the connection to the agent over network, or for an
 // unconnected UDP socket a local socket, with ctx and timeout bounding the
 // dial; the TCP transport reconnects with it. A UDP or TCP local address in
-// IPv4 narrows the network to IPv4, and the client keeps the network it used.
+// IPv4 narrows the network to IPv4. The client records the network of the
+// connection it opened.
 func (x *GoSNMP) netConnect(ctx context.Context, timeout time.Duration, network string) error {
 	addr := net.JoinHostPort(x.Target, strconv.Itoa(int(x.Port)))
 
+	var local net.Addr
 	switch network {
 	case "udp", "udp4", "udp6":
-		local, err := net.ResolveUDPAddr(network, x.LocalAddr)
+		udpLocal, err := net.ResolveUDPAddr(network, x.LocalAddr)
 		if err != nil {
 			return err
 		}
-		if local.IP.To4() != nil {
+		if udpLocal.IP.To4() != nil {
 			network = "udp4"
 		}
-		x.network = network
 		if x.UseUnconnectedUDPSocket {
-			return x.listenUnconnectedUDP(local, addr)
+			return x.opened(network, x.listenUnconnectedUDP(network, udpLocal, addr))
 		}
-		return x.dial(ctx, timeout, local, addr)
+		local = udpLocal
 	case "tcp", "tcp4", "tcp6":
-		local, err := net.ResolveTCPAddr(network, x.LocalAddr)
+		tcpLocal, err := net.ResolveTCPAddr(network, x.LocalAddr)
 		if err != nil {
 			return err
 		}
-		if local.IP.To4() != nil {
+		if tcpLocal.IP.To4() != nil {
 			network = "tcp4"
 		}
-		x.network = network
-		return x.dial(ctx, timeout, local, addr)
+		local = tcpLocal
 	}
-	x.network = network
-	return x.dial(ctx, timeout, nil, addr)
+	return x.opened(network, x.dial(ctx, timeout, network, local, addr))
 }
 
-// dial connects to addr over the client's network from the local address,
-// nil for any.
-func (x *GoSNMP) dial(ctx context.Context, timeout time.Duration, local net.Addr, addr string) error {
+// opened records network as the network of Conn when err, the error of
+// opening Conn, is nil, and returns err.
+func (x *GoSNMP) opened(network string, err error) error {
+	if err == nil {
+		x.network, x.networkConn = network, x.Conn
+	}
+	return err
+}
+
+// dial connects to addr over network from the local address, nil for any.
+func (x *GoSNMP) dial(ctx context.Context, timeout time.Duration, network string, local net.Addr, addr string) error {
 	dialer := net.Dialer{Timeout: timeout, LocalAddr: local, Control: x.Control}
 	var err error
-	x.Conn, err = dialer.DialContext(ctx, x.network, addr)
+	x.Conn, err = dialer.DialContext(ctx, network, addr)
 	return err
 }
 
 // listenUnconnectedUDP opens a UDP socket on the local address that writes to
 // the agent at addr. Known bug: when the socket cannot be opened, Conn is left
 // holding a nil *net.UDPConn, which compares unequal to nil.
-func (x *GoSNMP) listenUnconnectedUDP(local *net.UDPAddr, addr string) error {
+func (x *GoSNMP) listenUnconnectedUDP(network string, local *net.UDPAddr, addr string) error {
 	var err error
-	if x.uaddr, err = net.ResolveUDPAddr(x.network, addr); err != nil {
+	if x.uaddr, err = net.ResolveUDPAddr(network, addr); err != nil {
 		return err
 	}
-	x.Conn, err = net.ListenUDP(x.network, local)
+	x.Conn, err = net.ListenUDP(network, local)
 	return err
 }
 

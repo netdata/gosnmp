@@ -135,9 +135,11 @@ func TestRequestAndMsgIDs(t *testing.T) {
 		assert.Equal(t, [2]uint32{0, 0}, ids(x), "wrap")
 	})
 	t.Run("random start without Connect", func(t *testing.T) {
-		// An unseeded counter would start at 1 (a 2^-62 chance of a false
-		// failure).
-		assert.NotEqual(t, [2]uint32{1, 1}, ids(newClient()))
+		// An unseeded counter would start at 1 (a 2^-31 chance of a false
+		// failure for each).
+		id := ids(newClient())
+		assert.NotEqual(t, uint32(1), id[0], "request ID")
+		assert.NotEqual(t, uint32(1), id[1], "msgID")
 	})
 }
 

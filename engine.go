@@ -106,7 +106,9 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 // requestConfig is the client's configuration as a request reads it, once, at
 // its start: a change a hook or the Logger makes to the client applies from
 // the next request. The packet carries the rest (version, security level and
-// model, context).
+// model, context). Not part of it: the Logger, the learned SNMPv3 engine
+// state, and the connection, which a TCP reconnect dials with the client's
+// Target, Port, LocalAddr and Control at that moment.
 type requestConfig struct {
 	ctx                context.Context
 	timeout            time.Duration
@@ -128,12 +130,16 @@ func (x *GoSNMP) prepareRequest() requestConfig {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	network := cmp.Or(x.Transport, udp)
+	if x.networkConn != nil && x.Conn == x.networkConn {
+		network = x.network
+	}
 	return requestConfig{
 		ctx:                ctx,
 		timeout:            x.Timeout,
 		retries:            max(x.Retries, 0),
 		exponentialTimeout: x.ExponentialTimeout,
-		network:            cmp.Or(x.network, x.Transport, udp),
+		network:            network,
 		preSend:            x.PreSend,
 		onSent:             x.OnSent,
 		onRecv:             x.OnRecv,
