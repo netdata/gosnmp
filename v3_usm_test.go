@@ -6,6 +6,7 @@ package gosnmp
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/fips140"
 	"encoding/hex"
 	"io"
@@ -766,7 +767,9 @@ func TestUSMKeyLengths(t *testing.T) {
 		PrivacyPassphrase:        "codec-priv-pass",
 	}
 	require.NoError(t, derived.InitSecurityKeys())
-	assert.Len(t, derived.PrivacyKey, 16, "derived DES key")
+	localized, err := passwordCache.LocalizedKey(crypto.SHA1, "codec-priv-pass", usmCharEngineID)
+	require.NoError(t, err)
+	assert.Equal(t, localized[:16], derived.PrivacyKey, "derived DES key")
 
 	tests := map[string]struct {
 		auth         SnmpV3AuthProtocol
@@ -802,4 +805,20 @@ func TestUSMKeyLengths(t *testing.T) {
 			assert.Equal(t, [2]string{tc.want, tc.want}, got)
 		})
 	}
+}
+
+// TestUSMFIPS140OnlyKeyDerivation checks, when run with GODEBUG=fips140=only,
+// that InitSecurityKeys returns the error of deriving a key with a hash the
+// mode refuses, not the missing key it leaves.
+func TestUSMFIPS140OnlyKeyDerivation(t *testing.T) {
+	if !fips140.Enforced() {
+		t.Skip("run with GODEBUG=fips140=only")
+	}
+	sp := &UsmSecurityParameters{
+		AuthoritativeEngineID:    usmCharEngineID,
+		AuthenticationProtocol:   MD5,
+		AuthenticationPassphrase: "codec-auth-pass",
+	}
+	require.EqualError(t, sp.InitSecurityKeys(), "crypto/md5: use of MD5 is not allowed in FIPS 140-only mode")
+	assert.Nil(t, sp.SecretKey)
 }

@@ -58,7 +58,7 @@ func TestPrivErrors(t *testing.T) {
 	require.ErrorIs(t, err, errNoCipher, "decrypt without a cipher")
 
 	_, err = Priv{Cipher: DESCBC, KeyLen: 16}.Decrypt(key, salt, 0, 0, make([]byte, 9))
-	require.EqualError(t, err, "error decrypting ScopedPDU: not multiple of des block size")
+	require.EqualError(t, err, "usm: decrypting: ciphertext of 9 octets, not whole DES blocks")
 }
 
 // TestPrivKeyAndSaltLengths checks the rule of Encrypt and Decrypt: a key of

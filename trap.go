@@ -16,12 +16,13 @@ import (
 // An SNMPv3 message is decoded, when TrapSecurityParametersTable is set, with
 // the sets the table holds for its user name, each on a copy of trap, until
 // one decodes it; useResponseSecurityParameters is then always set. Otherwise
-// UnmarshalTrap derives the missing keys of SecurityParameters and decodes
-// trap in place (see the package documentation) with a copy of them. When the
-// flags ask for authentication, a User-based Security Model message must name
-// the user and carry a digest that checks with the user's key, localized to
-// the engine ID the message names. The flags and the user are the client's,
-// or, with useResponseSecurityParameters, the message's own.
+// UnmarshalTrap derives the missing keys of SecurityParameters, so parameters
+// naming a protocol with neither a key nor a passphrase fail every message,
+// and decodes trap in place (see the package documentation) with a copy of
+// them. When the flags ask for authentication, a User-based Security Model
+// message must name the user and carry a digest that checks with the user's
+// key, localized to the engine ID the message names. The flags and the user
+// are the client's, or, with useResponseSecurityParameters, the message's own.
 //
 // Known bugs: these messages are accepted without the security their user
 // needs: one of another security model, and one with an empty user name and

@@ -78,12 +78,9 @@ func (c *Cache) LocalizedKey(h crypto.Hash, passphrase, engineID string) ([]byte
 
 // PrivacyKey returns the key of privacy protocol p: passphrase localized to
 // engineID with hash h, extended once when it is shorter than the cipher key,
-// and cut to the cipher key length. A key still too short fails with p's
-// CheckKey error.
+// and cut to the cipher key length; the result passes p's CheckKey, or fails
+// with its error (a key still too short).
 func (c *Cache) PrivacyKey(p Priv, h crypto.Hash, passphrase, engineID string) ([]byte, error) {
-	if p.Cipher == NoCipher {
-		return nil, errNoCipher
-	}
 	key, err := c.LocalizedKey(h, passphrase, engineID)
 	if err != nil {
 		return nil, err
@@ -99,10 +96,11 @@ func (c *Cache) PrivacyKey(p Priv, h crypto.Hash, passphrase, engineID string) (
 			key = extendBlumenthal(h, key)
 		}
 	}
-	if len(key) < p.KeyLen {
-		return nil, fmt.Errorf("usm: %w", p.CheckKey(key))
+	key = key[:min(len(key), p.KeyLen)]
+	if err := p.CheckKey(key); err != nil {
+		return nil, fmt.Errorf("usm: %w", err)
 	}
-	return key[:p.KeyLen], nil
+	return key, nil
 }
 
 // extendReeder extends a localized key with the Reeder key extension

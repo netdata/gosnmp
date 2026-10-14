@@ -50,15 +50,15 @@ type Priv struct {
 const SaltLen = 8
 
 var (
-	errNoCipher         = errors.New("usm: no privacy cipher")
-	errCFBNotAllowed    = errors.New("AES-CFB is not allowed in FIPS 140-only mode")
-	errDESNotWholeBlock = errors.New("error decrypting ScopedPDU: not multiple of des block size")
+	errNoCipher      = errors.New("no privacy cipher")
+	errCFBNotAllowed = errors.New("AES-CFB is not allowed in FIPS 140-only mode")
 )
 
-// CheckKey returns a *KeyError unless key is exactly the protocol's KeyLen, the
-// one rule for privacy keys.
+// CheckKey is the one rule for privacy keys: it returns an error for a
+// protocol without a cipher, and a *KeyError unless key is exactly the
+// protocol's KeyLen.
 func (p Priv) CheckKey(key []byte) error {
-	if p.Cipher == NoCipher {
+	if p.Cipher != DESCBC && p.Cipher != AESCFB {
 		return errNoCipher
 	}
 	if len(key) != p.KeyLen {
@@ -87,16 +87,20 @@ func (p Priv) check(key, salt []byte) error {
 // msgPrivacyParameters; AES also takes the engine boots and time into its IV.
 // DES pads the plaintext with zeros to whole blocks, with a whole block of
 // padding when it is a multiple of the block size already. It refuses what
-// check refuses.
+// check refuses; its errors start with "usm: encrypting: ".
 func (p Priv) Encrypt(key, salt []byte, engineBoots, engineTime uint32, plaintext []byte) ([]byte, error) {
-	if p.Cipher == NoCipher {
-		return nil, errNoCipher
-	}
-	if err := p.check(key, salt); err != nil {
+	ciphertext, err := p.encrypt(key, salt, engineBoots, engineTime, plaintext)
+	if err != nil {
 		return nil, fmt.Errorf("usm: encrypting: %w", err)
 	}
-	switch p.Cipher {
-	case AESCFB:
+	return ciphertext, nil
+}
+
+func (p Priv) encrypt(key, salt []byte, engineBoots, engineTime uint32, plaintext []byte) ([]byte, error) {
+	if err := p.check(key, salt); err != nil {
+		return nil, err
+	}
+	if p.Cipher == AESCFB {
 		iv := aesIV(engineBoots, engineTime, salt)
 		block, err := aes.NewCipher(key)
 		if err != nil {
@@ -107,32 +111,35 @@ func (p Priv) Encrypt(key, salt []byte, engineBoots, engineTime uint32, plaintex
 		ciphertext := make([]byte, len(plaintext))
 		stream.XORKeyStream(ciphertext, plaintext)
 		return ciphertext, nil
-	case DESCBC:
-		iv := desIV(key, salt)
-		block, err := des.NewCipher(key[:8]) //nolint:gosec
-		if err != nil {
-			return nil, err
-		}
-		ciphertext := make([]byte, len(plaintext)+des.BlockSize-len(plaintext)%des.BlockSize)
-		copy(ciphertext, plaintext)
-		cipher.NewCBCEncrypter(block, iv[:]).CryptBlocks(ciphertext, ciphertext)
-		return ciphertext, nil
 	}
-	return nil, errNoCipher
+	iv := desIV(key, salt)
+	block, err := des.NewCipher(key[:8]) //nolint:gosec
+	if err != nil {
+		return nil, err
+	}
+	ciphertext := make([]byte, len(plaintext)+des.BlockSize-len(plaintext)%des.BlockSize)
+	copy(ciphertext, plaintext)
+	cipher.NewCBCEncrypter(block, iv[:]).CryptBlocks(ciphertext, ciphertext)
+	return ciphertext, nil
 }
 
 // Decrypt returns the plaintext of an encrypted scoped PDU, with the DES
 // padding left in place. The arguments are those of Encrypt, and it refuses
-// what Encrypt refuses.
+// what Encrypt refuses, and DES ciphertext that is not whole blocks; its
+// errors start with "usm: decrypting: ".
 func (p Priv) Decrypt(key, salt []byte, engineBoots, engineTime uint32, ciphertext []byte) ([]byte, error) {
-	if p.Cipher == NoCipher {
-		return nil, errNoCipher
-	}
-	if err := p.check(key, salt); err != nil {
+	plaintext, err := p.decrypt(key, salt, engineBoots, engineTime, ciphertext)
+	if err != nil {
 		return nil, fmt.Errorf("usm: decrypting: %w", err)
 	}
-	switch p.Cipher {
-	case AESCFB:
+	return plaintext, nil
+}
+
+func (p Priv) decrypt(key, salt []byte, engineBoots, engineTime uint32, ciphertext []byte) ([]byte, error) {
+	if err := p.check(key, salt); err != nil {
+		return nil, err
+	}
+	if p.Cipher == AESCFB {
 		iv := aesIV(engineBoots, engineTime, salt)
 		block, err := aes.NewCipher(key)
 		if err != nil {
@@ -143,20 +150,18 @@ func (p Priv) Decrypt(key, salt []byte, engineBoots, engineTime uint32, cipherte
 		plaintext := make([]byte, len(ciphertext))
 		stream.XORKeyStream(plaintext, ciphertext)
 		return plaintext, nil
-	case DESCBC:
-		if len(ciphertext)%des.BlockSize != 0 {
-			return nil, errDESNotWholeBlock
-		}
-		iv := desIV(key, salt)
-		block, err := des.NewCipher(key[:8]) //nolint:gosec
-		if err != nil {
-			return nil, err
-		}
-		plaintext := make([]byte, len(ciphertext))
-		cipher.NewCBCDecrypter(block, iv[:]).CryptBlocks(plaintext, ciphertext)
-		return plaintext, nil
 	}
-	return nil, errNoCipher
+	if len(ciphertext)%des.BlockSize != 0 {
+		return nil, fmt.Errorf("ciphertext of %d octets, not whole DES blocks", len(ciphertext))
+	}
+	iv := desIV(key, salt)
+	block, err := des.NewCipher(key[:8]) //nolint:gosec
+	if err != nil {
+		return nil, err
+	}
+	plaintext := make([]byte, len(ciphertext))
+	cipher.NewCBCDecrypter(block, iv[:]).CryptBlocks(plaintext, ciphertext)
+	return plaintext, nil
 }
 
 // aesIV returns the IV of CFB-AES (RFC 3826 section 3.1.2.1): the engine

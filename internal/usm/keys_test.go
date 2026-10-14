@@ -46,13 +46,27 @@ func TestLocalizedKeyEmptyPassphrase(t *testing.T) {
 	assert.Nil(t, key)
 }
 
-// TestPrivacyKeyTooShort checks that a privacy key still shorter than its
-// cipher key after the extension fails with the rule's *KeyError.
+// TestPrivacyKeyTooShort checks that a privacy key shorter than its cipher
+// key, without an extension or still after one, fails with the rule's
+// *KeyError, and that a protocol without a cipher fails.
 func TestPrivacyKeyTooShort(t *testing.T) {
-	_, err := NewCache().PrivacyKey(Priv{Cipher: AESCFB, KeyLen: 32}, crypto.MD5, "codec-pass", "codec-engine")
-	var short *KeyError
-	require.ErrorAs(t, err, &short)
-	assert.Equal(t, &KeyError{Kind: "privacy", Len: 16, Want: 32}, short)
+	tests := map[string]struct {
+		p    Priv
+		want *KeyError
+	}{
+		"no extension":          {p: Priv{Cipher: AESCFB, KeyLen: 32}, want: &KeyError{Kind: "privacy", Len: 16, Want: 32}},
+		"extended, still short": {p: Priv{Cipher: AESCFB, KeyLen: 40, Extension: Blumenthal}, want: &KeyError{Kind: "privacy", Len: 32, Want: 40}},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := NewCache().PrivacyKey(tc.p, crypto.MD5, "codec-pass", "codec-engine")
+			var short *KeyError
+			require.ErrorAs(t, err, &short)
+			assert.Equal(t, tc.want, short)
+		})
+	}
+	_, err := NewCache().PrivacyKey(Priv{}, crypto.MD5, "codec-pass", "codec-engine")
+	require.ErrorIs(t, err, errNoCipher)
 }
 
 // TestCacheKeys checks that the cache keeps one password-to-key result per

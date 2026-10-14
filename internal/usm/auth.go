@@ -34,7 +34,7 @@ const MaxMACLen = 48
 
 // KeyError reports a key that does not fit its protocol: an authentication key
 // that is not the size of the protocol's hash (RFC 3414 sections 6 and 7, RFC
-// 7860 section 4.2.1), or a privacy key that is not the cipher key.
+// 7860 sections 4.1 and 4.2), or a privacy key that is not the cipher key.
 type KeyError struct {
 	// Kind is "authentication" or "privacy".
 	Kind      string
@@ -50,8 +50,9 @@ func (e *KeyError) Error() string {
 
 var errNoAuth = errors.New("usm: no authentication protocol")
 
-// CheckKey returns a *KeyError unless key is exactly the size of the
-// protocol's hash, the one rule for authentication keys.
+// CheckKey is the one rule for authentication keys: it returns an error for the
+// zero Auth, which has no protocol, and a *KeyError unless key is exactly the
+// size of the protocol's hash.
 func (a Auth) CheckKey(key []byte) error {
 	if !a.Hash.Available() {
 		return errNoAuth
