@@ -8,9 +8,12 @@ import (
 	"bytes"
 	"crypto"
 	"crypto/fips140"
+	"crypto/hmac"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"log"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -821,4 +824,128 @@ func TestUSMFIPS140OnlyKeyDerivation(t *testing.T) {
 	}
 	require.EqualError(t, sp.InitSecurityKeys(), "crypto/md5: use of MD5 is not allowed in FIPS 140-only mode")
 	assert.Nil(t, sp.SecretKey)
+}
+
+// TestSignDigestOffset pins where an outgoing message's digest goes: into its
+// msgAuthenticationParameters field, as the digest of the message with the
+// field zeroed, for layouts whose lengths take the long form (a USM SEQUENCE
+// over 127 and 255 octets, a security-parameters OCTET STRING of 127 and 128
+// octets, messages over 255 and 65535 octets). The signed message differs from
+// its unsigned layout only in that field and decodes as an authentic trap.
+func TestSignDigestOffset(t *testing.T) {
+	// usmLen is the length of the encoded USM SEQUENCE of a message from user.
+	usmLen := func(t *testing.T, auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol, user string) int {
+		m := splitV3Message(t, signedTestTrap(t, auth, priv, user, nil))
+		var usm [][]byte
+		for i, f := range m.usm {
+			usm = append(usm, tlv(m.usmTags[i], f))
+		}
+		return len(tlv(0x30, usm...))
+	}
+	// userForUSMLen returns a user name that makes the USM SEQUENCE n octets
+	// long (its content under 128 octets).
+	userForUSMLen := func(t *testing.T, auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol, n int) string {
+		u := strings.Repeat("u", n-usmLen(t, auth, priv, ""))
+		require.Equal(t, n, usmLen(t, auth, priv, u))
+		return u
+	}
+	value := func(n int) []SnmpPDU {
+		return []SnmpPDU{{Name: ".1.3.6.1.2.1.1.1.0", Type: OctetString, Value: bytes.Repeat([]byte("v"), n)}}
+	}
+
+	tests := map[string]struct {
+		user      func(t *testing.T, auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol) string
+		variables []SnmpPDU
+		minLen    int // of the message
+	}{
+		"short": {},
+		"USM SEQUENCE over 127 octets": {
+			user: func(*testing.T, SnmpV3AuthProtocol, SnmpV3PrivProtocol) string { return strings.Repeat("u", 100) },
+		},
+		"USM SEQUENCE over 255 octets": {
+			user: func(*testing.T, SnmpV3AuthProtocol, SnmpV3PrivProtocol) string { return strings.Repeat("u", 250) },
+		},
+		"security parameters of 127 octets": {
+			user: func(t *testing.T, auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol) string {
+				return userForUSMLen(t, auth, priv, 127)
+			},
+		},
+		"security parameters of 128 octets": {
+			user: func(t *testing.T, auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol) string {
+				return userForUSMLen(t, auth, priv, 128)
+			},
+		},
+		"message over 255 octets":   {variables: value(300), minLen: 256},
+		"message over 65535 octets": {variables: value(70000), minLen: 65536},
+	}
+	for name, tc := range tests {
+		for _, auth := range []SnmpV3AuthProtocol{MD5, SHA512} {
+			for _, priv := range []SnmpV3PrivProtocol{NoPriv, AES} {
+				t.Run(fmt.Sprintf("%s/%s/%s", name, auth, priv), func(t *testing.T) {
+					user := "codec-user"
+					if tc.user != nil {
+						user = tc.user(t, auth, priv)
+					}
+					data := signedTestTrap(t, auth, priv, user, tc.variables)
+					require.GreaterOrEqual(t, len(data), tc.minLen)
+
+					m := splitV3Message(t, data)
+					require.Equal(t, data, m.bytes(), "the message re-encodes as laid out")
+					digest := m.usm[4]
+					m.usm[4] = make([]byte, len(digest))
+					unsigned := m.bytes()
+
+					sp := signedTestUSM(t, auth, priv, user)
+					mac := hmac.New(auth.HashType().New, sp.SecretKey)
+					mac.Write(unsigned)
+					assert.Equal(t, mac.Sum(nil)[:auth.spec().MACLen], digest, "the field holds the digest")
+
+					x := &GoSNMP{Version: Version3, MsgFlags: signedTestFlags(priv), SecurityModel: UserSecurityModel, SecurityParameters: sp}
+					res, err := x.UnmarshalTrap(bytes.Clone(data), false)
+					require.NoError(t, err)
+					assert.Equal(t, user, res.SecurityParameters.usm().UserName)
+					if tc.variables != nil {
+						require.Len(t, res.Variables, 1)
+						assert.Equal(t, tc.variables[0].Value, res.Variables[0].Value)
+					}
+				})
+			}
+		}
+	}
+}
+
+// signedTestUSM returns parameters for user with keys localized to
+// usmCharEngineID.
+func signedTestUSM(t *testing.T, auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol, user string) *UsmSecurityParameters {
+	t.Helper()
+	sp := &UsmSecurityParameters{
+		UserName: user, AuthenticationProtocol: auth, AuthenticationPassphrase: "codec-auth-pass",
+		PrivacyProtocol: priv, PrivacyPassphrase: "codec-priv-pass",
+		AuthoritativeEngineID: usmCharEngineID, AuthoritativeEngineBoots: 3, AuthoritativeEngineTime: 77,
+	}
+	require.NoError(t, sp.InitSecurityKeys())
+	return sp
+}
+
+// signedTestFlags is authPriv with a privacy protocol, authNoPriv without.
+func signedTestFlags(priv SnmpV3PrivProtocol) SnmpV3MsgFlags {
+	if priv > NoPriv {
+		return AuthPriv
+	}
+	return AuthNoPriv
+}
+
+// signedTestTrap encodes a signed SNMPv2-Trap from user, encrypted with a
+// privacy protocol, carrying variables (usmPlainVars when nil).
+func signedTestTrap(t *testing.T, auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol, user string, variables []SnmpPDU) []byte {
+	t.Helper()
+	if variables == nil {
+		variables = usmPlainVars
+	}
+	data, err := (&SnmpPacket{
+		Version: Version3, MsgFlags: signedTestFlags(priv), SecurityModel: UserSecurityModel,
+		SecurityParameters: signedTestUSM(t, auth, priv, user), PDUType: SNMPv2Trap, Variables: variables,
+	}).MarshalMsg()
+	require.NoError(t, err)
+	return data
 }
