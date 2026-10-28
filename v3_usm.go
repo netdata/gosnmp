@@ -9,7 +9,6 @@
 package gosnmp
 
 import (
-	"bytes"
 	"crypto"
 	"encoding/hex"
 	"errors"
@@ -68,8 +67,8 @@ func (authProtocol SnmpV3AuthProtocol) spec() usm.Auth {
 }
 
 // appendMACPlaceholder appends msgAuthenticationParameters as an outgoing
-// message carries them until sign writes the digest: an OCTET STRING
-// of macLen zeros.
+// message carries them until sign writes the digest into their content: an
+// OCTET STRING of macLen zeros (empty without authentication).
 func appendMACPlaceholder(dst []byte, macLen int) []byte {
 	dst = ber.AppendHeader(dst, byte(OctetString), macLen)
 	return append(dst, make([]byte, macLen)...)
@@ -464,25 +463,15 @@ func (sp *UsmSecurityParameters) discoveryPacket() *SnmpPacket {
 	}
 }
 
-// sign writes the digest of the message over the first
-// msgAuthenticationParameters placeholder found in it. Known bug: the first
-// placeholder anywhere in the message, so an engine ID or user name that
-// holds the placeholder's octets receives the digest instead.
-func (sp *UsmSecurityParameters) sign(packet []byte) error {
-	spec := sp.AuthenticationProtocol.spec()
-	msgDigest, err := spec.Digest(sp.SecretKey, packet)
+// sign writes the digest of packet, an outgoing message whose
+// msgAuthenticationParameters content at offset auth still holds the zeros of
+// appendMACPlaceholder, into that content.
+func (sp *UsmSecurityParameters) sign(packet []byte, auth int) error {
+	msgDigest, err := sp.AuthenticationProtocol.spec().Digest(sp.SecretKey, packet)
 	if err != nil {
 		return err
 	}
-
-	var buf [2 + usm.MaxMACLen]byte
-	placeholder := appendMACPlaceholder(buf[:0], spec.MACLen)
-	idx := bytes.Index(packet, placeholder)
-	if idx < 0 {
-		return fmt.Errorf("unable to locate the position in packet to write authentication key")
-	}
-
-	copy(packet[idx+2:idx+len(placeholder)], msgDigest)
+	copy(packet[auth:], msgDigest)
 	return nil
 }
 
@@ -558,20 +547,22 @@ func (sp *UsmSecurityParameters) decryptPacket(packet []byte, cursor int) ([]byt
 // marshal appends the User Security Model parameters: a SEQUENCE of the
 // authoritative engine ID, boots and time, the user name, the authentication
 // parameters (the zero placeholder sign fills in, or empty) and the
-// privacy parameters (the salt, or empty).
-func (sp *UsmSecurityParameters) marshal(dst []byte, flags SnmpV3MsgFlags, salt []byte) []byte {
+// privacy parameters (the salt, or empty). It also returns the offset of the
+// authentication parameters' content in dst.
+func (sp *UsmSecurityParameters) marshal(dst []byte, flags SnmpV3MsgFlags, salt []byte) ([]byte, int) {
 	dst, start := ber.Begin(dst, byte(Sequence))
 	dst = appendOctets(dst, OctetString, sp.AuthoritativeEngineID)
 	dst = appendUint(dst, Integer, uint64(sp.AuthoritativeEngineBoots))
 	dst = appendUint(dst, Integer, uint64(sp.AuthoritativeEngineTime))
 	dst = appendOctets(dst, OctetString, sp.UserName)
+	macLen := 0
 	if flags.authFlag() {
-		dst = appendMACPlaceholder(dst, sp.AuthenticationProtocol.spec().MACLen)
-	} else {
-		dst = append(dst, byte(OctetString), 0)
+		macLen = sp.AuthenticationProtocol.spec().MACLen
 	}
+	dst = appendMACPlaceholder(dst, macLen)
+	auth := len(dst) - macLen
 	dst = appendOctets(dst, OctetString, salt)
-	return ber.End(dst, start)
+	return ber.EndMoving(dst, start, auth)
 }
 
 // unmarshal reads the USM security parameters from r, which is positioned at

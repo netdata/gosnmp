@@ -80,6 +80,34 @@ func TestBeginEnd(t *testing.T) {
 	}
 }
 
+func TestEndMoving(t *testing.T) {
+	tests := map[string]struct {
+		contentLen int
+		shift      int // the extra length octets
+	}{
+		"short form":      {contentLen: 127},
+		"long form 128":   {contentLen: 128, shift: 1},
+		"long form 256":   {contentLen: 256, shift: 2},
+		"long form 65536": {contentLen: 65536, shift: 3},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			for _, at := range []int{0, tt.contentLen / 2, tt.contentLen - 1} {
+				dst, start := Begin([]byte{0xaa, 0xbb}, 0x30)
+				dst = append(dst, make([]byte, tt.contentLen)...)
+				dst[start+at] = 0xee
+
+				dst, off := EndMoving(dst, start, start+at)
+				if off != start+at+tt.shift || dst[off] != 0xee {
+					t.Errorf("offset %d of %d content octets moved to %d (octet %#x), want %d",
+						start+at, tt.contentLen, off, dst[off], start+at+tt.shift)
+				}
+			}
+		})
+	}
+}
+
 func TestBeginEndNested(t *testing.T) {
 	inner := bytes.Repeat([]byte{0x05}, 200)
 

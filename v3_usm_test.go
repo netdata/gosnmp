@@ -127,7 +127,7 @@ func TestAuthenticationSHA224(t *testing.T) {
 	require.Equal(t, correctKeySHA224(t), sp.SecretKey, "Wrong key generated")
 
 	srcPacket := packetSHA224NoAuthentication(t)
-	err = sp.sign(srcPacket)
+	err = sp.sign(srcPacket, authParamsOffset(t, srcPacket))
 	require.NoError(t, err, "Authentication of packet failed")
 
 	require.Equal(t, packetSHA224Authenticated(t), srcPacket, "Wrong message authentication parameters.")
@@ -225,7 +225,7 @@ func TestAuthenticationSHA512(t *testing.T) {
 	require.Equal(t, correctKeySHA512(t), sp.SecretKey, "Wrong key generated")
 
 	srcPacket := packetSHA512NoAuthentication(t)
-	err = sp.sign(srcPacket)
+	err = sp.sign(srcPacket, authParamsOffset(t, srcPacket))
 	require.NoError(t, err, "Generation of key failed")
 
 	require.Equal(t, packetSHA512Authenticated(t), srcPacket, "Wrong message authentication parameters.")
@@ -912,6 +912,30 @@ func TestSignDigestOffset(t *testing.T) {
 			}
 		}
 	}
+}
+
+// authParamsOffset returns the offset of the msgAuthenticationParameters
+// content in the SNMPv3 message data.
+func authParamsOffset(t *testing.T, data []byte) int {
+	t.Helper()
+	r := ber.NewReader(data)
+	enter := func() {
+		_, err := r.SkipHeader()
+		require.NoError(t, err)
+	}
+	skip := func(n int) {
+		for range n {
+			_, _, err := r.Next()
+			require.NoError(t, err)
+		}
+	}
+	enter() // the message
+	skip(2) // the version and msgGlobalData
+	enter() // the security parameters' OCTET STRING
+	enter() // the USM SEQUENCE
+	skip(4) // the engine ID, boots, time and user name
+	enter() // msgAuthenticationParameters
+	return len(data) - r.Len()
 }
 
 // signedTestUSM returns parameters for user with keys localized to

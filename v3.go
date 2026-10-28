@@ -91,20 +91,16 @@ func (x *GoSNMP) validateParametersV3() error {
 	return x.SecurityParameters.usm().validate(x.MsgFlags)
 }
 
-// sign writes the digest of the marshalled SNMPv3 message msg into it when
-// the flags ask for authentication; a key that does not fit the protocol is an
-// error (usm.Auth.CheckKey).
-func (packet *SnmpPacket) sign(msg []byte) ([]byte, error) {
-	if packet.Version != Version3 {
-		return msg, nil
-	}
+// sign writes the digest of the marshalled SNMPv3 message msg into the
+// content of its msgAuthenticationParameters, at offset auth, when the flags
+// ask for authentication; a key that does not fit the protocol is an error
+// (usm.Auth.CheckKey).
+func (packet *SnmpPacket) sign(msg []byte, auth int) ([]byte, error) {
 	if packet.MsgFlags.authFlag() {
-		err := packet.SecurityParameters.usm().sign(msg)
-		if err != nil {
+		if err := packet.SecurityParameters.usm().sign(msg, auth); err != nil {
 			return nil, err
 		}
 	}
-
 	return msg, nil
 }
 
@@ -159,19 +155,20 @@ var errNoSecurityParameters = errors.New("SNMPv3 message without security parame
 
 // appendV3 appends the SNMPv3 part of a message after the version: the header
 // (msgGlobalData), the security parameters in an OCTET STRING and the scoped
-// PDU. A message the flags encrypt gets the next salt of usm.Salts, never the
-// packet's PrivacyParameters, so that no two messages share one, whatever the
-// caller copied into the packet.
-func (packet *SnmpPacket) appendV3(dst []byte) ([]byte, error) {
+// PDU. It also returns the offset of the msgAuthenticationParameters content
+// in dst, where sign writes the digest. A message the flags encrypt gets the
+// next salt of usm.Salts, never the packet's PrivacyParameters, so that no two
+// messages share one, whatever the caller copied into the packet.
+func (packet *SnmpPacket) appendV3(dst []byte) ([]byte, int, error) {
 	sp := usmOf(packet.SecurityParameters)
 	if sp == nil {
-		return nil, errNoSecurityParameters
+		return nil, 0, errNoSecurityParameters
 	}
 	if err := sp.checkProtocols(); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if err := sp.checkLevel(packet.MsgFlags); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	var salt []byte
 	if packet.MsgFlags.privFlag() {
@@ -180,8 +177,10 @@ func (packet *SnmpPacket) appendV3(dst []byte) ([]byte, error) {
 	}
 	dst = packet.appendV3Header(dst)
 	dst, start := ber.Begin(dst, byte(OctetString))
-	dst = ber.End(sp.marshal(dst, packet.MsgFlags, salt), start)
-	return packet.appendV3ScopedPDU(dst, sp, salt)
+	dst, auth := sp.marshal(dst, packet.MsgFlags, salt)
+	dst, auth = ber.EndMoving(dst, start, auth)
+	dst, err := packet.appendV3ScopedPDU(dst, sp, salt)
+	return dst, auth, err
 }
 
 // appendV3Header appends msgGlobalData: the message ID, which always takes

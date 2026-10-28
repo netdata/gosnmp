@@ -522,8 +522,8 @@ func encodeCases(t *testing.T) []encodeCase {
 		{"v3/auth-no-priv/sha256/key-80", marshal(edit(v3(AuthNoPriv, GetRequest, codecUSM(t, SHA256, NoPriv)), func(p *SnmpPacket) {
 			p.SecurityParameters.(*UsmSecurityParameters).SecretKey = []byte(strings.Repeat("k", 80))
 		}))},
-		// The digest goes to the first occurrence of the placeholder bytes in
-		// the message, here inside the user name.
+		// A user name or engine ID that holds the octets of the zero
+		// placeholder keeps them: the digest goes into the field.
 		{"v3/auth-no-priv/md5/placeholder-in-user-name", marshal(edit(v3(AuthNoPriv, GetRequest, codecUSM(t, MD5, NoPriv)), func(p *SnmpPacket) {
 			p.SecurityParameters.(*UsmSecurityParameters).UserName = "\x04\x0c" + strings.Repeat("\x00", 12)
 		}))},
