@@ -286,6 +286,7 @@ vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=10 636f6465632d686f7374
 vb[1]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 98765
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == fixture/v3AuthPrivSHAAESResponse
 decode: ok
@@ -300,6 +301,7 @@ vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=10 636f6465632d686f7374
 vb[1]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 98765
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == fixture/v3AuthPrivMD5DESResponse
 decode: ok
@@ -314,6 +316,7 @@ vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=10 636f6465632d686f7374
 vb[1]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 98765
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == fixture/v3/md5-no-priv
 decode: ok
@@ -328,6 +331,7 @@ vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=12 636f6465632d686f7374
 vb[1]: .1.3.6.1.2.1.1.5.1 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d31
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == fixture/v3/sha224-no-priv
 decode: ok
@@ -342,6 +346,7 @@ vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=12 636f6465632d686f7374
 vb[1]: .1.3.6.1.2.1.1.5.1 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d31
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == fixture/v3/sha256-no-priv
 decode: ok
@@ -356,6 +361,7 @@ vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=12 636f6465632d686f7374
 vb[1]: .1.3.6.1.2.1.1.5.1 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d31
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == fixture/v3/sha384-no-priv
 decode: ok
@@ -370,6 +376,7 @@ vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=12 636f6465632d686f7374
 vb[1]: .1.3.6.1.2.1.1.5.1 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d31
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == fixture/v3/sha512-no-priv
 decode: ok
@@ -384,6 +391,7 @@ vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=12 636f6465632d686f7374
 vb[1]: .1.3.6.1.2.1.1.5.1 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d31
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == fixture/v3/sha256-aes256c
 decode: ok
@@ -398,6 +406,7 @@ vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=12 636f6465632d686f7374
 vb[1]: .1.3.6.1.2.1.1.5.1 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d31
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == fixture/v3/sha512-des
 decode: ok
@@ -412,6 +421,7 @@ vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=12 636f6465632d686f7374
 vb[1]: .1.3.6.1.2.1.1.5.1 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d31
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == fixture/v3/no-auth-no-priv-20-varbinds
 decode: ok
@@ -475,6 +485,7 @@ vb[18]: .1.3.6.1.2.1.1.5.18 0x04 (OctetString) []uint8 len=13 636f6465632d686f73
 vb[19]: .1.3.6.1.2.1.1.5.19 0x04 (OctetString) []uint8 len=13 636f6465632d686f73742d3139
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == fixture/v3/sha-aes-4-varbinds
 decode: ok
@@ -491,6 +502,7 @@ vb[2]: .1.3.6.1.2.1.1.5.2 0x04 (OctetString) []uint8 len=12 636f6465632d686f7374
 vb[3]: .1.3.6.1.2.1.1.5.3 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d33
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == fixture/v3/sha-aes-20-varbinds
 decode: ok
@@ -523,6 +535,7 @@ vb[18]: .1.3.6.1.2.1.1.5.18 0x04 (OctetString) []uint8 len=13 636f6465632d686f73
 vb[19]: .1.3.6.1.2.1.1.5.19 0x04 (OctetString) []uint8 len=13 636f6465632d686f73742d3139
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == fixture/v3/md5-des-20-varbinds
 decode: ok
@@ -555,6 +568,7 @@ vb[18]: .1.3.6.1.2.1.1.5.18 0x04 (OctetString) []uint8 len=13 636f6465632d686f73
 vb[19]: .1.3.6.1.2.1.1.5.19 0x04 (OctetString) []uint8 len=13 636f6465632d686f73742d3139
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == fixture/v3/sha512-aes-20-varbinds
 decode: ok
@@ -587,6 +601,7 @@ vb[18]: .1.3.6.1.2.1.1.5.18 0x04 (OctetString) []uint8 len=13 636f6465632d686f73
 vb[19]: .1.3.6.1.2.1.1.5.19 0x04 (OctetString) []uint8 len=13 636f6465632d686f73742d3139
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == crafted/msg/empty
 decode: error
@@ -2054,6 +2069,7 @@ decode: error
 == crafted/v3/auth-params-integer
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == crafted/v3/auth-no-priv-sha/wrong-auth-pass
 decode: ok
@@ -2068,6 +2084,7 @@ vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=10 636f6465632d686f7374
 vb[1]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 98765
 reencode: 3081ac0201033011020400001092020300ffe304010102010304383036041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040cc865a75524791b089744a7fa0400305a041180001f8804636f6465632d656e67696e65040d636f6465632d636f6e74657874a236020301e2400201000201003029301606082b06010201010500040a636f6465632d686f7374300f06082b0601020101030043030181cd
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == crafted/v3/auth-no-priv-sha/zero-decoder
 decode: error
@@ -2075,10 +2092,12 @@ decode: error
 == crafted/v3/auth-priv-sha-aes/wrong-priv-pass
 decode: error (ErrInvalidPacketLength)
 unmarshal-trap: error (ErrInvalidPacketLength)
+unmarshal-trap-input: modified
 
 == crafted/v3/auth-priv-sha-aes/no-priv-decoder
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == crafted/v3/auth-priv-sha-aes/localized-decoder
 decode: ok
@@ -2093,10 +2112,12 @@ vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=10 636f6465632d686f7374
 vb[1]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 98765
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == crafted/v3/auth-priv-sha-aes/engine-id-without-keys
 decode: error
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == crafted/v3/auth-priv-md5-des/localized-decoder
 decode: ok
@@ -2111,10 +2132,12 @@ vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=10 636f6465632d686f7374
 vb[1]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 98765
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == crafted/v3/auth-priv-md5-des/engine-id-without-keys
 decode: error
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == crafted/v3/auth-no-priv-sha/localized-decoder
 decode: ok
@@ -2129,10 +2152,200 @@ vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=10 636f6465632d686f7374
 vb[1]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 98765
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == crafted/v3/auth-priv-md5-des/wrong-priv-pass
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
+
+== crafted/v3/parse/security-model-259
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: 307a020103301102040000002a020300ffe3040100020103042c302a041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040004003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
+
+== crafted/v3/parse/security-model-minus-253
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: 307a020103301102040000002a020300ffe3040100020103042c302a041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040004003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
+
+== crafted/v3/parse/security-model-0
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=65507 flags=0x00 security-model=0 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: 307a020103301102040000002a020300ffe3040100020100042c302a041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040004003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
+
+== crafted/v3/parse/security-model-octet-string
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=65507 flags=0x00 security-model=0 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: 307a020103301102040000002a020300ffe3040100020100042c302a041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040004003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
+
+== crafted/v3/parse/security-model-absent
+decode: error
+
+== crafted/v3/parse/security-model-octet-string-auth
+decode: ok
+input: modified 308183020103300e02012a020300ffe304010104010304383036041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040c00000000000000000000000004003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=65507 flags=0x01 security-model=0 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=aaaaaaaaaaaaaaaaaaaaaaaa priv-params=
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: 308186020103301102040000002a020300ffe304010102010004383036041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040cc05e84dee72c8ce6dfc4c46604003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
+unmarshal-trap: ok
+unmarshal-trap-input: modified
+
+== crafted/v3/parse/global-data-under-declared
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: 307a020103301102040000002a020300ffe3040100020103042c302a041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040004003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
+
+== crafted/v3/parse/global-data-over-declared
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: 307a020103301102040000002a020300ffe3040100020103042c302a041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040004003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
+
+== crafted/v3/parse/global-data-extra-field
+decode: error
+
+== crafted/v3/parse/security-parameters-cover-scoped-pdu
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: 307a020103301102040000002a020300ffe3040100020103042c302a041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040004003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
+
+== crafted/v3/parse/security-parameters-over-declared
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: 307a020103301102040000002a020300ffe3040100020103042c302a041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040004003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
+
+== crafted/v3/parse/security-parameters-trailing-data
+decode: error
+
+== crafted/v3/parse/usm-extra-field
+decode: error
+
+== crafted/v3/parse/usm-under-declared
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: 307a020103301102040000002a020300ffe3040100020103042c302a041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040004003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
+
+== crafted/v3/parse/usm-over-declared
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: 307a020103301102040000002a020300ffe3040100020103042c302a041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040004003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
+
+== crafted/v3/parse/auth-params-long-form-length
+decode: ok
+input: modified 308184020103300e02012a020300ffe304010102010304393037041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d757365720481000000000000000000000000a504003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=2fdb2102f8239dec900468a5 priv-params=
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: 308186020103301102040000002a020300ffe304010102010304383036041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040c43140317f897f64d07d863ba04003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
+unmarshal-trap: error
+unmarshal-trap-input: modified
+
+== crafted/v3/parse/auth-params-11-octets
+decode: error
+unmarshal-trap: error
+unmarshal-trap-input: modified
+
+== crafted/v3/parse/auth-params-13-octets
+decode: ok
+input: modified 308184020103300e02012a020300ffe304010102010304393037041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040d0000000000000000000000000004003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=44bfbc11437ba415af3403b200 priv-params=
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: 308186020103301102040000002a020300ffe304010102010304383036041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040c43140317f897f64d07d863ba04003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
+unmarshal-trap: error
+unmarshal-trap-input: modified
+
+== crafted/v3/parse/auth-params-empty
+decode: error
+unmarshal-trap: error
+unmarshal-trap-input: modified
+
+== crafted/v3/parse/auth-params-short-form
+decode: ok
+input: modified 308183020103300e02012a020300ffe304010102010304383036041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040c00000000000000000000000004003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=d8e942bfd89f14914a8ce923 priv-params=
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: 308186020103301102040000002a020300ffe304010102010304383036041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040c43140317f897f64d07d863ba04003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
+unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == fuzz/00ed9943f389d00f
 decode: ok

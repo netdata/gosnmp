@@ -13,30 +13,37 @@ vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == decrypt/sha-des/salt-empty
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-des/salt-7
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-des/salt-9
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-des/ciphertext-empty
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-des/ciphertext-minus-1
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-des/ciphertext-minus-8
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-des/flags-no-auth-no-priv
 decode: ok
@@ -65,6 +72,7 @@ vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: 3081a10201033011020400000015020300ffff04010102010304373035041180001f8804636f6465632d656e67696e6502010302014d040a636f6465632d75736572040cc54bf8711586455468e6a7ba04003050041180001f8804636f6465632d656e67696e650403637478a73602012a020100020100302b300e06082b06010201010300430230393019060a2b060106030101040100060b2b06010401bf0802030001
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-des/flags-privacy-only
 decode: ok
@@ -83,10 +91,12 @@ unmarshal-trap: error
 == decrypt/sha-des/engine-id-empty
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-des/receiver-aes
 decode: error (ErrInvalidPacketLength)
 unmarshal-trap: error (ErrInvalidPacketLength)
+unmarshal-trap-input: modified
 
 == decrypt/sha-des/receiver-priv-pass-empty
 decode: error
@@ -105,6 +115,7 @@ vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == decrypt/sha-des/receiver-keys-only
 decode: ok
@@ -119,6 +130,7 @@ vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == decrypt/sha-des/receiver-keys-only-other-engine
 decode: error
@@ -137,30 +149,37 @@ vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes/salt-empty
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes/salt-7
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes/salt-9
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes/ciphertext-empty
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes/ciphertext-minus-1
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes/ciphertext-minus-8
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes/flags-no-auth-no-priv
 decode: ok
@@ -189,6 +208,7 @@ vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: 3081a10201033011020400000015020300ffff04010102010304373035041180001f8804636f6465632d656e67696e6502010302014d040a636f6465632d75736572040cc54bf8711586455468e6a7ba04003050041180001f8804636f6465632d656e67696e650403637478a73602012a020100020100302b300e06082b06010201010300430230393019060a2b060106030101040100060b2b06010401bf0802030001
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes/flags-privacy-only
 decode: ok
@@ -207,10 +227,12 @@ unmarshal-trap: error
 == decrypt/sha-aes/engine-id-empty
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes/receiver-des
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes/receiver-priv-pass-empty
 decode: error
@@ -229,6 +251,7 @@ vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes/receiver-keys-only
 decode: ok
@@ -243,6 +266,7 @@ vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes/receiver-keys-only-other-engine
 decode: error
@@ -261,30 +285,37 @@ vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes192/salt-empty
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes192/salt-7
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes192/salt-9
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes192/ciphertext-empty
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes192/ciphertext-minus-1
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes192/ciphertext-minus-8
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes192/flags-no-auth-no-priv
 decode: ok
@@ -313,6 +344,7 @@ vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: 3081a10201033011020400000015020300ffff04010102010304373035041180001f8804636f6465632d656e67696e6502010302014d040a636f6465632d75736572040cc54bf8711586455468e6a7ba04003050041180001f8804636f6465632d656e67696e650403637478a73602012a020100020100302b300e06082b06010201010300430230393019060a2b060106030101040100060b2b06010401bf0802030001
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes192/flags-privacy-only
 decode: ok
@@ -331,10 +363,12 @@ unmarshal-trap: error
 == decrypt/sha-aes192/engine-id-empty
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes192/receiver-des
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes192/receiver-priv-pass-empty
 decode: error
@@ -353,6 +387,7 @@ vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes192/receiver-keys-only
 decode: ok
@@ -367,6 +402,7 @@ vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes192/receiver-keys-only-other-engine
 decode: error
@@ -385,30 +421,37 @@ vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes256/salt-empty
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes256/salt-7
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes256/salt-9
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes256/ciphertext-empty
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes256/ciphertext-minus-1
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes256/ciphertext-minus-8
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes256/flags-no-auth-no-priv
 decode: ok
@@ -437,6 +480,7 @@ vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: 3081a10201033011020400000015020300ffff04010102010304373035041180001f8804636f6465632d656e67696e6502010302014d040a636f6465632d75736572040cc54bf8711586455468e6a7ba04003050041180001f8804636f6465632d656e67696e650403637478a73602012a020100020100302b300e06082b06010201010300430230393019060a2b060106030101040100060b2b06010401bf0802030001
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes256/flags-privacy-only
 decode: ok
@@ -455,10 +499,12 @@ unmarshal-trap: error
 == decrypt/sha-aes256/engine-id-empty
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes256/receiver-des
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes256/receiver-priv-pass-empty
 decode: error
@@ -477,6 +523,7 @@ vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes256/receiver-keys-only
 decode: ok
@@ -491,6 +538,7 @@ vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes256/receiver-keys-only-other-engine
 decode: error
@@ -509,30 +557,37 @@ vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes192c/salt-empty
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes192c/salt-7
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes192c/salt-9
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes192c/ciphertext-empty
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes192c/ciphertext-minus-1
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes192c/ciphertext-minus-8
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes192c/flags-no-auth-no-priv
 decode: ok
@@ -561,6 +616,7 @@ vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: 3081a10201033011020400000015020300ffff04010102010304373035041180001f8804636f6465632d656e67696e6502010302014d040a636f6465632d75736572040cc54bf8711586455468e6a7ba04003050041180001f8804636f6465632d656e67696e650403637478a73602012a020100020100302b300e06082b06010201010300430230393019060a2b060106030101040100060b2b06010401bf0802030001
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes192c/flags-privacy-only
 decode: ok
@@ -579,10 +635,12 @@ unmarshal-trap: error
 == decrypt/sha-aes192c/engine-id-empty
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes192c/receiver-des
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes192c/receiver-priv-pass-empty
 decode: error
@@ -601,6 +659,7 @@ vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes192c/receiver-keys-only
 decode: ok
@@ -615,6 +674,7 @@ vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes192c/receiver-keys-only-other-engine
 decode: error
@@ -633,30 +693,37 @@ vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes256c/salt-empty
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes256c/salt-7
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes256c/salt-9
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes256c/ciphertext-empty
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes256c/ciphertext-minus-1
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes256c/ciphertext-minus-8
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes256c/flags-no-auth-no-priv
 decode: ok
@@ -685,6 +752,7 @@ vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: 3081a10201033011020400000015020300ffff04010102010304373035041180001f8804636f6465632d656e67696e6502010302014d040a636f6465632d75736572040cc54bf8711586455468e6a7ba04003050041180001f8804636f6465632d656e67696e650403637478a73602012a020100020100302b300e06082b06010201010300430230393019060a2b060106030101040100060b2b06010401bf0802030001
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes256c/flags-privacy-only
 decode: ok
@@ -703,10 +771,12 @@ unmarshal-trap: error
 == decrypt/sha-aes256c/engine-id-empty
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes256c/receiver-des
 decode: error
 unmarshal-trap: error
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes256c/receiver-priv-pass-empty
 decode: error
@@ -725,6 +795,7 @@ vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes256c/receiver-keys-only
 decode: ok
@@ -739,6 +810,7 @@ vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: identical
 unmarshal-trap: ok
+unmarshal-trap-input: modified
 
 == decrypt/sha-aes256c/receiver-keys-only-other-engine
 decode: error

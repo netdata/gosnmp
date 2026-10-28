@@ -29,7 +29,7 @@ import (
 // whether the input buffer was modified, and what MarshalMsg makes of the
 // result. Partial results returned together with an error are not pinned.
 func TestDecodeCharacterization(t *testing.T) {
-	cases := slices.Concat(decodeFixtureCases(t), decodeCraftedCases(), decodeFuzzCorpusCases(t))
+	cases := slices.Concat(decodeFixtureCases(t), decodeCraftedCases(), decodeV3ParseCases(), decodeFuzzCorpusCases(t))
 
 	results := make([]goldenCase, 0, len(cases))
 	for _, c := range cases {
@@ -104,8 +104,9 @@ func dumpUnmarshalTrap(d *dumpWriter, c decodeCase) {
 		x.MsgFlags = AuthNoPriv
 	}
 
+	in := bytes.Clone(c.in)
 	var err error
-	panicked, wroteStdout := observe(func() { _, err = x.UnmarshalTrap(bytes.Clone(c.in), false) })
+	panicked, wroteStdout := observe(func() { _, err = x.UnmarshalTrap(in, false) })
 	switch {
 	case panicked:
 		d.line("unmarshal-trap: panic")
@@ -116,6 +117,9 @@ func dumpUnmarshalTrap(d *dumpWriter, c decodeCase) {
 	}
 	if wroteStdout {
 		d.line("unmarshal-trap-stdout: written")
+	}
+	if !bytes.Equal(in, c.in) {
+		d.line("unmarshal-trap-input: modified")
 	}
 }
 
