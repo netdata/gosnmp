@@ -416,7 +416,7 @@ func (tr *engineTranscript) addConfigChanges(before map[string]any, x *GoSNMP) {
 // decodeMessage decodes a v1/v2c message, as an agent reads a request.
 func decodeMessage(b []byte) (*SnmpPacket, error) {
 	p := new(SnmpPacket)
-	cursor, err := (&GoSNMP{}).unmarshalHeader(b, p)
+	cursor, _, err := unmarshalHeader(b, p)
 	if err != nil {
 		return nil, err
 	}

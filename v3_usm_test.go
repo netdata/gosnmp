@@ -88,14 +88,10 @@ func TestIsAuthenticWrongUsername(t *testing.T) {
 	require.NoError(t, err, "Generation of key failed")
 	require.Equal(t, correctKeySHA224(t), sp.SecretKey, "Wrong key generated")
 
-	srcPacket := packetSHA224NoAuthentication(t)
+	verifier := sp.Copy().usm()
+	verifier.UserName = "foo"
 
-	snmpPacket := SnmpPacket{
-		SecurityParameters: sp.Copy(),
-	}
-	snmpPacket.SecurityParameters.(*UsmSecurityParameters).UserName = "foo"
-
-	authentic, err := sp.isAuthentic(srcPacket, &snmpPacket)
+	authentic, err := verifier.isAuthentic(testInbound(t, packetSHA224Authenticated(t), sp.Copy().usm()))
 	require.NoError(t, err, "Authentication check of key failed")
 	require.False(t, authentic, "Packet was considered to be authentic")
 }
@@ -159,13 +155,7 @@ func TestIsAuthenticSHA224(t *testing.T) {
 	require.NoError(t, err, "Generation of key failed")
 	require.Equal(t, correctKeySHA224(t), sp.SecretKey, "Wrong key generated")
 
-	srcPacket := packetSHA224NoAuthentication(t)
-
-	snmpPacket := SnmpPacket{
-		SecurityParameters: &sp,
-	}
-
-	authentic, err := sp.isAuthentic(srcPacket, &snmpPacket)
+	authentic, err := sp.isAuthentic(testInbound(t, packetSHA224Authenticated(t), sp.Copy().usm()))
 	require.NoError(t, err, "Authentication check of key failed")
 	require.True(t, authentic, "Packet was not considered to be authentic")
 }
@@ -257,56 +247,42 @@ func TestIsAuthenticSHA512(t *testing.T) {
 	require.NoError(t, err, "Generation of key failed")
 	require.Equal(t, correctKeySHA512(t), sp.SecretKey, "Wrong key generated")
 
-	srcPacket := packetSHA512NoAuthentication(t)
-
-	snmpPacket := SnmpPacket{
-		SecurityParameters: &sp,
-	}
-
-	authentic, err := sp.isAuthentic(srcPacket, &snmpPacket)
+	authentic, err := sp.isAuthentic(testInbound(t, packetSHA512Authenticated(t), sp.Copy().usm()))
 	require.NoError(t, err, "Authentication check of key failed")
 	require.True(t, authentic, "Packet was not considered to be authentic")
 }
 
-// TestUnmarshalTruncatedUSMSequence verifies that unmarshal returns an error
-// rather than panicking when the USM SEQUENCE body is truncated.
-func TestUnmarshalTruncatedUSMSequence(t *testing.T) {
-	sp := &UsmSecurityParameters{
-		Logger: NewLogger(log.New(io.Discard, "", 0)),
+// TestParseTruncatedUSMSequence verifies that the header parse returns an
+// error rather than panicking when the USM SEQUENCE body is truncated.
+func TestParseTruncatedUSMSequence(t *testing.T) {
+	tests := map[string][]byte{
+		"short-form length zero": {0x30, 0x00},
+		// 0x81 signals long-form with 1 extra length byte; the body is
+		// absent.
+		"long-form length one extra byte truncated body": {0x30, 0x81, 0x05},
 	}
 
-	tests := []struct {
-		name   string
-		packet []byte
-		cursor int
-	}{
-		{
-			name:   "short-form length zero",
-			packet: []byte{0x30, 0x00},
-			cursor: 0,
-		},
-		{
-			name: "long-form length one extra byte truncated body",
-			// 0x81 signals long-form with 1 extra length byte; the body is
-			// absent, so the first field read finds no bytes left.
-			packet: []byte{0x30, 0x81, 0x05},
-			cursor: 0,
-		},
-		{
-			name:   "long-form with non-zero starting cursor",
-			packet: []byte{0xff, 0xff, 0x30, 0x81, 0x05},
-			cursor: 2,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for name, usmParams := range tests {
+		t.Run(name, func(t *testing.T) {
+			msg := craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), usmParams, craftedScopedResp)
 			require.NotPanics(t, func() {
-				r := ber.NewReader(tt.packet[tt.cursor:])
-				require.Error(t, sp.unmarshal(NoAuthNoPriv, &r))
+				_, _, err := unmarshalHeader(msg, new(SnmpPacket))
+				require.Error(t, err)
 			})
 		})
 	}
+}
+
+// testInbound returns the SNMPv3 message msg in security processing with sp
+// (receiveV3).
+func testInbound(t *testing.T, msg []byte, sp *UsmSecurityParameters) *inbound {
+	t.Helper()
+	res := new(SnmpPacket)
+	_, w, err := unmarshalHeader(msg, res)
+	require.NoError(t, err)
+	in, err := receiveV3(msg, w, res, sp)
+	require.NoError(t, err)
+	return &in
 }
 
 // TestUSMUnsupportedProtocols checks that protocol values outside the defined
@@ -482,9 +458,9 @@ func TestUSMDecodeSecurityLevel(t *testing.T) {
 }
 
 // TestUSMTrapTableAttempts checks how the trap table path tries the
-// parameter sets of a user, in the order they were added: each on its own
-// copy of the trap (a failed attempt zeroes the copy's digest), the first that
-// decodes wins, and when none does the error carries the last attempt's.
+// parameter sets of a user, in the order they were added, on the one trap (no
+// attempt writes it): the first that decodes wins, and when none does the
+// error carries the last attempt's.
 func TestUSMTrapTableAttempts(t *testing.T) {
 	data := usmCharTrap(t, AES, usmCharVarbinds)
 	params := func(authPass string) *UsmSecurityParameters {
@@ -910,6 +886,11 @@ func TestSignDigestOffset(t *testing.T) {
 					digest := m.usm[4]
 					m.usm[4] = make([]byte, len(digest))
 					unsigned := m.bytes()
+
+					_, w, err := unmarshalHeader(data, new(SnmpPacket))
+					require.NoError(t, err)
+					assert.Equal(t, [2]int{authParamsOffset(t, data), auth.spec().MACLen}, [2]int{w.authOff, w.authLen},
+						"the parse finds the field where the encoder put it")
 
 					sp := signedTestUSM(t, auth, priv, engineID, user)
 					mac := hmac.New(auth.HashType().New, sp.SecretKey)

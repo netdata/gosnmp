@@ -17,30 +17,24 @@ ok
 
 == authNoPriv/SHA/single
 ok
-input: modified
 
 == authNoPriv/SHA/single, message flags
 ok
-input: modified
 
 == authNoPriv/SHA/SnmpDecodePacket
 ok
-input: modified
 
 == authNoPriv/SHA-AES/table
 ok
 
 == authNoPriv/SHA-AES/single
 ok
-input: modified
 
 == authNoPriv/SHA-AES/single, message flags
 ok
-input: modified
 
 == authNoPriv/SHA-AES/SnmpDecodePacket
 ok
-input: modified
 
 == authNoPriv/unknown authentication protocol/table
 error: add: securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(99) is not supported
@@ -59,7 +53,6 @@ error: error parsing SNMPv3 User Security Model: authentication parameters are n
 
 == authNoPriv/SHA-AES/single, version unset
 error: testAuthentication called with non Version3 connection
-input: modified
 
 == authPriv/no protocols/table
 error: no credentials successfully unmarshaled trap: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
@@ -78,30 +71,24 @@ error: no credentials successfully unmarshaled trap: error parsing SNMPv3 User S
 
 == authPriv/SHA/single
 error: error parsing SNMPv3 User Security Model: privacy parameters are not configured to parse incoming encrypted message
-input: modified
 
 == authPriv/SHA/single, message flags
 error: error parsing SNMPv3 User Security Model: privacy parameters are not configured to parse incoming encrypted message
-input: modified
 
 == authPriv/SHA/SnmpDecodePacket
 error: unable to decode packet header: error parsing SNMPv3 User Security Model: privacy parameters are not configured to parse incoming encrypted message
-input: modified
 
 == authPriv/SHA-AES/table
 ok
 
 == authPriv/SHA-AES/single
 ok
-input: modified
 
 == authPriv/SHA-AES/single, message flags
 ok
-input: modified
 
 == authPriv/SHA-AES/SnmpDecodePacket
 ok
-input: modified
 
 == authPriv/unknown authentication protocol/table
 error: add: securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(99) is not supported
@@ -120,7 +107,6 @@ error: error parsing SNMPv3 User Security Model: authentication parameters are n
 
 == authPriv/SHA-AES/single, version unset
 error: testAuthentication called with non Version3 connection
-input: modified
 
 == noAuthNoPriv/no protocols/table
 ok
@@ -177,7 +163,7 @@ ok
 error: testAuthentication called with non Version3 connection
 
 == authNoPriv, empty user name and engine ID/no protocols/table
-error: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
+error: no security parameters found for the key 
 
 == authNoPriv, empty user name and engine ID/no protocols/single
 error: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
@@ -189,7 +175,7 @@ error: error parsing SNMPv3 User Security Model: authentication parameters are n
 error: unable to decode packet header: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
 
 == authNoPriv, empty user name and engine ID/SHA/table
-error: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
+error: no security parameters found for the key 
 
 == authNoPriv, empty user name and engine ID/SHA/single
 ok
@@ -201,7 +187,7 @@ ok
 ok
 
 == authNoPriv, empty user name and engine ID/SHA-AES/table
-error: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
+error: no security parameters found for the key 
 
 == authNoPriv, empty user name and engine ID/SHA-AES/single
 ok

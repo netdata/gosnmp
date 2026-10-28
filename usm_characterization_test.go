@@ -400,15 +400,15 @@ func usmPlainTrap(model int64, engineID, user string) []byte {
 //
 //   - the table path takes the security level from the message
 //     (TestTrapSecurityOutcomes);
-//   - both paths check the digest only for the User-based Security Model;
 //   - testAuthentication skips it for any message with an empty user name and
 //     engine ID: of the conditions of its engine discovery exception (RFC 3414
 //     section 4), the flags test always holds (NoAuthNoPriv is 0) and the
 //     varbind list is always empty there, since the payload is decoded later.
 //
 // Decryption follows the scoped PDU's tag (an OCTET STRING is decrypted)
-// whatever the flags say. Cases with a knownBug note record wrong behavior
-// that the bug-fix phase changes.
+// whatever the flags say. A message of another security model than USM is
+// rejected by the header parse. Cases with a knownBug note record wrong
+// behavior that the bug-fix phase changes.
 func TestUSMTrapUnauthenticated(t *testing.T) {
 	// wrappedTrap carries the plaintext scoped PDU's fields in an OCTET
 	// STRING, where an encrypted scoped PDU goes.
@@ -527,14 +527,14 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 		},
 		"security model 2, plaintext, single user": {
 			in: func() []byte { return usmPlainTrap(2, usmCharEngineID, "codec-user") }, priv: AES,
-			want: "accepted", vars: usmPlainVars, knownBug: "the digest is checked only for the User-based Security Model",
+			want: "rejected", errHas: "USM",
 		},
 		"security model 2, authPriv flags, table": {
 			in: func() []byte { return encryptedWithModel(AES, 2, 8) }, priv: AES, receiver: table,
-			want: "accepted", vars: usmCharVarbinds, knownBug: "the digest is checked only for the User-based Security Model",
+			want: "rejected", errHas: "USM",
 		},
 		"security model 2, encrypted DES with a 7-octet salt, single user": {
-			in: func() []byte { return encryptedWithModel(DES, 2, 7) }, priv: DES, want: "rejected", errHas: "decrypting",
+			in: func() []byte { return encryptedWithModel(DES, 2, 7) }, priv: DES, want: "rejected", errHas: "USM",
 		},
 		"empty user name and engine ID, single user": {
 			in: func() []byte { return usmPlainTrap(3, "", "") }, priv: AES,
@@ -547,8 +547,7 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 			in: func() []byte { return usmMalformedV3Header }, priv: AES, want: "rejected",
 		},
 		"malformed header, table": {
-			in: func() []byte { return usmMalformedV3Header }, priv: AES, receiver: table,
-			want: "panic", knownBug: "getTrapIdentifier reads the user name from nil SecurityParameters",
+			in: func() []byte { return usmMalformedV3Header }, priv: AES, receiver: table, want: "rejected",
 		},
 	}
 
@@ -579,10 +578,10 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 // passphrases decode only messages naming the engine ID the keys are
 // localized to, for every protocol pair: on the trap table path, for a single
 // trap user with its own or the message's flags, and with SnmpDecodePacket. A
-// message naming another engine ID is rejected whatever its security level,
-// security model or user name, with the error of adopting another engine ID
-// (the table finds no set for an empty user name), and the parameters keep
-// their engine ID and keys.
+// message naming another engine ID is rejected whatever its security level or
+// user name, with the error of adopting another engine ID (the table finds no
+// set for an empty user name; a message of another security model fails the
+// header parse first), and the parameters keep their engine ID and keys.
 func TestUSMKeysBoundToEngine(t *testing.T) {
 	type receiverKind int
 	const (
@@ -627,11 +626,12 @@ func TestUSMKeysBoundToEngine(t *testing.T) {
 	tests := map[string]struct {
 		in          func(auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol) []byte
 		accepted    bool
-		unknownUser bool // the table holds no set for the message's user name
+		unknownUser bool  // the table holds no set for the message's user name
+		wantErr     error // instead of the error of adopting another engine ID
 	}{
 		"authenticated, from the keys' engine":  {in: signedTrap, accepted: true},
 		"noAuthNoPriv, from another engine":     {in: plainTrap(3, usmCharEngineID, "codec-user")},
-		"security model 2, from another engine": {in: plainTrap(2, usmCharEngineID, "codec-user")},
+		"security model 2, from another engine": {in: plainTrap(2, usmCharEngineID, "codec-user"), wantErr: errNotUSM},
 		"empty user name and engine ID":         {in: plainTrap(3, "", ""), unknownUser: true},
 	}
 
@@ -661,6 +661,8 @@ func TestUSMKeysBoundToEngine(t *testing.T) {
 							assert.Equal(t, usmPlainVars, res.Variables)
 						case rk == table && tc.unknownUser:
 							require.Error(t, err)
+						case tc.wantErr != nil:
+							require.ErrorIs(t, err, tc.wantErr)
 						default:
 							require.ErrorIs(t, err, errAuthKeyBoundToEngine)
 						}
@@ -761,35 +763,32 @@ func TestUSMAdoptEngineID(t *testing.T) {
 	}
 }
 
-// TestUSMAuthFieldZeroing pins that, before checking any digest, USM
-// unmarshal zeroes the expected digest length (12 octets for SHA) after the
-// first two octets of msgAuthenticationParameters, whatever the field's
-// length. In an authNoPriv message that ends with an empty field this panics
-// when the input has no spare capacity (known bug), and otherwise writes the
-// zeros past the end of the input.
-func TestUSMAuthFieldZeroing(t *testing.T) {
-	usm := craftedUSM(octets(usmCharEngineID), intTLV(0), intTLV(0), octets("codec-user"), octets(""), nil)
-	msg := craftedV3(intTLV(42), intTLV(65507), octets("\x01"), intTLV(3), usm, nil)
+// TestUSMAuthFieldEmpty pins that an authNoPriv message with an empty
+// msgAuthenticationParameters, shorter than the 12-octet SHA digest, decodes
+// without a write, whether or not the input has spare capacity:
+// SnmpDecodePacket checks no digest, and UnmarshalTrap finds it not
+// authentic.
+func TestUSMAuthFieldEmpty(t *testing.T) {
+	usm := craftedUSM(octets(usmCharEngineID), intTLV(0), intTLV(0), octets("codec-user"), octets(""), octets(""))
+	msg := craftedV3(intTLV(42), intTLV(65507), octets("\x01"), intTLV(3), usm, craftedScopedResp)
 	decoder := usmDecoder(SHA, "codec-auth-pass", NoPriv, "")
-
-	t.Run("no spare capacity", func(t *testing.T) {
-		in := bytes.Clone(msg)[:len(msg):len(msg)]
-		v, _ := recoverPanic(func() { _, _ = decoder().SnmpDecodePacket(in) })
-		assert.NotNil(t, v, "SnmpDecodePacket did not panic (known bug: zeroes past the end of the packet)")
-
+	trapDecoder := func() *GoSNMP {
 		x := decoder()
 		x.Version, x.SecurityModel, x.MsgFlags = Version3, UserSecurityModel, AuthNoPriv
-		in = bytes.Clone(msg)[:len(msg):len(msg)]
-		v, _ = recoverPanic(func() { _, _ = x.UnmarshalTrap(in, false) })
-		assert.NotNil(t, v, "UnmarshalTrap did not panic (known bug: zeroes past the end of the packet)")
-	})
-	t.Run("spare capacity", func(t *testing.T) {
-		buf := append(bytes.Clone(msg), bytes.Repeat([]byte{0xaa}, 16)...)
-		in := buf[:len(msg)]
-		_, err := decoder().SnmpDecodePacket(in)
-		assert.Error(t, err)
-		assert.Equal(t, append(make([]byte, 12), bytes.Repeat([]byte{0xaa}, 4)...), buf[len(msg):], "octets after the input")
-	})
+		return x
+	}
+
+	for name, spare := range map[string]int{"no spare capacity": 0, "spare capacity": 16} {
+		t.Run(name, func(t *testing.T) {
+			buf := append(bytes.Clone(msg), bytes.Repeat([]byte{0xaa}, spare)...)
+			in := buf[:len(msg):len(buf)]
+			_, err := decoder().SnmpDecodePacket(in)
+			require.NoError(t, err, "SnmpDecodePacket")
+			_, err = trapDecoder().UnmarshalTrap(in, false)
+			assert.ErrorIs(t, err, errNotAuthentic, "UnmarshalTrap")
+			assert.Equal(t, append(bytes.Clone(msg), bytes.Repeat([]byte{0xaa}, spare)...), buf, "the input and the octets after it")
+		})
+	}
 }
 
 // TestUSMPrivacyPadding pins the ciphertext length: DES pads the scoped PDU

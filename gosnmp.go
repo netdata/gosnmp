@@ -387,12 +387,11 @@ func (x *GoSNMP) SnmpEncodePacket(pdutype PDUType, pdus []SnmpPDU, nonRepeaters 
 
 // SnmpDecodePacket decodes a message, from another transport or for tests,
 // with a copy of the client's security parameters, after preparing the client
-// as Connect does; keys are derived for an SNMPv3 message from another engine
-// ID, so parameters with a key given without its passphrase decode no such
-// message. It does not check the digest, and it decodes in place (see the
-// package documentation). On an error it returns what it decoded so far. Known
-// bug: some malformed SNMPv3 messages make it panic (see the package
-// documentation).
+// as Connect does; for an SNMPv3 message from another engine ID it derives the
+// authentication key, and the privacy key to decrypt, so parameters with a key
+// given without its passphrase decode no such message. It does not check the
+// digest, and it does not write resp (see the package documentation for the
+// values that alias it). On an error it returns what it decoded so far.
 func (x *GoSNMP) SnmpDecodePacket(resp []byte) (*SnmpPacket, error) {
 	result := &SnmpPacket{}
 	if err := x.prepare(); err != nil {
@@ -403,12 +402,24 @@ func (x *GoSNMP) SnmpDecodePacket(resp []byte) (*SnmpPacket, error) {
 		result.SecurityParameters = x.SecurityParameters.Copy()
 	}
 
-	cursor, err := x.unmarshalHeader(resp, result)
+	cursor, w, err := unmarshalHeader(resp, result)
+	if result.Version == Version3 && result.SecurityParameters == nil {
+		result.SecurityParameters = &UsmSecurityParameters{Logger: x.Logger}
+	}
 	if err != nil {
+		if result.Version == Version3 {
+			// The result returned with the error carries the USM fields
+			// that decoded.
+			_, _ = result.SecurityParameters.usm().receive(result.MsgFlags, &w, false)
+		}
 		return result, fmt.Errorf("unable to decode packet header: %w", err)
 	}
 	if result.Version == Version3 {
-		if resp, cursor, err = unmarshalScopedPDU(resp, cursor, result); err != nil {
+		var in inbound
+		if in, err = receiveV3(resp, w, result, result.SecurityParameters.usm()); err != nil {
+			return result, fmt.Errorf("unable to decode packet header: %w", err)
+		}
+		if resp, cursor, err = in.scopedPDU(result); err != nil {
 			return result, err
 		}
 	}

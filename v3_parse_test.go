@@ -10,6 +10,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha1" //nolint:gosec // HMAC-SHA-96, the protocol under test
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -267,11 +268,13 @@ func TestV3DecodeKeyDerivation(t *testing.T) {
 		in   func(engineID string) []byte
 		want int // cache entries added
 	}{
-		"authPriv, signed":                   {in: signed, want: 1},
-		"authPriv, wrong digest":             {in: func(e string) []byte { return wrongDigest(signed(e)) }, want: 1},
-		"noAuthNoPriv plaintext":             {in: func(e string) []byte { return usmPlainTrap(3, e, "codec-user") }, want: 1},
-		"privacy only (BF-7: no digest)":     {in: func(e string) []byte { return splitV3Message(t, signed(e)).withFlags(t, usmPrivacyFlag).bytes() }, want: 1},
-		"noAuthNoPriv flags, encrypted (U6)": {in: func(e string) []byte { return splitV3Message(t, signed(e)).withFlags(t, NoAuthNoPriv).bytes() }, want: 1},
+		"authPriv, signed":       {in: signed, want: 1},
+		"authPriv, wrong digest": {in: func(e string) []byte { return wrongDigest(signed(e)) }},
+		"noAuthNoPriv plaintext": {in: func(e string) []byte { return usmPlainTrap(3, e, "codec-user") }},
+		// Known bug: the table path decrypts these without a digest check, so
+		// they derive the privacy key.
+		"privacy only":                  {in: func(e string) []byte { return splitV3Message(t, signed(e)).withFlags(t, usmPrivacyFlag).bytes() }, want: 1},
+		"noAuthNoPriv flags, encrypted": {in: func(e string) []byte { return splitV3Message(t, signed(e)).withFlags(t, NoAuthNoPriv).bytes() }, want: 1},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -297,7 +300,7 @@ func TestV3DecodeKeyDerivation(t *testing.T) {
 			tlv(0x30, octets(engineID), octets(""), craftedPDU(Report, craftedVBL(craftedVB(intTLV(5))))))
 		before := passwordCache.Len()
 		_, _, _ = (&exchange{x: x, packet: req}).decode(report)
-		assert.Equal(t, 1, passwordCache.Len()-before)
+		assert.Zero(t, passwordCache.Len()-before)
 	})
 }
 
@@ -319,7 +322,7 @@ func TestV3ReplyDecode(t *testing.T) {
 		reply, verified, err := e.decode(report)
 		assert.Nil(t, reply)
 		assert.False(t, verified)
-		require.EqualError(t, err, "incoming packet is not authentic, discarding")
+		require.ErrorIs(t, err, errMsgFlags)
 	})
 
 	t.Run("authPriv reply, another engine time", func(t *testing.T) {
@@ -385,4 +388,22 @@ func TestV3InformResponse(t *testing.T) {
 			assert.Equal(t, usmPlainVars, back.Variables)
 		})
 	}
+}
+
+// TestV3ParseErrorTexts pins the words of the header parse's new errors that
+// Netdata's trap receiver maps to labels: a message of another security model
+// is a USM failure, a malformed msgFlags a decode failure.
+func TestV3ParseErrorTexts(t *testing.T) {
+	labelWords := []string{"BER:", "authentication", "decrypt", "USM", "no credentials", "engine ID"}
+	words := func(err error) []string {
+		var found []string
+		for _, w := range labelWords {
+			if strings.Contains(err.Error(), w) {
+				found = append(found, w)
+			}
+		}
+		return found
+	}
+	assert.Equal(t, []string{"USM"}, words(errNotUSM))
+	assert.Empty(t, words(errMsgFlags))
 }

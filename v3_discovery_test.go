@@ -107,9 +107,6 @@ func (m *mockAgentUnknownUserNames) sendErr(err error) {
 func (m *mockAgentUnknownUserNames) serve() {
 	defer close(m.done)
 
-	// A GoSNMP instance is used solely as a parser for incoming packets.
-	parser := &GoSNMP{Version: Version3, Logger: m.logger}
-
 	buf := make([]byte, rxBufSize)
 	for {
 		n, addr, err := m.conn.ReadFromUDP(buf)
@@ -122,7 +119,10 @@ func (m *mockAgentUnknownUserNames) serve() {
 			SecurityParameters: &UsmSecurityParameters{Logger: m.logger},
 		}
 
-		cursor, err := parser.unmarshalHeader(buf[:n], req)
+		cursor, w, err := unmarshalHeader(buf[:n], req)
+		if err == nil {
+			_, err = req.SecurityParameters.usm().receive(req.MsgFlags, &w, false)
+		}
 		if err != nil {
 			m.sendErr(fmt.Errorf("unmarshalHeader: %w", err))
 			continue

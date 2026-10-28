@@ -438,22 +438,29 @@ func (e *exchange) await(c *connection, earlier []sentIDs) attemptOutcome {
 
 // decode decodes a reply to the request: the header, for an SNMPv3 request
 // the authentication and the scoped PDU, then the PDU. It reports whether the
-// reply's digest checked against the request.
+// reply's digest checked against the request. The reply's security
+// parameters are the request's with the USM fields the reply carries, keeping
+// the request's keys only for the request's engine ID: no key derives for an
+// engine a reply names.
 func (e *exchange) decode(resp []byte) (_ *SnmpPacket, verified bool, _ error) {
 	x := e.x
-	// Known bug: a reply with an empty msgFlags keeps the request's flags.
-	reply := &SnmpPacket{Logger: x.Logger, MsgFlags: e.packet.MsgFlags}
+	reply := &SnmpPacket{Logger: x.Logger}
+	var sp *UsmSecurityParameters
 	if e.packet.SecurityParameters != nil {
-		reply.SecurityParameters = e.packet.SecurityParameters.Copy()
+		sp = e.packet.SecurityParameters.Copy().usm()
+		reply.SecurityParameters = sp
 	}
 
-	cursor, err := x.unmarshalHeader(resp, reply)
+	cursor, w, err := unmarshalHeader(resp, reply)
+	if err == nil && reply.Version == Version3 && sp != nil {
+		_, err = sp.receive(reply.MsgFlags, &w, false)
+	}
 	if err != nil {
 		x.Logger.Printf("ERROR on unmarshall header: %s", err)
 		return nil, false, err
 	}
 	if e.packet.Version == Version3 {
-		if verified, err = e.authenticate(resp, reply); err != nil {
+		if verified, err = e.authenticate(resp, &w, reply); err != nil {
 			if e.unauthenticatedReport(resp, cursor, reply) {
 				return reply, false, nil
 			}
@@ -478,14 +485,14 @@ func (e *exchange) decode(resp []byte) (_ *SnmpPacket, verified bool, _ error) {
 // request's user and engine ID, and carry a digest that checks with the
 // request's key. It reports whether it checked the digest; any reply answers a
 // request without authentication unchecked.
-func (e *exchange) authenticate(resp []byte, reply *SnmpPacket) (bool, error) {
+func (e *exchange) authenticate(resp []byte, w *v3Wire, reply *SnmpPacket) (bool, error) {
 	if !e.packet.MsgFlags.authFlag() {
 		return false, nil
 	}
 	if !reply.MsgFlags.authFlag() {
 		return false, errNotAuthentic
 	}
-	authentic, err := e.packet.SecurityParameters.usm().isAuthenticAnswer(resp, reply.SecurityParameters.usm())
+	authentic, err := e.packet.SecurityParameters.usm().isAuthenticAnswer(resp, w, reply.SecurityParameters.usm())
 	if err != nil {
 		return false, err
 	}

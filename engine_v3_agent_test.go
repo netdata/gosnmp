@@ -418,8 +418,8 @@ func agentDigestOK(data []byte, m v3Message, user *UsmSecurityParameters) bool {
 	}
 	zeroed := bytes.Clone(data)
 	clear(zeroed[off : off+len(mac)])
-	ok, err := spec.Verify(user.SecretKey, zeroed, mac)
-	return err == nil && ok
+	digest, err := spec.Digest(user.SecretKey, zeroed)
+	return err == nil && bytes.Equal(digest, mac)
 }
 
 func absDiff(a, b uint32) uint32 {

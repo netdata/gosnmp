@@ -342,13 +342,13 @@ func v3Scenarios() map[string]v3Scenario {
 				report: usmStatsUnknownEngineIDs, why: "discovery Report with security model 2",
 				edit: func(p *SnmpPacket) { p.SecurityModel = 2 },
 			}),
-			knownBug: "a discovery Report with another security model fails the request instead of being discarded (RFC 3412 section 7.2 step 4)",
+			knownBug: "an undecodable reply ends the attempt and the request is sent again at once, instead of reading on",
 		},
 		"discovery/empty-msg-flags": {
 			user: "codec-md5", script: onRequest(1, agentAnswer{
 				report: usmStatsUnknownEngineIDs, why: "discovery Report with an empty msgFlags", raw: msgFlagsOctets(),
 			}),
-			knownBug: "a reply with an empty msgFlags is accepted and carries the request's flags (RFC 3412 section 6: one octet)",
+			knownBug: "an undecodable reply ends the attempt and the request is sent again at once, instead of reading on",
 		},
 		"discovery/report-without-context-engine-id": {user: "codec-md5", script: onRequest(1, agentAnswer{
 			report: usmStatsUnknownEngineIDs, why: "discovery Report without a context engine ID",
@@ -376,11 +376,11 @@ func v3Scenarios() map[string]v3Scenario {
 			},
 		},
 		// Keys given without passphrases serve only the engine ID they were
-		// localized to: an answer naming another one does not decode, so the
-		// request is sent again, and ends with the error of adopting it.
+		// localized to, and a reply naming another one derives none: the
+		// client reads it as a client with passphrases does, so an
+		// unauthenticated unknownEngineIDs Report ends the request.
 		"known-engine/other-engine/keys-only": {user: "codec-sha-aes", setup: configuredKeys(agentOtherEngineID)},
-		// The same makes a forged unauthenticated Report from another engine
-		// undecodable: the agent answers the request sent again.
+		// The same holds for a forged one from another engine.
 		"known-engine/keys-only/forged-report-from-other-engine": {
 			user: "codec-sha-aes", setup: configuredKeys(agentEngineID),
 			script: onRequest(1, agentAnswer{report: usmStatsUnknownEngineIDs, why: "forged, unauthenticated", edit: fromOtherEngine}),
@@ -916,6 +916,7 @@ func v3Scenarios() map[string]v3Scenario {
 				}
 				return agentAnswer{}, false
 			},
+			knownBug: "an undecodable reply ends the attempt and the request is sent again at once, instead of reading on",
 		},
 		"resync/retransmission-answer-time": {
 			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
@@ -1070,7 +1071,7 @@ func v3Scenarios() map[string]v3Scenario {
 			user: "codec-noauth", script: onRequest(2, agentAnswer{
 				why: "GetResponse with an empty msgFlags", raw: msgFlagsOctets(),
 			}),
-			knownBug: "a reply with an empty msgFlags is accepted and carries the request's flags (RFC 3412 section 6: one octet)",
+			knownBug: "an undecodable reply ends the attempt and the request is sent again at once, instead of reading on",
 		},
 		"answer/other-version/noauth": {
 			user: "codec-noauth", script: onRequest(2, agentAnswer{why: "SNMPv2c GetResponse", edit: asV2c}),
@@ -1128,7 +1129,7 @@ func v3Scenarios() map[string]v3Scenario {
 			user: "codec-noauth", script: onRequest(2, agentAnswer{
 				why: "GetResponse with security model 2", edit: func(p *SnmpPacket) { p.SecurityModel = 2 },
 			}),
-			knownBug: "a reply with another security model is accepted, then returned together with the model mismatch error",
+			knownBug: "an undecodable reply ends the attempt and the request is sent again at once, instead of reading on",
 		},
 		// A Report carries one varbind (RFC 3412 section 7.1 step 3 d): one with
 		// two is read past.
@@ -1183,13 +1184,14 @@ func v3Scenarios() map[string]v3Scenario {
 				report: usmStatsUnknownUserNames, level: AuthNoPriv, why: "authenticated Report with security model 2",
 				edit: func(p *SnmpPacket) { p.SecurityModel = 2 },
 			}),
+			knownBug: "an undecodable reply ends the attempt and the request is sent again at once, instead of reading on",
 		},
 		"answer/report-other-security-model": {
 			user: "codec-md5", script: onRequest(2, agentAnswer{
 				report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "Report with security model 2",
 				edit: func(p *SnmpPacket) { p.SecurityModel = 2 },
 			}),
-			knownBug: "a Report with another security model ends the request with the model mismatch error instead of being discarded (RFC 3412 section 7.2 step 4)",
+			knownBug: "an undecodable reply ends the attempt and the request is sent again at once, instead of reading on",
 		},
 	}
 

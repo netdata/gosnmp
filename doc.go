@@ -157,24 +157,22 @@
 // The decoder accepts some malformed messages, because devices send them: a
 // header field of another field type (INTEGER, OCTET STRING, OBJECT
 // IDENTIFIER, IpAddress, TimeTicks) than the one expected is skipped, so a
-// version of such a type reads as SNMPv1, the declared lengths of the SNMPv3
-// header, security parameters and plaintext scoped PDU are not enforced, an
-// OctetString may declare one octet more than its varbind holds (seen from
-// MikroTik devices), an IPAddress may be empty, and a varbind name may be an
-// OCTET STRING or an IpAddress, kept as text. INTEGER values decode into the
-// platform's int, so 32-bit platforms reject what 64-bit ones accept.
+// version of such a type reads as SNMPv1, the declared length of a plaintext
+// scoped PDU is not enforced, an OctetString may declare one octet more than
+// its varbind holds (seen from MikroTik devices), an IPAddress may be empty,
+// and a varbind name may be an OCTET STRING or an IpAddress, kept as text.
+// INTEGER values decode into the platform's int, so 32-bit platforms reject
+// what 64-bit ones accept. The SNMPv3 header is read as net-snmp reads it:
+// msgFlags must be an OCTET STRING of one octet, the security model the
+// User-based Security Model's, and every declared length must fit what
+// remains (a msgGlobalData declared shorter than its fields, or security
+// parameters declared to cover the scoped PDU, are read).
 //
-// [GoSNMP.SnmpDecodePacket] and [GoSNMP.UnmarshalTrap] (unless it uses a
-// table) decode in place: they zero the digest of an authenticated SNMPv3
-// message in the input, and decrypt an encrypted scoped PDU over it.
-// OctetString and Opaque values alias the decoded buffer. Pass a copy to keep
-// the input. The answers to requests are copied from the receive buffer, so
-// their values stay valid.
-//
-// Known bug: some malformed SNMPv3 messages make SnmpDecodePacket and
-// UnmarshalTrap panic, among them an authenticated message too short for the
-// digest it should carry and, on the table path, a header that fails before its
-// security parameters. Recover around them when decoding untrusted input.
+// The decoders never write their input. [GoSNMP.SnmpDecodePacket] and
+// [GoSNMP.UnmarshalTrap] return OctetString and Opaque values that alias the
+// input, or, in an encrypted message, the buffer the scoped PDU is decrypted
+// into: copy them to reuse the input. The answers to requests are copied from
+// the receive buffer, so their values stay valid.
 //
 // # Keys
 //
@@ -185,12 +183,14 @@
 // and AES-CFB in FIPS 140-only mode, with an error. Keys derive from non-empty
 // passphrases of any length (RFC 3414 section 11.2 asks for at least 8 octets);
 // a key given without a passphrase serves only the engine ID it was localized
-// to: parameters holding one decode no message naming another engine ID,
-// whatever its security level, and take none from discovery. Deriving a key
-// starts with hashing a megabyte of the passphrase (RFC 3414 appendix A.2.1).
-// The package caches that result for every client, by passphrase and hash,
-// until [PasswordCaching] turns the cache off; it holds the passphrases in
-// memory meanwhile.
+// to: parameters holding one decode no trap, inform or SnmpDecodePacket message
+// naming another engine ID, whatever its security level, and take none from
+// discovery. Decoding derives keys for another engine ID a message names only
+// on those paths, and the privacy key only to decrypt; a client derives none
+// for an engine ID a reply names. Deriving a key starts with hashing a megabyte
+// of the passphrase (RFC 3414 appendix A.2.1). The package caches that result
+// for every client, by passphrase and hash, until [PasswordCaching] turns the
+// cache off; it holds the passphrases in memory meanwhile.
 //
 // # Traps
 //

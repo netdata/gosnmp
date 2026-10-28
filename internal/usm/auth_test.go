@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"crypto"
 	"crypto/hmac"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -57,29 +58,45 @@ func TestDigest(t *testing.T) {
 
 // TestVerify checks that Verify accepts the digest only: not a changed or a
 // shortened one.
-func TestVerify(t *testing.T) {
-	msg := []byte("codec-message")
+func TestVerifyField(t *testing.T) {
 	for name, a := range testAuths {
 		t.Run(name, func(t *testing.T) {
 			key := bytes.Repeat([]byte{'k'}, a.Hash.Size())
+			// msg carries its digest at off, computed with the field zeroed.
+			const off = 6
+			msg := slices.Concat([]byte("codec-"), make([]byte, a.MACLen), []byte("-message"))
 			mac, err := a.Digest(key, msg)
 			require.NoError(t, err)
-			changed := append([]byte(nil), mac...)
-			changed[len(changed)-1] ^= 1
+			copy(msg[off:], mac)
+			changed := func(i int) []byte {
+				m := bytes.Clone(msg)
+				m[i] ^= 1
+				return m
+			}
 
 			for _, tc := range []struct {
-				mac  []byte
-				want bool
+				name   string
+				msg    []byte
+				off, n int
+				want   bool
 			}{
-				{mac: mac, want: true},
-				{mac: changed},
-				{mac: mac[:len(mac)-1]},
-				{mac: nil},
+				{name: "the field", msg: msg, off: off, n: a.MACLen, want: true},
+				{name: "a digest octet changed", msg: changed(off + a.MACLen - 1), off: off, n: a.MACLen},
+				{name: "a message octet changed", msg: changed(0), off: off, n: a.MACLen},
+				{name: "a shorter field", msg: msg, off: off, n: a.MACLen - 1},
+				{name: "a longer field", msg: msg, off: off, n: a.MACLen + 1},
+				{name: "no field", msg: msg, off: -1, n: a.MACLen},
+				{name: "past the message", msg: msg, off: len(msg) - a.MACLen + 1, n: a.MACLen},
 			} {
-				ok, err := a.Verify(key, msg, tc.mac)
-				require.NoError(t, err)
-				assert.Equal(t, tc.want, ok, "%x", tc.mac)
+				in := bytes.Clone(tc.msg)
+				ok, verr := a.VerifyField(key, in, tc.off, tc.n)
+				require.NoError(t, verr)
+				assert.Equal(t, tc.want, ok, tc.name)
+				assert.Equal(t, tc.msg, in, "%s: the message is not written", tc.name)
 			}
+
+			_, err = a.VerifyField(key[1:], msg, off, a.MACLen)
+			assert.Error(t, err, "a key CheckKey refuses")
 		})
 	}
 }

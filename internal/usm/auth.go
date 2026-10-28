@@ -73,37 +73,55 @@ func (a Auth) Digest(key, msg []byte) ([]byte, error) {
 	if err := a.CheckKey(key); err != nil {
 		return nil, fmt.Errorf("usm: %w", err)
 	}
+	return a.digest(key, msg)
+}
+
+// VerifyField reports whether the n octets at msg[off:], the content of an
+// incoming message's msgAuthenticationParameters, are the digest of msg with
+// them zeroed, keyed with key (RFC 3414 sections 6.3.2 and 7.3.2 steps 1-3),
+// comparing in constant time. msg is not written. A field of another length
+// than the MAC, or outside msg (off < 0 for a field the message lacks), is not
+// authentic. It refuses a key CheckKey refuses.
+func (a Auth) VerifyField(key, msg []byte, off, n int) (bool, error) {
+	if err := a.CheckKey(key); err != nil {
+		return false, fmt.Errorf("usm: %w", err)
+	}
+	if n != a.MACLen || off < 0 || off > len(msg)-n {
+		return false, nil
+	}
+	var zeros [MaxMACLen]byte
+	digest, err := a.digest(key, msg[:off], zeros[:n], msg[off+n:])
+	if err != nil {
+		return false, err
+	}
+	return subtle.ConstantTimeCompare(digest, msg[off:off+n]) == 1, nil
+}
+
+// digest is Digest of the concatenated parts, for a key CheckKey accepts.
+func (a Auth) digest(key []byte, parts ...[]byte) ([]byte, error) {
 	var mac []byte
 	switch a.Hash {
 	case crypto.MD5, crypto.SHA1:
 		var err error
-		if mac, err = hmacRFC3414(a.Hash, key, msg); err != nil {
+		if mac, err = hmacRFC3414(a.Hash, key, parts); err != nil {
 			return nil, err
 		}
 	default:
 		h := hmac.New(a.Hash.New, key)
-		_, _ = h.Write(msg)
+		for _, p := range parts {
+			_, _ = h.Write(p)
+		}
 		mac = h.Sum(nil)
 	}
 	return mac[:a.MACLen], nil
 }
 
-// Verify reports whether mac is the digest of msg keyed with key, comparing
-// in constant time.
-func (a Auth) Verify(key, msg, mac []byte) (bool, error) {
-	digest, err := a.Digest(key, msg)
-	if err != nil {
-		return false, err
-	}
-	return subtle.ConstantTimeCompare(digest, mac) == 1, nil
-}
-
-// hmacRFC3414 computes the HMAC of RFC 3414 sections 6.3.1 and 7.3.1: the key,
-// of the hash's size (Digest checks it), zero-padded to the 64-octet block,
-// XORed with ipad and opad around two hash passes. Unlike crypto/hmac, which
-// panics, it returns the error a hash reports, as MD5 and SHA-1 do in FIPS
-// 140-only mode.
-func hmacRFC3414(hash crypto.Hash, key, msg []byte) ([]byte, error) {
+// hmacRFC3414 computes the HMAC of RFC 3414 sections 6.3.1 and 7.3.1 over the
+// concatenated parts: the key, of the hash's size (Digest checks it),
+// zero-padded to the 64-octet block, XORed with ipad and opad around two hash
+// passes. Unlike crypto/hmac, which panics, it returns the error a hash
+// reports, as MD5 and SHA-1 do in FIPS 140-only mode.
+func hmacRFC3414(hash crypto.Hash, key []byte, parts [][]byte) ([]byte, error) {
 	var ipad, opad [64]byte
 	copy(ipad[:], key)
 	copy(opad[:], key)
@@ -116,8 +134,10 @@ func hmacRFC3414(hash crypto.Hash, key, msg []byte) ([]byte, error) {
 	if _, err := inner.Write(ipad[:]); err != nil {
 		return nil, err
 	}
-	if _, err := inner.Write(msg); err != nil {
-		return nil, err
+	for _, p := range parts {
+		if _, err := inner.Write(p); err != nil {
+			return nil, err
+		}
 	}
 	outer := hash.New()
 	if _, err := outer.Write(opad[:]); err != nil {
