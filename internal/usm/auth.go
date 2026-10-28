@@ -89,13 +89,17 @@ func (a Auth) VerifyField(key, msg []byte, off, n int) (bool, error) {
 	if n != a.MACLen || off < 0 || off > len(msg)-n {
 		return false, nil
 	}
-	var zeros [MaxMACLen]byte
-	digest, err := a.digest(key, msg[:off], zeros[:n], msg[off+n:])
+	digest, err := a.digest(key, msg[:off], zeroMAC[:n], msg[off+n:])
 	if err != nil {
 		return false, err
 	}
 	return subtle.ConstantTimeCompare(digest, msg[off:off+n]) == 1, nil
 }
+
+// zeroMAC is the content VerifyField hashes in place of the digest field; a
+// variable, not an array on VerifyField's stack, which would escape through
+// the hash's Write.
+var zeroMAC [MaxMACLen]byte //nolint:gochecknoglobals // read-only zeros
 
 // digest is Digest of the concatenated parts, for a key CheckKey accepts.
 func (a Auth) digest(key []byte, parts ...[]byte) ([]byte, error) {

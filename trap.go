@@ -92,9 +92,11 @@ func (x *GoSNMP) unmarshalTrapBase(trap []byte, useResponseSecurityParameters bo
 		return result, nil
 	}
 
-	sp := &UsmSecurityParameters{Logger: x.Logger}
+	var sp *UsmSecurityParameters
 	if result.SecurityParameters != nil {
 		sp = result.SecurityParameters.usm()
+	} else {
+		sp = &UsmSecurityParameters{Logger: x.Logger}
 	}
 	if err := x.decodeTrapV3(trap, w, result, sp, useResponseSecurityParameters); err != nil {
 		return nil, err
