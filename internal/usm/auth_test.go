@@ -85,6 +85,7 @@ func TestVerifyField(t *testing.T) {
 				{name: "a message octet changed", msg: changed(0), off: off, n: a.MACLen},
 				{name: "a shorter field", msg: msg, off: off, n: a.MACLen - 1},
 				{name: "a longer field", msg: msg, off: off, n: a.MACLen + 1},
+				{name: "a field longer than any MAC", msg: slices.Concat(msg, make([]byte, MaxMACLen)), off: off, n: MaxMACLen + 1},
 				{name: "no field", msg: msg, off: -1, n: a.MACLen},
 				{name: "past the message", msg: msg, off: len(msg) - a.MACLen + 1, n: a.MACLen},
 			} {

@@ -407,3 +407,49 @@ func TestV3ParseErrorTexts(t *testing.T) {
 	assert.Equal(t, []string{"USM"}, words(errNotUSM))
 	assert.Empty(t, words(errMsgFlags))
 }
+
+// TestV3DigestField pins that the digest is read only from an OCTET STRING
+// msgAuthenticationParameters of the MAC's length: the right digest in a field
+// of another type (an OBJECT IDENTIFIER, which decodes as text) is not
+// authentic, nor is a field longer than any MAC.
+func TestV3DigestField(t *testing.T) {
+	localized := usmDecoderLocalized(SHA, NoPriv)
+	trapDecoder := func() *GoSNMP {
+		x := localized()
+		x.Version, x.SecurityModel, x.MsgFlags = Version3, UserSecurityModel, AuthNoPriv
+		return x
+	}
+	// signedWith returns an authNoPriv message whose authentication field has
+	// the tag and n content octets, signed over them zeroed, for the first
+	// message ID that makes it decode.
+	signedWith := func(tag byte, n int) []byte {
+		for id := int64(1); id < 64; id++ {
+			marker := bytes.Repeat([]byte{0xa5}, n)
+			usmParams := craftedUSM(craftedEngineID, intTLV(7), intTLV(1234), octets("codec-user"), tlv(tag, marker), octets(""))
+			data := craftedV3(intTLV(id), intTLV(65507), octets("\x01"), intTLV(3), usmParams, craftedScopedResp)
+			off := bytes.Index(data, marker)
+			clear(data[off : off+n])
+			key, err := passwordCache.LocalizedKey(crypto.SHA1, "codec-auth-pass", string(craftedEngineID[2:]))
+			require.NoError(t, err)
+			mac := hmac.New(sha1.New, key)
+			mac.Write(data)
+			copy(data[off:off+n], mac.Sum(nil))
+			if _, err := localized().SnmpDecodePacket(bytes.Clone(data)); err == nil {
+				return data
+			}
+		}
+		t.Fatalf("no message ID gives a field of tag %#x that decodes", tag)
+		return nil
+	}
+
+	tests := map[string][]byte{
+		"the digest in an OBJECT IDENTIFIER": signedWith(byte(ObjectIdentifier), 12),
+		"a field of 64 octets":               signedWith(byte(OctetString), 64),
+	}
+	for name, in := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := trapDecoder().UnmarshalTrap(in, false)
+			require.ErrorIs(t, err, errNotAuthentic)
+		})
+	}
+}

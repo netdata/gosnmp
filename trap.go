@@ -59,9 +59,10 @@ func (x *GoSNMP) unmarshalTrapByUser(trap []byte) (*SnmpPacket, error) {
 	}
 	var lastErr error
 	for _, secParams := range secParamsList {
+		// The attempts share the header's empty variable list: they run one
+		// after the other, and only the last one's result is kept.
 		result := new(SnmpPacket)
 		*result = header
-		result.Variables = make([]SnmpPDU, 0, cap(header.Variables))
 		if lastErr = x.decodeTrapV3(trap, w, result, secParams.Copy().usm(), true); lastErr == nil {
 			return result, nil
 		}
