@@ -105,6 +105,7 @@ func FuzzDecodeV3(f *testing.F) {
 	f.Add(index[usmFuzzPair{SHA, NoPriv}], craftedV3(intTLV(42), intTLV(65507), octets("\x01"), intTLV(3), usmFields, nil))
 
 	f.Fuzz(func(t *testing.T, sel uint8, data []byte) {
+		useEngineTimes(t)
 		p := pairs[int(sel)%len(pairs)]
 		receivers := []struct {
 			name   string

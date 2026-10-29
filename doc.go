@@ -101,6 +101,15 @@
 // carries an engine ID, as some devices send, serves too. A client given the
 // engine ID derives its keys instead.
 //
+// A reply goes through the security processing of RFC 3414 section 3.2 by its
+// own flags before it answers: it names the request's user, or the empty user
+// of discovery, which has no protocols; its user has the protocols the reply
+// asks for; a reply that asks for authentication names the request's engine ID
+// and carries a digest that checks with the request's key, whatever the
+// request's level; a request that asks for authentication takes no other
+// reply but an unauthenticated Report; a reply is decrypted exactly when it
+// asks for privacy. A reply that fails is treated as one that does not decode.
+//
 // The client stores the engine ID, boots and time of each answer whose digest
 // it checked, and, when it does not authenticate, of each answer but Reports.
 // A Report that says the request's engine ID or time is out of date
@@ -162,11 +171,15 @@
 // its varbind holds (seen from MikroTik devices), an IPAddress may be empty,
 // and a varbind name may be an OCTET STRING or an IpAddress, kept as text.
 // INTEGER values decode into the platform's int, so 32-bit platforms reject
-// what 64-bit ones accept. The SNMPv3 header takes net-snmp's extents and two
-// of its field rules: msgFlags must be an OCTET STRING of one octet, the
-// security model the User-based Security Model's, and every declared length
-// must fit what remains (a msgGlobalData declared shorter than its fields, or
-// security parameters declared to cover the scoped PDU, are read).
+// what 64-bit ones accept. The SNMPv3 header takes net-snmp's extents and its
+// field rules but for msgGlobalData's message ID and maximum size: msgFlags
+// must be an OCTET STRING of one octet, the security model the User-based
+// Security Model's, the flags may not ask for privacy without authentication,
+// the USM fields must be of their types (RFC 3414 section 2.4), with engine
+// boots and time within 0..2147483647 once cut to 32 bits, and every declared
+// length must fit what remains (a msgGlobalData declared shorter than its
+// fields, or security parameters declared to cover the scoped PDU, are read);
+// unlike net-snmp, a user name may exceed 32 octets.
 //
 // The decoders never write their input. [GoSNMP.SnmpDecodePacket] and
 // [GoSNMP.UnmarshalTrap] return OctetString and Opaque values that alias the
@@ -187,20 +200,57 @@
 // naming another engine ID, whatever its security level, and take none from
 // discovery. Decoding derives keys for another engine ID a message names only
 // on those paths, the authentication key when the message asks for
-// authentication or the receiver checks it, the privacy key only to decrypt;
-// decoding a reply derives none, while discovery and, without authentication, a
-// stored answer or a lent Report localize the client's keys to the engine ID it
-// names. Deriving a key starts with hashing a megabyte of the passphrase (RFC
-// 3414 appendix A.2.1). The package caches that result for every client, by
-// passphrase and hash, until [PasswordCaching] turns the cache off; it holds
-// the passphrases in memory meanwhile.
+// authentication, the privacy key only to decrypt it (on the trap paths, once
+// its digest checked); decoding a reply derives none, while discovery and,
+// without authentication, a stored answer or a lent Report localize the
+// client's keys to the engine ID it names. Deriving a key starts with hashing
+// a megabyte of the passphrase (RFC 3414 appendix A.2.1). The package caches
+// that result for every client, by passphrase and hash, until
+// [PasswordCaching] turns the cache off; it holds the passphrases in memory
+// meanwhile.
 //
 // # Traps
 //
 // [GoSNMP.UnmarshalTrap] decodes a received trap or inform: an SNMPv3 message
 // with the client's SecurityParameters, or, when TrapSecurityParametersTable
 // is set, with the parameter sets the table holds for the message's user name,
-// tried in the order they were added. Its doc says when the digest is checked,
-// and which messages pass unchecked (known bugs). The library does not listen
-// for traps or answer informs.
+// tried in the order they were added. Its doc gives the security processing
+// and the minimum level a receiver requires. The library does not listen for
+// traps or answer informs.
+//
+// An authenticated SNMPv3 trap, any message whose PDU is not of the Confirmed
+// Class (a request or an inform), whatever its reportable flag (RFC 3412
+// section 6.4), must be in the time window of its engine (RFC 3414 section 3.2
+// step 7 b), or it is rejected with [ErrNotInTimeWindow]. For
+// each engine and credential that authenticated a trap, the package keeps the
+// latest engine boots and time received and when, for all clients: a trap
+// newer than the latest updates them and is accepted; one with lower boots, an
+// older one more than 150 seconds behind the latest advanced by the time
+// since, and any of an engine whose boots reached 2147483647 are rejected, so
+// an exact copy of a trap is rejected after 150 seconds. Like snmptrapd, a
+// receiver then loses the traps of a device whose engine time does not advance
+// in real time, whose boots do not increase when it restarts, or that shares
+// its engine ID with another, until the process restarts. Informs are neither
+// checked nor recorded (an inform's receiver is the authoritative engine,
+// whose time the library does not keep), nor are unauthenticated traps. The
+// package keeps at most 65536 records, replacing the least recently updated
+// one, of whatever engine and credential: a holder of one credential who sends
+// traps from that many engine IDs makes the package forget another
+// credential's records, whose traps it then accepts as first contacts.
+//
+// # Errors
+//
+// The errors named after the counters a Report carries ([ErrUnknownUsername],
+// [ErrWrongDigest] and the others) are also the categories of the library's
+// own rejections of a message: an error of decoding an SNMPv3 message, a trap
+// or a reply, unwraps ([errors.Is]) to the counter of the RFC 3412 section 7.2
+// or RFC 3414 section 3.2 step that rejected it, with its own text:
+// [ErrUnknownSecurityModels] for another security model, [ErrInvalidMsgs] for
+// privacy without authentication and, in place of snmpInASNParseErrs, which
+// has no error of its own, for a header or a plaintext scoped PDU that does
+// not parse, [ErrUnknownEngineID] through [ErrDecryption] for the security
+// processing, [ErrUnknownSecurityLevel] for a trap receiver's minimum level
+// too. A request whose attempts ran out after discarded replies fails with the
+// last one's error, so it matches these errors without a Report. A local
+// failure, such as a key that does not fit its protocol, matches none of them.
 package gosnmp

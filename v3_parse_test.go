@@ -48,6 +48,9 @@ func decodeV3ParseCases() []decodeCase {
 		{name: "crafted/v3/parse/security-model-0", in: withModel(intTLV(0))},
 		{name: "crafted/v3/parse/security-model-octet-string", in: withModel(octets("\x03"))},
 		{name: "crafted/v3/parse/security-model-absent", in: msg(tlv(0x30, intTLV(42), intTLV(65507), octets("\x00")), tlv(byte(OctetString), usm), scoped)},
+		// Another model and privacy without authentication: the model is
+		// checked first (RFC 3412 section 7.2 step 4 before step 5).
+		{name: "crafted/v3/parse/security-model-2-privacy-only", in: craftedV3(intTLV(42), intTLV(65507), octets("\x02"), intTLV(2), usm, scoped)},
 		// An authNoPriv trap whose model is an OCTET STRING, with a digest
 		// nobody computed.
 		{
@@ -106,13 +109,21 @@ func signedAuthField(fieldHeader []byte, n int) []byte {
 	return data
 }
 
+// withWrongDigest returns data, an authenticated message, with the first
+// octet of its digest inverted.
+func withWrongDigest(t testing.TB, data []byte) []byte {
+	m := splitV3Message(t, data)
+	m.usm[4] = bytes.Clone(m.usm[4])
+	m.usm[4][0] ^= 0xff
+	return m.bytes()
+}
+
 // TestV3ReceiverRules pins, for each SNMPv3 decode path, which message a
-// receiver's parameters refuse before the digest is checked and with which
-// text (Netdata's trap receiver maps the texts to labels), whether the
-// discovery exception (an empty user name and engine ID) comes first, and
-// whether the decoder writes into its input. Results are in
+// receiver's parameters refuse, with which text and the exported errors it
+// unwraps to, and whether the decoder writes into its input. Results are in
 // testdata/usm/receiver-rules.golden.
 func TestV3ReceiverRules(t *testing.T) {
+	useEngineTimes(t)
 	discoveryAuth := craftedV3(intTLV(42), intTLV(65507), octets("\x01"), intTLV(3),
 		craftedUSM(octets(""), intTLV(0), intTLV(0), octets(""), octets(string(make([]byte, 12))), octets("")),
 		tlv(0x30, octets(""), octets(""), craftedPDU(SNMPv2Trap, craftedVBL(craftedVB(intTLV(5))))))
@@ -133,6 +144,7 @@ func TestV3ReceiverRules(t *testing.T) {
 			return m.bytes()
 		}},
 		{"authNoPriv, long-form digest field length", func() []byte { return signedAuthField([]byte{0x04, 0x81, 0x0c}, 12) }},
+		{"authNoPriv, another user", func() []byte { return signedTestTrap(t, SHA, NoPriv, usmCharEngineID, "other-user", nil) }},
 	}
 	sets := []struct {
 		name string
@@ -189,10 +201,11 @@ func TestV3ReceiverRules(t *testing.T) {
 
 	var results []goldenCase
 	record := func(name string, in []byte, decode func(in []byte) error) {
+		useEngineTimes(t)
 		buf := bytes.Clone(in)
 		var d dumpWriter
 		if err := decode(buf); err != nil {
-			d.line("error: " + err.Error())
+			d.line(dumpError(err) + ": " + err.Error())
 		} else {
 			d.line("ok")
 		}
@@ -220,11 +233,20 @@ func TestV3ReceiverRules(t *testing.T) {
 		})
 	}
 	// A table with two sets for one user: keys given without passphrases for
-	// another engine ID, and passphrases; messages from either engine.
+	// another engine ID, and passphrases; messages from either engine, and one
+	// whose digest neither set checks, which each set rejects at another step.
 	keysOnly := func() *UsmSecurityParameters {
 		return usmKeysOnly(usmDecoder(SHA, "codec-auth-pass", AES, "codec-priv-pass")().SecurityParameters.usm(), usmOtherEngineID)
 	}
 	passphrases := sets[2].sp
+	mixedMessages := []struct {
+		name string
+		in   []byte
+	}{
+		{"from " + usmCharEngineID[5:], signedTestTrap(t, SHA, AES, usmCharEngineID, "codec-user", nil)},
+		{"from " + usmOtherEngineID[5:], signedTestTrap(t, SHA, AES, usmOtherEngineID, "codec-user", nil)},
+		{"from " + usmCharEngineID[5:] + ", wrong digest", withWrongDigest(t, signedTestTrap(t, SHA, AES, usmCharEngineID, "codec-user", nil))},
+	}
 	for _, order := range []struct {
 		name string
 		sets []func() *UsmSecurityParameters
@@ -232,9 +254,9 @@ func TestV3ReceiverRules(t *testing.T) {
 		{"keys only, then passphrases", []func() *UsmSecurityParameters{keysOnly, passphrases}},
 		{"passphrases, then keys only", []func() *UsmSecurityParameters{passphrases, keysOnly}},
 	} {
-		for _, engineID := range []string{usmCharEngineID, usmOtherEngineID} {
-			name := "mixed sets/" + order.name + "/from " + engineID[5:]
-			record(name, signedTestTrap(t, SHA, AES, engineID, "codec-user", nil), func(in []byte) error {
+		for _, m := range mixedMessages {
+			name := "mixed sets/" + order.name + "/" + m.name
+			record(name, m.in, func(in []byte) error {
 				tb := NewSnmpV3SecurityParametersTable(Logger{})
 				for _, sp := range order.sets {
 					if err := tb.Add("codec-user", sp()); err != nil {
@@ -252,10 +274,12 @@ func TestV3ReceiverRules(t *testing.T) {
 // TestV3DecodeKeyDerivation pins, with the size of the package's key cache,
 // which messages from new engine IDs make a receiver derive a privacy key: a
 // user of a Reeder-extended protocol (AES-256 Cisco) caches one
-// password-to-key result per engine ID it localizes a privacy key to. The
-// receiver's privacy passphrase differs from the sender's, whose own keys are
-// cached when its messages are made.
+// password-to-key result per engine ID it localizes a privacy key to. Only a
+// message whose digest checked is decrypted, whatever the receiver's level.
+// The receiver's privacy passphrase differs from the sender's, whose own keys
+// are cached when its messages are made.
 func TestV3DecodeKeyDerivation(t *testing.T) {
+	useEngineTimes(t)
 	if !passwordCache.Enabled() {
 		t.Skip("the key cache is off")
 	}
@@ -270,12 +294,7 @@ func TestV3DecodeKeyDerivation(t *testing.T) {
 	// The passphrases' own cache entries, and a single user's keys for its
 	// empty engine ID, are made once, before any count.
 	require.NoError(t, reeder().InitSecurityKeys())
-	wrongDigest := func(data []byte) []byte {
-		m := splitV3Message(t, data)
-		m.usm[4] = bytes.Clone(m.usm[4])
-		m.usm[4][0] ^= 0xff
-		return m.bytes()
-	}
+	wrongDigest := func(data []byte) []byte { return withWrongDigest(t, data) }
 	signed := func(engineID string) []byte { return signedTestTrap(t, SHA, AES256C, engineID, "codec-user", nil) }
 
 	// single is a single-user receiver with flags, its keys derived for
@@ -306,16 +325,13 @@ func TestV3DecodeKeyDerivation(t *testing.T) {
 		"authPriv, wrong digest, single user at authPriv": {
 			in: func(e string) []byte { return wrongDigest(signed(e)) }, receiver: single(AuthPriv, false),
 		},
-		// Known bug: these are decrypted without a digest check (the table
-		// path and the message flags take the message's level, a single user
-		// at noAuthNoPriv checks none), so they derive the privacy key.
-		"privacy only":                  {in: privacyOnly, want: 1},
-		"noAuthNoPriv flags, encrypted": {in: noAuthEncrypted, want: 1},
+		"privacy only":                  {in: privacyOnly},
+		"noAuthNoPriv flags, encrypted": {in: noAuthEncrypted},
 		"authPriv, wrong digest, single user at noAuthNoPriv": {
-			in: func(e string) []byte { return wrongDigest(signed(e)) }, receiver: single(NoAuthNoPriv, false), want: 1,
+			in: func(e string) []byte { return wrongDigest(signed(e)) }, receiver: single(NoAuthNoPriv, false),
 		},
 		"noAuthNoPriv flags, encrypted, single user, message flags": {
-			in: noAuthEncrypted, receiver: single(AuthPriv, true), want: 1,
+			in: noAuthEncrypted, receiver: single(AuthPriv, true),
 		},
 	}
 	for name, tc := range tests {
@@ -330,15 +346,6 @@ func TestV3DecodeKeyDerivation(t *testing.T) {
 			assert.Equal(t, tc.want, passwordCache.Len()-before)
 		})
 	}
-
-	// An accepted noAuthNoPriv message from a new engine ID needs no key: the
-	// table's set derives none for it.
-	t.Run("noAuthNoPriv plaintext, the decoded keys", func(t *testing.T) {
-		res, err := table(usmPlainTrap(3, newEngine(), "codec-user"))
-		require.NoError(t, err)
-		usp := res.SecurityParameters.usm()
-		assert.Equal(t, [][]byte{nil, nil}, [][]byte{usp.SecretKey, usp.PrivacyKey})
-	})
 
 	// A client's request, answered by an unauthenticated Report naming a new
 	// engine ID.
@@ -403,6 +410,8 @@ func TestV3ReplyDecode(t *testing.T) {
 		assert.Equal(t, []any{usmOtherEngineID, []byte(nil), []byte(nil)}, []any{usp.AuthoritativeEngineID, usp.SecretKey, usp.PrivacyKey})
 	})
 
+	// A reply that asks for authentication is checked whatever the request's
+	// level: one from another engine has none of the request's keys.
 	t.Run("encrypted reply from another engine to a noAuthNoPriv request", func(t *testing.T) {
 		e, _ := request(NoAuthNoPriv|Reportable, AES)
 		data, err := (&SnmpPacket{
@@ -413,7 +422,58 @@ func TestV3ReplyDecode(t *testing.T) {
 		require.NoError(t, err)
 		reply, _, err := e.decode(data)
 		assert.Nil(t, reply)
-		require.ErrorContains(t, err, "decrypting")
+		require.ErrorIs(t, err, ErrUnknownUsername)
+	})
+
+	// A request without authentication checks the digest of a reply that
+	// asks for authentication, with its user's key; a user without an
+	// authentication protocol takes no such reply.
+	t.Run("authNoPriv reply with a wrong digest to a noAuthNoPriv request", func(t *testing.T) {
+		e, sp := request(NoAuthNoPriv|Reportable, NoPriv)
+		data, err := (&SnmpPacket{
+			Version: Version3, MsgFlags: AuthNoPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy(),
+			MsgID: 7, PDUType: GetResponse, RequestID: 1, Variables: usmPlainVars,
+		}).MarshalMsg()
+		require.NoError(t, err)
+		reply, verified, err := e.decode(withWrongDigest(t, data))
+		assert.Nil(t, reply)
+		assert.False(t, verified)
+		require.ErrorIs(t, err, ErrWrongDigest)
+
+		reply, verified, err = e.decode(data)
+		require.NoError(t, err)
+		assert.True(t, verified)
+		assert.Equal(t, usmPlainVars, reply.Variables)
+	})
+
+	t.Run("authNoPriv reply to a noAuthNoPriv request of a user without protocols", func(t *testing.T) {
+		sp := &UsmSecurityParameters{UserName: "codec-user", AuthoritativeEngineID: usmCharEngineID}
+		x := &GoSNMP{Version: Version3, MsgFlags: NoAuthNoPriv | Reportable, SecurityModel: UserSecurityModel, SecurityParameters: sp}
+		req := &SnmpPacket{Version: Version3, MsgFlags: NoAuthNoPriv | Reportable, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy(), MsgID: 7, PDUType: GetRequest}
+		data, err := (&SnmpPacket{
+			Version: Version3, MsgFlags: AuthNoPriv, SecurityModel: UserSecurityModel,
+			SecurityParameters: signedTestUSM(t, SHA, NoPriv, usmCharEngineID, "codec-user"),
+			MsgID:              7, PDUType: GetResponse, RequestID: 1, Variables: usmPlainVars,
+		}).MarshalMsg()
+		require.NoError(t, err)
+		reply, _, err := (&exchange{x: x, packet: req}).decode(data)
+		assert.Nil(t, reply)
+		require.ErrorIs(t, err, ErrUnknownSecurityLevel)
+	})
+
+	// The empty user of discovery has no protocols: a reply naming it takes
+	// no authentication, even signed with the request's key.
+	t.Run("authNoPriv reply naming the empty user", func(t *testing.T) {
+		e, _ := request(AuthNoPriv|Reportable, NoPriv)
+		data, err := (&SnmpPacket{
+			Version: Version3, MsgFlags: AuthNoPriv, SecurityModel: UserSecurityModel,
+			SecurityParameters: signedTestUSM(t, SHA, NoPriv, usmCharEngineID, ""),
+			MsgID:              7, PDUType: GetResponse, RequestID: 1, Variables: usmPlainVars,
+		}).MarshalMsg()
+		require.NoError(t, err)
+		reply, _, err := e.decode(data)
+		assert.Nil(t, reply)
+		require.ErrorIs(t, err, ErrUnknownSecurityLevel)
 	})
 
 	t.Run("authPriv reply, another engine time", func(t *testing.T) {
@@ -440,6 +500,7 @@ func TestV3ReplyDecode(t *testing.T) {
 // must decode the response as authentic. The table's set has passphrases, or
 // keys already localized to the sender's engine ID.
 func TestV3InformResponse(t *testing.T) {
+	useEngineTimes(t)
 	tests := map[string]struct {
 		priv       SnmpV3PrivProtocol
 		configured bool // the set is localized to the sender's engine ID
@@ -501,9 +562,10 @@ func TestV3ParseErrorTexts(t *testing.T) {
 
 // TestV3DigestField pins that the digest is read only from an OCTET STRING
 // msgAuthenticationParameters of the MAC's length: the right digest in a field
-// of another type (an OBJECT IDENTIFIER, which decodes as text) is not
-// authentic, nor is a field longer than any MAC.
+// of another type (an OBJECT IDENTIFIER) fails the header parse, and a field
+// longer than any MAC is not authentic.
 func TestV3DigestField(t *testing.T) {
+	useEngineTimes(t)
 	localized := usmDecoderLocalized(SHA, NoPriv)
 	trapDecoder := func() *GoSNMP {
 		x := localized()
@@ -511,8 +573,8 @@ func TestV3DigestField(t *testing.T) {
 		return x
 	}
 	// signedWith returns an authNoPriv message whose authentication field has
-	// the tag and n content octets, signed over them zeroed, for the first
-	// message ID that makes it decode.
+	// the tag and n content octets, signed over them zeroed: for an OCTET
+	// STRING, with the first message ID that makes it decode.
 	signedWith := func(tag byte, n int) []byte {
 		for id := int64(1); id < 64; id++ {
 			marker := bytes.Repeat([]byte{0xa5}, n)
@@ -525,7 +587,7 @@ func TestV3DigestField(t *testing.T) {
 			mac := hmac.New(sha1.New, key)
 			mac.Write(data)
 			copy(data[off:off+n], mac.Sum(nil))
-			if _, err := localized().SnmpDecodePacket(bytes.Clone(data)); err == nil {
+			if _, err := localized().SnmpDecodePacket(bytes.Clone(data)); err == nil || tag != byte(OctetString) {
 				return data
 			}
 		}
@@ -533,33 +595,41 @@ func TestV3DigestField(t *testing.T) {
 		return nil
 	}
 
-	tests := map[string][]byte{
-		"the digest in an OBJECT IDENTIFIER": signedWith(byte(ObjectIdentifier), 12),
-		"a field of 64 octets":               signedWith(byte(OctetString), 64),
+	tests := map[string]struct {
+		in   []byte
+		want error
+	}{
+		"the digest in an OBJECT IDENTIFIER": {signedWith(byte(ObjectIdentifier), 12), ErrInvalidMsgs},
+		"a field of 64 octets":               {signedWith(byte(OctetString), 64), errNotAuthentic},
 	}
-	for name, in := range tests {
+	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := trapDecoder().UnmarshalTrap(in, false)
-			require.ErrorIs(t, err, errNotAuthentic)
+			_, err := trapDecoder().UnmarshalTrap(tc.in, false)
+			require.ErrorIs(t, err, tc.want)
 		})
 	}
 }
 
 // TestV3SingleUserWithoutParameters pins a single-user receiver whose flags ask
-// for authentication but which has no security parameters: it has no key to
-// check a digest with, so a message with a user name or engine ID is not
-// authentic, whatever its own flags, and decoding it does not panic.
+// for authentication but which has no security parameters: its user is the
+// empty one, without protocols, so it takes no message of another user and
+// none of its own, which cannot have the level its flags require; decoding
+// does not panic.
 func TestV3SingleUserWithoutParameters(t *testing.T) {
-	for name, in := range map[string][]byte{
-		"noAuthNoPriv":          usmPlainTrap(3, usmCharEngineID, "codec-user"),
-		"noAuthNoPriv, no user": usmPlainTrap(3, usmCharEngineID, ""),
+	useEngineTimes(t)
+	for name, tc := range map[string]struct {
+		in []byte
+		is error
+	}{
+		"noAuthNoPriv":          {usmPlainTrap(3, usmCharEngineID, "codec-user"), ErrUnknownUsername},
+		"noAuthNoPriv, no user": {usmPlainTrap(3, usmCharEngineID, ""), ErrUnknownSecurityLevel},
 	} {
 		t.Run(name, func(t *testing.T) {
 			x := &GoSNMP{Version: Version3, MsgFlags: AuthNoPriv, SecurityModel: UserSecurityModel}
 			var err error
-			v, _ := recoverPanic(func() { _, err = x.UnmarshalTrap(bytes.Clone(in), false) })
+			v, _ := recoverPanic(func() { _, err = x.UnmarshalTrap(bytes.Clone(tc.in), false) })
 			require.Nil(t, v, "UnmarshalTrap panicked")
-			require.ErrorIs(t, err, errNotAuthentic)
+			require.ErrorIs(t, err, tc.is)
 		})
 	}
 }

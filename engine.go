@@ -437,11 +437,11 @@ func (e *exchange) await(c *connection, earlier []sentIDs) attemptOutcome {
 }
 
 // decode decodes a reply to the request: the header, for an SNMPv3 request
-// the authentication and the scoped PDU, then the PDU. It reports whether the
-// reply's digest checked against the request. The reply's security
-// parameters are the request's with the USM fields the reply carries, keeping
-// the request's keys only for the request's engine ID: no key derives for an
-// engine a reply names.
+// the security processing and the scoped PDU, then the PDU. It reports
+// whether the reply's digest checked against the request. The reply's
+// security parameters are the request's with the USM fields the reply
+// carries, keeping the request's keys only for the request's engine ID: no key
+// derives for an engine a reply names.
 func (e *exchange) decode(resp []byte) (_ *SnmpPacket, verified bool, _ error) {
 	x := e.x
 	reply := &SnmpPacket{Logger: x.Logger}
@@ -453,21 +453,22 @@ func (e *exchange) decode(resp []byte) (_ *SnmpPacket, verified bool, _ error) {
 
 	cursor, w, err := unmarshalHeader(resp, reply)
 	if err == nil && reply.Version == Version3 && sp != nil {
-		_, err = sp.receive(reply.MsgFlags, &w, false)
+		err = receiveReply(reply.MsgFlags, &w, sp)
 	}
 	if err != nil {
 		x.Logger.Printf("ERROR on unmarshall header: %s", err)
 		return nil, false, err
 	}
 	if e.packet.Version == Version3 {
-		if verified, err = e.authenticate(resp, &w, reply); err != nil {
+		in := inbound{msg: resp, wire: w, sp: sp}
+		if verified, err = e.authenticate(&in, reply); err != nil {
 			if e.unauthenticatedReport(resp, cursor, reply) {
 				return reply, false, nil
 			}
 			x.Logger.Printf("ERROR on Test Authentication on v3: %s", err)
 			return nil, false, err
 		}
-		if resp, cursor, err = unmarshalScopedPDU(resp, cursor, reply); err != nil {
+		if resp, cursor, err = unmarshalScopedPDU(resp, cursor, reply, reply.MsgFlags.privFlag()); err != nil {
 			x.Logger.Printf("ERROR on the scoped PDU on v3: %s", err)
 			return nil, false, err
 		}
@@ -479,25 +480,45 @@ func (e *exchange) decode(resp []byte) (_ *SnmpPacket, verified bool, _ error) {
 	return reply, verified, nil
 }
 
-// authenticate checks reply, an answer to an SNMPv3 request, against the
-// request's security state (RFC 3412 section 7.2, RFC 3414 section 3.2): to a
-// request that asks for authentication, it must ask for it too, name the
-// request's user and engine ID, and carry a digest that checks with the
-// request's key. It reports whether it checked the digest; any reply answers a
-// request without authentication unchecked.
-func (e *exchange) authenticate(resp []byte, w *v3Wire, reply *SnmpPacket) (bool, error) {
-	if !e.packet.MsgFlags.authFlag() {
+// receiveReply makes sp, a copy of a request's parameters, the security
+// parameters of a reply with flags whose USM fields are w, after RFC 3414
+// section 3.2 steps 4 and 5 by the reply's flags: the reply's user is the
+// request's (else errUnknownUser), or the empty user of discovery, which has
+// no protocols (as net-snmp's), so it names no reply that asks for
+// authentication; a reply that asks for authentication names the request's
+// engine ID, the only one the request's keys serve (else errUnknownUser); the
+// request's user has the protocols the flags ask for.
+func receiveReply(flags SnmpV3MsgFlags, w *v3Wire, sp *UsmSecurityParameters) error {
+	if w.userName != sp.UserName {
+		if w.userName != "" {
+			return errUnknownUser
+		}
+		if flags.authFlag() {
+			return errNoAuthForMsg
+		}
+	}
+	if flags.authFlag() && w.engineID != sp.AuthoritativeEngineID {
+		return errUnknownUser
+	}
+	_, err := sp.receive(flags, w, false)
+	return err
+}
+
+// authenticate checks in, a reply to an SNMPv3 request in security
+// processing, by its own flags (RFC 3414 section 3.2 step 6): a reply that
+// asks for authentication must carry a digest that checks with the request's
+// key, whatever the request's level; to a request that asks for
+// authentication, a reply must ask for it too. It reports whether it checked
+// the digest.
+func (e *exchange) authenticate(in *inbound, reply *SnmpPacket) (bool, error) {
+	if !reply.MsgFlags.authFlag() {
+		if e.packet.MsgFlags.authFlag() {
+			return false, errNotAuthentic
+		}
 		return false, nil
 	}
-	if !reply.MsgFlags.authFlag() {
-		return false, errNotAuthentic
-	}
-	authentic, err := e.packet.SecurityParameters.usm().isAuthenticAnswer(resp, w, reply.SecurityParameters.usm())
-	if err != nil {
+	if err := in.verify(); err != nil {
 		return false, err
-	}
-	if !authentic {
-		return false, errNotAuthentic
 	}
 	return true, nil
 }
@@ -516,7 +537,7 @@ func (e *exchange) unauthenticatedReport(resp []byte, cursor int, reply *SnmpPac
 		cursor >= len(resp) || PDUType(resp[cursor]) != Sequence {
 		return false
 	}
-	resp, cursor, err := unmarshalScopedPDU(resp, cursor, reply)
+	resp, cursor, err := unmarshalScopedPDU(resp, cursor, reply, false)
 	if err != nil || unmarshalPayload(resp, cursor, reply) != nil {
 		return false
 	}
@@ -533,10 +554,10 @@ func (e *exchange) unauthenticatedReport(resp []byte, cursor int, reply *SnmpPac
 // attempt: a request sent back unchanged carries the client's own IDs and
 // digest, and other PDUs answer no request. Known bugs: nothing else of the
 // reply is compared with the request (the SNMPv1 and SNMPv2c versions, the
-// security model, level and context of RFC 3412 section 7.2 step 12 b, nor,
-// for a request without authentication, the user and engine ID); an empty
-// Response without an error status answers before its request ID is checked;
-// a Response with request ID 0 answers any request.
+// security model, level and context of RFC 3412 section 7.2 step 12 b, nor the
+// engine ID of a reply without authentication; decode compares the user); an
+// empty Response without an error status answers before its request ID is
+// checked; a Response with request ID 0 answers any request.
 func (e *exchange) answers(reply *SnmpPacket, earlier []sentIDs) (bool, error) {
 	if reply.Version == Version3 || e.packet.Version == Version3 {
 		if reply.Version != e.packet.Version || !e.sentWithMsgID(reply.MsgID, earlier) {
@@ -586,7 +607,9 @@ const (
 )
 
 // The errors of a request answered by a Report: one per Report counter the
-// library knows, and ErrUnknownReportPDU for any other counter.
+// library knows, and ErrUnknownReportPDU for any other counter. The library's
+// own rejections of a message unwrap to the counter's error too (see the
+// package documentation, Errors).
 var (
 	ErrDecryption            = errors.New("decryption error")
 	ErrInvalidMsgs           = errors.New("invalid messages")

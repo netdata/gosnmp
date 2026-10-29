@@ -1061,7 +1061,6 @@ func v3Scenarios() map[string]v3Scenario {
 			user: "codec-noauth", script: onRequest(2, agentAnswer{
 				why: "GetResponse for another user", edit: func(p *SnmpPacket) { p.SecurityParameters.usm().UserName = "codec-other-user" },
 			}),
-			knownBug: "a GetResponse for another user than the request's is accepted (RFC 3412 section 7.2 step 12 b)",
 		},
 		"answer/other-user/md5": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			level: AuthNoPriv, why: "GetResponse for another user",

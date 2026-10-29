@@ -343,7 +343,7 @@ func TestUSMDecryptCharacterization(t *testing.T) {
 			{name: name + "/receiver-keys-only-other-engine", in: data, decoder: localized(usmOtherEngineID, false)},
 		}
 		for _, c := range cases {
-			results = append(results, goldenCase{name: c.name, dump: dumpDecode(c)})
+			results = append(results, goldenCase{name: c.name, dump: dumpDecode(t, c)})
 		}
 	}
 	usmGolden.check(t, "decrypt", results)
@@ -395,21 +395,16 @@ func usmPlainTrap(model int64, engineID, user string) []byte {
 }
 
 // TestUSMTrapUnauthenticated pins what UnmarshalTrap does, for a single user
-// requiring authPriv and through a credentials table, with messages it
-// decodes without checking a digest:
-//
-//   - the table path takes the security level from the message
-//     (TestTrapSecurityOutcomes);
-//   - testAuthentication skips it for any message with an empty user name and
-//     engine ID: of the conditions of its engine discovery exception (RFC 3414
-//     section 4), the flags test always holds (NoAuthNoPriv is 0) and the
-//     varbind list is always empty there, since the payload is decoded later.
-//
-// Decryption follows the scoped PDU's tag (an OCTET STRING is decrypted)
-// whatever the flags say. A message of another security model than USM is
-// rejected by the header parse. Cases with a knownBug note record wrong
-// behavior that the bug-fix phase changes.
+// requiring authPriv and through a credentials table, with messages that
+// carry no digest it can check or ask for less than their user needs: each is
+// rejected at its step of the security processing (RFC 3412 section 7.2, RFC
+// 3414 section 3.2), whose error it unwraps to. Privacy without
+// authentication fails the header parse, a scoped PDU whose type does not
+// match the privacy flag is invalid, and nothing is decrypted without a
+// checked digest; an empty user name and engine ID, as in engine discovery,
+// name no engine.
 func TestUSMTrapUnauthenticated(t *testing.T) {
+	useEngineTimes(t)
 	// wrappedTrap carries the plaintext scoped PDU's fields in an OCTET
 	// STRING, where an encrypted scoped PDU goes.
 	wrappedTrap := func() []byte {
@@ -467,109 +462,89 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 		in       func() []byte
 		priv     SnmpV3PrivProtocol
 		receiver receiverKind
-		want     string    // accepted, rejected or panic
-		vars     []SnmpPDU // of an accepted trap
-		errHas   string    // a word of a rejection's error that Netdata's labels read
-		knownBug string
+		is       error // the exported error the rejection unwraps to
 	}{
 		"privacy-only DES, single user": {
-			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 8) }, priv: DES, want: "rejected",
+			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 8) }, priv: DES, is: ErrInvalidMsgs,
 		},
 		"privacy-only DES, table": {
-			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 8) }, priv: DES, receiver: table,
-			want: "accepted", vars: usmCharVarbinds, knownBug: "decrypted and accepted without checking the digest",
+			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 8) }, priv: DES, receiver: table, is: ErrInvalidMsgs,
 		},
 		"privacy-only AES, table": {
-			in: func() []byte { return usmFlagsTrap(t, AES, usmPrivacyFlag, 8) }, priv: AES, receiver: table,
-			want: "accepted", vars: usmCharVarbinds, knownBug: "decrypted and accepted without checking the digest",
+			in: func() []byte { return usmFlagsTrap(t, AES, usmPrivacyFlag, 8) }, priv: AES, receiver: table, is: ErrInvalidMsgs,
 		},
 		"noAuthNoPriv flags, encrypted AES, table": {
-			in: func() []byte { return usmFlagsTrap(t, AES, NoAuthNoPriv, 8) }, priv: AES, receiver: table,
-			want: "accepted", vars: usmCharVarbinds, knownBug: "decrypted and accepted without checking the digest",
+			in: func() []byte { return usmFlagsTrap(t, AES, NoAuthNoPriv, 8) }, priv: AES, receiver: table, is: ErrInvalidMsgs,
 		},
 		"noAuthNoPriv flags, encrypted AES, single user": {
-			in: func() []byte { return usmFlagsTrap(t, AES, NoAuthNoPriv, 8) }, priv: AES, want: "rejected",
+			in: func() []byte { return usmFlagsTrap(t, AES, NoAuthNoPriv, 8) }, priv: AES, is: ErrInvalidMsgs,
 		},
 		"noAuthNoPriv flags, OCTET STRING scoped PDU, table without privacy": {
-			in: wrappedTrap, priv: NoPriv, receiver: table,
-			want: "accepted", vars: usmPlainVars, knownBug: "without a privacy protocol an OCTET STRING scoped PDU is read as plaintext",
+			in: wrappedTrap, priv: NoPriv, receiver: table, is: ErrInvalidMsgs,
 		},
 		"privacy-only DES with a 7-octet salt, single user": {
-			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 7) }, priv: DES, want: "rejected",
+			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 7) }, priv: DES, is: ErrInvalidMsgs,
 		},
 		"privacy-only DES with a 7-octet salt, table": {
-			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 7) }, priv: DES, receiver: table,
-			want: "rejected", errHas: "decrypting",
+			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 7) }, priv: DES, receiver: table, is: ErrInvalidMsgs,
 		},
 		"noAuthNoPriv flags, encrypted DES with a 7-octet salt, table": {
-			in: func() []byte { return usmFlagsTrap(t, DES, NoAuthNoPriv, 7) }, priv: DES, receiver: table,
-			want: "rejected", errHas: "decrypting",
+			in: func() []byte { return usmFlagsTrap(t, DES, NoAuthNoPriv, 7) }, priv: DES, receiver: table, is: ErrInvalidMsgs,
 		},
 		"privacy-only AES with a 7-octet salt, table": {
-			in: func() []byte { return usmFlagsTrap(t, AES, usmPrivacyFlag, 7) }, priv: AES, receiver: table, want: "rejected",
+			in: func() []byte { return usmFlagsTrap(t, AES, usmPrivacyFlag, 7) }, priv: AES, receiver: table, is: ErrInvalidMsgs,
 		},
 		"privacy-only DES, table with keys only": {
-			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 8) }, priv: DES, receiver: tableKeysOnly,
-			want: "rejected", errHas: "cannot be localized to another engine ID",
+			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 8) }, priv: DES, receiver: tableKeysOnly, is: ErrInvalidMsgs,
 		},
 		"authNoPriv signed with the empty key, table with keys only": {
-			in: emptyKeyTrap, priv: NoPriv, receiver: tableKeysOnly, want: "rejected", errHas: "authentication",
+			in: emptyKeyTrap, priv: NoPriv, receiver: tableKeysOnly, is: ErrUnknownUsername,
 		},
 		"authNoPriv signed with the empty key, single user with keys only": {
-			in: emptyKeyTrap, priv: NoPriv, receiver: singleKeysOnly, want: "rejected", errHas: "authentication",
+			in: emptyKeyTrap, priv: NoPriv, receiver: singleKeysOnly, is: ErrUnknownUsername,
 		},
 		"authNoPriv signed with the empty key, table": {
-			in: emptyKeyTrap, priv: NoPriv, receiver: table, want: "rejected",
+			in: emptyKeyTrap, priv: NoPriv, receiver: table, is: ErrWrongDigest,
 		},
 		"noAuthNoPriv plaintext, AES table with keys only": {
-			in: func() []byte { return usmPlainTrap(3, usmCharEngineID, "codec-user") }, priv: AES, receiver: tableKeysOnly,
-			want: "rejected", errHas: "cannot be localized to another engine ID",
+			in: func() []byte { return usmPlainTrap(3, usmCharEngineID, "codec-user") }, priv: AES, receiver: tableKeysOnly, is: ErrUnknownUsername,
+		},
+		"noAuthNoPriv plaintext, AES table": {
+			in: func() []byte { return usmPlainTrap(3, usmCharEngineID, "codec-user") }, priv: AES, receiver: table, is: ErrUnknownSecurityLevel,
 		},
 		"security model 2, plaintext, single user": {
-			in: func() []byte { return usmPlainTrap(2, usmCharEngineID, "codec-user") }, priv: AES,
-			want: "rejected", errHas: "USM",
+			in: func() []byte { return usmPlainTrap(2, usmCharEngineID, "codec-user") }, priv: AES, is: ErrUnknownSecurityModels,
 		},
 		"security model 2, authPriv flags, table": {
-			in: func() []byte { return encryptedWithModel(AES, 2, 8) }, priv: AES, receiver: table,
-			want: "rejected", errHas: "USM",
+			in: func() []byte { return encryptedWithModel(AES, 2, 8) }, priv: AES, receiver: table, is: ErrUnknownSecurityModels,
 		},
 		"security model 2, encrypted DES with a 7-octet salt, single user": {
-			in: func() []byte { return encryptedWithModel(DES, 2, 7) }, priv: DES, want: "rejected", errHas: "USM",
+			in: func() []byte { return encryptedWithModel(DES, 2, 7) }, priv: DES, is: ErrUnknownSecurityModels,
 		},
 		"empty user name and engine ID, single user": {
-			in: func() []byte { return usmPlainTrap(3, "", "") }, priv: AES,
-			want: "accepted", vars: usmPlainVars, knownBug: "the engine discovery exception skips the digest for any message",
+			in: func() []byte { return usmPlainTrap(3, "", "") }, priv: AES, is: ErrUnknownEngineID,
+		},
+		"empty user name and engine ID, table": {
+			in: func() []byte { return usmPlainTrap(3, "", "") }, priv: AES, receiver: table, is: ErrUnknownEngineID,
 		},
 		"empty user name, engine ID set, single user": {
-			in: func() []byte { return usmPlainTrap(3, usmCharEngineID, "") }, priv: AES, want: "rejected",
+			in: func() []byte { return usmPlainTrap(3, usmCharEngineID, "") }, priv: AES, is: ErrUnknownUsername,
 		},
 		"malformed header, single user": {
-			in: func() []byte { return usmMalformedV3Header }, priv: AES, want: "rejected",
+			in: func() []byte { return usmMalformedV3Header }, priv: AES, is: ErrInvalidMsgs,
 		},
 		"malformed header, table": {
-			in: func() []byte { return usmMalformedV3Header }, priv: AES, receiver: table, want: "rejected",
+			in: func() []byte { return usmMalformedV3Header }, priv: AES, receiver: table, is: ErrInvalidMsgs,
 		},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			x := receiver(tc.priv, tc.receiver)
-			var res *SnmpPacket
 			var err error
-			got := "accepted"
-			switch v, _ := recoverPanic(func() { res, err = x.UnmarshalTrap(tc.in(), false) }); {
-			case v != nil:
-				got = "panic"
-			case err != nil:
-				got = "rejected"
-			}
-			require.Equal(t, tc.want, got, "known bug: %q", tc.knownBug)
-			if got == "accepted" {
-				assert.Equal(t, tc.vars, res.Variables)
-			}
-			if tc.errHas != "" {
-				assert.ErrorContains(t, err, tc.errHas)
-			}
+			v, _ := recoverPanic(func() { _, err = x.UnmarshalTrap(tc.in(), false) })
+			require.Nil(t, v, "UnmarshalTrap panicked")
+			require.ErrorIs(t, err, tc.is)
 		})
 	}
 }
@@ -579,10 +554,12 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 // localized to, for every protocol pair: on the trap table path, for a single
 // trap user with its own or the message's flags, and with SnmpDecodePacket. A
 // message naming another engine ID is rejected whatever its security level or
-// user name, with the error of adopting another engine ID (the table finds no
-// set for an empty user name; a message of another security model fails the
-// header parse first), and the parameters keep their engine ID and keys.
+// user name, with the error of adopting another engine ID, which unwraps to
+// ErrUnknownUsername (the trap paths reject an empty engine ID before; a
+// message of another security model fails the header parse first), and the
+// parameters keep their engine ID and keys.
 func TestUSMKeysBoundToEngine(t *testing.T) {
+	useEngineTimes(t)
 	type receiverKind int
 	const (
 		table receiverKind = iota
@@ -624,15 +601,15 @@ func TestUSMKeysBoundToEngine(t *testing.T) {
 	}
 
 	tests := map[string]struct {
-		in          func(auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol) []byte
-		accepted    bool
-		unknownUser bool  // the table holds no set for the message's user name
-		wantErr     error // instead of the error of adopting another engine ID
+		in       func(auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol) []byte
+		accepted bool
+		noEngine bool  // the trap paths reject the empty engine ID first
+		wantErr  error // instead of the error of adopting another engine ID
 	}{
 		"authenticated, from the keys' engine":  {in: signedTrap, accepted: true},
 		"noAuthNoPriv, from another engine":     {in: plainTrap(3, usmCharEngineID, "codec-user")},
 		"security model 2, from another engine": {in: plainTrap(2, usmCharEngineID, "codec-user"), wantErr: errNotUSM},
-		"empty user name and engine ID":         {in: plainTrap(3, "", ""), unknownUser: true},
+		"empty user name and engine ID":         {in: plainTrap(3, "", ""), noEngine: true},
 	}
 
 	for name, tc := range tests {
@@ -659,12 +636,13 @@ func TestUSMKeysBoundToEngine(t *testing.T) {
 						case tc.accepted:
 							require.NoError(t, err)
 							assert.Equal(t, usmPlainVars, res.Variables)
-						case rk == table && tc.unknownUser:
-							require.Error(t, err)
+						case rk != decodePacket && tc.noEngine:
+							require.ErrorIs(t, err, ErrUnknownEngineID)
 						case tc.wantErr != nil:
 							require.ErrorIs(t, err, tc.wantErr)
 						default:
 							require.ErrorIs(t, err, errAuthKeyBoundToEngine)
+							require.ErrorIs(t, err, ErrUnknownUsername)
 						}
 						assert.Equal(t, []any{want.AuthoritativeEngineID, want.SecretKey, want.PrivacyKey},
 							[]any{sp.AuthoritativeEngineID, sp.SecretKey, sp.PrivacyKey}, "the user's engine ID and keys")
@@ -769,6 +747,7 @@ func TestUSMAdoptEngineID(t *testing.T) {
 // SnmpDecodePacket checks no digest, and UnmarshalTrap finds it not
 // authentic.
 func TestUSMAuthFieldEmpty(t *testing.T) {
+	useEngineTimes(t)
 	usm := craftedUSM(octets(usmCharEngineID), intTLV(0), intTLV(0), octets("codec-user"), octets(""), octets(""))
 	msg := craftedV3(intTLV(42), intTLV(65507), octets("\x01"), intTLV(3), usm, craftedScopedResp)
 	decoder := usmDecoder(SHA, "codec-auth-pass", NoPriv, "")

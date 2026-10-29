@@ -389,9 +389,13 @@ func (x *GoSNMP) SnmpEncodePacket(pdutype PDUType, pdus []SnmpPDU, nonRepeaters 
 // with a copy of the client's security parameters, after preparing the client
 // as Connect does; for an SNMPv3 message from another engine ID it derives the
 // authentication key, and the privacy key to decrypt, so parameters with a key
-// given without its passphrase decode no such message. It does not check the
-// digest, and it does not write resp (see the package documentation for the
-// values that alias it). On an error it returns what it decoded so far.
+// given without its passphrase decode no such message. Of the security
+// processing (RFC 3414 section 3.2) it makes only the checks that need no
+// digest: the parameters must have the protocols the message asks for, and the
+// message is decrypted exactly when it asks for privacy; it checks neither the
+// user name, the digest nor the time window, nor any minimum level. It does not
+// write resp (see the package documentation for the values that alias it). On
+// an error it returns what it decoded so far.
 func (x *GoSNMP) SnmpDecodePacket(resp []byte) (*SnmpPacket, error) {
 	result := &SnmpPacket{}
 	if err := x.prepare(); err != nil {

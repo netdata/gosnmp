@@ -52,6 +52,7 @@ const SaltLen = 8
 var (
 	errNoCipher      = errors.New("no privacy cipher")
 	errCFBNotAllowed = errors.New("AES-CFB is not allowed in FIPS 140-only mode")
+	errDESNotAllowed = errors.New("DES is not allowed in FIPS 140-only mode")
 )
 
 // CheckKey is the one rule for privacy keys: it returns an error for a
@@ -67,6 +68,31 @@ func (p Priv) CheckKey(key []byte) error {
 	return nil
 }
 
+// CheckUse returns why the process cannot encrypt or decrypt with key, apart
+// from what a message carries: a key CheckKey refuses, or a cipher FIPS
+// 140-only mode refuses (AES-CFB, DES).
+func (p Priv) CheckUse(key []byte) error {
+	if err := p.CheckKey(key); err != nil {
+		return err
+	}
+	return p.allowed()
+}
+
+// allowed returns why FIPS 140-only mode refuses the cipher: AES-CFB, by this
+// package's rule, and DES, which crypto/des refuses in that mode.
+func (p Priv) allowed() error {
+	if !fips140.Enforced() {
+		return nil
+	}
+	switch p.Cipher {
+	case AESCFB:
+		return errCFBNotAllowed
+	case DESCBC:
+		return errDESNotAllowed
+	}
+	return nil
+}
+
 // check returns why Encrypt and Decrypt cannot take key and salt: a key
 // CheckKey refuses, a salt of another length than SaltLen (RFC 3414 section
 // 8.3.2, RFC 3826 section 3.3.2), or AES-CFB in FIPS 140-only mode.
@@ -77,10 +103,7 @@ func (p Priv) check(key, salt []byte) error {
 	if len(salt) != SaltLen {
 		return fmt.Errorf("salt of %d octets, want %d", len(salt), SaltLen)
 	}
-	if p.Cipher == AESCFB && fips140.Enforced() {
-		return errCFBNotAllowed
-	}
-	return nil
+	return p.allowed()
 }
 
 // Encrypt returns the ciphertext of a scoped PDU. salt is

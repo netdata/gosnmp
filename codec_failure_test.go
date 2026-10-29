@@ -5,6 +5,7 @@
 package gosnmp
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -174,6 +175,18 @@ func TestDecodeFailurePartialResults(t *testing.T) {
 		})},
 		"usm authentication parameters": {in: usmWith(craftedEngineID, intTLV(7), intTLV(1234), octets("codec-user"), bad, octets("")), wantErr: usm + "msgAuthenticationParameters" + unk, want: with(v3USM, func(d *decodedFields) { d.msgFlags = Reportable })},
 		"usm privacy parameters":        {in: usmWith(craftedEngineID, intTLV(7), intTLV(1234), octets("codec-user"), octets(""), bad), wantErr: usm + "msgPrivacyParameters" + unk, want: with(v3USM, func(d *decodedFields) { d.msgFlags = Reportable })},
+		// Flags asking for authentication, which the decoder has no protocol
+		// for: after a header error, and as the error (step 5).
+		"usm privacy parameters, authenticated": {
+			in:      v3(octets("\x05"), intTLV(3), craftedUSM(craftedEngineID, intTLV(7), intTLV(1234), octets("codec-user"), octets(""), bad)),
+			wantErr: usm + "msgPrivacyParameters" + unk,
+			want:    with(v3USM, func(d *decodedFields) { d.msgFlags = Reportable | AuthNoPriv }),
+		},
+		"security level without a protocol": {
+			in:      v3(octets("\x05"), intTLV(3), craftedUSM(craftedEngineID, intTLV(7), intTLV(1234), octets("codec-user"), octets(""), octets(""))),
+			wantErr: header + "error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message",
+			want:    with(v3USM, func(d *decodedFields) { d.msgFlags = Reportable | AuthNoPriv }),
+		},
 
 		// SNMPv3 scoped PDU.
 		"context engine ID": {in: craftedV3NoAuth(tlv(0x30, bad, octets("ctx"), craftedPDU(GetResponse, vbl))), wantErr: "error parsing SNMPV3 contextEngineID" + unk, want: v3USM},
@@ -195,31 +208,43 @@ func TestDecodeFailurePartialResults(t *testing.T) {
 	}
 }
 
-// TestDecodeSkipsMistypedFields pins that a header field of another type than
-// expected is skipped, so the value already there stays: here the USM fields,
-// whose parameters start as a copy of the decoder's.
-func TestDecodeSkipsMistypedFields(t *testing.T) {
+// TestDecodeUSMFields pins RFC 3414 section 3.2 step 1: each USM field must
+// be of its type, and the engine boots and time within 0..2147483647 once cut
+// to 32 bits (as net-snmp v5.9.4 reads them); anything else fails the header
+// parse with ErrInvalidMsgs, on the raw path too.
+func TestDecodeUSMFields(t *testing.T) {
 	const engineID = "\x80\x00\x1f\x88\x04codec-engine"
-	x := &GoSNMP{SecurityParameters: &UsmSecurityParameters{
-		AuthoritativeEngineID:    engineID,
-		AuthoritativeEngineBoots: 7,
-		AuthoritativeEngineTime:  1234,
-		UserName:                 "codec-user",
-	}}
-	// Engine ID and user name as INTEGERs, boots and time as OCTET STRINGs.
-	usm := craftedUSM(intTLV(1), octets("boots"), octets("time"), intTLV(2), octets(""), octets(""))
-	in := craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), usm, craftedScopedResp)
-
-	p, err := x.SnmpDecodePacket(in)
-	if !assert.NoError(t, err) {
-		return
+	fields := func(edit func(f [][]byte)) []byte {
+		f := [][]byte{octets(engineID), intTLV(7), intTLV(1234), octets("codec-user"), octets(""), octets("")}
+		edit(f)
+		return craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), tlv(0x30, f...), craftedScopedResp)
 	}
-	assert.Equal(t, decodedFields{
-		version: Version3,
-		msgID:   42, msgMaxSize: 65507, securityModel: UserSecurityModel,
-		usmEngineID: engineID, usmBoots: 7, usmTime: 1234, usmUser: "codec-user",
-		contextEngineID: engineID, contextName: "ctx",
-		pduType: GetResponse, requestID: 1,
-		variables: []SnmpPDU{{Name: ".1.3.6.1.2.1.1.5.0", Type: Integer, Value: 5}},
-	}, fieldsOf(p))
+	tests := map[string]struct {
+		in      []byte
+		invalid bool
+	}{
+		"as sent":                       {in: fields(func([][]byte) {})},
+		"engine ID as an INTEGER":       {in: fields(func(f [][]byte) { f[0] = intTLV(1) }), invalid: true},
+		"engine ID as an OID":           {in: fields(func(f [][]byte) { f[0] = tlv(byte(ObjectIdentifier), []byte{0x2b, 6}) }), invalid: true},
+		"boots as an OCTET STRING":      {in: fields(func(f [][]byte) { f[1] = octets("boots") }), invalid: true},
+		"time as TimeTicks":             {in: fields(func(f [][]byte) { f[2] = tlv(byte(TimeTicks), []byte{1}) }), invalid: true},
+		"user name as an INTEGER":       {in: fields(func(f [][]byte) { f[3] = intTLV(2) }), invalid: true},
+		"auth parameters as an INTEGER": {in: fields(func(f [][]byte) { f[4] = intTLV(3) }), invalid: true},
+		"priv parameters as an INTEGER": {in: fields(func(f [][]byte) { f[5] = intTLV(4) }), invalid: true},
+		"boots 2147483647":              {in: fields(func(f [][]byte) { f[1] = intTLV(2147483647) })},
+		// 2^32+5, cut to 5 where an int decodes it (a 32-bit int does not).
+		"boots 4294967301": {in: fields(func(f [][]byte) { f[1] = intTLV(4294967301) }), invalid: strconv.IntSize == 32},
+		"boots -1":         {in: fields(func(f [][]byte) { f[1] = intTLV(-1) }), invalid: true},
+		"time -2147483648": {in: fields(func(f [][]byte) { f[2] = intTLV(-2147483648) }), invalid: true},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := (&GoSNMP{}).SnmpDecodePacket(tc.in)
+			if tc.invalid {
+				assert.ErrorIs(t, err, ErrInvalidMsgs)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
 }

@@ -190,6 +190,7 @@ func newTrapView(p *SnmpPacket) trapView {
 }
 
 func TestTrapRoundTripV1V2c(t *testing.T) {
+	useEngineTimes(t)
 	tests := map[string]struct {
 		pkt  *SnmpPacket
 		want trapView
@@ -250,6 +251,7 @@ func TestTrapRoundTripV1V2c(t *testing.T) {
 // TestTrapRoundTripV3 decodes a trap and an inform for every authentication
 // and privacy protocol combination with each kind of receiver.
 func TestTrapRoundTripV3(t *testing.T) {
+	useEngineTimes(t)
 	for _, auth := range rtAuthProtocols {
 		for _, priv := range rtPrivProtocols {
 			if auth == NoAuth && priv != NoPriv {
@@ -288,9 +290,11 @@ func TestTrapRoundTripV3(t *testing.T) {
 }
 
 // TestTrapSecurityOutcomes pins whether UnmarshalTrap accepts an SNMPv3 trap
-// whose credentials or security level differ from the receiver's. Cases with
-// a knownBug note record wrong behavior that the bug-fix phase changes.
+// whose credentials or security level differ from the receiver's: a user with
+// an authentication protocol needs an authenticated trap, privacy optional on
+// the table path, and the single user needs the level of its flags too.
 func TestTrapSecurityOutcomes(t *testing.T) {
+	useEngineTimes(t)
 	withUser := func(c rtCredentials, user string) rtCredentials { c.user = user; return c }
 	withAuthPass := func(c rtCredentials, pass string) rtCredentials { c.authPass = pass; return c }
 	withPrivPass := func(c rtCredentials, pass string) rtCredentials { c.privPass = pass; return c }
@@ -304,7 +308,6 @@ func TestTrapSecurityOutcomes(t *testing.T) {
 		receiver  rtReceiver
 		receivers []rtCredentials
 		accepted  bool
-		knownBug  string
 	}{
 		"wrong auth passphrase, single user": {
 			sender: sha, receiver: rtSingleUser, receivers: []rtCredentials{withAuthPass(sha, "other-pass")},
@@ -329,15 +332,13 @@ func TestTrapSecurityOutcomes(t *testing.T) {
 		},
 		"noAuthNoPriv trap for an authNoPriv user, table": {
 			sender: noAuth, receiver: rtTable(""), receivers: []rtCredentials{sha},
-			accepted: true, knownBug: "the table path takes the security level from the packet",
 		},
 		"authNoPriv trap for an authPriv user, single user": {
 			sender: sha, receiver: rtSingleUser, receivers: []rtCredentials{shaAES},
-			accepted: true, knownBug: "only the authentication flag of the required level is checked",
 		},
 		"authNoPriv trap for an authPriv user, table": {
 			sender: sha, receiver: rtTable(""), receivers: []rtCredentials{shaAES},
-			accepted: true, knownBug: "the table path takes the security level from the packet",
+			accepted: true,
 		},
 		"authPriv trap for an authNoPriv user, single user": {
 			sender: shaAES, receiver: rtSingleUser, receivers: []rtCredentials{sha},
@@ -366,7 +367,7 @@ func TestTrapSecurityOutcomes(t *testing.T) {
 				assert.Error(t, err, "trap accepted")
 				return
 			}
-			require.NoError(t, err, "trap rejected (known bug: %q)", tc.knownBug)
+			require.NoError(t, err, "trap rejected")
 			assert.Equal(t, rtVarbinds, got.Variables)
 		})
 	}
@@ -383,6 +384,7 @@ func (l formatLogger) Printf(format string, _ ...any) { *l.lines = append(*l.lin
 // TestUnmarshalTrapLogging pins that UnmarshalTrap writes nothing to the
 // client's Logger, whatever the outcome: it returns its errors.
 func TestUnmarshalTrapLogging(t *testing.T) {
+	useEngineTimes(t)
 	sha := rtCreds(SHA, NoPriv)
 	shaAES := rtCreds(SHA, AES)
 	otherAuthPass, otherPrivPass, otherUser := sha, shaAES, sha

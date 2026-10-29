@@ -181,7 +181,8 @@ func readVersion(packet []byte) (SnmpVersion, int, error) {
 // for SNMPv1 and SNMPv2c, the community, or for SNMPv3 the header (parseV3),
 // whose USM fields it returns for security processing, also those that
 // decoded before an error. It returns the offset of the PDU, or of the scoped
-// PDU.
+// PDU. An SNMPv3 header error unwraps to ErrUnknownSecurityModels or
+// ErrInvalidMsgs (v3ParseError).
 func unmarshalHeader(packet []byte, response *SnmpPacket) (int, v3Wire, error) {
 	version, cursor, err := readVersion(packet)
 	// Known bug: a packet that is not too short to read presets the variables
@@ -197,7 +198,7 @@ func unmarshalHeader(packet []byte, response *SnmpPacket) (int, v3Wire, error) {
 	if response.Version == Version3 {
 		w, err := parseV3(packet, cursor, response)
 		if err != nil {
-			return 0, w, err
+			return 0, w, v3ParseError(err)
 		}
 		return w.scoped, w, nil
 	}
