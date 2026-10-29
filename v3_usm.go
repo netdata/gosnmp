@@ -445,7 +445,25 @@ func (sp *UsmSecurityParameters) validate(flags SnmpV3MsgFlags) error {
 	if sp.UserName == "" {
 		return fmt.Errorf("securityParameters.UserName is required")
 	}
+	if len(sp.UserName) > maxUserNameLen {
+		return fmt.Errorf("securityParameters.UserName is %d octets, more than %d", len(sp.UserName), maxUserNameLen)
+	}
 	return sp.checkKeySources()
+}
+
+// checkWireFields checks the fields of sp an outgoing message carries against
+// their ranges (RFC 3414 section 2.4): engine boots and time of at most
+// 2147483647 and a user name of at most 32 octets.
+func (sp *UsmSecurityParameters) checkWireFields() error {
+	switch {
+	case sp.AuthoritativeEngineBoots > maxEngineValue:
+		return fmt.Errorf("unable to marshal msgAuthoritativeEngineBoots %d: more than %d", sp.AuthoritativeEngineBoots, maxEngineValue)
+	case sp.AuthoritativeEngineTime > maxEngineValue:
+		return fmt.Errorf("unable to marshal msgAuthoritativeEngineTime %d: more than %d", sp.AuthoritativeEngineTime, maxEngineValue)
+	case len(sp.UserName) > maxUserNameLen:
+		return fmt.Errorf("unable to marshal msgUserName of %d octets: more than %d", len(sp.UserName), maxUserNameLen)
+	}
+	return nil
 }
 
 // checkKeySources rejects a protocol with neither a key nor a passphrase to
@@ -488,15 +506,16 @@ func (sp *UsmSecurityParameters) InitPacket(*SnmpPacket) error {
 
 // discoveryPacket returns the request that discovers the authoritative
 // engine's ID, boots and time (RFC 3414 section 4) while sp has no engine ID:
-// a reportable, unauthenticated Get without variable bindings and with empty
-// security parameters. It returns nil once the engine ID is known.
+// an unauthenticated Get without variable bindings and with empty security
+// parameters, which the encoder sends reportable as every request. It returns
+// nil once the engine ID is known.
 func (sp *UsmSecurityParameters) discoveryPacket() *SnmpPacket {
 	if sp.AuthoritativeEngineID != "" {
 		return nil
 	}
 	return &SnmpPacket{
 		Version:            Version3,
-		MsgFlags:           Reportable | NoAuthNoPriv,
+		MsgFlags:           NoAuthNoPriv,
 		SecurityModel:      UserSecurityModel,
 		SecurityParameters: &UsmSecurityParameters{Logger: sp.Logger},
 		PDUType:            GetRequest,

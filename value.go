@@ -160,27 +160,71 @@ func parseUint(content []byte) (uint, error) {
 	return uint(ret64), nil
 }
 
-// appendValue appends the TLV of a varbind value with the given tag. The Go
-// types it accepts per tag:
+// valueKind is the rule a value type follows on the wire; the types of one
+// kind share it.
+type valueKind uint8
+
+const (
+	kindNone        valueKind = iota // no rule: not encoded
+	kindNull                         // Null and the exceptions: no content
+	kindInteger                      // Integer32 (RFC 2578 section 7.1.1)
+	kindUnsigned32                   // Counter32, Gauge32, TimeTicks, Uinteger32
+	kindCounter64                    // Counter64
+	kindOctets                       // OctetString, Opaque
+	kindOID                          // ObjectIdentifier
+	kindIPAddress                    // IpAddress
+	kindOpaqueFloat                  // OpaqueFloat and OpaqueDouble, wrapped in an Opaque
+)
+
+// valueRule is the rule of a value type: its kind, and whether Set takes it.
+type valueRule struct {
+	kind     valueKind
+	settable bool
+}
+
+// valueRules holds the rule of each value tag; a tag without one has
+// kindNone. BitString has none: it is not an SMIv2 type (RFC 2578 section
+// 7.1.4 encodes BITS as an OCTET STRING).
+var valueRules = [256]valueRule{ //nolint:gochecknoglobals // a read-only table
+	Null:             {kindNull, true},
+	NoSuchObject:     {kindNull, false},
+	NoSuchInstance:   {kindNull, false},
+	EndOfMibView:     {kindNull, false},
+	Integer:          {kindInteger, true},
+	Counter32:        {kindUnsigned32, true},
+	Gauge32:          {kindUnsigned32, true},
+	TimeTicks:        {kindUnsigned32, true},
+	Uinteger32:       {kindUnsigned32, true},
+	Counter64:        {kindCounter64, true},
+	OctetString:      {kindOctets, true},
+	Opaque:           {kindOctets, true},
+	ObjectIdentifier: {kindOID, true},
+	IPAddress:        {kindIPAddress, true},
+	OpaqueFloat:      {kindOpaqueFloat, true},
+	OpaqueDouble:     {kindOpaqueFloat, true},
+}
+
+// appendValue appends the TLV of a varbind value with the given tag, by the
+// tag's rule (valueRules). The Go types it accepts per tag:
 //
 //   - Integer: int within the int32 range
-//   - Counter32, Gauge32, TimeTicks, Uinteger32: uint32, or uint truncated to
-//     32 bits
+//   - Counter32, Gauge32, TimeTicks, Uinteger32: uint32, or uint up to
+//     4294967295
 //   - Counter64: uint64
-//   - OctetString, BitString, Opaque: []byte or string, written as is (a
-//     BitString without its unused-bits octet)
+//   - OctetString, Opaque: []byte or string, written as is
 //   - ObjectIdentifier: dotted string
-//   - IPAddress: []byte written as is, or a string whose parsed address
-//     contributes its last four bytes (so IPv6 loses its first twelve)
+//   - IPAddress: []byte of 4 or 16 octets, or an address as text: an IPv4
+//     address (an IPv4-mapped one included) in 4 octets, another IPv6 address
+//     in 16
 //   - OpaqueFloat: float32; OpaqueDouble: float64 (see appendOpaqueFloat)
 //   - Null, NoSuchObject, NoSuchInstance, EndOfMibView: any, ignored
 //
-// Other tags and types are errors.
+// Other tags, BitString included, and types are errors.
 func appendValue(dst []byte, tag Asn1BER, value any) ([]byte, error) {
-	switch tag {
-	case Null, NoSuchObject, NoSuchInstance, EndOfMibView:
+	switch valueRules[tag].kind {
+	case kindNull:
 		return append(dst, byte(tag), 0), nil
-	case Integer:
+	case kindInteger:
 		v, ok := value.(int)
 		if !ok {
 			return nil, errors.New("unable to marshal PDU Integer; not int")
@@ -190,24 +234,27 @@ func appendValue(dst []byte, tag Asn1BER, value any) ([]byte, error) {
 			return nil, fmt.Errorf("unable to marshal PDU Integer: %w", err)
 		}
 		return out, nil
-	case Counter32, Gauge32, TimeTicks, Uinteger32:
+	case kindUnsigned32:
 		var v uint32
 		switch value := value.(type) {
 		case uint32:
 			v = value
 		case uint:
-			v = uint32(value) //nolint:gosec
+			if uint64(value) > math.MaxUint32 {
+				return nil, fmt.Errorf("unable to marshal PDU %v: %d overflows uint32", tag, value)
+			}
+			v = uint32(value)
 		default:
 			return nil, fmt.Errorf("unable to marshal pdu.Type %v; unknown pdu.Value %v[type=%T]", tag, value, value)
 		}
 		return appendUint(dst, tag, uint64(v)), nil
-	case Counter64:
+	case kindCounter64:
 		v, ok := value.(uint64)
 		if !ok {
 			return nil, fmt.Errorf("unable to marshal PDU Counter64; not uint64")
 		}
 		return appendUint(dst, Counter64, v), nil
-	case OctetString, BitString, Opaque:
+	case kindOctets:
 		switch value := value.(type) {
 		case []byte:
 			return appendOctets(dst, tag, value), nil
@@ -216,29 +263,37 @@ func appendValue(dst []byte, tag Asn1BER, value any) ([]byte, error) {
 		default:
 			return nil, fmt.Errorf("unable to marshal PDU OctetString; not []byte or string")
 		}
-	case ObjectIdentifier:
+	case kindOID:
 		v, ok := value.(string)
 		if !ok {
 			return nil, errors.New("unable to marshal PDU ObjectIdentifier; not string")
 		}
 		return appendObjectIdentifier(dst, v)
-	case IPAddress:
-		switch value := value.(type) {
-		case []byte:
-			return appendOctets(dst, IPAddress, value), nil
-		case string:
-			ip, err := marshalIPAddress(value)
-			if err != nil {
-				return nil, fmt.Errorf("unable to marshal PDU IPAddress: %w", err)
-			}
-			return appendOctets(dst, IPAddress, ip[:]), nil
-		default:
-			return nil, fmt.Errorf("unable to marshal PDU IPAddress; not []byte or string")
-		}
-	case OpaqueFloat, OpaqueDouble:
+	case kindIPAddress:
+		return appendIPAddress(dst, value)
+	case kindOpaqueFloat:
 		return appendOpaqueFloat(dst, tag, value)
 	default:
-		return nil, fmt.Errorf("unable to marshal PDU: unknown BER type %q", tag)
+		return nil, fmt.Errorf("unable to marshal PDU: %v is not an SNMP value type", tag)
+	}
+}
+
+// appendIPAddress appends an IpAddress value (see appendValue).
+func appendIPAddress(dst []byte, value any) ([]byte, error) {
+	switch value := value.(type) {
+	case []byte:
+		if len(value) != 4 && len(value) != 16 {
+			return nil, fmt.Errorf("unable to marshal PDU IPAddress: %d octets, not 4 or 16", len(value))
+		}
+		return appendOctets(dst, IPAddress, value), nil
+	case string:
+		ip, n, err := parseIPAddress(value)
+		if err != nil {
+			return nil, fmt.Errorf("unable to marshal PDU IPAddress: %w", err)
+		}
+		return appendOctets(dst, IPAddress, ip[:n]), nil
+	default:
+		return nil, fmt.Errorf("unable to marshal PDU IPAddress; not []byte or string")
 	}
 }
 
@@ -289,15 +344,19 @@ func appendOpaqueFloat(dst []byte, tag Asn1BER, value any) ([]byte, error) {
 	return nil, fmt.Errorf("unable to marshal PDU %v; got %T", tag, value)
 }
 
-// marshalIPAddress returns the four octets of an IpAddress given as a string:
-// the last four bytes of the parsed address, so an IPv6 address loses its
-// first twelve. It returns an array so the parsed address stays on the stack.
-func marshalIPAddress(s string) ([4]byte, error) {
-	ip := net.ParseIP(s)
-	if ip == nil {
-		return [4]byte{}, fmt.Errorf("%q is not an IP address", s)
+// parseIPAddress returns the octets of an IpAddress written as text, in an
+// array and a length so that the parsed address stays on the stack: four for
+// an IPv4 address, an IPv4-mapped IPv6 address included, sixteen for another
+// IPv6 address.
+func parseIPAddress(s string) (ip [16]byte, n int, err error) {
+	parsed := net.ParseIP(s)
+	if parsed == nil {
+		return ip, 0, fmt.Errorf("%q is not an IP address", s)
 	}
-	return [4]byte(ip[12:]), nil
+	if v4 := parsed.To4(); v4 != nil {
+		return ip, copy(ip[:], v4), nil
+	}
+	return ip, copy(ip[:], parsed), nil
 }
 
 // appendObjectIdentifier appends an OBJECT IDENTIFIER TLV for the dotted OID

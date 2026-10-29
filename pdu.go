@@ -224,26 +224,22 @@ func unmarshalPayload(packet []byte, cursor int, response *SnmpPacket) error {
 		return fmt.Errorf("cannot unmarshal payload, packet length %d cursor %d", len(packet), cursor)
 	}
 
-	// Parse SNMP packet type
 	requestType := PDUType(packet[cursor])
-	switch requestType {
-	// known, supported types
-	case GetResponse, GetNextRequest, GetBulkRequest, Report, SNMPv2Trap, GetRequest, SetRequest, InformRequest:
-		response.PDUType = requestType
-		if err := unmarshalResponse(packet[cursor:], requestType, response); err != nil {
-			return fmt.Errorf("error in unmarshalResponse: %w", err)
-		}
-		// If it's an InformRequest, mark the trap.
-		response.IsInform = (requestType == InformRequest)
-	case Trap:
-		response.PDUType = requestType
-		if err := unmarshalTrapV1(packet[cursor:], response); err != nil {
-			return fmt.Errorf("error in unmarshalTrapV1: %w", err)
-		}
-	default:
+	if !requestType.known() {
 		// Known bug: %#x formats the hexadecimal of the type's name.
 		return fmt.Errorf("unknown PDUType %#x", requestType)
 	}
+	response.PDUType = requestType
+	if requestType == Trap {
+		if err := unmarshalTrapV1(packet[cursor:], response); err != nil {
+			return fmt.Errorf("error in unmarshalTrapV1: %w", err)
+		}
+		return nil
+	}
+	if err := unmarshalResponse(packet[cursor:], requestType, response); err != nil {
+		return fmt.Errorf("error in unmarshalResponse: %w", err)
+	}
+	response.IsInform = requestType == InformRequest
 	return nil
 }
 
@@ -387,8 +383,14 @@ func readVarbind(r *ber.Reader) (SnmpPDU, error) {
 // marshalMsg encodes the message: a SEQUENCE of the version, then the
 // community and the PDU, or for SNMPv3 the header, the security parameters and
 // the scoped PDU; an SNMPv3 message is then authenticated when its flags ask
-// for it. The version always takes one octet.
+// for it. The version, which takes one octet, must be SNMPv1, SNMPv2c or
+// SNMPv3.
 func (packet *SnmpPacket) marshalMsg() ([]byte, error) {
+	switch packet.Version {
+	case Version1, Version2c, Version3:
+	default:
+		return nil, fmt.Errorf("unable to marshal SNMP version %d: not 1, 2c or 3", packet.Version)
+	}
 	dst, start := ber.Begin(make([]byte, 0, packet.sizeHint()), byte(Sequence))
 	dst = append(dst, byte(Integer), 1, byte(packet.Version))
 	if packet.Version != Version3 {
@@ -427,16 +429,24 @@ func (packet *SnmpPacket) sizeHint() int {
 	return n
 }
 
-// appendPDU appends the PDU: the request ID with the non-repeaters and
-// max-repetitions of a GetBulkRequest or the error status and index of other
-// PDUs, or the header of an SNMPv1 trap, then the varbind list. The request ID
-// goes through the platform's int, so on 32-bit platforms IDs of 2^31 and up
-// encode as negative INTEGERs.
+// appendPDU appends the PDU, of a type the codec knows: the request ID with
+// the non-repeaters and max-repetitions (at most 2147483647, RFC 3416) of a
+// GetBulkRequest or the error status and index of other PDUs, or the header of
+// an SNMPv1 trap, then the varbind list. The request ID is an Integer32 (RFC
+// 3416) whose two's complement RequestID holds, so IDs of 2^31 and up encode
+// as negative INTEGERs on every platform.
 func (packet *SnmpPacket) appendPDU(dst []byte) ([]byte, error) {
+	if !packet.PDUType.known() {
+		return nil, fmt.Errorf("unable to marshal PDU type %#x: not a PDU type", byte(packet.PDUType))
+	}
+	if packet.PDUType == GetBulkRequest && packet.MaxRepetitions > math.MaxInt32 {
+		return nil, fmt.Errorf("unable to marshal max-repetitions %d: more than %d", packet.MaxRepetitions, math.MaxInt32)
+	}
 	dst, start := ber.Begin(dst, byte(packet.PDUType))
+	requestID := int64(int32(packet.RequestID)) //nolint:gosec // the Integer32's two's complement
 	switch packet.PDUType {
 	case GetBulkRequest:
-		dst = appendInt(dst, Integer, int64(int(packet.RequestID)))
+		dst = appendInt(dst, Integer, requestID)
 		dst = appendUint(dst, Integer, uint64(packet.NonRepeaters))
 		dst = appendUint(dst, Integer, uint64(packet.MaxRepetitions))
 	case Trap:
@@ -445,7 +455,7 @@ func (packet *SnmpPacket) appendPDU(dst []byte) ([]byte, error) {
 			return nil, err
 		}
 	default:
-		dst = appendInt(dst, Integer, int64(int(packet.RequestID)))
+		dst = appendInt(dst, Integer, requestID)
 		dst = appendUint(dst, Integer, uint64(packet.Error))
 		dst = appendUint(dst, Integer, uint64(packet.ErrorIndex))
 	}
@@ -457,25 +467,32 @@ func (packet *SnmpPacket) appendPDU(dst []byte) ([]byte, error) {
 }
 
 // appendTrapV1Header appends the SNMPv1 trap fields before the varbind list:
-// enterprise, agent address (see marshalIPAddress), generic and specific trap
-// within the int32 range, and the timestamp truncated to 32 bits.
+// enterprise, the agent address (an IPv4 address, RFC 1157's NetworkAddress),
+// generic and specific trap within the int32 range, and the timestamp of at
+// most 4294967295.
 func (packet *SnmpPacket) appendTrapV1Header(dst []byte) ([]byte, error) {
+	if uint64(packet.Timestamp) > math.MaxUint32 {
+		return nil, fmt.Errorf("unable to marshal SNMPv1 Timestamp: %d overflows uint32", packet.Timestamp)
+	}
 	dst, err := appendObjectIdentifier(dst, packet.Enterprise)
 	if err != nil {
 		return nil, err
 	}
-	agentAddress, err := marshalIPAddress(packet.AgentAddress)
+	agentAddress, n, err := parseIPAddress(packet.AgentAddress)
+	if err == nil && n != 4 {
+		err = fmt.Errorf("%q is not an IPv4 address", packet.AgentAddress)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("unable to marshal SNMPv1 AgentAddress: %w", err)
 	}
-	dst = appendOctets(dst, IPAddress, agentAddress[:])
+	dst = appendOctets(dst, IPAddress, agentAddress[:n])
 	if dst, err = appendInt32(dst, Integer, packet.GenericTrap); err != nil {
 		return nil, fmt.Errorf("unable to marshal SNMPv1 GenericTrap: %w", err)
 	}
 	if dst, err = appendInt32(dst, Integer, packet.SpecificTrap); err != nil {
 		return nil, fmt.Errorf("unable to marshal SNMPv1 SpecificTrap: %w", err)
 	}
-	return appendUint(dst, TimeTicks, uint64(uint32(packet.Timestamp))), nil //nolint:gosec
+	return appendUint(dst, TimeTicks, uint64(packet.Timestamp)), nil
 }
 
 // appendVBL appends the varbind list: a SEQUENCE of varbinds, each a SEQUENCE

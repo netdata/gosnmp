@@ -5,6 +5,7 @@
 package gosnmp
 
 import (
+	"errors"
 	"fmt"
 	"math"
 )
@@ -45,19 +46,20 @@ func (x *GoSNMP) Get(oids []string) (result *SnmpPacket, err error) {
 	return x.send(packetOut)
 }
 
-// Set sends a SET request with pdus and returns the answer. It takes the
-// types Integer, OctetString, Gauge32, IPAddress, ObjectIdentifier,
-// Counter32, Counter64, Null, TimeTicks, Uinteger32, OpaqueFloat and
-// OpaqueDouble, with the Go values the package documentation lists; MaxOids
-// does not apply. Known bugs: no pdus panics; only the first varbind's type
-// is checked, so a later varbind of another type the encoder takes
-// (BitString, Opaque, the exceptions) is sent, and one it does not take fails
-// in the encoder, in the first attempt.
+// Set sends a SET request with pdus, at least one, and returns the answer. It
+// takes the types Integer, OctetString, Opaque, Gauge32, IPAddress,
+// ObjectIdentifier, Counter32, Counter64, Null, TimeTicks, Uinteger32,
+// OpaqueFloat and OpaqueDouble, with the Go values the package documentation
+// lists, and checks every varbind's type before sending; MaxOids does not
+// apply.
 func (x *GoSNMP) Set(pdus []SnmpPDU) (result *SnmpPacket, err error) {
-	switch pdus[0].Type {
-	case Integer, OctetString, Gauge32, IPAddress, ObjectIdentifier, Counter32, Counter64, Null, TimeTicks, Uinteger32, OpaqueFloat, OpaqueDouble:
-	default:
-		return nil, fmt.Errorf("ERR:gosnmp currently only supports SNMP SETs for Integer, OctetString, Gauge32, IPAddress, ObjectIdentifier, Counter32, Counter64, Null, TimeTicks, Uinteger32, OpaqueFloat, and OpaqueDouble. Not %s", pdus[0].Type)
+	if len(pdus) == 0 {
+		return nil, errors.New("no varbinds to set")
+	}
+	for i := range pdus {
+		if !valueRules[pdus[i].Type].settable {
+			return nil, fmt.Errorf("cannot set varbind %d of type %v", i, pdus[i].Type)
+		}
 	}
 	return x.send(x.MkSnmpPacket(SetRequest, pdus, 0, 0))
 }

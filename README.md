@@ -33,7 +33,7 @@ GoSNMP has the following SNMP functions:
 * **Walk** and **WalkAll** - retrieve a subtree of values using GETNEXT.
 * **BulkWalk** and **BulkWalkAll** - retrieve a subtree of values using GETBULK (SNMPv2c and SNMPv3 only). The `All`
   variants return the values in a slice rather than passing each to a callback.
-* **Set** - Integer, OctetString, Gauge32, IPAddress, ObjectIdentifier, Counter32, Counter64, Null, TimeTicks,
+* **Set** - Integer, OctetString, Opaque, Gauge32, IPAddress, ObjectIdentifier, Counter32, Counter64, Null, TimeTicks,
   Uinteger32, OpaqueFloat and OpaqueDouble values.
 * **UnmarshalTrap** - decodes received traps and informs; the library does not listen for them.
 * **SnmpEncodePacket** and **SnmpDecodePacket** - encode and decode messages for other transports and for tests.

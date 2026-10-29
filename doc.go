@@ -153,13 +153,27 @@
 //   - any other type, Boolean and BitString included, and a Counter32,
 //     Gauge32, TimeTicks or Counter64 that does not decode: UnknownType, nil
 //
-// Encoding takes an int within the int32 range for Integer; uint32 or uint
-// (cut to 32 bits) for Counter32, Gauge32, TimeTicks and Uinteger32; uint64
-// for Counter64; []byte or string for OctetString, BitString and Opaque; a
-// dotted string for ObjectIdentifier; []byte, or a string whose address keeps
-// its last four bytes, for IPAddress; float32 and float64 for OpaqueFloat and
-// OpaqueDouble; anything, ignored, for Null and the exceptions. [ToBigInt]
-// converts the integer types.
+// Encoding takes an int within the int32 range for Integer; uint32, or uint up
+// to 4294967295, for Counter32, Gauge32, TimeTicks and Uinteger32; uint64 for
+// Counter64; []byte or string for OctetString and Opaque; a dotted string for
+// ObjectIdentifier; for IPAddress, []byte of 4 or 16 octets or an address as
+// text (an IPv4 address, an IPv4-mapped one included, in 4 octets, another IPv6
+// address in 16); float32 and float64 for OpaqueFloat and OpaqueDouble;
+// anything, ignored, for Null and the exceptions. Other types are errors,
+// BitString included: SMIv2 sends BITS as an OctetString. [ToBigInt] converts
+// the integer types.
+//
+// The encoder also checks the message's fields: SNMPv1, SNMPv2c or SNMPv3; a
+// PDU type the package knows; max-repetitions up to 2147483647; an SNMPv1
+// trap's agent address an IPv4 address and its timestamp up to 4294967295; for
+// SNMPv3, the User-based Security Model, a msgID up to 2147483647, a
+// MsgMaxSize of 0 or 484..2147483647, a security level that does not ask for
+// privacy without authentication, engine boots and time up to 2147483647 and a
+// user name of at most 32 octets (RFC 3412 section 6, RFC 3414 section 2.4).
+// It writes the request ID as the Integer32 whose two's complement RequestID
+// holds, and the reportable flag of an SNMPv3 message by its PDU type (RFC
+// 3412 section 6.4): set for requests and informs, clear for responses,
+// reports and traps, whatever MsgFlags holds besides the security level.
 //
 // # Decoding
 //

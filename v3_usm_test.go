@@ -979,27 +979,31 @@ func TestUSMFIPS140OnlyKeyDerivation(t *testing.T) {
 // msgAuthenticationParameters field, as the digest of the message with the
 // field zeroed, for layouts whose lengths take the long form (a USM SEQUENCE
 // over 127 and 255 octets, a security-parameters OCTET STRING of 127 and 128
-// octets, messages over 255 and 65535 octets), and when the user name or the
-// engine ID holds the octets of the zero placeholder. The signed message
+// octets, messages over 255 and 65535 octets: the engine ID makes the USM
+// SEQUENCE long, a user name has at most 32 octets), and when the user name or
+// the engine ID holds the octets of the zero placeholder. The signed message
 // differs from its unsigned layout only in that field and decodes as an
 // authentic trap.
 func TestSignDigestOffset(t *testing.T) {
 	useEngineTimes(t)
-	// usmLen is the length of the encoded USM SEQUENCE of a message from user.
-	usmLen := func(t *testing.T, auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol, user string) int {
-		m := splitV3Message(t, signedTestTrap(t, auth, priv, usmCharEngineID, user, nil))
+	// usmLen is the length of the encoded USM SEQUENCE of a message from
+	// engineID.
+	usmLen := func(t *testing.T, auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol, engineID string) int {
+		m := splitV3Message(t, signedTestTrap(t, auth, priv, engineID, "codec-user", nil))
 		var usm [][]byte
 		for i, f := range m.usm {
 			usm = append(usm, tlv(m.usmTags[i], f))
 		}
 		return len(tlv(0x30, usm...))
 	}
-	// userForUSMLen returns a user name that makes the USM SEQUENCE n octets
-	// long (its content under 128 octets).
-	userForUSMLen := func(t *testing.T, auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol, n int) string {
-		u := strings.Repeat("u", n-usmLen(t, auth, priv, ""))
-		require.Equal(t, n, usmLen(t, auth, priv, u))
-		return u
+	// longEngineID returns an engine ID of n octets.
+	longEngineID := func(n int) string { return usmCharEngineID[:5] + strings.Repeat("e", n-5) }
+	// engineIDForUSMLen returns an engine ID that makes the USM SEQUENCE n
+	// octets long (its content under 128 octets).
+	engineIDForUSMLen := func(t *testing.T, auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol, n int) string {
+		e := longEngineID(5 + n - usmLen(t, auth, priv, longEngineID(5)))
+		require.Equal(t, n, usmLen(t, auth, priv, e))
+		return e
 	}
 	value := func(n int) []SnmpPDU {
 		return []SnmpPDU{{Name: ".1.3.6.1.2.1.1.1.0", Type: OctetString, Value: bytes.Repeat([]byte("v"), n)}}
@@ -1009,34 +1013,37 @@ func TestSignDigestOffset(t *testing.T) {
 		return string(appendMACPlaceholder(nil, auth.spec().MACLen))
 	}
 
+	type layout = func(t *testing.T, auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol) string
 	tests := map[string]struct {
-		user      func(t *testing.T, auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol) string
-		engineID  func(auth SnmpV3AuthProtocol) string
+		user      func(auth SnmpV3AuthProtocol) string
+		engineID  layout
 		variables []SnmpPDU
 		minLen    int // of the message
 	}{
 		"short": {},
 		"USM SEQUENCE over 127 octets": {
-			user: func(*testing.T, SnmpV3AuthProtocol, SnmpV3PrivProtocol) string { return strings.Repeat("u", 100) },
+			engineID: func(*testing.T, SnmpV3AuthProtocol, SnmpV3PrivProtocol) string { return longEngineID(100) },
 		},
 		"USM SEQUENCE over 255 octets": {
-			user: func(*testing.T, SnmpV3AuthProtocol, SnmpV3PrivProtocol) string { return strings.Repeat("u", 250) },
+			engineID: func(*testing.T, SnmpV3AuthProtocol, SnmpV3PrivProtocol) string { return longEngineID(250) },
 		},
 		"security parameters of 127 octets": {
-			user: func(t *testing.T, auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol) string {
-				return userForUSMLen(t, auth, priv, 127)
+			engineID: func(t *testing.T, auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol) string {
+				return engineIDForUSMLen(t, auth, priv, 127)
 			},
 		},
 		"security parameters of 128 octets": {
-			user: func(t *testing.T, auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol) string {
-				return userForUSMLen(t, auth, priv, 128)
+			engineID: func(t *testing.T, auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol) string {
+				return engineIDForUSMLen(t, auth, priv, 128)
 			},
 		},
 		"placeholder octets in the user name": {
-			user: func(_ *testing.T, auth SnmpV3AuthProtocol, _ SnmpV3PrivProtocol) string { return placeholder(auth) },
+			user: placeholder,
 		},
 		"placeholder octets in the engine ID": {
-			engineID: func(auth SnmpV3AuthProtocol) string { return "\x80\x00\x1f\x88\x04" + placeholder(auth) },
+			engineID: func(_ *testing.T, auth SnmpV3AuthProtocol, _ SnmpV3PrivProtocol) string {
+				return "\x80\x00\x1f\x88\x04" + placeholder(auth)
+			},
 		},
 		"message over 255 octets":   {variables: value(300), minLen: 256},
 		"message over 65535 octets": {variables: value(70000), minLen: 65536},
@@ -1047,10 +1054,12 @@ func TestSignDigestOffset(t *testing.T) {
 				t.Run(fmt.Sprintf("%s/%s/%s", name, auth, priv), func(t *testing.T) {
 					user, engineID := "codec-user", usmCharEngineID
 					if tc.user != nil {
-						user = tc.user(t, auth, priv)
+						if user = tc.user(auth); len(user) > maxUserNameLen {
+							t.Skipf("the %d-octet placeholder does not fit a user name", len(user))
+						}
 					}
 					if tc.engineID != nil {
-						engineID = tc.engineID(auth)
+						engineID = tc.engineID(t, auth, priv)
 					}
 					data := signedTestTrap(t, auth, priv, engineID, user, tc.variables)
 					require.GreaterOrEqual(t, len(data), tc.minLen)
