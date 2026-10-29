@@ -130,7 +130,7 @@ func getBulkResponse50() []byte {
 		vbs = append(vbs,
 			SnmpPDU{Name: ".1.3.6.1.2.1.31.1.1.1.1" + row, Type: OctetString, Value: []byte("GigabitEthernet0/" + strconv.Itoa(i))},
 			SnmpPDU{Name: ".1.3.6.1.2.1.31.1.1.1.6" + row, Type: Counter64, Value: uint64(1)<<40 + uint64(i)},
-			SnmpPDU{Name: ".1.3.6.1.2.1.2.2.1.11" + row, Type: Counter32, Value: uint32(3000000000 + i)},
+			SnmpPDU{Name: ".1.3.6.1.2.1.2.2.1.11" + row, Type: Counter32, Value: uint32(3000000000) + uint32(i)},
 			SnmpPDU{Name: ".1.3.6.1.2.1.2.2.1.5" + row, Type: Gauge32, Value: uint32(1000000000)},
 			SnmpPDU{Name: ".1.3.6.1.2.1.2.2.1.9" + row, Type: TimeTicks, Value: uint32(123456 + i)},
 		)
