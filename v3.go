@@ -9,7 +9,6 @@
 package gosnmp
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
 
@@ -146,19 +145,26 @@ var errNoSecurityParameters = errors.New("SNMPv3 message without security parame
 
 // appendV3 appends the SNMPv3 part of a message after the version: the header
 // (msgGlobalData), the security parameters in an OCTET STRING and the scoped
-// PDU. It also returns the offset of the msgAuthenticationParameters content
-// in dst, where sign writes the digest. A message the flags encrypt gets the
-// next salt of usm.Salts, never the packet's PrivacyParameters, so that no two
-// messages share one, whatever the caller copied into the packet.
+// PDU, once the header fields (checkV3Header) and the security parameters fit.
+// It also returns the offset of the msgAuthenticationParameters content in dst,
+// where sign writes the digest. A message the flags encrypt gets the next salt
+// of usm.Salts, never the packet's PrivacyParameters, so that no two messages
+// share one, whatever the caller copied into the packet.
 func (packet *SnmpPacket) appendV3(dst []byte) ([]byte, int, error) {
 	sp := usmOf(packet.SecurityParameters)
 	if sp == nil {
 		return nil, 0, errNoSecurityParameters
 	}
+	if err := packet.checkV3Header(); err != nil {
+		return nil, 0, err
+	}
 	if err := sp.checkProtocols(); err != nil {
 		return nil, 0, err
 	}
 	if err := sp.checkLevel(packet.MsgFlags); err != nil {
+		return nil, 0, err
+	}
+	if err := sp.checkWireFields(); err != nil {
 		return nil, 0, err
 	}
 	var salt []byte
@@ -174,20 +180,52 @@ func (packet *SnmpPacket) appendV3(dst []byte) ([]byte, int, error) {
 	return dst, auth, err
 }
 
-// appendV3Header appends msgGlobalData: the message ID, which always takes
-// four octets (so IDs of 2^31 and up read as negative), the maximum message
-// size (rxBufSize unless set), the flags and the security model, each of the
-// last two in one octet.
+// Ranges of the SNMPv3 header fields (RFC 3412 section 6).
+const (
+	maxMsgID       = 2147483647
+	minMsgMaxSize  = 484
+	maxMsgMaxSize  = 2147483647
+	maxUserNameLen = 32 // msgUserName octets (RFC 3414 section 2.4)
+)
+
+// checkV3Header checks the SNMPv3 header fields of an outgoing message: the
+// User-based Security Model, a msgID of at most 2147483647, a MsgMaxSize of 0
+// (the receive buffer's size) or 484..2147483647, and flags that do not ask for
+// privacy without authentication.
+func (packet *SnmpPacket) checkV3Header() error {
+	switch {
+	case packet.SecurityModel != UserSecurityModel:
+		return fmt.Errorf("unable to marshal SNMPv3 security model %d: not the User-based Security Model", packet.SecurityModel)
+	case packet.MsgID > maxMsgID:
+		return fmt.Errorf("unable to marshal SNMPv3 msgID %d: more than %d", packet.MsgID, maxMsgID)
+	case packet.MsgMaxSize != 0 && (packet.MsgMaxSize < minMsgMaxSize || packet.MsgMaxSize > maxMsgMaxSize):
+		return fmt.Errorf("unable to marshal SNMPv3 msgMaxSize %d: outside %d..%d", packet.MsgMaxSize, minMsgMaxSize, maxMsgMaxSize)
+	case packet.MsgFlags.privFlag() && !packet.MsgFlags.authFlag():
+		return errors.New("unable to marshal SNMPv3 msgFlags: privacy without authentication")
+	}
+	return nil
+}
+
+// appendV3Header appends msgGlobalData: the message ID, the maximum message
+// size (rxBufSize unless set), the flags and the security model (3), whose
+// ranges checkV3Header checked. The flags octet holds the security level of
+// MsgFlags and the reportable flag, set for a PDU of the Confirmed Class and
+// clear for the others (RFC 3412 section 6.4), whatever MsgFlags holds besides
+// the level.
 func (packet *SnmpPacket) appendV3Header(dst []byte) []byte {
 	dst, start := ber.Begin(dst, byte(Sequence))
-	dst = binary.BigEndian.AppendUint32(append(dst, byte(Integer), 4), packet.MsgID)
+	dst = appendUint(dst, Integer, uint64(packet.MsgID))
 	maxSize := uint32(rxBufSize)
 	if packet.MsgMaxSize != 0 {
 		maxSize = packet.MsgMaxSize
 	}
 	dst = appendUint(dst, Integer, uint64(maxSize))
-	dst = append(dst, byte(OctetString), 1, byte(packet.MsgFlags))
-	dst = append(dst, byte(Integer), 1, byte(packet.SecurityModel))
+	flags := packet.MsgFlags & AuthPriv
+	if packet.PDUType.confirmed() {
+		flags |= Reportable
+	}
+	dst = append(dst, byte(OctetString), 1, byte(flags))
+	dst = append(dst, byte(Integer), 1, byte(UserSecurityModel))
 	return ber.End(dst, start)
 }
 

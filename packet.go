@@ -58,11 +58,13 @@ type SnmpPacket struct {
 	// PDUType is the type of the PDU.
 	PDUType PDUType
 
-	// MsgID is the SNMPv3 msgID, RequestID the PDU's request ID.
+	// MsgID is the SNMPv3 msgID, at most 2147483647 to encode; RequestID the
+	// PDU's request ID, an Integer32 whose two's complement it holds.
 	MsgID     uint32
 	RequestID uint32
 
-	// MsgMaxSize is the SNMPv3 msgMaxSize; the encoder sends 65535 for zero.
+	// MsgMaxSize is the SNMPv3 msgMaxSize, 484..2147483647 to encode; the
+	// encoder sends 65535 for zero.
 	MsgMaxSize uint32
 
 	// Error and ErrorIndex are the PDU's error status and index, each decoded
@@ -130,6 +132,16 @@ const (
 )
 
 //go:generate go tool -modfile=tools/go.mod stringer -type=PDUType
+
+// known reports whether t is a PDU type the codec reads and writes: the
+// SNMPv1 Trap-PDU, the PDUs of RFC 3416 and the Report.
+func (t PDUType) known() bool {
+	switch t {
+	case GetRequest, GetNextRequest, GetResponse, SetRequest, Trap, GetBulkRequest, InformRequest, SNMPv2Trap, Report:
+		return true
+	}
+	return false
+}
 
 // confirmed reports whether t is a PDU of the Confirmed Class (RFC 3411
 // section 2.8.2): a request or an inform, which its receiver answers.

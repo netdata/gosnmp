@@ -93,9 +93,10 @@ func otherKey(p *SnmpPacket) {
 	usp.PrivacyKey = bytes.Repeat([]byte{0x5a}, len(usp.PrivacyKey))
 }
 
-// msgFlagsOctets gives an encoded answer a msgFlags OCTET STRING of the
-// octets, none for an empty one.
-func msgFlagsOctets(octets ...byte) func(m *v3Message) {
+// headerField gives an encoded message field i of msgGlobalData (0 msgID,
+// 1 msgMaxSize, 2 msgFlags, 3 msgSecurityModel), the TLV field: a value the
+// encoder does not write.
+func headerField(i int, field []byte) func(m *v3Message) {
 	return func(m *v3Message) {
 		r := ber.NewReader(m.header)
 		var fields [][]byte
@@ -106,9 +107,21 @@ func msgFlagsOctets(octets ...byte) func(m *v3Message) {
 			}
 			fields = append(fields, tlv(tag, content))
 		}
-		fields[2] = tlv(byte(OctetString), octets)
+		fields[i] = field
 		m.header = bytes.Join(fields, nil)
 	}
+}
+
+// msgFlagsOctets gives an encoded message a msgFlags OCTET STRING of the
+// octets, none for an empty one.
+func msgFlagsOctets(octets ...byte) func(m *v3Message) {
+	return headerField(2, tlv(byte(OctetString), octets))
+}
+
+// securityModel2 gives an encoded message the msgSecurityModel 2; the encoder
+// writes only the User-based Security Model's, 3.
+func securityModel2(m *v3Message) {
+	headerField(3, tlv(byte(Integer), []byte{2}))(m)
 }
 
 // snmpUnknownContexts is the counter of RFC 3413 (SNMP-TARGET-MIB) a command
@@ -319,15 +332,6 @@ func v3Scenarios() map[string]v3Scenario {
 		"discovery/other-report": {user: "codec-md5", script: onRequest(1, agentAnswer{
 			report: usmStatsUnsupportedSecLevels, why: "answers discovery with another Report",
 		})},
-		// A client whose MsgFlags lack Reportable, as a client given a Conn
-		// without Connect has: its requests go out without it.
-		"answer/client-flags-without-reportable": {
-			user: "codec-md5",
-			run: func(x *GoSNMP, _ *fakeV3Agent) (*SnmpPacket, error) {
-				x.MsgFlags &^= Reportable
-				return x.Get([]string{engineOID})
-			},
-		},
 		"answer/unauthenticated-empty-identity": {
 			user: "codec-md5", script: onRequest(2, agentAnswer{
 				why: "GetResponse without authentication, user name and engine ID",
@@ -349,7 +353,7 @@ func v3Scenarios() map[string]v3Scenario {
 		"discovery/other-security-model": {
 			user: "codec-md5", script: onRequest(1, agentAnswer{
 				report: usmStatsUnknownEngineIDs, why: "discovery Report with security model 2",
-				edit: func(p *SnmpPacket) { p.SecurityModel = 2 },
+				raw: securityModel2,
 			}),
 			knownBug: "an undecodable reply ends the attempt and the request is sent again at once, instead of reading on",
 		},
@@ -535,7 +539,7 @@ func v3Scenarios() map[string]v3Scenario {
 		})},
 		"unauthenticated-report/other-security-model": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			report: usmStatsUnknownUserNames, why: "unauthenticated, security model 2",
-			edit: func(p *SnmpPacket) { p.SecurityModel = 2 },
+			raw: securityModel2,
 		})},
 		// The Report of the capture that showed the problem: the agent does not
 		// read the PDU of a request outside its time window, so the request ID is
@@ -921,7 +925,7 @@ func v3Scenarios() map[string]v3Scenario {
 				case 2:
 					return agentAnswer{report: usmStatsNotInTimeWindows, why: "not in time window, unauthenticated"}, true
 				case 3:
-					return agentAnswer{level: AuthNoPriv, why: "GetResponse with security model 2", edit: func(p *SnmpPacket) { p.SecurityModel = 2 }}, true
+					return agentAnswer{level: AuthNoPriv, why: "GetResponse with security model 2", raw: securityModel2}, true
 				}
 				return agentAnswer{}, false
 			},
@@ -1135,7 +1139,7 @@ func v3Scenarios() map[string]v3Scenario {
 		},
 		"answer/other-security-model": {
 			user: "codec-noauth", script: onRequest(2, agentAnswer{
-				why: "GetResponse with security model 2", edit: func(p *SnmpPacket) { p.SecurityModel = 2 },
+				why: "GetResponse with security model 2", raw: securityModel2,
 			}),
 			knownBug: "an undecodable reply ends the attempt and the request is sent again at once, instead of reading on",
 		},
@@ -1190,14 +1194,14 @@ func v3Scenarios() map[string]v3Scenario {
 		"answer/error-report-other-security-model": {
 			user: "codec-md5", script: onRequest(2, agentAnswer{
 				report: usmStatsUnknownUserNames, level: AuthNoPriv, why: "authenticated Report with security model 2",
-				edit: func(p *SnmpPacket) { p.SecurityModel = 2 },
+				raw: securityModel2,
 			}),
 			knownBug: "an undecodable reply ends the attempt and the request is sent again at once, instead of reading on",
 		},
 		"answer/report-other-security-model": {
 			user: "codec-md5", script: onRequest(2, agentAnswer{
 				report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "Report with security model 2",
-				edit: func(p *SnmpPacket) { p.SecurityModel = 2 },
+				raw: securityModel2,
 			}),
 			knownBug: "an undecodable reply ends the attempt and the request is sent again at once, instead of reading on",
 		},

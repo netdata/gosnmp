@@ -179,7 +179,9 @@ type GoSNMP struct {
 	AppOpts map[string]any
 
 	// MsgFlags is the SNMPv3 security level: NoAuthNoPriv, AuthNoPriv or
-	// AuthPriv. Connect adds Reportable.
+	// AuthPriv. The encoder sets the reportable flag of each message by its PDU
+	// type (RFC 3412 section 6.4: set for requests and informs, clear for the
+	// others), whatever MsgFlags holds besides the level.
 	MsgFlags SnmpV3MsgFlags
 
 	// SecurityModel is the SNMPv3 security model; UserSecurityModel is the
@@ -334,8 +336,8 @@ const (
 // prepare readies the client for Connect, SnmpEncodePacket and
 // SnmpDecodePacket, which call it each time: it fills in the defaults (the UDP
 // transport, MaxOids, a background Context), rejects a negative MaxOids and,
-// for SNMPv3, sets Reportable, checks the security model and parameters and
-// hands the client's Logger to the security parameters.
+// for SNMPv3, checks the security model and parameters and hands the client's
+// Logger to the security parameters.
 func (x *GoSNMP) prepare() error {
 	if x.Transport == "" {
 		x.Transport = udp
@@ -348,8 +350,6 @@ func (x *GoSNMP) prepare() error {
 	}
 
 	if x.Version == Version3 {
-		x.MsgFlags |= Reportable // tell the snmp server that a report PDU MUST be sent
-
 		if err := x.validateParametersV3(); err != nil {
 			return err
 		}

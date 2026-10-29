@@ -971,6 +971,7 @@ func TestUSMValidate(t *testing.T) {
 		},
 		"noAuthNoPriv with a user name of 33 octets": {
 			flags: NoAuthNoPriv, sp: &UsmSecurityParameters{UserName: strings.Repeat("u", 33)},
+			wantErr: "securityParameters.UserName is 33 octets, more than 32",
 		},
 		"authNoPriv": {
 			flags: AuthNoPriv, sp: &UsmSecurityParameters{UserName: "u", AuthenticationProtocol: SHA, AuthenticationPassphrase: "p"},

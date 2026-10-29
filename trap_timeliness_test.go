@@ -6,6 +6,7 @@ package gosnmp
 
 import (
 	"bytes"
+	"crypto/hmac"
 	"fmt"
 	"sync"
 	"testing"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netdata/gosnmp/internal/ber"
 )
 
 // timelyMessage is a message of a timeliness sequence: a trap, or an inform,
@@ -32,11 +35,13 @@ type timelyMessage struct {
 
 // encodeTimely encodes m from engineID: codec-user and other-user at
 // authPriv (SHA, AES) with their own passphrases, plain-user at noAuthNoPriv.
+// What the encoder does not write (a flipped reportable flag, boots or time
+// over 2147483647) is put on the wire afterwards (rewireV3).
 func encodeTimely(t *testing.T, engineID string, m timelyMessage) []byte {
 	t.Helper()
 	sp := &UsmSecurityParameters{
 		UserName: m.user, AuthoritativeEngineID: engineID,
-		AuthoritativeEngineBoots: m.boots, AuthoritativeEngineTime: m.time,
+		AuthoritativeEngineBoots: min(m.boots, maxEngineValue), AuthoritativeEngineTime: min(m.time, maxEngineValue),
 	}
 	flags := AuthPriv
 	switch m.user {
@@ -63,9 +68,31 @@ func encodeTimely(t *testing.T, engineID string, m timelyMessage) []byte {
 		PDUType: pdu, RequestID: 1, Variables: usmPlainVars,
 	}).MarshalMsg()
 	require.NoError(t, err)
+	if m.flipped || m.boots != sp.AuthoritativeEngineBoots || m.time != sp.AuthoritativeEngineTime {
+		data = rewireV3(t, data, sp, flags, m.boots, m.time)
+	}
 	// A flipped message must carry the flag the other way on the wire.
 	require.Equal(t, flags&Reportable, wireFlags(t, data)&Reportable, "the wire's reportable flag")
 	return data
+}
+
+// rewireV3 returns the SNMPv3 message data, signed with sp's key when its flags
+// ask for authentication, with the msgFlags octet flags and the engine boots
+// and time given, and signed again: wire values the encoder does not write. An
+// encrypted scoped PDU stays as encrypted with the encoded boots and time.
+func rewireV3(t *testing.T, data []byte, sp *UsmSecurityParameters, flags SnmpV3MsgFlags, boots, engineTime uint32) []byte {
+	t.Helper()
+	m := splitV3Message(t, data)
+	msgFlagsOctets(byte(flags))(&m)
+	m.usm[1], m.usm[2] = ber.AppendUint64(nil, uint64(boots)), ber.AppendUint64(nil, uint64(engineTime))
+	if !flags.authFlag() {
+		return m.bytes()
+	}
+	m.usm[4] = make([]byte, len(m.usm[4]))
+	mac := hmac.New(sp.AuthenticationProtocol.HashType().New, sp.SecretKey)
+	mac.Write(m.bytes())
+	m.usm[4] = mac.Sum(nil)[:sp.AuthenticationProtocol.spec().MACLen]
+	return m.bytes()
 }
 
 // timelyReceivers are the trap receivers of the timeliness sequences: a table
@@ -250,9 +277,8 @@ func TestEngineTimesConcurrent(t *testing.T) {
 }
 
 // TestTrapEncodedReplay pins that a trap the library's own encoder makes,
-// whose reportable flag SnmpEncodePacket sets as for every SNMPv3 message, is
-// still a trap to the receiver (RFC 3412 section 6.4): a copy of it a day
-// later is outside the time window, on both trap paths.
+// unreportable as RFC 3412 section 6.4 asks, is checked against the time
+// window: a copy of it a day later is outside it, on both trap paths.
 func TestTrapEncodedReplay(t *testing.T) {
 	for _, path := range []string{"single", "table"} {
 		t.Run(path, func(t *testing.T) {
@@ -268,7 +294,7 @@ func TestTrapEncodedReplay(t *testing.T) {
 			}
 			got, err := receiver.UnmarshalTrap(bytes.Clone(wire), false)
 			require.NoError(t, err)
-			require.Equal(t, AuthPriv|Reportable, got.MsgFlags)
+			require.Equal(t, AuthPriv, got.MsgFlags)
 			advance(24 * time.Hour)
 			_, err = receiver.UnmarshalTrap(bytes.Clone(wire), false)
 			require.ErrorIs(t, err, ErrNotInTimeWindow)

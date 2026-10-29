@@ -61,8 +61,9 @@ func Check(err error) {
 
 // BitStringValue is an ASN.1 BIT STRING: the bits packed into bytes, the
 // first bit in the high bit of the first byte, and the number of valid bits;
-// the padding bits are zero. The encoder and decoder do not use it: a
-// BitString value is sent as []byte or string, and decodes as UnknownType.
+// the padding bits are zero. The encoder and decoder do not use it: BitString
+// is not an SNMP value type, which the encoder refuses and the decoder reads
+// as UnknownType (SMIv2 sends BITS as an OctetString).
 type BitStringValue struct {
 	Bytes     []byte // bits packed into bytes.
 	BitLength int    // length in bits.

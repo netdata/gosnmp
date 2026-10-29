@@ -37,8 +37,9 @@ func TestEncodeCharacterization(t *testing.T) {
 // TestEncodeValueTypesCharacterization pins, for every value tag, the value
 // TLV that MarshalMsg writes for each Go value type, or whether it fails or
 // panics. It records which Go types the encoder accepts.
-// TestMarshalLongOctetStringFields encodes communities, USM engine IDs and
-// user names longer than 127 bytes and decodes them back.
+// TestMarshalLongOctetStringFields encodes communities and USM engine IDs
+// longer than 127 bytes, and a user name of 32 bytes (the most RFC 3414
+// section 2.4 allows), and decodes them back.
 func TestMarshalLongOctetStringFields(t *testing.T) {
 	type fields struct {
 		community, engineID, userName string
@@ -50,8 +51,7 @@ func TestMarshalLongOctetStringFields(t *testing.T) {
 		"community 300 bytes": {community: long(300)},
 		"engine ID 128 bytes": {engineID: long(128), userName: "user"},
 		"engine ID 300 bytes": {engineID: long(300), userName: "user"},
-		"user name 128 bytes": {engineID: "\x80\x00\x1f\x88\x04engine", userName: long(128)},
-		"user name 256 bytes": {engineID: "\x80\x00\x1f\x88\x04engine", userName: long(256)},
+		"user name 32 bytes":  {engineID: "\x80\x00\x1f\x88\x04engine", userName: long(32)},
 	}
 
 	for name, want := range tests {
@@ -192,9 +192,10 @@ func TestEncodeValueTypesCharacterization(t *testing.T) {
 	codecGolden.check(t, "encode-value-types", results)
 }
 
-// TestEncodeReportableFlag pins the msgFlags octet of SNMPv3 messages: per PDU
-// type, through MarshalMsg with and without Reportable in the packet's flags,
-// and through SnmpEncodePacket, whose client prepare gives Reportable.
+// TestEncodeReportableFlag checks the msgFlags octet of SNMPv3 messages: the
+// security level, and the reportable flag set exactly for a PDU of the
+// Confirmed Class (RFC 3412 section 6.4), whatever the packet's or client's
+// flags hold besides the level, through MarshalMsg and SnmpEncodePacket.
 func TestEncodeReportableFlag(t *testing.T) {
 	pduTypes := []PDUType{
 		GetRequest, GetNextRequest, GetBulkRequest, SetRequest, InformRequest, GetResponse, SNMPv2Trap, Report, Trap,
@@ -214,9 +215,8 @@ func TestEncodeReportableFlag(t *testing.T) {
 					if err != nil {
 						t.Fatalf("MarshalMsg: %v", err)
 					}
-					// Today: the packet's flags as given.
-					if got := wireFlags(t, msg); got != flags {
-						t.Errorf("msgFlags %v, want %v", got, flags)
+					if got, want := wireFlags(t, msg), classFlags(level, pdu); got != want {
+						t.Errorf("msgFlags %v, want %v", got, want)
 					}
 				})
 			}
@@ -232,11 +232,54 @@ func TestEncodeReportableFlag(t *testing.T) {
 				if err != nil {
 					t.Fatalf("SnmpEncodePacket: %v", err)
 				}
-				// Today: the client's level with the Reportable prepare adds.
-				if got := wireFlags(t, msg); got != level|Reportable {
-					t.Errorf("msgFlags %v, want %v", got, level|Reportable)
+				if got, want := wireFlags(t, msg), classFlags(level, pdu); got != want {
+					t.Errorf("msgFlags %v, want %v", got, want)
 				}
 			})
+		}
+	}
+}
+
+// classFlags is the msgFlags octet of a message of level and pdu: Reportable
+// for a PDU of the Confirmed Class.
+func classFlags(level SnmpV3MsgFlags, pdu PDUType) SnmpV3MsgFlags {
+	if pdu.confirmed() {
+		return level | Reportable
+	}
+	return level
+}
+
+// TestValueRules checks the value rules against the encoder: a type Set takes
+// encodes, and a type without a rule does not, so Set never sends a varbind
+// the encoder refuses.
+func TestValueRules(t *testing.T) {
+	sample := map[valueKind]any{
+		kindNull:        nil,
+		kindInteger:     1,
+		kindUnsigned32:  uint32(1),
+		kindCounter64:   uint64(1),
+		kindOctets:      []byte("x"),
+		kindOID:         ".1.3.6.1",
+		kindIPAddress:   "192.0.2.1",
+		kindOpaqueFloat: nil, // set per tag below
+	}
+	for tag := range 256 {
+		rule := valueRules[tag]
+		value := sample[rule.kind]
+		switch Asn1BER(tag) {
+		case OpaqueFloat:
+			value = float32(1)
+		case OpaqueDouble:
+			value = float64(1)
+		}
+		_, err := appendValue(nil, Asn1BER(tag), value)
+		switch {
+		case rule.kind == kindNone && err == nil:
+			t.Errorf("%v: encodes without a rule", Asn1BER(tag))
+		case rule.kind != kindNone && err != nil:
+			t.Errorf("%v: %v", Asn1BER(tag), err)
+		case rule.settable && rule.kind == kindNone:
+			t.Errorf("%v: settable without a rule", Asn1BER(tag))
 		}
 	}
 }
