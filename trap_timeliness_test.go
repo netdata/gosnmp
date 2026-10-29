@@ -63,6 +63,8 @@ func encodeTimely(t *testing.T, engineID string, m timelyMessage) []byte {
 		PDUType: pdu, RequestID: 1, Variables: usmPlainVars,
 	}).MarshalMsg()
 	require.NoError(t, err)
+	// A flipped message must carry the flag the other way on the wire.
+	require.Equal(t, flags&Reportable, wireFlags(t, data)&Reportable, "the wire's reportable flag")
 	return data
 }
 

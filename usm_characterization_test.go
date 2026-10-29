@@ -966,6 +966,12 @@ func TestUSMValidate(t *testing.T) {
 			flags: NoAuthNoPriv, sp: &UsmSecurityParameters{},
 			wantErr: "securityParameters.UserName is required",
 		},
+		"noAuthNoPriv with a user name of 32 octets": {
+			flags: NoAuthNoPriv, sp: &UsmSecurityParameters{UserName: strings.Repeat("u", 32)},
+		},
+		"noAuthNoPriv with a user name of 33 octets": {
+			flags: NoAuthNoPriv, sp: &UsmSecurityParameters{UserName: strings.Repeat("u", 33)},
+		},
 		"authNoPriv": {
 			flags: AuthNoPriv, sp: &UsmSecurityParameters{UserName: "u", AuthenticationProtocol: SHA, AuthenticationPassphrase: "p"},
 		},

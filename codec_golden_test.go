@@ -59,6 +59,14 @@ var (
 type goldenCase struct {
 	name string
 	dump string
+	// wide marks a case whose input a 32-bit int or uint cannot hold: 32-bit
+	// platforms do not run it, and the golden file holds its 64-bit result.
+	wide bool
+}
+
+// skipped reports whether c does not run on this platform (see wide).
+func (c goldenCase) skipped() bool {
+	return c.wide && strconv.IntSize == 32
 }
 
 // goldenSection is one parsed golden file entry.
@@ -107,6 +115,9 @@ func (g goldenFiles) check(t *testing.T, file string, cases []goldenCase) {
 	}
 
 	for _, c := range cases {
+		if c.skipped() {
+			continue
+		}
 		wantDump, ok := want[c.name]
 		if !ok {
 			t.Errorf("case %q is missing from %s (regenerate with -update)", c.name, basePath)
@@ -143,6 +154,9 @@ func (g goldenFiles) update(t *testing.T, file, basePath, int32Path string, case
 	}
 	var overrides []goldenCase
 	for _, c := range cases {
+		if c.skipped() {
+			continue
+		}
 		dump, ok := base[c.name]
 		if !ok {
 			t.Fatalf("case %q is missing from %s (regenerate on a 64-bit platform first)", c.name, basePath)

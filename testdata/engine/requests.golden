@@ -1609,6 +1609,24 @@
 0s    client after: retries=2 next request id=1001
 0s    known bug: Set reads the first varbind without a length check and panics outside send's recover
 
+== requests/set/opaque
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    result: packet nil, error "ERR:gosnmp currently only supports SNMP SETs for Integer, OctetString, Gauge32, IPAddress, ObjectIdentifier, Counter32, Counter64, Null, TimeTicks, Uinteger32, OpaqueFloat, and OpaqueDouble. Not Opaque" *errors.errorString
+0s    client after: retries=2 next request id=1001
+
+== requests/set/second-varbind-opaque
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" SetRequest id=1001 [.1.3.6.1.2.1.1.5.0=Integer:1 .1.3.6.1.2.1.1.5.0=Opaque:"\x01\x02"]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 []
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1001 [], no error
+0s    client after: retries=2 next request id=1002
+
 == requests/set/second-varbind-unsupported
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s

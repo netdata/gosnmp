@@ -249,6 +249,10 @@ func engineScenarios() map[string]engineScenario {
 			knownBug: "Set checks the type of the first varbind only; a later one fails in the encoder, after an attempt has started",
 		},
 		"set/integer-with-text": {agent: answer(), run: setVarbinds(SnmpPDU{Name: setOID, Type: Integer, Value: "five"})},
+		"set/opaque":            {agent: answer(), run: setVarbinds(SnmpPDU{Name: setOID, Type: Opaque, Value: []byte{1, 2}})},
+		"set/second-varbind-opaque": {
+			agent: answer(), run: setVarbinds(SnmpPDU{Name: setOID, Type: Integer, Value: 1}, SnmpPDU{Name: setOID, Type: Opaque, Value: []byte{1, 2}}),
+		},
 		"set/no-varbinds": {
 			agent: answer(), run: setVarbinds(),
 			knownBug: "Set reads the first varbind without a length check and panics outside send's recover",

@@ -319,6 +319,15 @@ func v3Scenarios() map[string]v3Scenario {
 		"discovery/other-report": {user: "codec-md5", script: onRequest(1, agentAnswer{
 			report: usmStatsUnsupportedSecLevels, why: "answers discovery with another Report",
 		})},
+		// A client whose MsgFlags lack Reportable, as a client given a Conn
+		// without Connect has: its requests go out without it.
+		"answer/client-flags-without-reportable": {
+			user: "codec-md5",
+			run: func(x *GoSNMP, _ *fakeV3Agent) (*SnmpPacket, error) {
+				x.MsgFlags &^= Reportable
+				return x.Get([]string{engineOID})
+			},
+		},
 		"answer/unauthenticated-empty-identity": {
 			user: "codec-md5", script: onRequest(2, agentAnswer{
 				why: "GetResponse without authentication, user name and engine ID",

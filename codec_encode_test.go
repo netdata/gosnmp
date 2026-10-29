@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/netdata/gosnmp/internal/ber"
 	"github.com/netdata/gosnmp/internal/usm"
 )
 
@@ -19,12 +20,16 @@ import (
 // produce for packets that cover every PDU layout, SNMPv3 security level,
 // length form and OID edge case, or whether they fail or panic.
 func TestEncodeCharacterization(t *testing.T) {
-	cases := encodeCases(t)
+	cases, wide := encodeCases(t)
 
 	results := make([]goldenCase, 0, len(cases))
 	for _, c := range cases {
-		usm.Salts.Set(0x0000000700000001) // the salt of an encrypted case
-		results = append(results, goldenCase{name: c.name, dump: dumpEncode(c.encode)})
+		gc := goldenCase{name: c.name, wide: wide[c.name]}
+		if !gc.skipped() {
+			usm.Salts.Set(0x0000000700000001) // the salt of an encrypted case
+			gc.dump = dumpEncode(c.encode)
+		}
+		results = append(results, gc)
 	}
 	codecGolden.check(t, "encode", results)
 }
@@ -160,9 +165,13 @@ func TestEncodeValueTypesCharacterization(t *testing.T) {
 		{`string("1.3.6.1")`, "1.3.6.1"},
 		{`string("192.0.2.1")`, "192.0.2.1"},
 		{`string("2001:db8::1")`, "2001:db8::1"},
+		{`string("::ffff:192.0.2.1")`, "::ffff:192.0.2.1"},
 		{`string("x")`, "x"},
 		{`[]byte("x")`, []byte("x")},
 		{"[]byte{}", []byte{}},
+		{"[]byte{192, 0, 2, 1}", []byte{192, 0, 2, 1}},
+		{"[]byte{1, 2, 3, 4, 5}", []byte{1, 2, 3, 4, 5}},
+		{"[]byte of 2001:db8::1", []byte{0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}},
 	}
 
 	results := make([]goldenCase, 0, len(tags))
@@ -181,6 +190,87 @@ func TestEncodeValueTypesCharacterization(t *testing.T) {
 		results = append(results, goldenCase{name: fmt.Sprintf("0x%02x %s", byte(tag), tag), dump: d.String()})
 	}
 	codecGolden.check(t, "encode-value-types", results)
+}
+
+// TestEncodeReportableFlag pins the msgFlags octet of SNMPv3 messages: per PDU
+// type, through MarshalMsg with and without Reportable in the packet's flags,
+// and through SnmpEncodePacket, whose client prepare gives Reportable.
+func TestEncodeReportableFlag(t *testing.T) {
+	pduTypes := []PDUType{
+		GetRequest, GetNextRequest, GetBulkRequest, SetRequest, InformRequest, GetResponse, SNMPv2Trap, Report, Trap,
+	}
+	trap := SnmpTrap{Enterprise: ".1.3.6.1.4.1.20372", AgentAddress: "192.0.2.1", GenericTrap: 6}
+	vars := []SnmpPDU{{Name: ".1.3.6.1.2.1.1.1.0", Type: Null}}
+
+	for _, pdu := range pduTypes {
+		for _, level := range []SnmpV3MsgFlags{NoAuthNoPriv, AuthNoPriv} {
+			for _, flags := range []SnmpV3MsgFlags{level, level | Reportable} {
+				t.Run(fmt.Sprintf("MarshalMsg/%v/%v", pdu, flags), func(t *testing.T) {
+					msg, err := (&SnmpPacket{
+						Version: Version3, MsgFlags: flags, SecurityModel: UserSecurityModel,
+						SecurityParameters: codecUSM(t, levelAuth(level), NoPriv),
+						PDUType:            pdu, MsgID: 1, RequestID: 1, SnmpTrap: trap, Variables: vars,
+					}).MarshalMsg()
+					if err != nil {
+						t.Fatalf("MarshalMsg: %v", err)
+					}
+					// Today: the packet's flags as given.
+					if got := wireFlags(t, msg); got != flags {
+						t.Errorf("msgFlags %v, want %v", got, flags)
+					}
+				})
+			}
+			if pdu == Trap {
+				continue // SnmpEncodePacket has no SNMPv1 trap fields
+			}
+			t.Run(fmt.Sprintf("SnmpEncodePacket/%v/%v", pdu, level), func(t *testing.T) {
+				x := &GoSNMP{
+					Version: Version3, MsgFlags: level, SecurityModel: UserSecurityModel,
+					SecurityParameters: codecUSM(t, levelAuth(level), NoPriv),
+				}
+				msg, err := x.SnmpEncodePacket(pdu, vars, 0, 0)
+				if err != nil {
+					t.Fatalf("SnmpEncodePacket: %v", err)
+				}
+				// Today: the client's level with the Reportable prepare adds.
+				if got := wireFlags(t, msg); got != level|Reportable {
+					t.Errorf("msgFlags %v, want %v", got, level|Reportable)
+				}
+			})
+		}
+	}
+}
+
+// levelAuth is the authentication protocol codecUSM needs for level.
+func levelAuth(level SnmpV3MsgFlags) SnmpV3AuthProtocol {
+	if level.authFlag() {
+		return SHA
+	}
+	return NoAuth
+}
+
+// wireFlags returns the msgFlags octet of the SNMPv3 message msg, read from
+// msgGlobalData without parsing the rest.
+func wireFlags(t *testing.T, msg []byte) SnmpV3MsgFlags {
+	t.Helper()
+	next := func(r *ber.Reader) []byte {
+		_, content, err := r.Next()
+		if err != nil {
+			t.Fatalf("reading msgFlags: %v\nmessage: %x", err, msg)
+		}
+		return content
+	}
+	r := ber.NewReader(msg)
+	m := ber.NewReader(next(&r))
+	next(&m) // msgVersion
+	g := ber.NewReader(next(&m))
+	next(&g) // msgID
+	next(&g) // msgMaxSize
+	flags := next(&g)
+	if len(flags) != 1 {
+		t.Fatalf("msgFlags of %d octets\nmessage: %x", len(flags), msg)
+	}
+	return SnmpV3MsgFlags(flags[0])
 }
 
 type encodeCase struct {
@@ -333,8 +423,16 @@ func codecUSM(t *testing.T, auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol) *U
 	return sp
 }
 
-func encodeCases(t *testing.T) []encodeCase {
+// encodeCases returns the encode characterization cases and the names of those
+// whose input needs a 64-bit int or uint (goldenCase.wide).
+func encodeCases(t *testing.T) ([]encodeCase, map[string]bool) {
 	t.Helper()
+
+	wide := make(map[string]bool)
+	wideCase := func(name string, encode func() ([]byte, error)) encodeCase {
+		wide[name] = true
+		return encodeCase{name, encode}
+	}
 
 	nullVar := []SnmpPDU{{Name: ".1.3.6.1.2.1.1.1.0", Type: Null}}
 	mixedVars := []SnmpPDU{
@@ -366,6 +464,11 @@ func encodeCases(t *testing.T) []encodeCase {
 		return &SnmpPacket{Version: Version2c, Community: "public", PDUType: pduType, RequestID: 1, Variables: vars}
 	}
 	beyondInt32 := int64(math.MaxInt32) + 1
+	beyondUint32 := uint64(math.MaxUint32) + 1
+	// uintValue is a SetRequest of one varbind of typ holding the uint v.
+	uintValue := func(typ Asn1BER, v uint64) *SnmpPacket {
+		return v2c(SetRequest, []SnmpPDU{{Name: ".1.3.6.1.2.1.1.5.0", Type: typ, Value: uint(v)}})
+	}
 	v1Trap := func(edit func(*SnmpTrap)) *SnmpPacket {
 		tr := trap
 		edit(&tr)
@@ -435,6 +538,10 @@ func encodeCases(t *testing.T) []encodeCase {
 		{"v2c/request-id-2^31", marshal(edit(v2c(GetRequest, nullVar), func(p *SnmpPacket) { p.RequestID = 1 << 31 }))},
 		{"v2c/request-id-max-uint32", marshal(edit(v2c(GetRequest, nullVar), func(p *SnmpPacket) { p.RequestID = math.MaxUint32 }))},
 		{"v2c/version-2", marshal(edit(v2c(GetRequest, nullVar), func(p *SnmpPacket) { p.Version = 2 }))},
+		wideCase("v2c/set-request/counter32-uint-2^32", marshal(uintValue(Counter32, beyondUint32))),
+		wideCase("v2c/set-request/gauge32-uint-2^32", marshal(uintValue(Gauge32, beyondUint32))),
+		wideCase("v2c/set-request/timeticks-uint-2^32", marshal(uintValue(TimeTicks, beyondUint32))),
+		wideCase("v2c/set-request/uinteger32-uint-2^32", marshal(uintValue(Uinteger32, beyondUint32))),
 
 		// Lengths.
 		{"v2c/community-empty", marshal(edit(v2c(GetRequest, nullVar), func(p *SnmpPacket) { p.Community = "" }))},
@@ -478,10 +585,10 @@ func encodeCases(t *testing.T) []encodeCase {
 		{"v1-trap/enterprise-empty", marshal(v1Trap(func(tr *SnmpTrap) { tr.Enterprise = "" }))},
 		{"v1-trap/generic-negative", marshal(v1Trap(func(tr *SnmpTrap) { tr.GenericTrap = -1 }))},
 		{"v1-trap/specific-max-int32", marshal(v1Trap(func(tr *SnmpTrap) { tr.SpecificTrap = math.MaxInt32 }))},
-		// Beyond int32 on 64-bit platforms; wraps to MinInt32 where int has 32 bits.
-		{"v1-trap/generic-2^31", marshal(v1Trap(func(tr *SnmpTrap) { tr.GenericTrap = int(beyondInt32) }))},
-		{"v1-trap/specific-2^31", marshal(v1Trap(func(tr *SnmpTrap) { tr.SpecificTrap = int(beyondInt32) }))},
+		wideCase("v1-trap/generic-2^31", marshal(v1Trap(func(tr *SnmpTrap) { tr.GenericTrap = int(beyondInt32) }))),
+		wideCase("v1-trap/specific-2^31", marshal(v1Trap(func(tr *SnmpTrap) { tr.SpecificTrap = int(beyondInt32) }))),
 		{"v1-trap/timestamp-max-uint32", marshal(v1Trap(func(tr *SnmpTrap) { tr.Timestamp = math.MaxUint32 }))},
+		wideCase("v1-trap/timestamp-2^32", marshal(v1Trap(func(tr *SnmpTrap) { tr.Timestamp = uint(beyondUint32) }))),
 		{"v1-trap/in-v2c-message", marshal(edit(v1Trap(func(*SnmpTrap) {}), func(p *SnmpPacket) { p.Version = Version2c }))},
 
 		// SNMPv3.
@@ -495,6 +602,21 @@ func encodeCases(t *testing.T) []encodeCase {
 		}))},
 		{"v3/no-auth-no-priv/user-name-200", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) {
 			p.SecurityParameters.(*UsmSecurityParameters).UserName = strings.Repeat("u", 200)
+		}))},
+		{"v3/no-auth-no-priv/user-name-32", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) {
+			p.SecurityParameters.(*UsmSecurityParameters).UserName = strings.Repeat("u", 32)
+		}))},
+		{"v3/no-auth-no-priv/user-name-33", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) {
+			p.SecurityParameters.(*UsmSecurityParameters).UserName = strings.Repeat("u", 33)
+		}))},
+		{"v3/no-auth-no-priv/max-size-483", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) { p.MsgMaxSize = 483 }))},
+		{"v3/no-auth-no-priv/max-size-484", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) { p.MsgMaxSize = 484 }))},
+		{"v3/no-auth-no-priv/msg-id-max-int32", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) { p.MsgID = math.MaxInt32 }))},
+		{"v3/no-auth-no-priv/reserved-flags", marshal(v3(NoAuthNoPriv|0xf8, GetRequest, codecUSM(t, NoAuth, NoPriv)))},
+		{"v3/no-auth-no-priv/v1-trap-pdu", marshal(edit(v3(NoAuthNoPriv, Trap, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) { p.SnmpTrap = trap }))},
+		{"v3/no-auth-no-priv/engine-boots-and-time-max-int32", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) {
+			sp := p.SecurityParameters.(*UsmSecurityParameters)
+			sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = math.MaxInt32, math.MaxInt32
 		}))},
 		{"v3/no-auth-no-priv/max-size-1500", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) { p.MsgMaxSize = 1500 }))},
 		{"v3/no-auth-no-priv/max-size-2^31", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) { p.MsgMaxSize = 1 << 31 }))},
@@ -535,6 +657,7 @@ func encodeCases(t *testing.T) []encodeCase {
 		{"v3/auth-priv/sha-aes192", marshal(v3(AuthPriv, GetRequest, withPacketSalt(codecUSM(t, SHA, AES192))))},
 		{"v3/auth-priv/sha-aes256c", marshal(v3(AuthPriv, GetRequest, withPacketSalt(codecUSM(t, SHA, AES256C))))},
 		{"v3/auth-priv/md5-des", marshal(v3(AuthPriv, GetRequest, withPacketSalt(codecUSM(t, MD5, DES))))},
+		{"v3/priv-without-auth/sha-aes", marshal(v3(AuthPriv&^AuthNoPriv, GetRequest, withPacketSalt(codecUSM(t, SHA, AES))))},
 		{"v3/auth-priv/sha-aes/without-salt", marshal(v3(AuthPriv, GetRequest, codecUSM(t, SHA, AES)))},
 		{"v3/no-auth-no-priv/20-varbinds", marshal(withVars(v3(NoAuthNoPriv, GetResponse, codecUSM(t, NoAuth, NoPriv)), hostVars(20)))},
 		{"v3/auth-no-priv/sha/20-varbinds", marshal(withVars(v3(AuthNoPriv, GetResponse, codecUSM(t, SHA, NoPriv)), hostVars(20)))},
@@ -577,5 +700,5 @@ func encodeCases(t *testing.T) []encodeCase {
 			})
 			return x.SnmpEncodePacket(GetRequest, nullVar, 0, 0)
 		}},
-	}
+	}, wide
 }
