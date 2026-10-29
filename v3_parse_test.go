@@ -48,6 +48,9 @@ func decodeV3ParseCases() []decodeCase {
 		{name: "crafted/v3/parse/security-model-0", in: withModel(intTLV(0))},
 		{name: "crafted/v3/parse/security-model-octet-string", in: withModel(octets("\x03"))},
 		{name: "crafted/v3/parse/security-model-absent", in: msg(tlv(0x30, intTLV(42), intTLV(65507), octets("\x00")), tlv(byte(OctetString), usm), scoped)},
+		// Another model and privacy without authentication: the model is
+		// checked first (RFC 3412 section 7.2 step 4 before step 5).
+		{name: "crafted/v3/parse/security-model-2-privacy-only", in: craftedV3(intTLV(42), intTLV(65507), octets("\x02"), intTLV(2), usm, scoped)},
 		// An authNoPriv trap whose model is an OCTET STRING, with a digest
 		// nobody computed.
 		{
@@ -116,10 +119,8 @@ func withWrongDigest(t testing.TB, data []byte) []byte {
 }
 
 // TestV3ReceiverRules pins, for each SNMPv3 decode path, which message a
-// receiver's parameters refuse before the digest is checked and with which
-// text (Netdata's trap receiver maps the texts to labels), whether the
-// discovery exception (an empty user name and engine ID) comes first, and
-// whether the decoder writes into its input. Results are in
+// receiver's parameters refuse, with which text and the exported errors it
+// unwraps to, and whether the decoder writes into its input. Results are in
 // testdata/usm/receiver-rules.golden.
 func TestV3ReceiverRules(t *testing.T) {
 	useEngineTimes(t)
@@ -143,6 +144,7 @@ func TestV3ReceiverRules(t *testing.T) {
 			return m.bytes()
 		}},
 		{"authNoPriv, long-form digest field length", func() []byte { return signedAuthField([]byte{0x04, 0x81, 0x0c}, 12) }},
+		{"authNoPriv, another user", func() []byte { return signedTestTrap(t, SHA, NoPriv, usmCharEngineID, "other-user", nil) }},
 	}
 	sets := []struct {
 		name string
@@ -203,7 +205,7 @@ func TestV3ReceiverRules(t *testing.T) {
 		buf := bytes.Clone(in)
 		var d dumpWriter
 		if err := decode(buf); err != nil {
-			d.line("error: " + err.Error())
+			d.line(dumpError(err) + ": " + err.Error())
 		} else {
 			d.line("ok")
 		}
@@ -455,6 +457,21 @@ func TestV3ReplyDecode(t *testing.T) {
 		}).MarshalMsg()
 		require.NoError(t, err)
 		reply, _, err := (&exchange{x: x, packet: req}).decode(data)
+		assert.Nil(t, reply)
+		require.ErrorIs(t, err, ErrUnknownSecurityLevel)
+	})
+
+	// The empty user of discovery has no protocols: a reply naming it takes
+	// no authentication, even signed with the request's key.
+	t.Run("authNoPriv reply naming the empty user", func(t *testing.T) {
+		e, _ := request(AuthNoPriv|Reportable, NoPriv)
+		data, err := (&SnmpPacket{
+			Version: Version3, MsgFlags: AuthNoPriv, SecurityModel: UserSecurityModel,
+			SecurityParameters: signedTestUSM(t, SHA, NoPriv, usmCharEngineID, ""),
+			MsgID:              7, PDUType: GetResponse, RequestID: 1, Variables: usmPlainVars,
+		}).MarshalMsg()
+		require.NoError(t, err)
+		reply, _, err := e.decode(data)
 		assert.Nil(t, reply)
 		require.ErrorIs(t, err, ErrUnknownSecurityLevel)
 	})

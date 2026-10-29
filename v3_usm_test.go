@@ -463,8 +463,9 @@ func TestUSMDecodeSecurityLevel(t *testing.T) {
 // TestUSMTrapTableAttempts checks how the trap table path tries the
 // parameter sets of a user, in the order they were added, on the one trap (no
 // attempt writes it): the first that decodes wins, and when none does the
-// error carries the one of the set that got furthest, whatever the order: a
-// wrong digest after a local failure that comes before it.
+// error carries the one of the set that got furthest, whatever the order, the
+// first on ties: a wrong digest after a local failure that comes before it, a
+// level the set lacks protocols for after another engine ID.
 func TestUSMTrapTableAttempts(t *testing.T) {
 	useEngineTimes(t)
 	data := usmCharTrap(t, AES, usmCharVarbinds)
@@ -487,6 +488,12 @@ func TestUSMTrapTableAttempts(t *testing.T) {
 		require.NoError(t, tb.Add("codec-user", sp))
 		sp.AuthenticationProtocol = SnmpV3AuthProtocol(8)
 	}
+	// keysOnly holds keys for another engine ID, without passphrases: it
+	// refuses the trap's engine ID (step 4); noPriv has no privacy protocol
+	// for the authPriv trap (step 5).
+	keysOnly := usmKeysOnly(good(), usmOtherEngineID)
+	noPriv := good()
+	noPriv.PrivacyProtocol = NoPriv
 	add := func(sp *UsmSecurityParameters) func(*SnmpV3SecurityParametersTable) {
 		return func(tb *SnmpV3SecurityParametersTable) { require.NoError(t, tb.Add("codec-user", sp)) }
 	}
@@ -494,6 +501,8 @@ func TestUSMTrapTableAttempts(t *testing.T) {
 		prefix         = "no credentials successfully unmarshaled trap: "
 		notAuthentic   = "incoming packet is not authentic, discarding"
 		notSupportedV8 = "securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(8) is not supported"
+		otherEngine    = "usm: without a passphrase, the authentication key cannot be localized to another engine ID"
+		noPrivProtocol = "error parsing SNMPv3 User Security Model: privacy parameters are not configured to parse incoming encrypted message"
 	)
 
 	tests := map[string]struct {
@@ -505,6 +514,9 @@ func TestUSMTrapTableAttempts(t *testing.T) {
 		"unsupported, then not authentic": {sets: []func(*SnmpV3SecurityParametersTable){unsupported, add(wrongPass())}, wantErr: prefix + notAuthentic},
 		"not authentic, then unsupported": {sets: []func(*SnmpV3SecurityParametersTable){add(wrongPass()), unsupported}, wantErr: prefix + notAuthentic},
 		"unsupported twice":               {sets: []func(*SnmpV3SecurityParametersTable){unsupported, unsupported}, wantErr: prefix + notSupportedV8},
+		"unsupported, then keys only":     {sets: []func(*SnmpV3SecurityParametersTable){unsupported, add(keysOnly)}, wantErr: prefix + notSupportedV8},
+		"keys only, then unsupported":     {sets: []func(*SnmpV3SecurityParametersTable){add(keysOnly), unsupported}, wantErr: prefix + otherEngine},
+		"keys only, then no privacy":      {sets: []func(*SnmpV3SecurityParametersTable){add(keysOnly), add(noPriv)}, wantErr: prefix + noPrivProtocol},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {

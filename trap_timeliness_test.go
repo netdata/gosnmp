@@ -164,20 +164,31 @@ func useEngineTimes(tb testing.TB) (advance func(time.Duration)) {
 
 // TestEngineTimesRecords pins the bounds of the timeliness records: at the
 // limit, a new engine replaces the least recently updated one, which then
-// starts over (an older message from it is accepted again); a message that
-// updates nothing does not count as an update.
+// starts over (a message with lower boots is accepted again); a message that
+// updates nothing does not count as an update, a newer one does.
 func TestEngineTimesRecords(t *testing.T) {
 	key := func(b byte) engineTimeKey { return engineTimeKey{b} }
 	now := time.Unix(1_000_000_000, 0)
-	s := newEngineTimes(2, func() time.Time { return now })
 
-	require.NoError(t, s.admit(key(1), 5, 100))
-	require.NoError(t, s.admit(key(2), 5, 100))
-	require.NoError(t, s.admit(key(1), 5, 50))  // older: no update, 1 stays the least recent
-	require.NoError(t, s.admit(key(3), 5, 100)) // replaces 1
-	assert.Len(t, s.records, 2)
-	require.NoError(t, s.admit(key(1), 4, 1), "a replaced engine starts over")
-	require.ErrorIs(t, s.admit(key(3), 4, 1), ErrNotInTimeWindow, "a kept engine keeps its record")
+	t.Run("an older message is no update", func(t *testing.T) {
+		s := newEngineTimes(2, func() time.Time { return now })
+		require.NoError(t, s.admit(key(1), 5, 100))
+		require.NoError(t, s.admit(key(2), 5, 100))
+		require.NoError(t, s.admit(key(1), 5, 50))  // older: 1 stays the least recently updated
+		require.NoError(t, s.admit(key(3), 5, 100)) // replaces 1
+		assert.Len(t, s.records, 2)
+		require.NoError(t, s.admit(key(1), 4, 1), "a replaced engine starts over")
+		require.ErrorIs(t, s.admit(key(3), 4, 1), ErrNotInTimeWindow, "a kept engine keeps its record")
+	})
+	t.Run("a newer message is an update", func(t *testing.T) {
+		s := newEngineTimes(2, func() time.Time { return now })
+		require.NoError(t, s.admit(key(1), 5, 100))
+		require.NoError(t, s.admit(key(2), 5, 100))
+		require.NoError(t, s.admit(key(1), 5, 101)) // newer: 2 is the least recently updated
+		require.NoError(t, s.admit(key(3), 5, 100)) // replaces 2
+		require.ErrorIs(t, s.admit(key(1), 4, 1), ErrNotInTimeWindow, "a kept engine keeps its record")
+		require.NoError(t, s.admit(key(2), 4, 1), "a replaced engine starts over")
+	})
 }
 
 // TestEngineTimesKeys pins what the records of a trap's engine are keyed by:
@@ -188,11 +199,12 @@ func TestEngineTimesKeys(t *testing.T) {
 	}
 	keys := map[engineTimeKey]string{keyOf(base()): "base"}
 	for name, edit := range map[string]func(sp *UsmSecurityParameters){
-		"another protocol":          func(sp *UsmSecurityParameters) { sp.AuthenticationProtocol = SHA256 },
-		"another engine ID":         func(sp *UsmSecurityParameters) { sp.AuthoritativeEngineID = "engine2" },
-		"another key":               func(sp *UsmSecurityParameters) { sp.SecretKey = []byte("key2") },
-		"an engine ID longer by 1":  func(sp *UsmSecurityParameters) { sp.AuthoritativeEngineID, sp.SecretKey = "enginek", []byte("ey") },
-		"an engine ID of 200 bytes": func(sp *UsmSecurityParameters) { sp.AuthoritativeEngineID = string(make([]byte, 200)) },
+		"another protocol":           func(sp *UsmSecurityParameters) { sp.AuthenticationProtocol = SHA256 },
+		"another engine ID":          func(sp *UsmSecurityParameters) { sp.AuthoritativeEngineID = "engine2" },
+		"another key":                func(sp *UsmSecurityParameters) { sp.SecretKey = []byte("key2") },
+		"an engine ID longer by 1":   func(sp *UsmSecurityParameters) { sp.AuthoritativeEngineID, sp.SecretKey = "enginek", []byte("ey") },
+		"another engine ID, as long": func(sp *UsmSecurityParameters) { sp.AuthoritativeEngineID = "engin2" },
+		"an engine ID of 200 bytes":  func(sp *UsmSecurityParameters) { sp.AuthoritativeEngineID = string(make([]byte, 200)) },
 	} {
 		sp := base()
 		edit(sp)

@@ -1976,6 +1976,10 @@ reencode: 305e020103301102040000002a020300ffe30401000201030410300e04000201000201
 == crafted/v3/scoped-pdu-octet-string-no-priv
 decode: error (ErrInvalidMsgs)
 
+== crafted/v3/scoped-pdu-sequence-priv
+decode: error (ErrInvalidMsgs)
+unmarshal-trap: error (ErrWrongDigest)
+
 == crafted/v3/scoped-pdu-missing
 decode: error
 
@@ -2096,6 +2100,9 @@ decode: error (ErrUnknownSecurityModels)
 decode: error (ErrUnknownSecurityModels)
 
 == crafted/v3/parse/security-model-absent
+decode: error (ErrUnknownSecurityModels)
+
+== crafted/v3/parse/security-model-2-privacy-only
 decode: error (ErrUnknownSecurityModels)
 
 == crafted/v3/parse/security-model-octet-string-auth
