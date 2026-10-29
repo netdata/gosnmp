@@ -52,6 +52,7 @@ const SaltLen = 8
 var (
 	errNoCipher      = errors.New("no privacy cipher")
 	errCFBNotAllowed = errors.New("AES-CFB is not allowed in FIPS 140-only mode")
+	errDESNotAllowed = errors.New("DES is not allowed in FIPS 140-only mode")
 )
 
 // CheckKey is the one rule for privacy keys: it returns an error for a
@@ -77,8 +78,8 @@ func (p Priv) CheckUse(key []byte) error {
 	return p.allowed()
 }
 
-// allowed returns why FIPS 140-only mode refuses the cipher: AES-CFB by this
-// package's rule, DES by crypto/des, whose own refusal it returns.
+// allowed returns why FIPS 140-only mode refuses the cipher: AES-CFB, by this
+// package's rule, and DES, which crypto/des refuses in that mode.
 func (p Priv) allowed() error {
 	if !fips140.Enforced() {
 		return nil
@@ -87,8 +88,7 @@ func (p Priv) allowed() error {
 	case AESCFB:
 		return errCFBNotAllowed
 	case DESCBC:
-		_, err := des.NewCipher(make([]byte, des.BlockSize))
-		return err
+		return errDESNotAllowed
 	}
 	return nil
 }
