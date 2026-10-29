@@ -627,6 +627,15 @@ decode: error
 == crafted/msg/length-missing
 decode: error (ErrInvalidPacketLength)
 
+== crafted/msg/length-9-octets-inside
+decode: ok
+version: 1 (2c)
+community: "public"
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=5 68656c6c6f
+reencode: 302b02010104067075626c6963a21e0201010201000201003013301106082b06010201010500040568656c6c6f
+
 == crafted/version/0
 decode: ok
 version: 0 (1)
@@ -665,6 +674,15 @@ pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeate
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
 reencode: error
+
+== crafted/version/2^32+1
+decode: ok
+version: 1 (2c)
+community: "public"
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
+reencode: 302602010104067075626c6963a219020101020100020100300e300c06082b060102010105000500
 
 == crafted/version/octet-string
 decode: ok
@@ -783,6 +801,33 @@ varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
 reencode: 302602010104067075626c6963a51902010902012c02010a300e300c06082b060102010105000500
 
+== crafted/pdu/getbulk-non-repeaters-255
+decode: ok
+version: 1 (2c)
+community: "public"
+pdu: 0xa5 (GetBulkRequest) request-id=9 error=0 (NoError) error-index=0 non-repeaters=255 max-repetitions=10
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
+reencode: identical
+
+== crafted/pdu/getbulk-non-repeaters-negative
+decode: ok
+version: 1 (2c)
+community: "public"
+pdu: 0xa5 (GetBulkRequest) request-id=9 error=0 (NoError) error-index=0 non-repeaters=255 max-repetitions=10
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
+reencode: 302702010104067075626c6963a51a020109020200ff02010a300e300c06082b060102010105000500
+
+== crafted/pdu/getbulk-max-repetitions-2147483647
+decode: ok
+version: 1 (2c)
+community: "public"
+pdu: 0xa5 (GetBulkRequest) request-id=9 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=2147483647
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
+reencode: identical
+
 == crafted/pdu/getbulk-max-repetitions-negative
 decode: ok
 version: 1 (2c)
@@ -889,6 +934,15 @@ varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
 reencode: identical
 
+== crafted/pdu/error-status-255
+decode: ok
+version: 1 (2c)
+community: "public"
+pdu: 0xa2 (GetResponse) request-id=1 error=255 (SNMPError(255)) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
+reencode: identical
+
 == crafted/pdu/error-status-256
 decode: ok
 version: 1 (2c)
@@ -915,6 +969,24 @@ pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=44 non-repeat
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
 reencode: 302602010104067075626c6963a21902010102010002012c300e300c06082b060102010105000500
+
+== crafted/pdu/error-index-255
+decode: ok
+version: 1 (2c)
+community: "public"
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=255 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
+reencode: identical
+
+== crafted/pdu/error-index-negative
+decode: ok
+version: 1 (2c)
+community: "public"
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=255 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
+reencode: 302702010104067075626c6963a21a020101020100020200ff300e300c06082b060102010105000500
 
 == crafted/pdu/error-index-octet-string
 decode: ok
@@ -1092,6 +1164,15 @@ decode: error
 == crafted/vb/length-exceeds-vbl
 decode: error
 
+== crafted/vb/value-tag-only
+decode: ok
+version: 1 (2c)
+community: "public"
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
+reencode: 302602010104067075626c6963a219020101020100020100300e300c06082b060102010105000500
+
 == crafted/oid/empty
 decode: ok
 version: 1 (2c)
@@ -1152,6 +1233,24 @@ varbinds: 1
 vb[0]: .1.3.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129.129 0x05 (Null) <nil>
 reencode: error
 
+== crafted/oid/128-arcs
+decode: ok
+version: 1 (2c)
+community: "public"
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1 0x05 (Null) <nil>
+reencode: identical
+
+== crafted/oid/129-arcs
+decode: ok
+version: 1 (2c)
+community: "public"
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1 0x05 (Null) <nil>
+reencode: error
+
 == crafted/value/integer/empty
 decode: error (ErrZeroLenInteger)
 
@@ -1207,6 +1306,15 @@ community: "public"
 pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 2147483648
+reencode: error
+
+== crafted/value/integer/max-uint32
+decode: ok
+version: 1 (2c)
+community: "public"
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 4294967295
 reencode: error
 
 == crafted/value/integer/2^32
@@ -1313,6 +1421,15 @@ pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeate
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x42 (Gauge32) uint 4294967295
 reencode: identical
+
+== crafted/value/gauge32/empty
+decode: ok
+version: 1 (2c)
+community: "public"
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x42 (Gauge32) uint 0
+reencode: 302702010104067075626c6963a21a020101020100020100300f300d06082b06010201010500420100
 
 == crafted/value/gauge32/2^32
 decode: ok
@@ -1520,6 +1637,24 @@ pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeate
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x06 (ObjectIdentifier) string ".0.0"
 reencode: 302702010104067075626c6963a21a020101020100020100300f300d06082b06010201010500060100
+
+== crafted/value/oid/128-arcs
+decode: ok
+version: 1 (2c)
+community: "public"
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x06 (ObjectIdentifier) string ".1.3.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1"
+reencode: identical
+
+== crafted/value/oid/129-arcs
+decode: ok
+version: 1 (2c)
+community: "public"
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x06 (ObjectIdentifier) string ".1.3.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1"
+reencode: error
 
 == crafted/value/oid/truncated-arc
 decode: error (ErrBase128IntegerTruncated)
@@ -1815,6 +1950,26 @@ varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
 reencode: error
 
+== crafted/trap-v1/agent-address-octet-string-5
+decode: ok
+version: 0 (1)
+community: "public"
+pdu: 0xa4 (Trap) request-id=0 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+trap-v1: enterprise=".1.3.6.1.4.1.20372" agent-address="\xc0\x00\x02\x01\a" generic=6 specific=1 timestamp=256
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
+reencode: error
+
+== crafted/trap-v1/agent-address-oid
+decode: ok
+version: 0 (1)
+community: "public"
+pdu: 0xa4 (Trap) request-id=0 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+trap-v1: enterprise=".1.3.6.1.4.1.20372" agent-address=".1.3.6.1.2.1.1.5.0" generic=6 specific=1 timestamp=256
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
+reencode: error
+
 == crafted/trap-v1/enterprise-octet-string
 decode: ok
 version: 0 (1)
@@ -1845,6 +2000,16 @@ varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
 reencode: identical
 
+== crafted/trap-v1/specific-2^31
+decode: ok
+version: 0 (1)
+community: "public"
+pdu: 0xa4 (Trap) request-id=0 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+trap-v1: enterprise=".1.3.6.1.4.1.20372" agent-address="192.0.2.1" generic=6 specific=2147483648 timestamp=256
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
+reencode: error
+
 == crafted/trap-v1/timestamp-2^32
 decode: ok
 version: 0 (1)
@@ -1856,6 +2021,28 @@ vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
 reencode: error
 
 == crafted/trap-v1/timestamp-integer
+decode: ok
+version: 0 (1)
+community: "public"
+pdu: 0xa4 (Trap) request-id=0 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+trap-v1: enterprise=".1.3.6.1.4.1.20372" agent-address="192.0.2.1" generic=6 specific=1 timestamp=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
+reencode: 303602010004067075626c6963a42906082b06010401819f144004c0000201020106020101430100300e300c06082b060102010105000500
+
+== crafted/trap-v1/timestamp-counter32
+decode: error
+
+== crafted/trap-v1/timestamp-gauge32
+decode: error
+
+== crafted/trap-v1/timestamp-uinteger32
+decode: error
+
+== crafted/trap-v1/timestamp-counter64
+decode: error
+
+== crafted/trap-v1/timestamp-empty
 decode: ok
 version: 0 (1)
 community: "public"
@@ -1912,6 +2099,83 @@ varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: error
 
+== crafted/v3/msg-id-octet-string
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=0 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: 3077020103300e020100020300ffe3040100020103042c302a041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040004003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
+
+== crafted/v3/msg-id-2147483647
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=2147483647 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: identical
+
+== crafted/v3/msg-id-2^31
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=2147483648 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: error
+
+== crafted/v3/max-size-483
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=483 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: error
+
+== crafted/v3/max-size-484
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=484 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: identical
+
+== crafted/v3/max-size-2147483647
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=2147483647 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: identical
+
+== crafted/v3/max-size-2^31
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=2147483648 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: error
+
 == crafted/v3/max-size-octet-string
 decode: ok
 version: 3 (3)
@@ -1954,6 +2218,28 @@ varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: error
 
+== crafted/v3/usm-user-name-32
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" auth-params= priv-params=
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: identical
+
+== crafted/v3/usm-user-name-33
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" auth-params= priv-params=
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: error
+
 == crafted/v3/usm-empty-engine-id
 decode: ok
 version: 3 (3)
@@ -1970,6 +2256,28 @@ decode: error (ErrInvalidMsgs)
 
 == crafted/v3/scoped-pdu-length-truncated
 decode: error (ErrInvalidPacketLength, ErrInvalidMsgs)
+
+== crafted/v3/scoped-pdu-over-declared
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: 3077020103300e02012a020300ffe3040100020103042c302a041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040004003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
+
+== crafted/v3/scoped-pdu-under-declared
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: 3077020103300e02012a020300ffe3040100020103042c302a041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040004003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
 
 == crafted/v3/scoped-pdu-sequence-priv
 decode: error (ErrInvalidMsgs)
@@ -1988,6 +2296,28 @@ pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeate
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
 reencode: 3065020103300e02012a020300ffe3040100020103042c302a041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d7573657204000400302204000403637478a219020101020100020100300e300c06082b060102010105000500
+
+== crafted/v3/context-engine-id-oid
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=2e312e332e362e312e322e312e312e352e30 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
+reencode: 3077020103300e02012a020300ffe3040100020103042c302a041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d7573657204000400303404122e312e332e362e312e322e312e312e352e300403637478a219020101020100020100300e300c06082b060102010105000500
+
+== crafted/v3/context-name-ipaddress
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="192.0.2.1"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
+reencode: 307c020103300e02012a020300ffe3040100020103042c302a041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040004003039041180001f8804636f6465632d656e67696e6504093139322e302e322e31a219020101020100020100300e300c06082b060102010105000500
 
 == crafted/v3/context-name-missing
 decode: error (ErrInvalidMsgs)
@@ -2197,6 +2527,54 @@ pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeate
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: identical
+unmarshal-trap: ok
+
+== crafted/v3/parse/encrypted-scoped-pdu
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=4950d0f2b8200b4dd30d9164 priv-params=0000000000000001
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: identical
+unmarshal-trap: ok
+
+== crafted/v3/parse/encrypted-scoped-pdu-over-declared
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=e7098bb38296c1e50e3a0557 priv-params=0000000000000001
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: 30818d020103300e02012a020300ffe30401030201030440303e041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040c4950d0f2b8200b4dd30d9164040800000000000000010436cdfd70ed7da6078b60e0f621da87c222f187f9362893efe46f7bd6cb090806e019640bcef16def38545821d4e055eea35fa37fa83b0c
+unmarshal-trap: ok
+
+== crafted/v3/parse/encrypted-scoped-pdu-under-declared
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=78a91604eb0509767fe4cc76 priv-params=0000000000000001
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: 30818d020103300e02012a020300ffe30401030201030440303e041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040c4950d0f2b8200b4dd30d9164040800000000000000010436cdfd70ed7da6078b60e0f621da87c222f187f9362893efe46f7bd6cb090806e019640bcef16def38545821d4e055eea35fa37fa83b0c
+unmarshal-trap: ok
+
+== crafted/v3/parse/encrypted-context-engine-id-integer
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=65507 flags=0x03 security-model=3 context-engine-id= context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=cf171de07df5a3b3a2c0c9ff priv-params=0000000000000001
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: 307c020103300e02012a020300ffe30401030201030440303e041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040c7e189e6a7c09b4af5eeec95d040800000000000000010425cdea70fcf9a57b771c218347bee5ed46bd9a267ed8ac27f22a98abb34df2d9838627bbd2de
 unmarshal-trap: ok
 
 == fuzz/00ed9943f389d00f

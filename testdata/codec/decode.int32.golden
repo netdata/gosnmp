@@ -12,6 +12,9 @@ decode: error (ErrIntegerTooLarge)
 == crafted/msg/length-4-octets-max
 decode: error (ErrInvalidPacketLength)
 
+== crafted/version/2^32+1
+decode: error (ErrIntegerTooLarge)
+
 == crafted/pdu/getbulk-max-repetitions-2^31
 decode: error (ErrIntegerTooLarge)
 
@@ -22,6 +25,9 @@ decode: error (ErrIntegerTooLarge)
 decode: error (ErrIntegerTooLarge)
 
 == crafted/value/integer/2^31
+decode: error (ErrIntegerTooLarge)
+
+== crafted/value/integer/max-uint32
 decode: error (ErrIntegerTooLarge)
 
 == crafted/value/integer/2^32
@@ -63,8 +69,17 @@ reencode: error
 == crafted/value/uinteger32/2^32
 decode: error (ErrIntegerTooLarge)
 
+== crafted/trap-v1/specific-2^31
+decode: error (ErrIntegerTooLarge)
+
 == crafted/trap-v1/timestamp-2^32
 decode: error (ErrIntegerTooLarge)
+
+== crafted/v3/msg-id-2^31
+decode: error (ErrIntegerTooLarge, ErrInvalidMsgs)
+
+== crafted/v3/max-size-2^31
+decode: error (ErrIntegerTooLarge, ErrInvalidMsgs)
 
 == fuzz/00ed9943f389d00f
 decode: error (ErrIntegerTooLarge)

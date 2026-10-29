@@ -25,6 +25,8 @@ func BenchmarkDecode(b *testing.B) {
 		{"opaqueDoubleResponse", opaqueDoubleResponse},
 		{"snmpv3HelloResponse", snmpv3HelloResponse},
 		{"trap1", trap1},
+		{"getBulkResponse50", getBulkResponse50},
+		{"snmpv2Trap20", snmpv2Trap20},
 	}
 	loggers := []struct {
 		name   string
@@ -116,4 +118,48 @@ func BenchmarkEncode(b *testing.B) {
 			}
 		})
 	}
+}
+
+// getBulkResponse50 is an SNMPv2c GetBulk answer of 50 varbinds: ten rows of
+// an interface table, each its name, octet and packet counters, speed and
+// last change, the types a polling collector reads most.
+func getBulkResponse50() []byte {
+	vbs := make([]SnmpPDU, 0, 50)
+	for i := range 10 {
+		row := "." + strconv.Itoa(i+1)
+		vbs = append(vbs,
+			SnmpPDU{Name: ".1.3.6.1.2.1.31.1.1.1.1" + row, Type: OctetString, Value: []byte("GigabitEthernet0/" + strconv.Itoa(i))},
+			SnmpPDU{Name: ".1.3.6.1.2.1.31.1.1.1.6" + row, Type: Counter64, Value: uint64(1)<<40 + uint64(i)},
+			SnmpPDU{Name: ".1.3.6.1.2.1.2.2.1.11" + row, Type: Counter32, Value: uint32(3000000000 + i)},
+			SnmpPDU{Name: ".1.3.6.1.2.1.2.2.1.5" + row, Type: Gauge32, Value: uint32(1000000000)},
+			SnmpPDU{Name: ".1.3.6.1.2.1.2.2.1.9" + row, Type: TimeTicks, Value: uint32(123456 + i)},
+		)
+	}
+	return mustMarshal(&SnmpPacket{Version: Version2c, Community: "public", PDUType: GetResponse, RequestID: 1, Variables: vbs})
+}
+
+// snmpv2Trap20 is an SNMPv2c trap of 20 varbinds: sysUpTime.0, snmpTrapOID.0,
+// then integers, strings and counters.
+func snmpv2Trap20() []byte {
+	vbs := []SnmpPDU{
+		{Name: ".1.3.6.1.2.1.1.3.0", Type: TimeTicks, Value: uint32(987654)},
+		{Name: ".1.3.6.1.6.3.1.1.4.1.0", Type: ObjectIdentifier, Value: ".1.3.6.1.4.1.20372.0.1"},
+	}
+	for i := range 6 {
+		n := ".1.3.6.1.4.1.20372.1." + strconv.Itoa(i+1)
+		vbs = append(vbs,
+			SnmpPDU{Name: n + ".1", Type: Integer, Value: 100 + i},
+			SnmpPDU{Name: n + ".2", Type: OctetString, Value: []byte("trap-field-" + strconv.Itoa(i))},
+			SnmpPDU{Name: n + ".3", Type: Counter32, Value: uint32(42 + i)},
+		)
+	}
+	return mustMarshal(&SnmpPacket{Version: Version2c, Community: "public", PDUType: SNMPv2Trap, RequestID: 7, Variables: vbs})
+}
+
+func mustMarshal(p *SnmpPacket) []byte {
+	b, err := p.MarshalMsg()
+	if err != nil {
+		panic(err)
+	}
+	return b
 }

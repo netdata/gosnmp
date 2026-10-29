@@ -481,6 +481,9 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/msg/length-9-octets", in: cat([]byte{0x30, 0x89, 0x01, 0, 0, 0, 0, 0, 0, 0, okMsg[1]}, okMsg[2:])},
 		{name: "crafted/msg/length-4-octets-max", in: cat([]byte{0x30, 0x84, 0xff, 0xff, 0xff, 0xff}, okMsg[2:])},
 		{name: "crafted/msg/length-missing", in: []byte{0x30, 0x81}},
+		// Nine length octets, the first eight zeros, on a value inside the
+		// message.
+		{name: "crafted/msg/length-9-octets-inside", in: craftedValue(cat([]byte{byte(OctetString), 0x89, 0, 0, 0, 0, 0, 0, 0, 0, 0x05}, []byte("hello")))},
 
 		// Version and community.
 		{name: "crafted/version/0", in: craftedMsg(0, craftedPDU(GetResponse, craftedVBL(nullVB)))},
@@ -488,6 +491,7 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/version/3-with-community", in: craftedMsg(3, craftedPDU(GetResponse, craftedVBL(nullVB)))},
 		{name: "crafted/version/256", in: craftedMsg(256, craftedPDU(GetResponse, craftedVBL(nullVB)))},
 		{name: "crafted/version/-1", in: craftedMsg(-1, craftedPDU(GetResponse, craftedVBL(nullVB)))},
+		{name: "crafted/version/2^32+1", in: craftedMsg(1<<32+1, craftedPDU(GetResponse, craftedVBL(nullVB)))},
 		{name: "crafted/version/octet-string", in: tlv(0x30, octets("\x01"), octets("public"), craftedPDU(GetResponse, craftedVBL(nullVB)))},
 		{name: "crafted/version/empty-integer", in: tlv(0x30, tlv(byte(Integer)), octets("public"), craftedPDU(GetResponse, craftedVBL(nullVB)))},
 		{name: "crafted/version/only", in: tlv(0x30, intTLV(1))},
@@ -505,6 +509,9 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/pdu/set-request", in: craftedMsg(1, craftedPDU(SetRequest, craftedVBL(craftedVB(intTLV(7)))))},
 		{name: "crafted/pdu/getbulk-request", in: craftedMsg(1, tlv(byte(GetBulkRequest), intTLV(9), intTLV(1), intTLV(10), craftedVBL(nullVB)))},
 		{name: "crafted/pdu/getbulk-non-repeaters-300", in: craftedMsg(1, tlv(byte(GetBulkRequest), intTLV(9), intTLV(300), intTLV(10), craftedVBL(nullVB)))},
+		{name: "crafted/pdu/getbulk-non-repeaters-255", in: craftedMsg(1, tlv(byte(GetBulkRequest), intTLV(9), intTLV(255), intTLV(10), craftedVBL(nullVB)))},
+		{name: "crafted/pdu/getbulk-non-repeaters-negative", in: craftedMsg(1, tlv(byte(GetBulkRequest), intTLV(9), intTLV(-1), intTLV(10), craftedVBL(nullVB)))},
+		{name: "crafted/pdu/getbulk-max-repetitions-2147483647", in: craftedMsg(1, tlv(byte(GetBulkRequest), intTLV(9), intTLV(0), intTLV(math.MaxInt32), craftedVBL(nullVB)))},
 		{name: "crafted/pdu/getbulk-max-repetitions-negative", in: craftedMsg(1, tlv(byte(GetBulkRequest), intTLV(9), intTLV(0), intTLV(-1), craftedVBL(nullVB)))},
 		{name: "crafted/pdu/getbulk-max-repetitions-2^31", in: craftedMsg(1, tlv(byte(GetBulkRequest), intTLV(9), intTLV(0), intTLV(1<<31), craftedVBL(nullVB)))},
 		{name: "crafted/pdu/inform-request", in: craftedMsg(1, craftedPDU(InformRequest, craftedVBL(nullVB)))},
@@ -520,9 +527,12 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/pdu/request-id-octet-string", in: craftedMsg(1, tlv(byte(GetResponse), octets("\x01"), intTLV(0), intTLV(0), craftedVBL(nullVB)))},
 		{name: "crafted/pdu/request-id-empty", in: craftedMsg(1, tlv(byte(GetResponse), tlv(byte(Integer)), intTLV(0), intTLV(0), craftedVBL(nullVB)))},
 		{name: "crafted/pdu/error-status-5", in: craftedMsg(1, tlv(byte(GetResponse), intTLV(1), intTLV(5), intTLV(1), craftedVBL(nullVB)))},
+		{name: "crafted/pdu/error-status-255", in: craftedMsg(1, tlv(byte(GetResponse), intTLV(1), intTLV(255), intTLV(0), craftedVBL(nullVB)))},
 		{name: "crafted/pdu/error-status-256", in: craftedMsg(1, tlv(byte(GetResponse), intTLV(1), intTLV(256), intTLV(0), craftedVBL(nullVB)))},
 		{name: "crafted/pdu/error-status-negative", in: craftedMsg(1, tlv(byte(GetResponse), intTLV(1), intTLV(-1), intTLV(0), craftedVBL(nullVB)))},
 		{name: "crafted/pdu/error-index-300", in: craftedMsg(1, tlv(byte(GetResponse), intTLV(1), intTLV(0), intTLV(300), craftedVBL(nullVB)))},
+		{name: "crafted/pdu/error-index-255", in: craftedMsg(1, tlv(byte(GetResponse), intTLV(1), intTLV(0), intTLV(255), craftedVBL(nullVB)))},
+		{name: "crafted/pdu/error-index-negative", in: craftedMsg(1, tlv(byte(GetResponse), intTLV(1), intTLV(0), intTLV(-1), craftedVBL(nullVB)))},
 		{name: "crafted/pdu/error-index-octet-string", in: craftedMsg(1, tlv(byte(GetResponse), intTLV(1), intTLV(0), octets("\x01"), craftedVBL(nullVB)))},
 
 		// Varbind list and varbind framing.
@@ -541,6 +551,8 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/vb/missing-value", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, craftedOID))))},
 		{name: "crafted/vb/two-values", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, craftedOID, intTLV(1), intTLV(2)))))},
 		{name: "crafted/vb/length-exceeds-vbl", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(cat([]byte{0x30, byte(len(craftedOID) + 3)}, craftedOID, tlv(byte(Null))))))},
+		// A value of one octet, its tag, ending the varbind.
+		{name: "crafted/vb/value-tag-only", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, craftedOID, []byte{byte(Null)}))))},
 
 		// Varbind names.
 		{name: "crafted/oid/empty", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, tlv(byte(ObjectIdentifier)), tlv(byte(Null))))))},
@@ -551,6 +563,9 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/oid/truncated-arc", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, tlv(byte(ObjectIdentifier), []byte{0x2b, 0x06, 0x81}), tlv(byte(Null))))))},
 		{name: "crafted/oid/non-minimal-arc", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, tlv(byte(ObjectIdentifier), []byte{0x2b, 0x80, 0x06}), tlv(byte(Null))))))},
 		{name: "crafted/oid/130-arcs", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, tlv(byte(ObjectIdentifier), cat([]byte{0x2b}, bytes.Repeat([]byte{0x81, 0x01}, 129))), tlv(byte(Null))))))},
+		// The packed first sub-identifier holds two arcs.
+		{name: "crafted/oid/128-arcs", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, tlv(byte(ObjectIdentifier), cat([]byte{0x2b}, bytes.Repeat([]byte{0x01}, 126))), tlv(byte(Null))))))},
+		{name: "crafted/oid/129-arcs", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, tlv(byte(ObjectIdentifier), cat([]byte{0x2b}, bytes.Repeat([]byte{0x01}, 127))), tlv(byte(Null))))))},
 
 		// Integer values.
 		{name: "crafted/value/integer/empty", in: craftedValue(tlv(byte(Integer)))},
@@ -560,6 +575,7 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/value/integer/max-int32", in: craftedValue(intTLV(math.MaxInt32))},
 		{name: "crafted/value/integer/min-int32", in: craftedValue(intTLV(math.MinInt32))},
 		{name: "crafted/value/integer/2^31", in: craftedValue(intTLV(1 << 31))},
+		{name: "crafted/value/integer/max-uint32", in: craftedValue(intTLV(math.MaxUint32))},
 		{name: "crafted/value/integer/2^32", in: craftedValue(intTLV(1 << 32))},
 		{name: "crafted/value/integer/max-int64", in: craftedValue(intTLV(math.MaxInt64))},
 		{name: "crafted/value/integer/min-int64", in: craftedValue(intTLV(math.MinInt64))},
@@ -575,6 +591,7 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/value/counter32/2^32", in: craftedValue(tlv(byte(Counter32), []byte{0x01, 0x00, 0x00, 0x00, 0x00}))},
 		{name: "crafted/value/counter32/10-octets", in: craftedValue(tlv(byte(Counter32), []byte{1, 0, 0, 0, 0, 0, 0, 0, 0, 0}))},
 		{name: "crafted/value/gauge32/max-uint32", in: craftedValue(tlv(byte(Gauge32), []byte{0x00, 0xff, 0xff, 0xff, 0xff}))},
+		{name: "crafted/value/gauge32/empty", in: craftedValue(tlv(byte(Gauge32)))},
 		{name: "crafted/value/gauge32/2^32", in: craftedValue(tlv(byte(Gauge32), []byte{0x01, 0x00, 0x00, 0x00, 0x00}))},
 		{name: "crafted/value/timeticks/empty", in: craftedValue(tlv(byte(TimeTicks)))},
 		{name: "crafted/value/timeticks/max-uint32", in: craftedValue(tlv(byte(TimeTicks), []byte{0x00, 0xff, 0xff, 0xff, 0xff}))},
@@ -604,6 +621,8 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/value/null/with-content", in: craftedValue(tlv(byte(Null), []byte{0x00}))},
 		{name: "crafted/value/oid/normal", in: craftedValue(tlv(byte(ObjectIdentifier), []byte{0x2b, 0x06, 0x01, 0x04, 0x01}))},
 		{name: "crafted/value/oid/empty", in: craftedValue(tlv(byte(ObjectIdentifier)))},
+		{name: "crafted/value/oid/128-arcs", in: craftedValue(tlv(byte(ObjectIdentifier), cat([]byte{0x2b}, bytes.Repeat([]byte{0x01}, 126))))},
+		{name: "crafted/value/oid/129-arcs", in: craftedValue(tlv(byte(ObjectIdentifier), cat([]byte{0x2b}, bytes.Repeat([]byte{0x01}, 127))))},
 		{name: "crafted/value/oid/truncated-arc", in: craftedValue(tlv(byte(ObjectIdentifier), []byte{0x2b, 0x86}))},
 		{name: "crafted/value/ip-address/4-octets", in: craftedValue(tlv(byte(IPAddress), []byte{192, 0, 2, 1}))},
 		{name: "crafted/value/ip-address/empty", in: craftedValue(tlv(byte(IPAddress)))},
@@ -645,11 +664,19 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/trap-v1/agent-address-empty", in: craftedV1Trap(craftedEnterprise, tlv(byte(IPAddress)), intTLV(6), intTLV(1), craftedTimestamp, craftedVBL(nullVB))},
 		{name: "crafted/trap-v1/agent-address-16-octets", in: craftedV1Trap(craftedEnterprise, tlv(byte(IPAddress), make([]byte, 16)), intTLV(6), intTLV(1), craftedTimestamp, craftedVBL(nullVB))},
 		{name: "crafted/trap-v1/agent-address-octet-string", in: craftedV1Trap(craftedEnterprise, octets("\xc0\x00\x02\x01"), intTLV(6), intTLV(1), craftedTimestamp, craftedVBL(nullVB))},
+		{name: "crafted/trap-v1/agent-address-octet-string-5", in: craftedV1Trap(craftedEnterprise, octets("\xc0\x00\x02\x01\x07"), intTLV(6), intTLV(1), craftedTimestamp, craftedVBL(nullVB))},
+		{name: "crafted/trap-v1/agent-address-oid", in: craftedV1Trap(craftedEnterprise, craftedOID, intTLV(6), intTLV(1), craftedTimestamp, craftedVBL(nullVB))},
 		{name: "crafted/trap-v1/enterprise-octet-string", in: craftedV1Trap(octets("x"), craftedAgentAddress, intTLV(6), intTLV(1), craftedTimestamp, craftedVBL(nullVB))},
 		{name: "crafted/trap-v1/generic-octet-string", in: craftedV1Trap(craftedEnterprise, craftedAgentAddress, octets("\x06"), intTLV(1), craftedTimestamp, craftedVBL(nullVB))},
 		{name: "crafted/trap-v1/specific-negative", in: craftedV1Trap(craftedEnterprise, craftedAgentAddress, intTLV(6), intTLV(-1), craftedTimestamp, craftedVBL(nullVB))},
+		{name: "crafted/trap-v1/specific-2^31", in: craftedV1Trap(craftedEnterprise, craftedAgentAddress, intTLV(6), intTLV(1<<31), craftedTimestamp, craftedVBL(nullVB))},
 		{name: "crafted/trap-v1/timestamp-2^32", in: craftedV1Trap(craftedEnterprise, craftedAgentAddress, intTLV(6), intTLV(1), tlv(byte(TimeTicks), []byte{0x01, 0, 0, 0, 0}), craftedVBL(nullVB))},
 		{name: "crafted/trap-v1/timestamp-integer", in: craftedV1Trap(craftedEnterprise, craftedAgentAddress, intTLV(6), intTLV(1), intTLV(256), craftedVBL(nullVB))},
+		{name: "crafted/trap-v1/timestamp-counter32", in: craftedV1Trap(craftedEnterprise, craftedAgentAddress, intTLV(6), intTLV(1), tlv(byte(Counter32), []byte{0x01, 0x00}), craftedVBL(nullVB))},
+		{name: "crafted/trap-v1/timestamp-gauge32", in: craftedV1Trap(craftedEnterprise, craftedAgentAddress, intTLV(6), intTLV(1), tlv(byte(Gauge32), []byte{0x01, 0x00}), craftedVBL(nullVB))},
+		{name: "crafted/trap-v1/timestamp-uinteger32", in: craftedV1Trap(craftedEnterprise, craftedAgentAddress, intTLV(6), intTLV(1), tlv(byte(Uinteger32), []byte{0x01, 0x00}), craftedVBL(nullVB))},
+		{name: "crafted/trap-v1/timestamp-counter64", in: craftedV1Trap(craftedEnterprise, craftedAgentAddress, intTLV(6), intTLV(1), tlv(byte(Counter64), []byte{0x01, 0x00}), craftedVBL(nullVB))},
+		{name: "crafted/trap-v1/timestamp-empty", in: craftedV1Trap(craftedEnterprise, craftedAgentAddress, intTLV(6), intTLV(1), tlv(byte(TimeTicks)), craftedVBL(nullVB))},
 		{name: "crafted/trap-v1/in-v2c-message", in: craftedMsg(1, tlv(byte(Trap), craftedEnterprise, craftedAgentAddress, intTLV(6), intTLV(1), craftedTimestamp, craftedVBL(nullVB)))},
 
 		// SNMPv3 framing (noAuthNoPriv, zero decoder).
@@ -660,15 +687,28 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/v3/flags-integer", in: craftedV3(intTLV(42), intTLV(65507), intTLV(0), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},
 		{name: "crafted/v3/security-model-2", in: craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(2), craftedNoAuthUSM, craftedScopedResp)},
 		{name: "crafted/v3/msg-id-negative", in: craftedV3(intTLV(-1), intTLV(65507), octets("\x00"), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},
+		{name: "crafted/v3/msg-id-octet-string", in: craftedV3(octets("\x2a"), intTLV(65507), octets("\x00"), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},
+		{name: "crafted/v3/msg-id-2147483647", in: craftedV3(intTLV(math.MaxInt32), intTLV(65507), octets("\x00"), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},
+		{name: "crafted/v3/msg-id-2^31", in: craftedV3(intTLV(1<<31), intTLV(65507), octets("\x00"), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},
+		{name: "crafted/v3/max-size-483", in: craftedV3(intTLV(42), intTLV(483), octets("\x00"), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},
+		{name: "crafted/v3/max-size-484", in: craftedV3(intTLV(42), intTLV(484), octets("\x00"), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},
+		{name: "crafted/v3/max-size-2147483647", in: craftedV3(intTLV(42), intTLV(math.MaxInt32), octets("\x00"), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},
+		{name: "crafted/v3/max-size-2^31", in: craftedV3(intTLV(42), intTLV(1<<31), octets("\x00"), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},
 		{name: "crafted/v3/max-size-octet-string", in: craftedV3(intTLV(42), octets("\x01"), octets("\x00"), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},
 		{name: "crafted/v3/usm-not-sequence", in: craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), tlv(0x31, craftedEngineID), craftedScopedResp)},
 		{name: "crafted/v3/usm-empty", in: craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), nil, craftedScopedResp)},
 		{name: "crafted/v3/usm-boots-octet-string", in: craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), craftedUSM(craftedEngineID, octets("\x07"), intTLV(1234), octets("codec-user"), octets(""), octets("")), craftedScopedResp)},
 		{name: "crafted/v3/usm-engine-id-200", in: craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), craftedUSM(octets(long200), intTLV(7), intTLV(1234), octets("codec-user"), octets(""), octets("")), craftedScopedResp)},
 		{name: "crafted/v3/usm-user-name-200", in: craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), craftedUSM(craftedEngineID, intTLV(7), intTLV(1234), octets(long200), octets(""), octets("")), craftedScopedResp)},
+		{name: "crafted/v3/usm-user-name-32", in: craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), craftedUSM(craftedEngineID, intTLV(7), intTLV(1234), octets(long200[:32]), octets(""), octets("")), craftedScopedResp)},
+		{name: "crafted/v3/usm-user-name-33", in: craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), craftedUSM(craftedEngineID, intTLV(7), intTLV(1234), octets(long200[:33]), octets(""), octets("")), craftedScopedResp)},
 		{name: "crafted/v3/usm-empty-engine-id", in: craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), craftedUSM(octets(""), intTLV(0), intTLV(0), octets(""), octets(""), octets("")), craftedScopedResp)},
 		{name: "crafted/v3/scoped-pdu-octet-string-no-priv", in: craftedV3NoAuth(octets("\x30\x00"))},
 		{name: "crafted/v3/scoped-pdu-length-truncated", in: craftedV3NoAuth([]byte{0x30, 0x84, 0x00})},
+		// A plaintext scoped PDU declared past the message, and shorter than
+		// its fields.
+		{name: "crafted/v3/scoped-pdu-over-declared", in: craftedV3NoAuth(cat([]byte{0x30, craftedScopedResp[1] + 5}, craftedScopedResp[2:]))},
+		{name: "crafted/v3/scoped-pdu-under-declared", in: craftedV3NoAuth(cat([]byte{0x30, craftedScopedResp[1] - 5}, craftedScopedResp[2:]))},
 		// The privacy flag with a plaintext scoped PDU, for a decoder with
 		// privacy: invalid, not decrypted.
 		{
@@ -678,6 +718,8 @@ func decodeCraftedCases() []decodeCase {
 		},
 		{name: "crafted/v3/scoped-pdu-missing", in: tlv(0x30, intTLV(3), tlv(0x30, intTLV(42), intTLV(65507), octets("\x00"), intTLV(3)), tlv(byte(OctetString), craftedNoAuthUSM))},
 		{name: "crafted/v3/context-engine-id-integer", in: craftedV3NoAuth(tlv(0x30, intTLV(1), octets("ctx"), craftedPDU(GetResponse, craftedVBL(nullVB))))},
+		{name: "crafted/v3/context-engine-id-oid", in: craftedV3NoAuth(tlv(0x30, craftedOID, octets("ctx"), craftedPDU(GetResponse, craftedVBL(nullVB))))},
+		{name: "crafted/v3/context-name-ipaddress", in: craftedV3NoAuth(tlv(0x30, craftedEngineID, tlv(byte(IPAddress), []byte{192, 0, 2, 1}), craftedPDU(GetResponse, craftedVBL(nullVB))))},
 		{name: "crafted/v3/context-name-missing", in: craftedV3NoAuth(tlv(0x30, craftedEngineID))},
 		{name: "crafted/v3/auth-flag-zero-decoder", in: craftedV3(intTLV(42), intTLV(65507), octets("\x01"), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},
 		{
