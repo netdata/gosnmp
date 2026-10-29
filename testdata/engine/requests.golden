@@ -1603,11 +1603,15 @@
 0s    result: packet 2c "public" GetResponse id=1001 [], no error
 0s    client after: retries=2 next request id=1002
 
+== requests/set/no-such-object
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    result: packet nil, error "cannot set varbind 0 of type NoSuchObject" *errors.errorString
+0s    client after: retries=2 next request id=1001
+
 == requests/set/no-varbinds
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    result: packet nil, error "no varbinds to set" *errors.errorString
 0s    client after: retries=2 next request id=1001
-0s    known bug: Set reads the first varbind without a length check and panics outside send's recover
 
 == requests/set/opaque
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -1639,7 +1643,6 @@
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    result: packet nil, error "cannot set varbind 1 of type Boolean" *errors.errorString
 0s    client after: retries=2 next request id=1001
-0s    known bug: Set checks the type of the first varbind only; a later one fails in the encoder, after an attempt has started
 
 == requests/set/unsupported-type
 0s    client: 2c timeout=1s retries=2 exponential=false

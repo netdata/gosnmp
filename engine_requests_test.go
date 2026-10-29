@@ -246,17 +246,14 @@ func engineScenarios() map[string]engineScenario {
 		"set/unsupported-type": {agent: answer(), run: setVarbinds(SnmpPDU{Name: setOID, Type: Boolean, Value: true})},
 		"set/second-varbind-unsupported": {
 			agent: answer(), run: setVarbinds(SnmpPDU{Name: setOID, Type: Integer, Value: 1}, SnmpPDU{Name: setOID, Type: Boolean, Value: true}),
-			knownBug: "Set checks the type of the first varbind only; a later one fails in the encoder, after an attempt has started",
 		},
 		"set/integer-with-text": {agent: answer(), run: setVarbinds(SnmpPDU{Name: setOID, Type: Integer, Value: "five"})},
 		"set/opaque":            {agent: answer(), run: setVarbinds(SnmpPDU{Name: setOID, Type: Opaque, Value: []byte{1, 2}})},
+		"set/no-such-object":    {agent: answer(), run: setVarbinds(SnmpPDU{Name: setOID, Type: NoSuchObject})},
 		"set/second-varbind-opaque": {
 			agent: answer(), run: setVarbinds(SnmpPDU{Name: setOID, Type: Integer, Value: 1}, SnmpPDU{Name: setOID, Type: Opaque, Value: []byte{1, 2}}),
 		},
-		"set/no-varbinds": {
-			agent: answer(), run: setVarbinds(),
-			knownBug: "Set reads the first varbind without a length check and panics outside send's recover",
-		},
+		"set/no-varbinds": {agent: answer(), run: setVarbinds()},
 		"get/invalid-oid": {agent: answer(), run: getOIDs(".1.3.6.1.x")},
 
 		// The MaxOids limit, at 2.

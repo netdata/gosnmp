@@ -34,9 +34,6 @@ func TestEncodeCharacterization(t *testing.T) {
 	codecGolden.check(t, "encode", results)
 }
 
-// TestEncodeValueTypesCharacterization pins, for every value tag, the value
-// TLV that MarshalMsg writes for each Go value type, or whether it fails or
-// panics. It records which Go types the encoder accepts.
 // TestMarshalLongOctetStringFields encodes communities and USM engine IDs
 // longer than 127 bytes, and a user name of 32 bytes (the most RFC 3414
 // section 2.4 allows), and decodes them back.
@@ -136,6 +133,9 @@ func TestMarshalUnencodableValues(t *testing.T) {
 	}
 }
 
+// TestEncodeValueTypesCharacterization pins, for every value tag, the value
+// TLV that MarshalMsg writes for each Go value type, or whether it fails or
+// panics. It records which Go types the encoder accepts.
 func TestEncodeValueTypesCharacterization(t *testing.T) {
 	tags := []Asn1BER{
 		UnknownType, Boolean, Integer, BitString, OctetString, Null, ObjectIdentifier, ObjectDescription, IPAddress,
@@ -249,9 +249,10 @@ func classFlags(level SnmpV3MsgFlags, pdu PDUType) SnmpV3MsgFlags {
 	return level
 }
 
-// TestValueRules checks the value rules against the encoder: a type Set takes
-// encodes, and a type without a rule does not, so Set never sends a varbind
-// the encoder refuses.
+// TestValueRules checks the value rules: a type with a rule encodes and one
+// without does not, and Set takes exactly the value types a manager writes:
+// those with a rule but the exceptions (noSuchObject, noSuchInstance,
+// endOfMibView), which only responses carry (RFC 3416 section 4.2.1).
 func TestValueRules(t *testing.T) {
 	sample := map[valueKind]any{
 		kindNull:        nil,
@@ -278,8 +279,10 @@ func TestValueRules(t *testing.T) {
 			t.Errorf("%v: encodes without a rule", Asn1BER(tag))
 		case rule.kind != kindNone && err != nil:
 			t.Errorf("%v: %v", Asn1BER(tag), err)
-		case rule.settable && rule.kind == kindNone:
-			t.Errorf("%v: settable without a rule", Asn1BER(tag))
+		}
+		wantSettable := rule.kind != kindNone && (rule.kind != kindNull || Asn1BER(tag) == Null)
+		if rule.settable != wantSettable {
+			t.Errorf("%v: settable %v, want %v", Asn1BER(tag), rule.settable, wantSettable)
 		}
 	}
 }
@@ -623,6 +626,7 @@ func encodeCases(t *testing.T) ([]encodeCase, map[string]bool) {
 		// v1 Trap.
 		{"v1-trap/basic", marshal(v1Trap(func(*SnmpTrap) {}))},
 		{"v1-trap/agent-address-empty", marshal(v1Trap(func(tr *SnmpTrap) { tr.AgentAddress = "" }))},
+		{"v1-trap/agent-address-ipv4-mapped", marshal(v1Trap(func(tr *SnmpTrap) { tr.AgentAddress = "::ffff:192.0.2.1" }))},
 		{"v1-trap/agent-address-ipv6", marshal(v1Trap(func(tr *SnmpTrap) { tr.AgentAddress = "2001:db8::1" }))},
 		{"v1-trap/agent-address-invalid", marshal(v1Trap(func(tr *SnmpTrap) { tr.AgentAddress = "not-an-ip" }))},
 		{"v1-trap/enterprise-empty", marshal(v1Trap(func(tr *SnmpTrap) { tr.Enterprise = "" }))},
@@ -657,11 +661,18 @@ func encodeCases(t *testing.T) ([]encodeCase, map[string]bool) {
 		{"v3/no-auth-no-priv/msg-id-max-int32", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) { p.MsgID = math.MaxInt32 }))},
 		{"v3/no-auth-no-priv/reserved-flags", marshal(v3(NoAuthNoPriv|0xf8, GetRequest, codecUSM(t, NoAuth, NoPriv)))},
 		{"v3/no-auth-no-priv/v1-trap-pdu", marshal(edit(v3(NoAuthNoPriv, Trap, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) { p.SnmpTrap = trap }))},
+		{"v3/no-auth-no-priv/engine-boots-2^31", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) {
+			p.SecurityParameters.(*UsmSecurityParameters).AuthoritativeEngineBoots = 1 << 31
+		}))},
+		{"v3/no-auth-no-priv/engine-time-2^31", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) {
+			p.SecurityParameters.(*UsmSecurityParameters).AuthoritativeEngineTime = 1 << 31
+		}))},
 		{"v3/no-auth-no-priv/engine-boots-and-time-max-int32", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) {
 			sp := p.SecurityParameters.(*UsmSecurityParameters)
 			sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = math.MaxInt32, math.MaxInt32
 		}))},
 		{"v3/no-auth-no-priv/max-size-1500", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) { p.MsgMaxSize = 1500 }))},
+		{"v3/no-auth-no-priv/max-size-max-int32", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) { p.MsgMaxSize = math.MaxInt32 }))},
 		{"v3/no-auth-no-priv/max-size-2^31", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) { p.MsgMaxSize = 1 << 31 }))},
 		{"v3/no-auth-no-priv/security-model-200", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) { p.SecurityModel = 200 }))},
 		{"v3/no-auth-no-priv/engine-boots-and-time-2^31", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *SnmpPacket) {
