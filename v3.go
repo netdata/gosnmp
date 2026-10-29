@@ -113,16 +113,17 @@ var errNotAuthentic = errors.New("incoming packet is not authentic, discarding")
 // counter of the RFC 3412 or RFC 3414 step that rejected the message
 // (ErrInvalidMsgs stands in for snmpInASNParseErrs).
 type categorized struct {
-	err, category error
+	// errs holds err and category, so that Unwrap allocates nothing.
+	errs [2]error
 }
 
-func (e *categorized) Error() string { return e.err.Error() }
+func (e *categorized) Error() string { return e.errs[0].Error() }
 
-func (e *categorized) Unwrap() []error { return []error{e.err, e.category} }
+func (e *categorized) Unwrap() []error { return e.errs[:] }
 
 // inCategory returns err, which unwraps to category too.
 func inCategory(category, err error) error {
-	return &categorized{err: err, category: category}
+	return &categorized{errs: [2]error{err, category}}
 }
 
 // The rejections of the security processing (RFC 3414 section 3.2), in the
