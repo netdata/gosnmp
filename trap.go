@@ -29,13 +29,13 @@ import (
 // localized to; the user must have the protocols the message asks for
 // (ErrUnknownSecurityLevel); a message that asks for authentication must
 // carry a digest that checks with the user's key, localized to the message's
-// engine ID (ErrWrongDigest); an authenticated trap, not an inform, must be in
-// the time window of its engine (ErrNotInTimeWindow, see the package
-// documentation); a message is decrypted exactly when it asks for privacy
-// (ErrDecryption). Then the receiver's minimum level applies
-// (ErrUnknownSecurityLevel): a table set or the single user with an
-// authentication protocol accepts only authenticated messages; the single
-// user also requires the level of the client's MsgFlags, unless
+// engine ID (ErrWrongDigest); an authenticated message whose reportable flag
+// is clear, a trap, not an inform, must be in the time window of its engine
+// (ErrNotInTimeWindow, see the package documentation); a message is decrypted
+// exactly when it asks for privacy (ErrDecryption). Then the receiver's
+// minimum level applies (ErrUnknownSecurityLevel): a table set or the single
+// user with an authentication protocol accepts only authenticated messages;
+// the single user also requires the level of the client's MsgFlags, unless
 // useResponseSecurityParameters is set. A table tries all of a user's sets in
 // the order they were added; when none accepts the message, the error is the
 // one of the set that got furthest through these steps, the first on ties.
@@ -134,7 +134,7 @@ func (x *GoSNMP) checkTrapV3(w *v3Wire) error {
 	if x.Version != Version3 {
 		return errors.New("UnmarshalTrap: an SNMPv3 message needs a client whose Version is Version3")
 	}
-	if w.has&hasEngineID != 0 && w.engineID == "" {
+	if w.engineID == "" {
 		return errNoEngineID
 	}
 	return nil
@@ -172,7 +172,7 @@ const (
 // message's flags, the minimum level of rule and sp, then the scoped PDU and
 // the PDU.
 func decodeTrapV3(trap []byte, w v3Wire, result *SnmpPacket, sp *UsmSecurityParameters, rule trapRule) (trapStep, error) {
-	if rule.singleUser && w.has&hasUserName != 0 && w.userName != sp.UserName {
+	if rule.singleUser && w.userName != sp.UserName {
 		return stepUser, errUnknownUser
 	}
 	minimum := rule.minimum | sp.levelFloor()

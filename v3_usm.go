@@ -372,10 +372,13 @@ func (sp *UsmSecurityParameters) setEngineTime(in *UsmSecurityParameters) {
 
 // errAuthKeyBoundToEngine and errPrivKeyBoundToEngine are the errors of
 // adopting another engine ID without the passphrase a protocol's key derives
-// from.
+// from; receiving a message, the user is then unknown for its engine ID (RFC
+// 3414 section 3.2 step 4): errAuthKeyOtherEngine and errPrivKeyOtherEngine.
 var (
 	errAuthKeyBoundToEngine = errors.New("usm: without a passphrase, the authentication key cannot be localized to another engine ID")
 	errPrivKeyBoundToEngine = errors.New("usm: without a passphrase, the privacy key cannot be localized to another engine ID")
+	errAuthKeyOtherEngine   = inCategory(ErrUnknownUsername, errAuthKeyBoundToEngine)
+	errPrivKeyOtherEngine   = inCategory(ErrUnknownUsername, errPrivKeyBoundToEngine)
 )
 
 var (
@@ -442,14 +445,18 @@ func (sp *UsmSecurityParameters) validate(flags SnmpV3MsgFlags) error {
 	if sp.UserName == "" {
 		return fmt.Errorf("securityParameters.UserName is required")
 	}
+	return sp.checkKeySources()
+}
 
+// checkKeySources rejects a protocol with neither a key nor a passphrase to
+// derive one from.
+func (sp *UsmSecurityParameters) checkKeySources() error {
 	if sp.PrivacyProtocol > NoPriv && len(sp.PrivacyKey) == 0 && sp.PrivacyPassphrase == "" {
 		return fmt.Errorf("securityParameters.PrivacyPassphrase is required when a privacy protocol is specified")
 	}
 	if sp.AuthenticationProtocol > NoAuth && len(sp.SecretKey) == 0 && sp.AuthenticationPassphrase == "" {
 		return fmt.Errorf("securityParameters.AuthenticationPassphrase is required when an authentication protocol is specified")
 	}
-
 	return nil
 }
 
@@ -556,27 +563,40 @@ func (sp *UsmSecurityParameters) marshal(dst []byte, flags SnmpV3MsgFlags, salt 
 // receive makes sp, a private copy of a receiver's parameters, the security
 // parameters of a message with flags whose USM fields are w: it takes the
 // fields that decoded, after the checks of RFC 3414 section 3.2 made before
-// the digest: valid protocols (a local failure); with bind, the engine ID rule
-// of adoptEngineID, keys given without a passphrase take no other engine ID
-// (step 4: the user is looked up by name and engine ID, ErrUnknownUsername);
-// the protocols the flags ask for (step 5, ErrUnknownSecurityLevel). Another
-// engine ID drops the keys: with bind, derive reports that they derive for it
-// from the passphrases when needed, the authentication key here when the
-// flags ask for authentication (to check the message, or to answer it with
-// the parameters SnmpDecodePacket returns), the privacy key only to decrypt
-// (inbound.scopedPDU), which a Reeder-extended protocol caches per engine ID;
-// without bind both stay missing, as the answer to a request has no keys for
-// another engine.
+// the digest: valid protocols, and with bind a key or a passphrase for each
+// (local failures); with bind, the engine ID rule of adoptEngineID, keys given
+// without a passphrase take no other engine ID (step 4: the user is looked up
+// by name and engine ID, ErrUnknownUsername); the protocols the flags ask for
+// (step 5, ErrUnknownSecurityLevel). Another engine ID drops the keys: with
+// bind, derive reports that they derive for it from the passphrases when
+// needed, the authentication key here when the flags ask for authentication
+// (to check the message, or to answer it with the parameters SnmpDecodePacket
+// returns), the privacy key only to decrypt (inbound.scopedPDU), which a
+// Reeder-extended protocol caches per engine ID; without bind both stay
+// missing, as the answer to a request has no keys for another engine.
 func (sp *UsmSecurityParameters) receive(flags SnmpV3MsgFlags, w *v3Wire, bind bool) (derive bool, err error) {
 	if err := sp.checkProtocols(); err != nil {
 		return false, err
 	}
-	if w.has&hasEngineID != 0 && w.engineID != sp.AuthoritativeEngineID {
-		if bind {
-			if err := sp.checkRelocalizable(); err != nil {
-				return false, inCategory(ErrUnknownUsername, err)
-			}
+	newEngine := w.has&hasEngineID != 0 && w.engineID != sp.AuthoritativeEngineID
+	if bind && newEngine {
+		if err := sp.checkKeySources(); err != nil {
+			return false, err
 		}
+		switch sp.checkRelocalizable() {
+		case errAuthKeyBoundToEngine:
+			return false, errAuthKeyOtherEngine
+		case errPrivKeyBoundToEngine:
+			return false, errPrivKeyOtherEngine
+		}
+	}
+	switch auth, priv := sp.missingProtocol(flags); {
+	case auth:
+		return false, errNoAuthForMsg
+	case priv:
+		return false, errNoPrivForMsg
+	}
+	if newEngine {
 		sp.AuthoritativeEngineID = w.engineID
 		sp.SecretKey, sp.PrivacyKey = nil, nil
 		if bind && flags.authFlag() {
@@ -600,12 +620,6 @@ func (sp *UsmSecurityParameters) receive(flags SnmpV3MsgFlags, w *v3Wire, bind b
 	}
 	if w.has&hasPrivParams != 0 {
 		sp.PrivacyParameters = w.privParams
-	}
-	switch auth, priv := sp.missingProtocol(flags); {
-	case auth:
-		return false, errNoAuthForMsg
-	case priv:
-		return false, errNoPrivForMsg
 	}
 	return derive, nil
 }

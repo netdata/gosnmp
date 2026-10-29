@@ -538,6 +538,49 @@ func TestUSMTrapTableAttempts(t *testing.T) {
 	}
 }
 
+// TestUSMTrapMistypedFields pins that a trap whose user name or engine ID is
+// not an OCTET STRING fails the header parse (RFC 3414 section 3.2 step 1),
+// so a receiver without authentication, whose user name is its only
+// credential, cannot take it as its own user's or from no engine.
+func TestUSMTrapMistypedFields(t *testing.T) {
+	useEngineTimes(t)
+	trap := func(engineID, user []byte) []byte {
+		return craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3),
+			craftedUSM(engineID, intTLV(1), intTLV(1), user, octets(""), octets("")),
+			tlv(0x30, octets(""), octets(""), craftedPDU(SNMPv2Trap, craftedVBL(craftedVB(intTLV(5))))))
+	}
+	receivers := map[string]func() *GoSNMP{
+		"single": func() *GoSNMP {
+			return &GoSNMP{Version: Version3, SecurityModel: UserSecurityModel, SecurityParameters: &UsmSecurityParameters{UserName: "secret-user"}}
+		},
+		"table": func() *GoSNMP {
+			tb := NewSnmpV3SecurityParametersTable(Logger{})
+			require.NoError(t, tb.Add("secret-user", &UsmSecurityParameters{UserName: "secret-user"}))
+			return &GoSNMP{Version: Version3, TrapSecurityParametersTable: tb}
+		},
+	}
+	tests := map[string]struct {
+		in   []byte
+		want error // nil: accepted
+	}{
+		"as sent":                 {in: trap(octets(usmCharEngineID), octets("secret-user"))},
+		"user name as an INTEGER": {in: trap(octets(usmCharEngineID), intTLV(1)), want: ErrInvalidMsgs},
+		"engine ID as an INTEGER": {in: trap(intTLV(1), octets("secret-user")), want: ErrInvalidMsgs},
+	}
+	for name, tc := range tests {
+		for rname, receiver := range receivers {
+			t.Run(name+"/"+rname, func(t *testing.T) {
+				_, err := receiver().UnmarshalTrap(bytes.Clone(tc.in), false)
+				if tc.want == nil {
+					require.NoError(t, err)
+					return
+				}
+				require.ErrorIs(t, err, tc.want)
+			})
+		}
+	}
+}
+
 // TestUSMTrapTableSkipsV1V2c checks that a receiver with a trap table
 // decodes SNMPv1 and SNMPv2c traps without it.
 func TestUSMTrapTableSkipsV1V2c(t *testing.T) {
@@ -672,6 +715,39 @@ func TestUSMFIPS140OnlyDigest(t *testing.T) {
 			require.NotPanics(t, func() { _, err = x.UnmarshalTrap(bytes.Clone(data), false) })
 			assert.ErrorContains(t, err, "not allowed in FIPS 140-only mode")
 		})
+	}
+}
+
+// TestUSMFIPS140OnlyDecrypt checks, when run with GODEBUG=fips140=only, that
+// a receiver refusing AES-CFB rejects an authPriv trap made with enforcement
+// off with the refusal, a local failure that unwraps to no RFC 3414 error
+// (not ErrDecryption: the message is not at fault), after checking its digest.
+func TestUSMFIPS140OnlyDecrypt(t *testing.T) {
+	useEngineTimes(t)
+	if !fips140.Enforced() {
+		t.Skip("run with GODEBUG=fips140=only")
+	}
+	sp := &UsmSecurityParameters{
+		UserName: "codec-user", AuthoritativeEngineID: usmCharEngineID,
+		AuthenticationProtocol: SHA256, AuthenticationPassphrase: "codec-auth-pass",
+		PrivacyProtocol: AES, PrivacyPassphrase: "codec-priv-pass",
+	}
+	var data []byte
+	fips140.WithoutEnforcement(func() {
+		require.NoError(t, sp.InitSecurityKeys())
+		var err error
+		data, err = (&SnmpPacket{
+			Version: Version3, MsgFlags: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy(),
+			PDUType: SNMPv2Trap, Variables: usmCharVarbinds,
+		}).MarshalMsg()
+		require.NoError(t, err)
+	})
+
+	x := &GoSNMP{Version: Version3, MsgFlags: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy()}
+	_, err := x.UnmarshalTrap(bytes.Clone(data), false)
+	require.ErrorContains(t, err, "not allowed in FIPS 140-only mode")
+	for _, category := range []error{ErrDecryption, ErrWrongDigest, ErrInvalidMsgs} {
+		assert.NotErrorIs(t, err, category)
 	}
 }
 

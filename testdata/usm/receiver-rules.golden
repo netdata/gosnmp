@@ -217,40 +217,40 @@ error (ErrUnknownEngineID): incoming packet names no authoritative engine ID, di
 error: UnmarshalTrap: an SNMPv3 message needs a client whose Version is Version3
 
 == authPriv, INTEGER privacy parameters/no protocols/table
-error (ErrUnknownSecurityLevel): no credentials successfully unmarshaled trap: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
+error (ErrInvalidMsgs): error parsing SNMPV3 User Security Model msgPrivacyParameters: not an OCTET STRING
 
 == authPriv, INTEGER privacy parameters/no protocols/single
-error (ErrUnknownSecurityLevel): error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
+error (ErrInvalidMsgs): error parsing SNMPV3 User Security Model msgPrivacyParameters: not an OCTET STRING
 
 == authPriv, INTEGER privacy parameters/no protocols/single, message flags
-error (ErrUnknownSecurityLevel): error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
+error (ErrInvalidMsgs): error parsing SNMPV3 User Security Model msgPrivacyParameters: not an OCTET STRING
 
 == authPriv, INTEGER privacy parameters/no protocols/SnmpDecodePacket
-error (ErrUnknownSecurityLevel): unable to decode packet header: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
+error (ErrInvalidMsgs): unable to decode packet header: error parsing SNMPV3 User Security Model msgPrivacyParameters: not an OCTET STRING
 
 == authPriv, INTEGER privacy parameters/SHA/table
-error (ErrUnknownSecurityLevel): no credentials successfully unmarshaled trap: error parsing SNMPv3 User Security Model: privacy parameters are not configured to parse incoming encrypted message
+error (ErrInvalidMsgs): error parsing SNMPV3 User Security Model msgPrivacyParameters: not an OCTET STRING
 
 == authPriv, INTEGER privacy parameters/SHA/single
-error (ErrUnknownSecurityLevel): error parsing SNMPv3 User Security Model: privacy parameters are not configured to parse incoming encrypted message
+error (ErrInvalidMsgs): error parsing SNMPV3 User Security Model msgPrivacyParameters: not an OCTET STRING
 
 == authPriv, INTEGER privacy parameters/SHA/single, message flags
-error (ErrUnknownSecurityLevel): error parsing SNMPv3 User Security Model: privacy parameters are not configured to parse incoming encrypted message
+error (ErrInvalidMsgs): error parsing SNMPV3 User Security Model msgPrivacyParameters: not an OCTET STRING
 
 == authPriv, INTEGER privacy parameters/SHA/SnmpDecodePacket
-error (ErrUnknownSecurityLevel): unable to decode packet header: error parsing SNMPv3 User Security Model: privacy parameters are not configured to parse incoming encrypted message
+error (ErrInvalidMsgs): unable to decode packet header: error parsing SNMPV3 User Security Model msgPrivacyParameters: not an OCTET STRING
 
 == authPriv, INTEGER privacy parameters/SHA-AES/table
-error (ErrWrongDigest): no credentials successfully unmarshaled trap: incoming packet is not authentic, discarding
+error (ErrInvalidMsgs): error parsing SNMPV3 User Security Model msgPrivacyParameters: not an OCTET STRING
 
 == authPriv, INTEGER privacy parameters/SHA-AES/single
-error (ErrWrongDigest): incoming packet is not authentic, discarding
+error (ErrInvalidMsgs): error parsing SNMPV3 User Security Model msgPrivacyParameters: not an OCTET STRING
 
 == authPriv, INTEGER privacy parameters/SHA-AES/single, message flags
-error (ErrWrongDigest): incoming packet is not authentic, discarding
+error (ErrInvalidMsgs): error parsing SNMPV3 User Security Model msgPrivacyParameters: not an OCTET STRING
 
 == authPriv, INTEGER privacy parameters/SHA-AES/SnmpDecodePacket
-error (ErrDecryption): usm: decrypting: salt of 0 octets, want 8
+error (ErrInvalidMsgs): unable to decode packet header: error parsing SNMPV3 User Security Model msgPrivacyParameters: not an OCTET STRING
 
 == authPriv, INTEGER privacy parameters/unknown authentication protocol/table
 error: add: securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(99) is not supported
@@ -262,13 +262,13 @@ error: securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(99) is not s
 error: securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(99) is not supported
 
 == authPriv, INTEGER privacy parameters/unknown authentication protocol/SnmpDecodePacket
-error: unable to decode packet header: securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(99) is not supported
+error (ErrInvalidMsgs): unable to decode packet header: error parsing SNMPV3 User Security Model msgPrivacyParameters: not an OCTET STRING
 
 == authPriv, INTEGER privacy parameters/no parameters/single
-error (ErrUnknownUsername): incoming packet is not authentic, discarding
+error (ErrInvalidMsgs): error parsing SNMPV3 User Security Model msgPrivacyParameters: not an OCTET STRING
 
 == authPriv, INTEGER privacy parameters/SHA-AES/single, version unset
-error: UnmarshalTrap: an SNMPv3 message needs a client whose Version is Version3
+error (ErrInvalidMsgs): error parsing SNMPV3 User Security Model msgPrivacyParameters: not an OCTET STRING
 
 == authNoPriv, long-form digest field length/no protocols/table
 error (ErrUnknownSecurityLevel): no credentials successfully unmarshaled trap: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message

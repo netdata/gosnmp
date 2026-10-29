@@ -485,9 +485,11 @@ func (e *exchange) decode(resp []byte) (_ *SnmpPacket, verified bool, _ error) {
 // section 3.2 steps 4 and 5 by the reply's flags: the reply's user is the
 // request's (else errUnknownUser), or the empty user of discovery, which has
 // no protocols (as net-snmp's), so it names no reply that asks for
-// authentication; the request's user has the protocols the flags ask for.
+// authentication; a reply that asks for authentication names the request's
+// engine ID, the only one the request's keys serve (else errUnknownUser); the
+// request's user has the protocols the flags ask for.
 func receiveReply(flags SnmpV3MsgFlags, w *v3Wire, sp *UsmSecurityParameters) error {
-	if w.has&hasUserName != 0 && w.userName != sp.UserName {
+	if w.userName != sp.UserName {
 		if w.userName != "" {
 			return errUnknownUser
 		}
@@ -495,26 +497,25 @@ func receiveReply(flags SnmpV3MsgFlags, w *v3Wire, sp *UsmSecurityParameters) er
 			return errNoAuthForMsg
 		}
 	}
+	if flags.authFlag() && w.engineID != sp.AuthoritativeEngineID {
+		return errUnknownUser
+	}
 	_, err := sp.receive(flags, w, false)
 	return err
 }
 
 // authenticate checks in, a reply to an SNMPv3 request in security
 // processing, by its own flags (RFC 3414 section 3.2 step 6): a reply that
-// asks for authentication must name the request's engine ID (else
-// errUnknownUser: its keys are the request's) and carry a digest that checks
-// with the request's key, whatever the request's level; to a request that asks
-// for authentication, a reply must ask for it too. It reports whether it
-// checked the digest.
+// asks for authentication must carry a digest that checks with the request's
+// key, whatever the request's level; to a request that asks for
+// authentication, a reply must ask for it too. It reports whether it checked
+// the digest.
 func (e *exchange) authenticate(in *inbound, reply *SnmpPacket) (bool, error) {
 	if !reply.MsgFlags.authFlag() {
 		if e.packet.MsgFlags.authFlag() {
 			return false, errNotAuthentic
 		}
 		return false, nil
-	}
-	if in.sp.AuthoritativeEngineID != e.packet.SecurityParameters.usm().AuthoritativeEngineID {
-		return false, errUnknownUser
 	}
 	if err := in.verify(); err != nil {
 		return false, err
@@ -553,10 +554,10 @@ func (e *exchange) unauthenticatedReport(resp []byte, cursor int, reply *SnmpPac
 // attempt: a request sent back unchanged carries the client's own IDs and
 // digest, and other PDUs answer no request. Known bugs: nothing else of the
 // reply is compared with the request (the SNMPv1 and SNMPv2c versions, the
-// security model, level and context of RFC 3412 section 7.2 step 12 b, nor,
-// for a request without authentication, the user and engine ID); an empty
-// Response without an error status answers before its request ID is checked;
-// a Response with request ID 0 answers any request.
+// security model, level and context of RFC 3412 section 7.2 step 12 b, nor the
+// engine ID of a reply without authentication; decode compares the user); an
+// empty Response without an error status answers before its request ID is
+// checked; a Response with request ID 0 answers any request.
 func (e *exchange) answers(reply *SnmpPacket, earlier []sentIDs) (bool, error) {
 	if reply.Version == Version3 || e.packet.Version == Version3 {
 		if reply.Version != e.packet.Version || !e.sentWithMsgID(reply.MsgID, earlier) {

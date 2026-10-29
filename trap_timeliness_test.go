@@ -6,7 +6,6 @@ package gosnmp
 
 import (
 	"fmt"
-	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -23,7 +22,8 @@ type timelyMessage struct {
 	boots, time uint32
 	inform      bool
 	wait        time.Duration
-	accepted    bool
+	// want is the error a rejection unwraps to, nil for an accepted one.
+	want error
 }
 
 // encodeTimely encodes m from engineID: codec-user and other-user at
@@ -90,8 +90,14 @@ var timelyReceivers = []struct {
 // recorded, and each credential has its own records.
 func TestTrapTimeliness(t *testing.T) {
 	const maxBoots = 2147483647
-	ok := func(boots, time uint32) timelyMessage { return timelyMessage{boots: boots, time: time, accepted: true} }
-	rejected := func(boots, time uint32) timelyMessage { return timelyMessage{boots: boots, time: time} }
+	ok := func(boots, time uint32) timelyMessage { return timelyMessage{boots: boots, time: time} }
+	rejected := func(boots, time uint32) timelyMessage {
+		return timelyMessage{boots: boots, time: time, want: ErrNotInTimeWindow}
+	}
+	// invalid boots or time fail the header parse (RFC 3414 section 3.2 step 1).
+	invalid := func(boots, time uint32) timelyMessage {
+		return timelyMessage{boots: boots, time: time, want: ErrInvalidMsgs}
+	}
 	after := func(wait time.Duration, m timelyMessage) timelyMessage { m.wait = wait; return m }
 	inform := func(m timelyMessage) timelyMessage { m.inform = true; return m }
 	from := func(user string, m timelyMessage) timelyMessage { m.user = user; return m }
@@ -109,8 +115,8 @@ func TestTrapTimeliness(t *testing.T) {
 		"an older one updates nothing":        {ok(3, 1000), ok(3, 900), after(100*time.Second, rejected(3, 949))},
 		"a reboot, then the old boots":        {ok(3, 1000), ok(4, 5), rejected(3, 2000)},
 		"boots 2147483647, twice":             {rejected(maxBoots, 10), rejected(maxBoots, 20)},
-		"boots above 2147483647, then low":    {rejected(maxBoots+1, 10), ok(1, 1)},
-		"time above 2147483647, then low":     {rejected(1, maxBoots+1), ok(1, 1)},
+		"boots above 2147483647, then low":    {invalid(maxBoots+1, 10), ok(1, 1)},
+		"time above 2147483647, then low":     {invalid(1, maxBoots+1), ok(1, 1)},
 		"informs, then a trap":                {inform(ok(3, 1000)), inform(ok(2, 1)), ok(1, 1)},
 		"unauthenticated, then authenticated": {from("plain-user", ok(100, 100)), ok(3, 77)},
 		"another credential, lower boots":     {ok(9, 9), from("other-user", ok(1, 1))},
@@ -128,9 +134,6 @@ func TestTrapTimeliness(t *testing.T) {
 					if !known {
 						t.Skip("the receiver does not know " + m.user)
 					}
-					if strconv.IntSize == 32 && max(m.boots, m.time) > maxBoots {
-						t.Skip("a 32-bit int does not decode a value above 2147483647")
-					}
 				}
 				seq++
 				engineID := fmt.Sprintf("\x80\x00\x1f\x88\x04tl-%d", seq)
@@ -139,10 +142,10 @@ func TestTrapTimeliness(t *testing.T) {
 				for i, m := range msgs {
 					advance(m.wait)
 					_, err := x.UnmarshalTrap(encodeTimely(t, engineID, m), false)
-					if m.accepted {
+					if m.want == nil {
 						assert.NoError(t, err, "message %d", i)
 					} else {
-						assert.ErrorIs(t, err, ErrNotInTimeWindow, "message %d", i)
+						assert.ErrorIs(t, err, m.want, "message %d", i)
 					}
 				}
 			})

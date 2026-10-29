@@ -110,7 +110,8 @@ var errNotAuthentic = errors.New("incoming packet is not authentic, discarding")
 
 // categorized is an error of SNMPv3 message processing: it has the text of
 // err and unwraps to err and to category, the exported error named after the
-// counter of the RFC 3412 or RFC 3414 step that rejected the message.
+// counter of the RFC 3412 or RFC 3414 step that rejected the message
+// (ErrInvalidMsgs stands in for snmpInASNParseErrs).
 type categorized struct {
 	err, category error
 }
@@ -214,15 +215,16 @@ func (packet *SnmpPacket) appendV3ScopedPDU(dst []byte, sp *UsmSecurityParameter
 
 // v3Wire is what the header of an SNMPv3 message carries for its security
 // processing: the User-based Security Model fields as sent, each with whether
-// it decoded (a field of another field type is skipped, see the package
-// documentation), and where msgAuthenticationParameters and msgData are.
+// it decoded (all of them once the parse succeeded; a header that fails keeps
+// the ones before the failure), and where msgAuthenticationParameters and
+// msgData are.
 type v3Wire struct {
 	engineID, userName, authParams string
 	boots, engineTime              uint32
 	privParams                     []byte
 	has                            v3WireFields
 	// authOff and authLen locate the content of msgAuthenticationParameters;
-	// authOff is -1 when the field is not an OCTET STRING.
+	// authOff is -1 until it is read.
 	authOff, authLen int
 	// scoped is the offset of msgData.
 	scoped int
@@ -272,9 +274,11 @@ func v3ParseError(err error) error {
 // SEQUENCE by the security parameters' OCTET STRING; msgData starts right
 // after msgPrivacyParameters. msgFlags must be an OCTET STRING of one octet,
 // the security model the INTEGER 3, and then the flags may not ask for privacy
-// without authentication, as there. Unlike net-snmp, it reads the other fields
-// leniently (see the package documentation). It writes nothing into packet and
-// derives no key.
+// without authentication; the USM fields must be of their types and the
+// engine boots and time within 0..2147483647 (RFC 3414 section 3.2 step 1), as
+// there. Unlike net-snmp, it reads the fields of msgGlobalData leniently (see
+// the package documentation) and takes user names longer than 32 octets. It
+// writes nothing into packet and derives no key.
 func parseV3(packet []byte, cursor int, response *SnmpPacket) (v3Wire, error) {
 	w := v3Wire{authOff: -1}
 	if PDUType(packet[cursor]) != Sequence {
@@ -339,37 +343,68 @@ func parseV3(packet []byte, cursor int, response *SnmpPacket) (v3Wire, error) {
 	}
 
 	ur := ber.NewReader(packet[usmStart:usmEnd])
-	if v, ok := fr.string(&ur, usmField+"msgAuthoritativeEngineID"); ok {
-		w.engineID, w.has = v, w.has|hasEngineID
+	if w.engineID, err = usmString(&ur, "msgAuthoritativeEngineID"); err != nil {
+		return w, err
 	}
-	if v, ok := fr.int(&ur, usmField+"msgAuthoritativeEngineBoots"); ok {
-		w.boots, w.has = uint32(v), w.has|hasBoots //nolint:gosec
+	w.has |= hasEngineID
+	if w.boots, err = usmEngineValue(&ur, "msgAuthoritativeEngineBoots"); err != nil {
+		return w, err
 	}
-	if v, ok := fr.int(&ur, usmField+"msgAuthoritativeEngineTime"); ok {
-		w.engineTime, w.has = uint32(v), w.has|hasEngineTime //nolint:gosec
+	w.has |= hasBoots
+	if w.engineTime, err = usmEngineValue(&ur, "msgAuthoritativeEngineTime"); err != nil {
+		return w, err
 	}
-	if v, ok := fr.string(&ur, usmField+"msgUserName"); ok {
-		w.userName, w.has = v, w.has|hasUserName
+	w.has |= hasEngineTime
+	if w.userName, err = usmString(&ur, "msgUserName"); err != nil {
+		return w, err
 	}
-	if fr.err != nil {
-		return w, fr.err
+	w.has |= hasUserName
+	authAt := usmEnd - ur.Len()
+	if w.authParams, err = usmString(&ur, "msgAuthenticationParameters"); err != nil {
+		return w, err
 	}
-	if tag, ok := ur.Peek(); ok && Asn1BER(tag) == OctetString {
-		if start, end, err := tlvAt(packet, usmEnd-ur.Len(), usmEnd); err == nil {
-			w.authOff, w.authLen = start, end-start
-		}
+	authStart, authEnd, _ := tlvAt(packet, authAt, usmEnd) // read above
+	w.authOff, w.authLen, w.has = authStart, authEnd-authStart, w.has|hasAuthParams
+	privParams, err := usmString(&ur, "msgPrivacyParameters")
+	if err != nil {
+		return w, err
 	}
-	if v, ok := fr.string(&ur, usmField+"msgAuthenticationParameters"); ok {
-		w.authParams, w.has = v, w.has|hasAuthParams
-	}
-	if v, ok := fr.string(&ur, usmField+"msgPrivacyParameters"); ok {
-		w.privParams, w.has = []byte(v), w.has|hasPrivParams
-	}
-	if fr.err != nil {
-		return w, fr.err
-	}
+	w.privParams, w.has = []byte(privParams), w.has|hasPrivParams
 	w.scoped = usmEnd - ur.Len()
 	return w, nil
+}
+
+// usmString reads the next USM field, which must be an OCTET STRING (RFC 3414
+// section 2.4).
+func usmString(r *ber.Reader, name string) (string, error) {
+	tag, _ := r.Peek()
+	f, err := readField(r)
+	if err != nil {
+		return "", fmt.Errorf("error parsing %s%s: %w", usmField, name, err)
+	}
+	if Asn1BER(tag) != OctetString {
+		return "", fmt.Errorf("error parsing %s%s: not an OCTET STRING", usmField, name)
+	}
+	return f.s, nil
+}
+
+// usmEngineValue reads msgAuthoritativeEngineBoots or
+// msgAuthoritativeEngineTime: an INTEGER of at most maxEngineValue (RFC 3414
+// section 2.4) once cut to 32 bits, as net-snmp v5.9.4 cuts it.
+func usmEngineValue(r *ber.Reader, name string) (uint32, error) {
+	tag, _ := r.Peek()
+	f, err := readField(r)
+	if err != nil {
+		return 0, fmt.Errorf("error parsing %s%s: %w", usmField, name, err)
+	}
+	if Asn1BER(tag) != Integer {
+		return 0, fmt.Errorf("error parsing %s%s: not an INTEGER", usmField, name)
+	}
+	v := uint32(f.i) //nolint:gosec // net-snmp's narrowing
+	if v > maxEngineValue {
+		return 0, fmt.Errorf("error parsing %s%s: %d is above %d", usmField, name, v, maxEngineValue)
+	}
+	return v, nil
 }
 
 // tlvAt returns the extent of the content of the TLV at packet[off:end],
@@ -389,14 +424,15 @@ func tlvAt(packet []byte, off, end int) (start, stop int, err error) {
 // buffer holding the PDU and its offset there (RFC 3414 section 3.2 step 8):
 // an OCTET STRING decrypted into a new buffer when encrypted (the message's
 // privFlag), a plaintext SEQUENCE in packet otherwise; packet is not written.
-// A scoped PDU of the other type is ErrInvalidMsgs; a decryption failure, or a
-// plaintext whose SEQUENCE, contextEngineID or contextName does not parse, as
-// with a wrong key, ErrDecryption. A decrypted scoped PDU must fit its
-// declared length, which cuts off the padding; a plaintext one is read without
-// enforcing its declared length.
+// A scoped PDU of the other type, or a plaintext one that does not parse, is
+// ErrInvalidMsgs; a decryption failure, or a decrypted plaintext whose
+// SEQUENCE, contextEngineID or contextName does not parse, as with a wrong
+// key, ErrDecryption; a key the process cannot decrypt with (usm.Priv.CheckUse)
+// neither. A decrypted scoped PDU must fit its declared length, which cuts off
+// the padding; a plaintext one is read without enforcing its declared length.
 func unmarshalScopedPDU(packet []byte, cursor int, response *SnmpPacket, encrypted bool) ([]byte, int, error) {
 	if cursor >= len(packet) {
-		return nil, 0, errors.New("error parsing SNMPV3: truncated packet")
+		return nil, 0, inCategory(ErrInvalidMsgs, errors.New("error parsing SNMPV3: truncated packet"))
 	}
 
 	var r ber.Reader
@@ -405,7 +441,11 @@ func unmarshalScopedPDU(packet []byte, cursor int, response *SnmpPacket, encrypt
 	case encrypted != (tag == PDUType(OctetString)):
 		return nil, 0, errScopedPDUType
 	case encrypted:
-		plaintext, err := response.SecurityParameters.usm().decryptPacket(packet, cursor)
+		sp := response.SecurityParameters.usm()
+		if err := sp.PrivacyProtocol.spec().CheckUse(sp.PrivacyKey); err != nil {
+			return nil, 0, fmt.Errorf("usm: decrypting: %w", err)
+		}
+		plaintext, err := sp.decryptPacket(packet, cursor)
 		if err != nil {
 			return nil, 0, inCategory(ErrDecryption, err)
 		}
@@ -419,7 +459,7 @@ func unmarshalScopedPDU(packet []byte, cursor int, response *SnmpPacket, encrypt
 	case tag == Sequence:
 		r = ber.NewReader(packet[cursor:])
 		if _, err := r.SkipHeader(); err != nil {
-			return nil, 0, fmt.Errorf("error parsing SNMPV3 scoped PDU: %w", err)
+			return nil, 0, inCategory(ErrInvalidMsgs, fmt.Errorf("error parsing SNMPV3 scoped PDU: %w", err))
 		}
 	default:
 		return nil, 0, inCategory(ErrInvalidMsgs, errors.New("error parsing SNMPV3 scoped PDU"))
@@ -436,7 +476,7 @@ func unmarshalScopedPDU(packet []byte, cursor int, response *SnmpPacket, encrypt
 		if encrypted {
 			return nil, 0, inCategory(ErrDecryption, fr.err)
 		}
-		return nil, 0, fr.err
+		return nil, 0, inCategory(ErrInvalidMsgs, fr.err)
 	}
 	return packet, len(packet) - r.Len(), nil
 }

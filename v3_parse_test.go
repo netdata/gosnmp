@@ -562,8 +562,8 @@ func TestV3ParseErrorTexts(t *testing.T) {
 
 // TestV3DigestField pins that the digest is read only from an OCTET STRING
 // msgAuthenticationParameters of the MAC's length: the right digest in a field
-// of another type (an OBJECT IDENTIFIER, which decodes as text) is not
-// authentic, nor is a field longer than any MAC.
+// of another type (an OBJECT IDENTIFIER) fails the header parse, and a field
+// longer than any MAC is not authentic.
 func TestV3DigestField(t *testing.T) {
 	useEngineTimes(t)
 	localized := usmDecoderLocalized(SHA, NoPriv)
@@ -573,8 +573,8 @@ func TestV3DigestField(t *testing.T) {
 		return x
 	}
 	// signedWith returns an authNoPriv message whose authentication field has
-	// the tag and n content octets, signed over them zeroed, for the first
-	// message ID that makes it decode.
+	// the tag and n content octets, signed over them zeroed: for an OCTET
+	// STRING, with the first message ID that makes it decode.
 	signedWith := func(tag byte, n int) []byte {
 		for id := int64(1); id < 64; id++ {
 			marker := bytes.Repeat([]byte{0xa5}, n)
@@ -587,7 +587,7 @@ func TestV3DigestField(t *testing.T) {
 			mac := hmac.New(sha1.New, key)
 			mac.Write(data)
 			copy(data[off:off+n], mac.Sum(nil))
-			if _, err := localized().SnmpDecodePacket(bytes.Clone(data)); err == nil {
+			if _, err := localized().SnmpDecodePacket(bytes.Clone(data)); err == nil || tag != byte(OctetString) {
 				return data
 			}
 		}
@@ -595,14 +595,17 @@ func TestV3DigestField(t *testing.T) {
 		return nil
 	}
 
-	tests := map[string][]byte{
-		"the digest in an OBJECT IDENTIFIER": signedWith(byte(ObjectIdentifier), 12),
-		"a field of 64 octets":               signedWith(byte(OctetString), 64),
+	tests := map[string]struct {
+		in   []byte
+		want error
+	}{
+		"the digest in an OBJECT IDENTIFIER": {signedWith(byte(ObjectIdentifier), 12), ErrInvalidMsgs},
+		"a field of 64 octets":               {signedWith(byte(OctetString), 64), errNotAuthentic},
 	}
-	for name, in := range tests {
+	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := trapDecoder().UnmarshalTrap(in, false)
-			require.ErrorIs(t, err, errNotAuthentic)
+			_, err := trapDecoder().UnmarshalTrap(tc.in, false)
+			require.ErrorIs(t, err, tc.want)
 		})
 	}
 }

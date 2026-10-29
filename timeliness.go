@@ -82,12 +82,8 @@ func keyOf(sp *UsmSecurityParameters) engineTimeKey {
 // outside the time window when the boots of the record are maxEngineValue,
 // its boots are lower, or, with equal boots, its time is more than timeWindow
 // seconds behind the latest received time advanced by the time since (b(2)).
-// A message with boots or time above maxEngineValue is outside it and not
-// recorded.
+// The parse takes boots and time of at most maxEngineValue only.
 func (s *engineTimes) admit(key engineTimeKey, boots, engineTime uint32) error {
-	if boots > maxEngineValue || engineTime > maxEngineValue {
-		return errNotInTime
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

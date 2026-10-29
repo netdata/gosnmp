@@ -50,7 +50,7 @@ decode: error (ErrInvalidMsgs)
 unmarshal-trap: error (ErrInvalidMsgs)
 
 == decrypt/sha-des/engine-id-empty
-decode: error (ErrDecryption)
+decode: error
 unmarshal-trap: error (ErrUnknownEngineID)
 
 == decrypt/sha-des/receiver-aes
@@ -58,7 +58,7 @@ decode: error (ErrInvalidPacketLength, ErrDecryption)
 unmarshal-trap: error (ErrInvalidPacketLength, ErrDecryption)
 
 == decrypt/sha-des/receiver-priv-pass-empty
-decode: error (ErrUnknownUsername)
+decode: error
 unmarshal-trap: error
 
 == decrypt/sha-des/receiver-keys-other-engine
@@ -141,7 +141,7 @@ decode: error (ErrInvalidMsgs)
 unmarshal-trap: error (ErrInvalidMsgs)
 
 == decrypt/sha-aes/engine-id-empty
-decode: error (ErrDecryption)
+decode: error
 unmarshal-trap: error (ErrUnknownEngineID)
 
 == decrypt/sha-aes/receiver-des
@@ -149,7 +149,7 @@ decode: error (ErrDecryption)
 unmarshal-trap: error (ErrDecryption)
 
 == decrypt/sha-aes/receiver-priv-pass-empty
-decode: error (ErrUnknownUsername)
+decode: error
 unmarshal-trap: error
 
 == decrypt/sha-aes/receiver-keys-other-engine
@@ -232,7 +232,7 @@ decode: error (ErrInvalidMsgs)
 unmarshal-trap: error (ErrInvalidMsgs)
 
 == decrypt/sha-aes192/engine-id-empty
-decode: error (ErrDecryption)
+decode: error
 unmarshal-trap: error (ErrUnknownEngineID)
 
 == decrypt/sha-aes192/receiver-des
@@ -240,7 +240,7 @@ decode: error (ErrDecryption)
 unmarshal-trap: error (ErrDecryption)
 
 == decrypt/sha-aes192/receiver-priv-pass-empty
-decode: error (ErrUnknownUsername)
+decode: error
 unmarshal-trap: error
 
 == decrypt/sha-aes192/receiver-keys-other-engine
@@ -323,7 +323,7 @@ decode: error (ErrInvalidMsgs)
 unmarshal-trap: error (ErrInvalidMsgs)
 
 == decrypt/sha-aes256/engine-id-empty
-decode: error (ErrDecryption)
+decode: error
 unmarshal-trap: error (ErrUnknownEngineID)
 
 == decrypt/sha-aes256/receiver-des
@@ -331,7 +331,7 @@ decode: error (ErrDecryption)
 unmarshal-trap: error (ErrDecryption)
 
 == decrypt/sha-aes256/receiver-priv-pass-empty
-decode: error (ErrUnknownUsername)
+decode: error
 unmarshal-trap: error
 
 == decrypt/sha-aes256/receiver-keys-other-engine
@@ -414,7 +414,7 @@ decode: error (ErrInvalidMsgs)
 unmarshal-trap: error (ErrInvalidMsgs)
 
 == decrypt/sha-aes192c/engine-id-empty
-decode: error (ErrDecryption)
+decode: error
 unmarshal-trap: error (ErrUnknownEngineID)
 
 == decrypt/sha-aes192c/receiver-des
@@ -422,7 +422,7 @@ decode: error (ErrDecryption)
 unmarshal-trap: error (ErrDecryption)
 
 == decrypt/sha-aes192c/receiver-priv-pass-empty
-decode: error (ErrUnknownUsername)
+decode: error
 unmarshal-trap: error
 
 == decrypt/sha-aes192c/receiver-keys-other-engine
@@ -505,7 +505,7 @@ decode: error (ErrInvalidMsgs)
 unmarshal-trap: error (ErrInvalidMsgs)
 
 == decrypt/sha-aes256c/engine-id-empty
-decode: error (ErrDecryption)
+decode: error
 unmarshal-trap: error (ErrUnknownEngineID)
 
 == decrypt/sha-aes256c/receiver-des
@@ -513,7 +513,7 @@ decode: error (ErrDecryption)
 unmarshal-trap: error (ErrDecryption)
 
 == decrypt/sha-aes256c/receiver-priv-pass-empty
-decode: error (ErrUnknownUsername)
+decode: error
 unmarshal-trap: error
 
 == decrypt/sha-aes256c/receiver-keys-other-engine

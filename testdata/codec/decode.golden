@@ -1930,15 +1930,7 @@ decode: error (ErrInvalidMsgs)
 decode: error (ErrInvalidMsgs)
 
 == crafted/v3/usm-boots-octet-string
-decode: ok
-version: 3 (3)
-community: ""
-v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
-usm: engine-id=80001f8804636f6465632d656e67696e65 boots=0 time=1234 user="codec-user" auth-params= priv-params=
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
-varbinds: 1
-vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
-reencode: 307a020103301102040000002a020300ffe3040100020103042c302a041180001f8804636f6465632d656e67696e65020100020204d2040a636f6465632d75736572040004003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
+decode: error (ErrInvalidMsgs)
 
 == crafted/v3/usm-engine-id-200
 decode: ok
@@ -1981,7 +1973,7 @@ decode: error (ErrInvalidMsgs)
 unmarshal-trap: error (ErrWrongDigest)
 
 == crafted/v3/scoped-pdu-missing
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == crafted/v3/context-engine-id-integer
 decode: ok
@@ -1995,22 +1987,14 @@ vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
 reencode: 3068020103301102040000002a020300ffe3040100020103042c302a041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d7573657204000400302204000403637478a219020101020100020100300e300c06082b060102010105000500
 
 == crafted/v3/context-name-missing
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == crafted/v3/auth-flag-zero-decoder
 decode: error (ErrUnknownSecurityLevel)
 
 == crafted/v3/auth-params-integer
-decode: ok
-version: 3 (3)
-community: ""
-v3: msg-id=42 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
-usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
-varbinds: 1
-vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
-reencode: 308186020103301102040000002a020300ffe304010102010304383036041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040c43140317f897f64d07d863ba04003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
-unmarshal-trap: error (ErrWrongDigest)
+decode: error (ErrInvalidMsgs)
+unmarshal-trap: error (ErrInvalidMsgs)
 
 == crafted/v3/auth-no-priv-sha/wrong-auth-pass
 decode: ok
@@ -2050,7 +2034,7 @@ reencode: identical
 unmarshal-trap: ok
 
 == crafted/v3/auth-priv-sha-aes/engine-id-without-keys
-decode: error (ErrDecryption)
+decode: error
 unmarshal-trap: ok
 
 == crafted/v3/auth-priv-md5-des/localized-decoder
@@ -2067,7 +2051,7 @@ reencode: identical
 unmarshal-trap: ok
 
 == crafted/v3/auth-priv-md5-des/engine-id-without-keys
-decode: error (ErrDecryption)
+decode: error
 unmarshal-trap: ok
 
 == crafted/v3/auth-no-priv-sha/localized-decoder

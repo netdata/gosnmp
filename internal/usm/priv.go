@@ -67,6 +67,24 @@ func (p Priv) CheckKey(key []byte) error {
 	return nil
 }
 
+// CheckUse returns why the process cannot encrypt or decrypt with key, apart
+// from what a message carries: a key CheckKey refuses, or AES-CFB in FIPS
+// 140-only mode.
+func (p Priv) CheckUse(key []byte) error {
+	if err := p.CheckKey(key); err != nil {
+		return err
+	}
+	return p.allowed()
+}
+
+// allowed returns the error of AES-CFB in FIPS 140-only mode.
+func (p Priv) allowed() error {
+	if p.Cipher == AESCFB && fips140.Enforced() {
+		return errCFBNotAllowed
+	}
+	return nil
+}
+
 // check returns why Encrypt and Decrypt cannot take key and salt: a key
 // CheckKey refuses, a salt of another length than SaltLen (RFC 3414 section
 // 8.3.2, RFC 3826 section 3.3.2), or AES-CFB in FIPS 140-only mode.
@@ -77,10 +95,7 @@ func (p Priv) check(key, salt []byte) error {
 	if len(salt) != SaltLen {
 		return fmt.Errorf("salt of %d octets, want %d", len(salt), SaltLen)
 	}
-	if p.Cipher == AESCFB && fips140.Enforced() {
-		return errCFBNotAllowed
-	}
-	return nil
+	return p.allowed()
 }
 
 // Encrypt returns the ciphertext of a scoped PDU. salt is
