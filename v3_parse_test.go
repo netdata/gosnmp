@@ -128,7 +128,8 @@ func TestV3ReceiverRules(t *testing.T) {
 			// A fixed salt: a receiver without privacy reads the ciphertext.
 			usm.Salts.Set(usmCharSalt(AES))
 			m := splitV3Message(t, signedTestTrap(t, SHA, AES, usmCharEngineID, "codec-user", nil))
-			m.usmTags[5] = byte(Integer)
+			// One octet: the INTEGER decodes on 32-bit platforms too.
+			m.usmTags[5], m.usm[5] = byte(Integer), []byte{0x05}
 			return m.bytes()
 		}},
 		{"authNoPriv, long-form digest field length", func() []byte { return signedAuthField([]byte{0x04, 0x81, 0x0c}, 12) }},
