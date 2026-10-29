@@ -18,9 +18,11 @@ import (
 
 // Errors that some decode errors wrap (match them with errors.Is): those of
 // the BER decoder, ErrInvalidOidLength for an OBJECT IDENTIFIER of more than
-// 128 arcs, ErrInvalidPacketLength for any length that breaks its rules or
-// runs past its input, and ErrZeroByteBuffer for a varbind without a value.
-// Other decode, configuration and authentication errors are not exported.
+// 128 arcs, ErrInvalidPacketLength for a message shorter than two octets and
+// any length that breaks its rules or runs past its input (bytes after a TLV
+// inside its container are another error), and ErrZeroByteBuffer for a
+// varbind without a value. Other decode, configuration and authentication
+// errors are not exported.
 var (
 	ErrBase128IntegerTooLarge  = ber.ErrBase128IntegerTooLarge
 	ErrBase128IntegerTruncated = ber.ErrBase128IntegerTruncated

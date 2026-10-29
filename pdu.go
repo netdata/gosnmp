@@ -173,7 +173,7 @@ func readWhole(b []byte) ([]byte, error) {
 // -- Messages and PDUs --------------------------------------------------------
 
 // errEmptyPacket is the error of a message shorter than a TLV header.
-var errEmptyPacket = errors.New("cannot unmarshal empty packet")
+var errEmptyPacket = fmt.Errorf("%w: cannot unmarshal empty packet", ErrInvalidPacketLength)
 
 // readVersion reads the message SEQUENCE, which must span the whole packet,
 // and its version field, an INTEGER of SNMPv1 (0), SNMPv2c (1) or SNMPv3 (3).
@@ -404,7 +404,11 @@ func readVarbind(r *ber.Reader) (SnmpPDU, error) {
 	// Some MikroTik responses overdeclare OctetString lengths by one byte.
 	// The enclosing varbind provides the content boundary for this case.
 	overdeclared := tag == OctetString && length == uint64(len(value))+1
-	if length != uint64(len(value)) && !overdeclared {
+	switch {
+	case overdeclared:
+	case length > uint64(len(value)):
+		return SnmpPDU{}, fmt.Errorf("value TLV length mismatch in varbind (TLV %d, remaining %d): %w", length, len(value), ber.ErrTruncated)
+	case length < uint64(len(value)):
 		return SnmpPDU{}, fmt.Errorf("value TLV length mismatch in varbind (TLV %d, remaining %d)", length, len(value))
 	}
 	typ, val, err := decodeValue(tag, value[header:])

@@ -32,7 +32,7 @@ func TestLengthLongFormLimits(t *testing.T) {
 			data: long(u64(math.MaxUint64 - 10)), wantLength: math.MaxUint64, wantCursor: 10,
 		},
 		"header overflows the largest length": {data: long(u64(math.MaxUint64 - 9)), wantErr: ErrTruncated},
-		"eight leading zeros":                 {data: long(append(make([]byte, 7), 0x05)), wantLength: 15, wantCursor: 10},
+		"seven leading zeros":                 {data: long(append(make([]byte, 7), 0x05)), wantLength: 15, wantCursor: 10},
 		"nine length octets":                  {data: long(append(make([]byte, 8), 0x05)), wantErr: ErrInvalidPacketLength},
 		"length octets cut short":             {data: long(u64(5))[:9], wantErr: ErrInvalidPacketLength},
 		"no length octet":                     {data: []byte{0x05}, wantErr: ErrInvalidPacketLength},

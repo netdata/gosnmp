@@ -468,16 +468,16 @@ func tlvAt(packet []byte, off, end int) (start, stop int, err error) {
 // buffer holding the PDU and its offset there (RFC 3414 section 3.2 step 8):
 // an OCTET STRING decrypted into a new buffer when encrypted (the message's
 // privFlag), a plaintext SEQUENCE in packet otherwise; packet is not written.
-// Either must fit the rest of the message, which it is read against, whatever
-// its declared length (net-snmp v5.9.4's extent): the ciphertext is the rest
-// after the OCTET STRING's header, and a plaintext SEQUENCE's fields run to the
-// end. contextEngineID and contextName must be OCTET STRINGs. A scoped PDU of
-// the other type, or one that does not parse before decryption, is
-// ErrInvalidMsgs; a decryption failure, or a decrypted plaintext whose
-// SEQUENCE, contextEngineID or contextName does not parse, as with a wrong
-// key, ErrDecryption; a key the process cannot decrypt with (usm.Priv.CheckUse)
-// neither. A decrypted scoped PDU must fit its declared length, which cuts off
-// the padding.
+// Either must fit the rest of the message, with net-snmp v5.9.4's extents: the
+// ciphertext is the OCTET STRING's content, as declared (RFC 3414 section 3.2
+// step 8), and octets after it are ignored; a plaintext SEQUENCE's fields are
+// read against the rest of the message, whatever its declared length. The
+// decrypted plaintext must be a SEQUENCE, which cuts off the padding, and
+// contextEngineID and contextName OCTET STRINGs. A scoped PDU of the other
+// type, or one that does not parse before decryption, is ErrInvalidMsgs; a
+// decryption failure, or a decrypted plaintext that does not parse, as with a
+// wrong key, ErrDecryption; a key the process cannot decrypt with
+// (usm.Priv.CheckUse) neither.
 func unmarshalScopedPDU(packet []byte, cursor int, response *SnmpPacket, encrypted bool) ([]byte, int, error) {
 	if cursor >= len(packet) {
 		return nil, 0, inCategory(ErrInvalidMsgs, errors.New("error parsing SNMPV3: truncated packet"))
@@ -491,7 +491,7 @@ func unmarshalScopedPDU(packet []byte, cursor int, response *SnmpPacket, encrypt
 	if tag != Sequence && tag != PDUType(OctetString) {
 		return nil, 0, inCategory(ErrInvalidMsgs, errors.New("error parsing SNMPV3 scoped PDU"))
 	}
-	start, _, err := tlvAt(packet, cursor, len(packet))
+	start, stop, err := tlvAt(packet, cursor, len(packet))
 	if err != nil {
 		return nil, 0, inCategory(ErrInvalidMsgs, fmt.Errorf("error parsing SNMPV3 scoped PDU: %w", err))
 	}
@@ -500,12 +500,15 @@ func unmarshalScopedPDU(packet []byte, cursor int, response *SnmpPacket, encrypt
 		if err := sp.PrivacyProtocol.spec().CheckUse(sp.PrivacyKey); err != nil {
 			return nil, 0, fmt.Errorf("usm: decrypting: %w", err)
 		}
-		plaintext, err := sp.decryptPacket(packet[start:])
+		plaintext, err := sp.decryptPacket(packet[start:stop])
 		if err != nil {
 			return nil, 0, inCategory(ErrDecryption, err)
 		}
 		pr := ber.NewReader(plaintext)
-		_, content, err := pr.Next()
+		tag, content, err := pr.Next()
+		if err == nil && PDUType(tag) != Sequence {
+			err = fmt.Errorf("tag %#x, not a SEQUENCE", tag)
+		}
 		if err != nil {
 			return nil, 0, inCategory(ErrDecryption, fmt.Errorf("error parsing SNMPV3 decrypted scoped PDU: %w", err))
 		}

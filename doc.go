@@ -198,11 +198,12 @@
 // authentication, the USM fields of their types, engine boots and time within
 // 0..2147483647 and a user name of at most 32 octets. A length needs its
 // length octet, takes at most eight long-form ones, and must fit what remains;
-// bytes after the message, the PDU or the varbind list fail it. As net-snmp
-// does, the decoder reads the SNMPv3 header and the scoped PDU against the
-// rest of the message: a msgGlobalData declared shorter than its fields,
-// security parameters declared to cover the scoped PDU, and a scoped PDU
-// declared shorter than its content, are read.
+// bytes after the message, the PDU, the varbind list or a varbind's value fail
+// it. As net-snmp does, the decoder reads the SNMPv3 header and a plaintext
+// scoped PDU against the rest of the message (a msgGlobalData declared shorter
+// than its fields, security parameters declared to cover the scoped PDU, and a
+// scoped PDU declared shorter than its content, are read), and decrypts the
+// content an encrypted scoped PDU declares, ignoring octets after it.
 //
 // It accepts some malformed values, because devices send them: an OctetString
 // may declare one octet more than its varbind holds (seen from MikroTik
@@ -210,11 +211,25 @@
 // address an empty IpAddress, a varbind name an OCTET STRING or an IpAddress,
 // kept as text, and an unsigned value that is empty or too long decodes as
 // UnknownType with a nil value instead of failing its message. Other
-// differences from net-snmp: an empty OBJECT IDENTIFIER reads as .0.0, not .0;
-// an INTEGER above 2147483647 keeps its low 32 bits as an int32 (3000000000
-// reads -1294967296), not unsigned; the community and context fields take OCTET STRINGs only; the error status, the
-// error index and non-repeaters are checked against their ranges; unknown value
-// types decode as UnknownType instead of failing the message.
+// differences from net-snmp v5.9.4:
+//
+//   - an empty OBJECT IDENTIFIER reads as .0.0, not .0
+//   - an INTEGER outside the int32 range keeps its low 32 bits as an int32
+//     (3000000000 reads -1294967296), where net-snmp keeps them unsigned
+//     above it and negates them below it
+//   - the community and context fields take OCTET STRINGs only, and an SNMPv1
+//     agent address four octets or an empty IpAddress, where net-snmp takes
+//     other string types (of up to four octets for the agent address)
+//   - the error status, the error index, non-repeaters and max-repetitions
+//     are checked against their ranges
+//   - a length takes at most eight long-form octets, where net-snmp takes as
+//     many as its long holds
+//   - bytes after a TLV inside its container fail the message (see above),
+//     where net-snmp ignores them
+//   - BIT STRING and NsapAddress values decode as UnknownType and net-snmp's
+//     Opaque-wrapped 64-bit values as raw Opaque, which net-snmp decodes, and
+//     other unknown value types as UnknownType, where net-snmp fails the
+//     message
 //
 // The decoders never write their input. [GoSNMP.SnmpDecodePacket] and
 // [GoSNMP.UnmarshalTrap] return OctetString and Opaque values that alias the
@@ -283,9 +298,13 @@
 // [ErrUnknownSecurityModels] for another security model, [ErrInvalidMsgs] for
 // privacy without authentication and, in place of snmpInASNParseErrs, which
 // has no error of its own, for a header or a scoped PDU that does not parse
-// before decryption, [ErrUnknownEngineID] through [ErrDecryption] for the security
-// processing, [ErrUnknownSecurityLevel] for a trap receiver's minimum level
-// too. A request whose attempts ran out after discarded replies fails with the
-// last one's error, so it matches these errors without a Report. A local
-// failure, such as a key that does not fit its protocol, matches none of them.
+// before decryption, [ErrUnknownEngineID] through [ErrDecryption] for the
+// security processing, [ErrUnknownSecurityLevel] for a trap receiver's minimum
+// level too. A decode error also unwraps to [ErrInvalidPacketLength] when a
+// length caused it, besides its category: after a wrong privacy key, a
+// decrypted scoped PDU whose length runs past its plaintext matches both
+// [ErrDecryption] and [ErrInvalidPacketLength]. A request whose attempts ran
+// out after discarded replies fails with the last one's error, so it matches
+// these errors without a Report. A local failure, such as a key that does not
+// fit its protocol, matches none of them.
 package gosnmp

@@ -112,8 +112,8 @@ func TestDecodeFailurePartialResults(t *testing.T) {
 		want    decodedFields
 	}{
 		// Message header.
-		"empty input":    {in: []byte{}, wantErr: header + "cannot unmarshal empty packet"},
-		"one octet":      {in: []byte{0x30}, wantErr: header + "cannot unmarshal empty packet"},
+		"empty input":    {in: []byte{}, wantErr: header + "invalid packet length: cannot unmarshal empty packet"},
+		"one octet":      {in: []byte{0x30}, wantErr: header + "invalid packet length: cannot unmarshal empty packet"},
 		"not a sequence": {in: cat([]byte{0x31}, craftedValue(intTLV(5))[1:]), wantErr: header + "invalid packet header", want: with(decodedFields{}, func(*decodedFields) {})},
 		"version":        {in: tlv(0x30, bad, octets("public"), vbl), wantErr: header + "error parsing SNMP packet version" + notInt, want: with(decodedFields{}, func(*decodedFields) {})},
 		"community":      {in: tlv(0x30, intTLV(1), bad, vbl), wantErr: header + "error parsing community string" + notStr, want: with(decodedFields{version: Version2c}, func(*decodedFields) {})},
