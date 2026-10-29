@@ -624,6 +624,18 @@ decode: error (ErrInvalidPacketLength)
 == crafted/msg/length-9-octets-inside
 decode: error (ErrInvalidPacketLength)
 
+== crafted/msg/length-8-octets-inside
+decode: ok
+version: 1 (2c)
+community: "public"
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=5 68656c6c6f
+reencode: 302b02010104067075626c6963a21e0201010201000201003013301106082b06010201010500040568656c6c6f
+
+== crafted/msg/length-8-octets-wrapping
+decode: error (ErrInvalidPacketLength)
+
 == crafted/version/0
 decode: ok
 version: 0 (1)
@@ -1650,6 +1662,15 @@ varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x44 (Opaque) []uint8 len=2 9f78
 reencode: identical
 
+== crafted/value/opaque/float-bare-tag
+decode: ok
+version: 1 (2c)
+community: "public"
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x00 (EndOfContents) <nil>
+reencode: error
+
 == crafted/value/nsap-address
 decode: ok
 version: 1 (2c)
@@ -1825,6 +1846,9 @@ vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
 reencode: 303702010004067075626c6963a42a06082b06010401819f144004c000020102010602010143020100300e300c06082b060102010105000500
 
 == crafted/trap-v1/agent-address-octet-string-5
+decode: error
+
+== crafted/trap-v1/agent-address-octet-string-empty
 decode: error
 
 == crafted/trap-v1/agent-address-oid

@@ -484,6 +484,9 @@ func decodeCraftedCases() []decodeCase {
 		// Nine length octets, the first eight zeros, on a value inside the
 		// message.
 		{name: "crafted/msg/length-9-octets-inside", in: craftedValue(cat([]byte{byte(OctetString), 0x89, 0, 0, 0, 0, 0, 0, 0, 0, 0x05}, []byte("hello")))},
+		{name: "crafted/msg/length-8-octets-inside", in: craftedValue(cat([]byte{byte(OctetString), 0x88, 0, 0, 0, 0, 0, 0, 0, 0x05}, []byte("hello")))},
+		// Eight length octets whose value the header takes past 2^64-1.
+		{name: "crafted/msg/length-8-octets-wrapping", in: craftedValue(cat([]byte{byte(OctetString), 0x88, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xf6}, []byte("hello")))},
 
 		// Version and community.
 		{name: "crafted/version/0", in: craftedMsg(0, craftedPDU(GetResponse, craftedVBL(nullVB)))},
@@ -641,6 +644,8 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/value/opaque/inner-int64", in: craftedValue(tlv(byte(Opaque), []byte{0x9f, 0x7a, 0x01, 0x05}))},
 		{name: "crafted/value/opaque/inner-tag-only", in: craftedValue(tlv(byte(Opaque), []byte{0x9f}))},
 		{name: "crafted/value/opaque/extension-two-octets", in: craftedValue(tlv(byte(Opaque), []byte{0x9f, 0x78}))},
+		// OpaqueFloat's tag outside an Opaque.
+		{name: "crafted/value/opaque/float-bare-tag", in: craftedValue(tlv(byte(OpaqueFloat), []byte{0x41, 0x20, 0x00, 0x00}))},
 		{name: "crafted/value/nsap-address", in: craftedValue(tlv(byte(NsapAddress), []byte{0x01, 0x02}))},
 		{name: "crafted/value/boolean", in: craftedValue(tlv(byte(Boolean), []byte{0xff}))},
 		{name: "crafted/value/bit-string", in: craftedValue(tlv(byte(BitString), []byte{0x00, 0xff}))},
@@ -665,6 +670,7 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/trap-v1/agent-address-16-octets", in: craftedV1Trap(craftedEnterprise, tlv(byte(IPAddress), make([]byte, 16)), intTLV(6), intTLV(1), craftedTimestamp, craftedVBL(nullVB))},
 		{name: "crafted/trap-v1/agent-address-octet-string", in: craftedV1Trap(craftedEnterprise, octets("\xc0\x00\x02\x01"), intTLV(6), intTLV(1), craftedTimestamp, craftedVBL(nullVB))},
 		{name: "crafted/trap-v1/agent-address-octet-string-5", in: craftedV1Trap(craftedEnterprise, octets("\xc0\x00\x02\x01\x07"), intTLV(6), intTLV(1), craftedTimestamp, craftedVBL(nullVB))},
+		{name: "crafted/trap-v1/agent-address-octet-string-empty", in: craftedV1Trap(craftedEnterprise, octets(""), intTLV(6), intTLV(1), craftedTimestamp, craftedVBL(nullVB))},
 		{name: "crafted/trap-v1/agent-address-oid", in: craftedV1Trap(craftedEnterprise, craftedOID, intTLV(6), intTLV(1), craftedTimestamp, craftedVBL(nullVB))},
 		{name: "crafted/trap-v1/enterprise-octet-string", in: craftedV1Trap(octets("x"), craftedAgentAddress, intTLV(6), intTLV(1), craftedTimestamp, craftedVBL(nullVB))},
 		{name: "crafted/trap-v1/generic-octet-string", in: craftedV1Trap(craftedEnterprise, craftedAgentAddress, octets("\x06"), intTLV(1), craftedTimestamp, craftedVBL(nullVB))},
