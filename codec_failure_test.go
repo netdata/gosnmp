@@ -5,6 +5,7 @@
 package gosnmp
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -231,8 +232,10 @@ func TestDecodeUSMFields(t *testing.T) {
 		"auth parameters as an INTEGER": {in: fields(func(f [][]byte) { f[4] = intTLV(3) }), invalid: true},
 		"priv parameters as an INTEGER": {in: fields(func(f [][]byte) { f[5] = intTLV(4) }), invalid: true},
 		"boots 2147483647":              {in: fields(func(f [][]byte) { f[1] = intTLV(2147483647) })},
-		"boots -1":                      {in: fields(func(f [][]byte) { f[1] = intTLV(-1) }), invalid: true},
-		"time -2147483648":              {in: fields(func(f [][]byte) { f[2] = intTLV(-2147483648) }), invalid: true},
+		// 2^32+5, cut to 5 where an int decodes it (a 32-bit int does not).
+		"boots 4294967301": {in: fields(func(f [][]byte) { f[1] = intTLV(4294967301) }), invalid: strconv.IntSize == 32},
+		"boots -1":         {in: fields(func(f [][]byte) { f[1] = intTLV(-1) }), invalid: true},
+		"time -2147483648": {in: fields(func(f [][]byte) { f[2] = intTLV(-2147483648) }), invalid: true},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {

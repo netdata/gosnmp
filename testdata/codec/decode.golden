@@ -1968,6 +1968,9 @@ reencode: 305e020103301102040000002a020300ffe30401000201030410300e04000201000201
 == crafted/v3/scoped-pdu-octet-string-no-priv
 decode: error (ErrInvalidMsgs)
 
+== crafted/v3/scoped-pdu-length-truncated
+decode: error (ErrInvalidPacketLength, ErrInvalidMsgs)
+
 == crafted/v3/scoped-pdu-sequence-priv
 decode: error (ErrInvalidMsgs)
 unmarshal-trap: error (ErrWrongDigest)

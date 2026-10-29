@@ -668,6 +668,7 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/v3/usm-user-name-200", in: craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), craftedUSM(craftedEngineID, intTLV(7), intTLV(1234), octets(long200), octets(""), octets("")), craftedScopedResp)},
 		{name: "crafted/v3/usm-empty-engine-id", in: craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), craftedUSM(octets(""), intTLV(0), intTLV(0), octets(""), octets(""), octets("")), craftedScopedResp)},
 		{name: "crafted/v3/scoped-pdu-octet-string-no-priv", in: craftedV3NoAuth(octets("\x30\x00"))},
+		{name: "crafted/v3/scoped-pdu-length-truncated", in: craftedV3NoAuth([]byte{0x30, 0x84, 0x00})},
 		// The privacy flag with a plaintext scoped PDU, for a decoder with
 		// privacy: invalid, not decrypted.
 		{
