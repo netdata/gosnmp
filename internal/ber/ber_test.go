@@ -9,41 +9,34 @@ import (
 	"encoding/binary"
 	"errors"
 	"math"
-	"strconv"
 	"strings"
 	"testing"
 )
 
-// TestLengthLongFormLimits pins the long form at the size of int: a length
-// that fills the int with its header, the largest length octets whose header
-// then overflows, length octets past the int range, and more length octets
-// than an int holds, which wrap silently (a kept leniency).
+// TestLengthLongFormLimits pins the long form's limits, the same on every
+// platform: at most eight length octets, leading zeros included, a length
+// up to what a uint64 holds with its header, and every error matching
+// ErrInvalidPacketLength.
 func TestLengthLongFormLimits(t *testing.T) {
-	k := strconv.IntSize / 8 // length octets an int holds
 	long := func(octets []byte) []byte { return append([]byte{0x04, 0x80 | byte(len(octets))}, octets...) }
-	intOctets := func(v int) []byte { return binary.BigEndian.AppendUint64(nil, uint64(v))[8-k:] }
+	u64 := func(v uint64) []byte { return binary.BigEndian.AppendUint64(nil, v) }
 
 	tests := map[string]struct {
 		data       []byte
-		wantLength int
+		wantLength uint64
 		wantCursor int
 		wantErr    error
 	}{
-		"length plus header is the largest int": {
-			data: long(intOctets(math.MaxInt - 2 - k)), wantLength: math.MaxInt, wantCursor: 2 + k,
+		"eight length octets": {data: long(u64(1 << 40)), wantLength: 1<<40 + 10, wantCursor: 10},
+		"length plus header is the largest uint64": {
+			data: long(u64(math.MaxUint64 - 10)), wantLength: math.MaxUint64, wantCursor: 10,
 		},
-		"header overflows the largest length": {data: long(intOctets(math.MaxInt)), wantErr: ErrInvalidPacketLength},
-		"length past the int range": {
-			data: long(append([]byte{0x80}, make([]byte, k-1)...)), wantErr: ErrInvalidPacketLength,
-		},
-		"length past the int range, wrapping back": {
-			data: long(append([]byte{0x80}, make([]byte, k)...)), wantErr: ErrInvalidPacketLength,
-		},
-		"more length octets than an int holds wrap": {
-			data:       long(append(append([]byte{0x01}, make([]byte, k-1)...), 0x05)),
-			wantLength: 5 + 2 + k + 1, wantCursor: 2 + k + 1,
-		},
-		"length octets cut short": {data: long(bytes.Repeat([]byte{0x01}, k))[:2+k-1], wantErr: ErrInvalidPacketLength},
+		"header overflows the largest length": {data: long(u64(math.MaxUint64 - 9)), wantErr: ErrTruncated},
+		"seven leading zeros":                 {data: long(append(make([]byte, 7), 0x05)), wantLength: 15, wantCursor: 10},
+		"nine length octets":                  {data: long(append(make([]byte, 8), 0x05)), wantErr: ErrInvalidPacketLength},
+		"length octets cut short":             {data: long(u64(5))[:9], wantErr: ErrInvalidPacketLength},
+		"no length octet":                     {data: []byte{0x05}, wantErr: ErrInvalidPacketLength},
+		"indefinite form":                     {data: []byte{0x30, 0x80, 0x00, 0x00}, wantErr: ErrInvalidPacketLength},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -63,7 +56,7 @@ func TestLength(t *testing.T) {
 	tests := []struct {
 		name       string
 		data       []byte
-		wantLength int
+		wantLength uint64
 		wantCursor int
 		wantErr    bool
 		errContain string
@@ -114,18 +107,16 @@ func TestLength(t *testing.T) {
 			wantErr:    false,
 		},
 		{
-			name:       "1 byte input uses fallback",
+			name:       "1 byte input has no length octet",
 			data:       []byte{0x04},
-			wantLength: 1,
-			wantCursor: 1,
-			wantErr:    false,
+			wantErr:    true,
+			errContain: "no length octet",
 		},
 		{
-			name:       "empty input uses fallback",
+			name:       "empty input has no length octet",
 			data:       []byte{},
-			wantLength: 0,
-			wantCursor: 0,
-			wantErr:    false,
+			wantErr:    true,
+			errContain: "no length octet",
 		},
 		// Indefinite length encoding - prohibited per RFC 3417 Section 8
 		{
@@ -213,6 +204,22 @@ func TestOID(t *testing.T) {
 			name: "itu-t (0.0)",
 			data: []byte{0}, // 0*40 + 0 = 0
 			want: ".0.0",
+		},
+		// At most 128 arcs; the first sub-identifier holds two.
+		{
+			name: "128 arcs",
+			data: append([]byte{43}, bytes.Repeat([]byte{1}, 126)...),
+			want: ".1.3" + strings.Repeat(".1", 126),
+		},
+		{
+			name:    "129 arcs",
+			data:    append([]byte{43}, bytes.Repeat([]byte{1}, 127)...),
+			wantErr: ErrInvalidOidLength,
+		},
+		{
+			name:    "129 arcs, the last truncated",
+			data:    append(append([]byte{43}, bytes.Repeat([]byte{1}, 126)...), 0x81),
+			wantErr: ErrInvalidOidLength,
 		},
 		{
 			name: "first byte max second sub-id (0.39)",

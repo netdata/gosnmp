@@ -34,7 +34,7 @@ decode: error (ErrDecryption)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-des/ciphertext-minus-8
-decode: error (ErrDecryption)
+decode: error (ErrInvalidPacketLength, ErrDecryption)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-des/flags-no-auth-no-priv
@@ -121,11 +121,11 @@ decode: error (ErrDecryption)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes/ciphertext-minus-1
-decode: error (ErrDecryption)
+decode: error (ErrInvalidPacketLength, ErrDecryption)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes/ciphertext-minus-8
-decode: error (ErrDecryption)
+decode: error (ErrInvalidPacketLength, ErrDecryption)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes/flags-no-auth-no-priv
@@ -212,11 +212,11 @@ decode: error (ErrDecryption)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes192/ciphertext-minus-1
-decode: error (ErrDecryption)
+decode: error (ErrInvalidPacketLength, ErrDecryption)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes192/ciphertext-minus-8
-decode: error (ErrDecryption)
+decode: error (ErrInvalidPacketLength, ErrDecryption)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes192/flags-no-auth-no-priv
@@ -303,11 +303,11 @@ decode: error (ErrDecryption)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes256/ciphertext-minus-1
-decode: error (ErrDecryption)
+decode: error (ErrInvalidPacketLength, ErrDecryption)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes256/ciphertext-minus-8
-decode: error (ErrDecryption)
+decode: error (ErrInvalidPacketLength, ErrDecryption)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes256/flags-no-auth-no-priv
@@ -394,11 +394,11 @@ decode: error (ErrDecryption)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes192c/ciphertext-minus-1
-decode: error (ErrDecryption)
+decode: error (ErrInvalidPacketLength, ErrDecryption)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes192c/ciphertext-minus-8
-decode: error (ErrDecryption)
+decode: error (ErrInvalidPacketLength, ErrDecryption)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes192c/flags-no-auth-no-priv
@@ -485,11 +485,11 @@ decode: error (ErrDecryption)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes256c/ciphertext-minus-1
-decode: error (ErrDecryption)
+decode: error (ErrInvalidPacketLength, ErrDecryption)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes256c/ciphertext-minus-8
-decode: error (ErrDecryption)
+decode: error (ErrInvalidPacketLength, ErrDecryption)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes256c/flags-no-auth-no-priv

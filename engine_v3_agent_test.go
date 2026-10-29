@@ -242,7 +242,7 @@ func (a *fakeV3Agent) check(data []byte, m v3Message, req *agentRequest) agentAn
 		// A scoped PDU that does not decode is dropped, as snmpd does
 		// (snmpInASNParseErrs): a wrong privacy passphrase gets no answer.
 		// The parse error is left out: after a wrong key it depends on the
-		// salt, the key and the width of the platform's int.
+		// salt and the key.
 		return agentAnswer{drop: true, why: "scoped PDU does not decode"}
 	}
 	return agentAnswer{level: req.flags & AuthPriv, why: "request accepted"}

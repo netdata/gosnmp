@@ -5,6 +5,7 @@
 package gosnmp
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"slices"
@@ -250,35 +251,54 @@ func classFlags(level SnmpV3MsgFlags, pdu PDUType) SnmpV3MsgFlags {
 }
 
 // TestValueRules checks the value rules: a type with a rule encodes and one
-// without does not, and Set takes exactly the value types a manager writes:
-// those with a rule but the exceptions (noSuchObject, noSuchInstance,
-// endOfMibView), which only responses carry (RFC 3416 section 4.2.1).
+// without does not, the decoder reads each kind's boundary values as the
+// encoder writes them back to the same type and a value that encodes the same,
+// and Set takes exactly the value types a manager writes: those with a rule but
+// the exceptions (noSuchObject, noSuchInstance, endOfMibView), which only
+// responses carry (RFC 3416 section 4.2.1).
 func TestValueRules(t *testing.T) {
-	sample := map[valueKind]any{
-		kindNull:        nil,
-		kindInteger:     1,
-		kindUnsigned32:  uint32(1),
-		kindCounter64:   uint64(1),
-		kindOctets:      []byte("x"),
-		kindOID:         ".1.3.6.1",
-		kindIPAddress:   "192.0.2.1",
-		kindOpaqueFloat: nil, // set per tag below
+	maxOID := ".2.4294967295" + strings.Repeat(".4294967295", 126) // 128 arcs, each the largest
+	samples := map[valueKind][]any{
+		kindNone:       {nil},
+		kindNull:       {nil},
+		kindInteger:    {1, 0, math.MinInt32, math.MaxInt32},
+		kindUnsigned32: {uint32(1), uint32(0), uint32(math.MaxUint32), uint(math.MaxUint32)},
+		kindCounter64:  {uint64(1), uint64(0), uint64(math.MaxUint64)},
+		kindOctets:     {[]byte("x"), []byte{}, "text"},
+		kindOID:        {".1.3.6.1", ".0.0", maxOID},
+		kindIPAddress:  {"192.0.2.1", []byte{192, 0, 2, 1}, "2001:db8::1", make([]byte, 16)},
 	}
 	for tag := range 256 {
 		rule := valueRules[tag]
-		value := sample[rule.kind]
+		values := samples[rule.kind]
 		switch Asn1BER(tag) {
 		case OpaqueFloat:
-			value = float32(1)
+			values = []any{float32(1), float32(-0.5), float32(math.MaxFloat32)}
 		case OpaqueDouble:
-			value = float64(1)
+			values = []any{float64(1), math.MaxFloat64}
 		}
-		_, err := appendValue(nil, Asn1BER(tag), value)
-		switch {
-		case rule.kind == kindNone && err == nil:
-			t.Errorf("%v: encodes without a rule", Asn1BER(tag))
-		case rule.kind != kindNone && err != nil:
-			t.Errorf("%v: %v", Asn1BER(tag), err)
+		for _, value := range values {
+			out, err := appendValue(nil, Asn1BER(tag), value)
+			switch {
+			case rule.kind == kindNone && err == nil:
+				t.Errorf("%v: encodes without a rule", Asn1BER(tag))
+			case rule.kind != kindNone && err != nil:
+				t.Errorf("%v %#v: %v", Asn1BER(tag), value, err)
+			case err == nil:
+				r := ber.NewReader(out)
+				wireTag, content, err := r.Next()
+				if err != nil {
+					t.Fatalf("%v: %x: %v", Asn1BER(tag), out, err)
+				}
+				typ, decoded, err := decodeValue(Asn1BER(wireTag), content)
+				if err != nil {
+					t.Fatalf("%v: decoding %x: %v", Asn1BER(tag), out, err)
+				}
+				again, err := appendValue(nil, typ, decoded)
+				if typ != Asn1BER(tag) || err != nil || !bytes.Equal(again, out) {
+					t.Errorf("%v %#v: decodes as %v %#v, which encodes as %x (%v), not %x", Asn1BER(tag), value, typ, decoded, again, err, out)
+				}
+			}
 		}
 		wantSettable := rule.kind != kindNone && (rule.kind != kindNull || Asn1BER(tag) == Null)
 		if rule.settable != wantSettable {

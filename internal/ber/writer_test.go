@@ -40,7 +40,7 @@ func TestAppendLength(t *testing.T) {
 
 			header := AppendHeader(nil, 0x04, tt.n)
 			length, cursor, err := Length(header)
-			if err != nil || length-cursor != tt.n || cursor != len(header) {
+			if err != nil || length-uint64(cursor) != uint64(tt.n) || cursor != len(header) {
 				t.Errorf("Length(AppendHeader(%d)) = %d, %d, %v", tt.n, length, cursor, err)
 			}
 		})

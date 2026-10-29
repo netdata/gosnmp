@@ -14,46 +14,65 @@ import (
 )
 
 // decodeValue decodes the content octets of a varbind value with the given tag
-// into the type and Go value of the varbind:
+// into the type and Go value of the varbind, by the tag's rule (valueRules):
 //
-//   - Integer: int; Uinteger32: uint32; Counter32, Gauge32: uint; TimeTicks:
-//     uint32; Counter64: uint64
-//   - OctetString, Opaque: []byte, aliasing content
+//   - Integer: int, an INTEGER of one to eight octets cut to 32 bits
+//     (int32Value)
+//   - Counter32, Gauge32: uint; TimeTicks, Uinteger32: uint32; each unsigned
+//     and cut to 32 bits (unsigned32)
+//   - Counter64: uint64, unsigned, of one to eight octets or nine with a
+//     leading zero
+//   - OctetString, Opaque: []byte, aliasing content, empty included
 //   - OpaqueFloat: float32; OpaqueDouble: float64 (see decodeOpaque)
-//   - ObjectIdentifier: dotted string; IPAddress: IPv4 or IPv6 string, or nil
-//     when empty
+//   - ObjectIdentifier: dotted string (ber.OID)
+//   - IPAddress: an IPv4 address as text; quirks of devices: an empty one is
+//     nil, one of 16 octets IPv6 text
 //   - Null, NoSuchObject, NoSuchInstance, EndOfMibView: nil, content ignored
-//   - any other tag: UnknownType and nil, content ignored
+//   - any other tag, BitString and a bare OpaqueFloat or OpaqueDouble tag
+//     included (net-snmp wraps those in an Opaque): UnknownType and nil,
+//     content ignored
 //
-// Integer, Uinteger32, Counter32, Gauge32 and TimeTicks decode through the
-// platform's int or uint, so 32-bit platforms reject or drop values that
-// 64-bit platforms keep. Known bug: Uinteger32 is decoded as a signed INTEGER
-// and truncated, so 32-bit platforms reject one above MaxInt32. TimeTicks is
-// truncated to 32 bits, and a Counter32, Gauge32, TimeTicks or Counter64 that
-// fails to decode is not an error: it decodes as UnknownType with a nil value.
+// An unsigned value that is empty or too long is not an error: it decodes as
+// UnknownType with a nil value, so that one bad counter does not fail the
+// message, and allocates nothing. The other types' failures are errors.
 func decodeValue(tag Asn1BER, content []byte) (Asn1BER, any, error) {
-	switch tag {
-	case Integer:
-		v, err := parseInt(content)
+	switch valueRules[tag].kind {
+	case kindInteger:
+		v, err := int32Value(content)
 		if err != nil {
 			return 0, nil, fmt.Errorf("invalid Integer: %w", err)
 		}
-		return Integer, v, nil
-	case Uinteger32:
-		v, err := parseInt(content)
-		if err != nil {
-			return 0, nil, fmt.Errorf("invalid Uinteger32: %w", err)
+		return Integer, int(v), nil
+	case kindUnsigned32:
+		v, ok := unsigned32(content)
+		switch {
+		case !ok:
+			return UnknownType, nil, nil
+		case tag == Counter32, tag == Gauge32:
+			return tag, uint(v), nil
 		}
-		return Uinteger32, uint32(v), nil //nolint:gosec
-	case OctetString:
+		return tag, v, nil
+	case kindCounter64:
+		if len(content) == 0 {
+			return UnknownType, nil, nil
+		}
+		v, err := ber.Uint64(content)
+		if err != nil {
+			return UnknownType, nil, nil
+		}
+		return Counter64, v, nil
+	case kindOctets:
+		if tag == Opaque {
+			return decodeOpaque(content)
+		}
 		return OctetString, content, nil
-	case ObjectIdentifier:
+	case kindOID:
 		oid, err := ber.OID(content)
 		if err != nil {
 			return 0, nil, fmt.Errorf("invalid ObjectIdentifier: %w", err)
 		}
 		return ObjectIdentifier, oid, nil
-	case IPAddress:
+	case kindIPAddress:
 		switch len(content) {
 		case 0: // real life, buggy devices returning bad data
 			return IPAddress, nil, nil
@@ -62,31 +81,32 @@ func decodeValue(tag Asn1BER, content []byte) (Asn1BER, any, error) {
 		default:
 			return 0, nil, fmt.Errorf("got ipaddress len %d, expected 4 or 16", len(content))
 		}
-	case Counter32, Gauge32:
-		v, err := parseUint(content)
-		if err != nil {
-			return UnknownType, nil, nil
-		}
-		return tag, v, nil
-	case TimeTicks:
-		v, err := parseUint(content)
-		if err != nil {
-			return UnknownType, nil, nil
-		}
-		return TimeTicks, uint32(v), nil //nolint:gosec
-	case Counter64:
-		v, err := ber.Uint64(content)
-		if err != nil {
-			return UnknownType, nil, nil
-		}
-		return Counter64, v, nil
-	case Opaque:
-		return decodeOpaque(content)
-	case Null, NoSuchObject, NoSuchInstance, EndOfMibView:
+	case kindNull:
 		return tag, nil, nil
 	default:
 		return UnknownType, nil, nil
 	}
+}
+
+// int32Value decodes INTEGER content of one to eight octets and cuts it to 32
+// bits by two's complement, the width of SNMP's Integer32 (RFC 2578 section
+// 7.1.1), on every platform. net-snmp v5.9.4 cuts too, but keeps a value above
+// 2^31-1 as its low 32 bits, unsigned, which a 32-bit int cannot hold.
+func int32Value(content []byte) (int32, error) {
+	v, err := ber.Int64(content)
+	return int32(v), err //nolint:gosec // the cut
+}
+
+// unsigned32 decodes the content of an unsigned value of 32 bits (Counter32,
+// Gauge32, TimeTicks, Uinteger32) as net-snmp v5.9.4 does: one to eight
+// octets, or nine with a leading zero, not sign-extended, cut to the low 32
+// bits. ok is false for empty or longer content.
+func unsigned32(content []byte) (v uint32, ok bool) {
+	if len(content) == 0 {
+		return 0, false
+	}
+	u, err := ber.Uint64(content)
+	return uint32(u), err == nil //nolint:gosec // the cut
 }
 
 // The identifier octet of the floats net-snmp wraps in an Opaque (an
@@ -103,12 +123,9 @@ const (
 // and doubles in an Opaque as a TLV whose identifier is the extension octet
 // 0x9f followed by the OpaqueFloat or OpaqueDouble tag: that TLV is read from
 // its second identifier octet on, and octets after it are ignored. Content of
-// up to two octets is never such a TLV; anything else is a raw Opaque. Empty
-// content fails with ErrZeroByteBuffer.
+// up to two octets, empty included, is never such a TLV; anything else is a
+// raw Opaque.
 func decodeOpaque(content []byte) (Asn1BER, any, error) {
-	if len(content) == 0 {
-		return 0, nil, ErrZeroByteBuffer
-	}
 	if len(content) <= 2 || content[0] != AsnExtensionTag {
 		return Opaque, content, nil
 	}
@@ -132,32 +149,6 @@ func decodeOpaque(content []byte) (Asn1BER, any, error) {
 		return 0, nil, fmt.Errorf("invalid %v: %w", tag, err)
 	}
 	return tag, v, nil
-}
-
-// parseInt decodes INTEGER content into the platform's int; a value that does
-// not fit fails with ErrIntegerTooLarge.
-func parseInt(content []byte) (int, error) {
-	ret64, err := ber.Int64(content)
-	if err != nil {
-		return 0, err
-	}
-	if ret64 != int64(int(ret64)) {
-		return 0, ErrIntegerTooLarge
-	}
-	return int(ret64), nil
-}
-
-// parseUint decodes unsigned content, where empty content is 0, into the
-// platform's uint; a value that does not fit fails with ErrIntegerTooLarge.
-func parseUint(content []byte) (uint, error) {
-	ret64, err := ber.Uint64(content)
-	if err != nil {
-		return 0, err
-	}
-	if ret64 != uint64(uint(ret64)) {
-		return 0, ErrIntegerTooLarge
-	}
-	return uint(ret64), nil
 }
 
 // valueKind is the rule a value type follows on the wire; the types of one

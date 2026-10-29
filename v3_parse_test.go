@@ -39,6 +39,14 @@ func decodeV3ParseCases() []decodeCase {
 	header := buildTLVHeader
 	usmFields := cat(craftedEngineID, intTLV(7), intTLV(1234), octets("codec-user"), octets(""), octets(""))
 	localized := usmDecoderLocalized(SHA, NoPriv)
+	localizedPriv := usmDecoderLocalized(SHA, AES)
+	// encryptedData returns msgData: the ciphertext in an OCTET STRING whose
+	// declared length is off octets more than the ciphertext's.
+	encryptedData := func(off int) func([]byte) []byte {
+		return func(ciphertext []byte) []byte {
+			return cat(header(byte(OctetString), len(ciphertext)+off), ciphertext)
+		}
+	}
 
 	return []decodeCase{
 		// The security model as the wire sends it: an INTEGER that the
@@ -47,6 +55,7 @@ func decodeV3ParseCases() []decodeCase {
 		{name: "crafted/v3/parse/security-model-minus-253", in: withModel(intTLV(-253))},
 		{name: "crafted/v3/parse/security-model-0", in: withModel(intTLV(0))},
 		{name: "crafted/v3/parse/security-model-octet-string", in: withModel(octets("\x03"))},
+		{name: "crafted/v3/parse/security-model-null", in: withModel(tlv(byte(Null)))},
 		{name: "crafted/v3/parse/security-model-absent", in: msg(tlv(0x30, intTLV(42), intTLV(65507), octets("\x00")), tlv(byte(OctetString), usm), scoped)},
 		// Another model and privacy without authentication: the model is
 		// checked first (RFC 3412 section 7.2 step 4 before step 5).
@@ -83,6 +92,30 @@ func decodeV3ParseCases() []decodeCase {
 		{name: "crafted/v3/parse/auth-params-13-octets", in: signedAuthField([]byte{0x04, 0x0d}, 13), decoder: localized},
 		{name: "crafted/v3/parse/auth-params-empty", in: signedAuthField([]byte{0x04, 0x00}, 0), decoder: localized},
 		{name: "crafted/v3/parse/auth-params-short-form", in: signedAuthField([]byte{0x04, 0x0c}, 12), decoder: localized},
+
+		// The encrypted scoped PDU: as sent, its OCTET STRING declared past the
+		// message or short of the ciphertext, and a context field of another
+		// type once decrypted.
+		{name: "crafted/v3/parse/encrypted-scoped-pdu", in: encryptedV3(scoped, encryptedData(0)), decoder: localizedPriv},
+		{name: "crafted/v3/parse/encrypted-scoped-pdu-over-declared", in: encryptedV3(scoped, encryptedData(5)), decoder: localizedPriv},
+		{name: "crafted/v3/parse/encrypted-scoped-pdu-under-declared", in: encryptedV3(scoped, encryptedData(-5)), decoder: localizedPriv},
+		{
+			name: "crafted/v3/parse/encrypted-scoped-pdu-trailing-octets",
+			in: encryptedV3(scoped, func(ciphertext []byte) []byte {
+				return cat(header(byte(OctetString), len(ciphertext)), ciphertext, bytes.Repeat([]byte{0x5a}, 16))
+			}),
+			decoder: localizedPriv,
+		},
+		{
+			name:    "crafted/v3/parse/encrypted-scoped-pdu-not-sequence",
+			in:      encryptedV3(tlv(byte(OctetString), craftedEngineID, octets("ctx"), craftedPDU(GetResponse, craftedVBL(craftedVB(intTLV(5))))), encryptedData(0)),
+			decoder: localizedPriv,
+		},
+		{
+			name:    "crafted/v3/parse/encrypted-context-engine-id-integer",
+			in:      encryptedV3(tlv(0x30, intTLV(1), octets("ctx"), craftedPDU(GetResponse, craftedVBL(craftedVB(intTLV(5))))), encryptedData(0)),
+			decoder: localizedPriv,
+		},
 	}
 }
 
@@ -97,7 +130,14 @@ func signedAuthField(fieldHeader []byte, n int) []byte {
 	if n == 0 {
 		return data
 	}
-	off := bytes.Index(data, marker)
+	return signedAt(data, marker)
+}
+
+// signedAt returns data with the HMAC-SHA-96 digest of codec-user written over
+// marker, the content of its msgAuthenticationParameters, computed with those
+// octets zeroed and cut or zero-padded to the marker's length.
+func signedAt(data, marker []byte) []byte {
+	off, n := bytes.Index(data, marker), len(marker)
 	clear(data[off : off+n])
 	key, err := passwordCache.LocalizedKey(crypto.SHA1, "codec-auth-pass", string(craftedEngineID[2:]))
 	if err != nil {
@@ -107,6 +147,22 @@ func signedAuthField(fieldHeader []byte, n int) []byte {
 	mac.Write(data)
 	copy(data[off:off+n], mac.Sum(nil)[:12])
 	return data
+}
+
+// encryptedV3 returns an authPriv (SHA, AES) message from codec-user whose
+// msgData is msgData(the ciphertext of scoped), encrypted and signed with the
+// keys usmDecoderLocalized(SHA, AES) holds.
+func encryptedV3(scoped []byte, msgData func(ciphertext []byte) []byte) []byte {
+	sp := usmDecoderLocalized(SHA, AES)().SecurityParameters.usm()
+	sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = 7, 1234
+	salt := []byte{0, 0, 0, 0, 0, 0, 0, 1}
+	ciphertext, err := sp.encryptPacket(scoped, salt)
+	if err != nil {
+		panic(err)
+	}
+	marker := bytes.Repeat([]byte{0xa5}, 12)
+	usmParams := craftedUSM(craftedEngineID, intTLV(7), intTLV(1234), octets("codec-user"), tlv(byte(OctetString), marker), tlv(byte(OctetString), salt))
+	return signedAt(craftedV3(intTLV(42), intTLV(65507), octets("\x03"), intTLV(3), usmParams, msgData(ciphertext)), marker)
 }
 
 // withWrongDigest returns data, an authenticated message, with the first
@@ -139,7 +195,7 @@ func TestV3ReceiverRules(t *testing.T) {
 			// A fixed salt: a receiver without privacy reads the ciphertext.
 			usm.Salts.Set(usmCharSalt(AES))
 			m := splitV3Message(t, signedTestTrap(t, SHA, AES, usmCharEngineID, "codec-user", nil))
-			// One octet: the INTEGER decodes on 32-bit platforms too.
+			// An INTEGER where the OCTET STRING goes.
 			m.usmTags[5], m.usm[5] = byte(Integer), []byte{0x05}
 			return m.bytes()
 		}},

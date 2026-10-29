@@ -32,9 +32,9 @@ func TestInvalidSNMPResponses(t *testing.T) {
 	}
 }
 
-// TestIPAddressReadField tests IPAddress parsing via readField.
-// Note: readField only supports IPv4, not IPv6 (returns error for length != 4).
-func TestIPAddressReadField(t *testing.T) {
+// TestReadAgentAddress tests IpAddress parsing via readAgentAddress, which
+// takes an IPv4 address (four octets) or an empty one only.
+func TestReadAgentAddress(t *testing.T) {
 	tests := []struct {
 		name       string
 		data       []byte
@@ -70,9 +70,9 @@ func TestIPAddressReadField(t *testing.T) {
 			wantNull:   true,
 			wantLength: 2,
 		},
-		// Error cases - readField only supports IPv4
+		// Error cases - an agent address is IPv4
 		{
-			name:    "IPv6 rejected by readField",
+			name:    "IPv6 rejected",
 			data:    []byte{0x40, 0x10, 0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
 			wantErr: true,
 		},
@@ -91,29 +91,29 @@ func TestIPAddressReadField(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := ber.NewReader(tt.data)
-			f, err := readField(&r)
+			ip, err := readAgentAddress(&r)
 
 			if tt.wantErr {
 				if err == nil {
-					t.Errorf("readField() expected error, got nil")
+					t.Errorf("readAgentAddress() expected error, got nil")
 				}
 				return
 			}
 			if err != nil {
-				t.Errorf("readField() unexpected error: %v", err)
+				t.Errorf("readAgentAddress() unexpected error: %v", err)
 				return
 			}
 			if length := len(tt.data) - r.Len(); length != tt.wantLength {
-				t.Errorf("readField() length = %v, want %v", length, tt.wantLength)
+				t.Errorf("readAgentAddress() length = %v, want %v", length, tt.wantLength)
 			}
 			if tt.wantNull {
-				if f.kind != fieldNone {
-					t.Errorf("readField() = %+v, want an empty IpAddress", f)
+				if ip != "" {
+					t.Errorf("readAgentAddress() = %q, want an empty address", ip)
 				}
 				return
 			}
-			if f.kind != fieldString || f.s != tt.wantIP {
-				t.Errorf("readField() = %+v, want %v", f, tt.wantIP)
+			if ip != tt.wantIP {
+				t.Errorf("readAgentAddress() = %q, want %v", ip, tt.wantIP)
 			}
 		})
 	}
