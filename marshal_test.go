@@ -1980,10 +1980,11 @@ func buildTLVHeader(tag byte, length int) []byte {
 	if length < 128 {
 		return []byte{tag, byte(length)}
 	}
-	if length < 256 {
-		return []byte{tag, 0x81, byte(length)}
+	var octets []byte
+	for n := length; n > 0; n >>= 8 {
+		octets = append([]byte{byte(n)}, octets...)
 	}
-	return []byte{tag, 0x82, byte(length >> 8), byte(length)}
+	return append([]byte{tag, 0x80 | byte(len(octets))}, octets...)
 }
 
 // buildSequence wraps content in a BER SEQUENCE (0x30 tag).

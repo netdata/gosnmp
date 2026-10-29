@@ -388,16 +388,19 @@ func readVarbind(r *ber.Reader) (SnmpPDU, error) {
 func (packet *SnmpPacket) marshalMsg() ([]byte, error) {
 	dst, start := ber.Begin(make([]byte, 0, packet.sizeHint()), byte(Sequence))
 	dst = append(dst, byte(Integer), 1, byte(packet.Version))
-	var err error
-	if packet.Version == Version3 {
-		dst, err = packet.appendV3(dst)
-	} else {
-		dst, err = packet.appendPDU(appendOctets(dst, OctetString, packet.Community))
+	if packet.Version != Version3 {
+		msg, err := packet.appendPDU(appendOctets(dst, OctetString, packet.Community))
+		if err != nil {
+			return nil, err
+		}
+		return ber.End(msg, start), nil
 	}
+	dst, auth, err := packet.appendV3(dst)
 	if err != nil {
 		return nil, err
 	}
-	return packet.sign(ber.End(dst, start))
+	dst, auth = ber.EndMoving(dst, start, auth)
+	return packet.sign(dst, auth)
 }
 
 // sizeHint estimates the encoded size of the message so that marshalMsg

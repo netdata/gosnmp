@@ -70,6 +70,14 @@ func End(dst []byte, start int) []byte {
 	return dst
 }
 
+// EndMoving is End for a TLV whose content holds the offset off into dst (at
+// or after start): it also returns off moved with the content.
+func EndMoving(dst []byte, start, off int) ([]byte, int) {
+	n := len(dst)
+	dst = End(dst, start)
+	return dst, off + len(dst) - n
+}
+
 // AppendInt64 appends the content octets of an INTEGER: v in big-endian two's
 // complement, in the fewest octets (X.690 8.3.2).
 func AppendInt64(dst []byte, v int64) []byte {
