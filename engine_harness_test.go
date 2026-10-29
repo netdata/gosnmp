@@ -122,6 +122,9 @@ type fakeTransport struct {
 	// holdInterrupt, when set, holds a deadline set in the past until it
 	// closes.
 	holdInterrupt chan struct{}
+	// holdWake, when set, holds a woken read until it closes, so that what
+	// woke it (an interrupt, then a Close) completes before the read looks.
+	holdWake chan struct{}
 	// beforeDeadline, when set, runs before a deadline in the future is set.
 	beforeDeadline func()
 }
@@ -224,6 +227,9 @@ func (c *fakeTransport) read(b []byte, op string, stream bool) (int, error) {
 		}
 		c.mu.Unlock()
 		c.waitUntil(wake)
+		if c.holdWake != nil {
+			<-c.holdWake
+		}
 		c.mu.Lock()
 	}
 }

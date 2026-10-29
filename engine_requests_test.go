@@ -686,10 +686,15 @@ func engineScenarios() map[string]engineScenario {
 		}},
 		// The client closed from another goroutine, as Netdata's SNMP topology
 		// does when its context ends, while the request waits.
-		"close/from-another-goroutine": {setup: func(x *GoSNMP, _ *fakeTransport) {
+		// The read the interrupt wakes looks only once Close has closed the
+		// connection too: either may come first otherwise.
+		"close/from-another-goroutine": {setup: func(x *GoSNMP, c *fakeTransport) {
+			hold := make(chan struct{})
+			c.holdWake = hold
 			go func() {
 				time.Sleep(300 * time.Millisecond)
 				_ = x.Close()
+				close(hold)
 			}()
 		}},
 		// The connection itself closed from another goroutine, as Netdata's
