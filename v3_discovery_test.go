@@ -133,7 +133,7 @@ func (m *mockAgentUnknownUserNames) serve() {
 
 		// decryptPacket advances the cursor past the ScopedPDU wrapper and
 		// context fields, leaving it at the PDU type byte.
-		pkt, cursor, err := unmarshalScopedPDU(buf[:n], cursor, req)
+		pkt, cursor, err := unmarshalScopedPDU(buf[:n], cursor, req, req.MsgFlags.privFlag())
 		if err != nil {
 			m.sendErr(fmt.Errorf("decryptPacket: %w", err))
 			continue
@@ -352,7 +352,9 @@ func TestV3GetRealUnknownUserNameStillFails(t *testing.T) {
 
 // TestV3DiscoveryUnknownUserNamesOtherUser pins a discovery answered with a
 // usmStatsUnknownUserNames Report that names another user than the
-// discovery's empty one: the client takes the engine parameters it carries.
+// discovery's empty one: the client discards it (RFC 3414 section 3.2 step 4),
+// so the discovery fails with the discard's error, which unwraps to
+// ErrUnknownUsername, and the client takes no engine parameters.
 func TestV3DiscoveryUnknownUserNamesOtherUser(t *testing.T) {
 	agent := newMockAgentUnknownUserNames(t)
 	agent.reportUserName = "other-user"
@@ -365,6 +367,6 @@ func TestV3DiscoveryUnknownUserNamesOtherUser(t *testing.T) {
 
 	pkt := ts.MkSnmpPacket(GetRequest, nil, 0, 0)
 	err := ts.negotiateInitialSecurityParameters(new(ts.prepareRequest()), pkt)
-	require.NoError(t, err)
-	require.Equal(t, testDiscoveryEngineID, ts.SecurityParameters.usm().AuthoritativeEngineID)
+	require.ErrorIs(t, err, errUnknownUser)
+	require.Empty(t, ts.SecurityParameters.usm().AuthoritativeEngineID)
 }

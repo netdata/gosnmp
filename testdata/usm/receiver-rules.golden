@@ -28,7 +28,7 @@ ok
 ok
 
 == authNoPriv/SHA-AES/single
-ok
+error: incoming packet has a lower security level than its user requires, discarding
 
 == authNoPriv/SHA-AES/single, message flags
 ok
@@ -49,10 +49,10 @@ error: securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(99) is not s
 error: unable to decode packet header: securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(99) is not supported
 
 == authNoPriv/no parameters/single
-error: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
+error: incoming packet is not authentic, discarding
 
 == authNoPriv/SHA-AES/single, version unset
-error: testAuthentication called with non Version3 connection
+error: UnmarshalTrap: an SNMPv3 message needs a client whose Version is Version3
 
 == authPriv/no protocols/table
 error: no credentials successfully unmarshaled trap: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
@@ -103,10 +103,10 @@ error: securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(99) is not s
 error: unable to decode packet header: securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(99) is not supported
 
 == authPriv/no parameters/single
-error: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
+error: incoming packet is not authentic, discarding
 
 == authPriv/SHA-AES/single, version unset
-error: testAuthentication called with non Version3 connection
+error: UnmarshalTrap: an SNMPv3 message needs a client whose Version is Version3
 
 == noAuthNoPriv/no protocols/table
 ok
@@ -121,25 +121,25 @@ ok
 ok
 
 == noAuthNoPriv/SHA/table
-ok
+error: no credentials successfully unmarshaled trap: incoming packet has a lower security level than its user requires, discarding
 
 == noAuthNoPriv/SHA/single
-error: incoming packet is not authentic, discarding
+error: incoming packet has a lower security level than its user requires, discarding
 
 == noAuthNoPriv/SHA/single, message flags
-ok
+error: incoming packet has a lower security level than its user requires, discarding
 
 == noAuthNoPriv/SHA/SnmpDecodePacket
 ok
 
 == noAuthNoPriv/SHA-AES/table
-ok
+error: no credentials successfully unmarshaled trap: incoming packet has a lower security level than its user requires, discarding
 
 == noAuthNoPriv/SHA-AES/single
-error: incoming packet is not authentic, discarding
+error: incoming packet has a lower security level than its user requires, discarding
 
 == noAuthNoPriv/SHA-AES/single, message flags
-ok
+error: incoming packet has a lower security level than its user requires, discarding
 
 == noAuthNoPriv/SHA-AES/SnmpDecodePacket
 ok
@@ -157,43 +157,43 @@ error: securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(99) is not s
 error: unable to decode packet header: securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(99) is not supported
 
 == noAuthNoPriv/no parameters/single
-ok
+error: incoming packet is not authentic, discarding
 
 == noAuthNoPriv/SHA-AES/single, version unset
-error: testAuthentication called with non Version3 connection
+error: UnmarshalTrap: an SNMPv3 message needs a client whose Version is Version3
 
 == authNoPriv, empty user name and engine ID/no protocols/table
-error: no security parameters found for the key 
+error: incoming packet names no authoritative engine ID, discarding
 
 == authNoPriv, empty user name and engine ID/no protocols/single
-error: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
+error: incoming packet names no authoritative engine ID, discarding
 
 == authNoPriv, empty user name and engine ID/no protocols/single, message flags
-error: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
+error: incoming packet names no authoritative engine ID, discarding
 
 == authNoPriv, empty user name and engine ID/no protocols/SnmpDecodePacket
 error: unable to decode packet header: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
 
 == authNoPriv, empty user name and engine ID/SHA/table
-error: no security parameters found for the key 
+error: incoming packet names no authoritative engine ID, discarding
 
 == authNoPriv, empty user name and engine ID/SHA/single
-ok
+error: incoming packet names no authoritative engine ID, discarding
 
 == authNoPriv, empty user name and engine ID/SHA/single, message flags
-ok
+error: incoming packet names no authoritative engine ID, discarding
 
 == authNoPriv, empty user name and engine ID/SHA/SnmpDecodePacket
 ok
 
 == authNoPriv, empty user name and engine ID/SHA-AES/table
-error: no security parameters found for the key 
+error: incoming packet names no authoritative engine ID, discarding
 
 == authNoPriv, empty user name and engine ID/SHA-AES/single
-ok
+error: incoming packet names no authoritative engine ID, discarding
 
 == authNoPriv, empty user name and engine ID/SHA-AES/single, message flags
-ok
+error: incoming packet names no authoritative engine ID, discarding
 
 == authNoPriv, empty user name and engine ID/SHA-AES/SnmpDecodePacket
 ok
@@ -211,10 +211,10 @@ error: securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(99) is not s
 error: unable to decode packet header: securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(99) is not supported
 
 == authNoPriv, empty user name and engine ID/no parameters/single
-error: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
+error: incoming packet names no authoritative engine ID, discarding
 
 == authNoPriv, empty user name and engine ID/SHA-AES/single, version unset
-error: testAuthentication called with non Version3 connection
+error: UnmarshalTrap: an SNMPv3 message needs a client whose Version is Version3
 
 == authPriv, INTEGER privacy parameters/no protocols/table
 error: no credentials successfully unmarshaled trap: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
@@ -229,16 +229,16 @@ error: error parsing SNMPv3 User Security Model: authentication parameters are n
 error: unable to decode packet header: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
 
 == authPriv, INTEGER privacy parameters/SHA/table
-error: no credentials successfully unmarshaled trap: incoming packet is not authentic, discarding
+error: no credentials successfully unmarshaled trap: error parsing SNMPv3 User Security Model: privacy parameters are not configured to parse incoming encrypted message
 
 == authPriv, INTEGER privacy parameters/SHA/single
-error: incoming packet is not authentic, discarding
+error: error parsing SNMPv3 User Security Model: privacy parameters are not configured to parse incoming encrypted message
 
 == authPriv, INTEGER privacy parameters/SHA/single, message flags
-error: incoming packet is not authentic, discarding
+error: error parsing SNMPv3 User Security Model: privacy parameters are not configured to parse incoming encrypted message
 
 == authPriv, INTEGER privacy parameters/SHA/SnmpDecodePacket
-error: error parsing SNMPV3 contextEngineID: unknown field type: 13
+error: unable to decode packet header: error parsing SNMPv3 User Security Model: privacy parameters are not configured to parse incoming encrypted message
 
 == authPriv, INTEGER privacy parameters/SHA-AES/table
 error: no credentials successfully unmarshaled trap: incoming packet is not authentic, discarding
@@ -265,10 +265,10 @@ error: securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(99) is not s
 error: unable to decode packet header: securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(99) is not supported
 
 == authPriv, INTEGER privacy parameters/no parameters/single
-error: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
+error: incoming packet is not authentic, discarding
 
 == authPriv, INTEGER privacy parameters/SHA-AES/single, version unset
-error: testAuthentication called with non Version3 connection
+error: UnmarshalTrap: an SNMPv3 message needs a client whose Version is Version3
 
 == authNoPriv, long-form digest field length/no protocols/table
 error: no credentials successfully unmarshaled trap: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
@@ -298,7 +298,7 @@ ok
 ok
 
 == authNoPriv, long-form digest field length/SHA-AES/single
-ok
+error: incoming packet has a lower security level than its user requires, discarding
 
 == authNoPriv, long-form digest field length/SHA-AES/single, message flags
 ok
@@ -319,10 +319,10 @@ error: securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(99) is not s
 error: unable to decode packet header: securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(99) is not supported
 
 == authNoPriv, long-form digest field length/no parameters/single
-error: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
+error: incoming packet is not authentic, discarding
 
 == authNoPriv, long-form digest field length/SHA-AES/single, version unset
-error: testAuthentication called with non Version3 connection
+error: UnmarshalTrap: an SNMPv3 message needs a client whose Version is Version3
 
 == mixed sets/keys only, then passphrases/from codec-engine
 ok
@@ -340,4 +340,4 @@ ok
 ok
 
 == mixed sets/passphrases, then keys only/from codec-engine, wrong digest
-error: no credentials successfully unmarshaled trap: usm: without a passphrase, the authentication key cannot be localized to another engine ID
+error: no credentials successfully unmarshaled trap: incoming packet is not authentic, discarding

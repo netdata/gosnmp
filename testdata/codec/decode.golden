@@ -153,13 +153,13 @@ reencode: identical
 decode: error
 
 == fixture/panicUnmarshalV3Header
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == fixture/panicUnmarshalUserSecurityModelPacketLen
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == fixture/panicUnmarshalV3HeaderFlagLen
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == fixture/panicUnmarshalParseFloat32
 decode: error
@@ -171,10 +171,10 @@ decode: error
 decode: error (ErrInvalidPacketLength)
 
 == fixture/panicUnmarshalDecryptPacketIndex
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == fixture/panicUnmarshalDecryptNoPriv
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == fixture/panicUnmarshalV3Overflow
 decode: error (ErrInvalidPacketLength)
@@ -646,7 +646,7 @@ vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
 reencode: identical
 
 == crafted/version/3-with-community
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == crafted/version/256
 decode: ok
@@ -1887,19 +1887,19 @@ vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: 307a020103301102040000002a020300ffe3040100020103042c302a041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040004003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
 
 == crafted/v3/flags-empty
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == crafted/v3/flags-two-octets
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == crafted/v3/flags-two-octets-reportable
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == crafted/v3/flags-integer
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == crafted/v3/security-model-2
-decode: error
+decode: error (ErrUnknownSecurityModels)
 
 == crafted/v3/msg-id-negative
 decode: ok
@@ -1924,10 +1924,10 @@ vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: 307a020103301102040000002a020300ffff040100020103042c302a041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040004003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
 
 == crafted/v3/usm-not-sequence
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == crafted/v3/usm-empty
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == crafted/v3/usm-boots-octet-string
 decode: ok
@@ -1974,7 +1974,7 @@ vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: 305e020103301102040000002a020300ffe30401000201030410300e04000201000201000400040004003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
 
 == crafted/v3/scoped-pdu-octet-string-no-priv
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == crafted/v3/scoped-pdu-missing
 decode: error
@@ -1994,7 +1994,7 @@ reencode: 3068020103301102040000002a020300ffe3040100020103042c302a041180001f8804
 decode: error
 
 == crafted/v3/auth-flag-zero-decoder
-decode: error
+decode: error (ErrUnknownSecurityLevel)
 
 == crafted/v3/auth-params-integer
 decode: ok
@@ -2006,7 +2006,7 @@ pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeate
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: 308186020103301102040000002a020300ffe304010102010304383036041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040c43140317f897f64d07d863ba04003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
-unmarshal-trap: error
+unmarshal-trap: error (ErrWrongDigest)
 
 == crafted/v3/auth-no-priv-sha/wrong-auth-pass
 decode: ok
@@ -2019,18 +2019,18 @@ varbinds: 2
 vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=10 636f6465632d686f7374
 vb[1]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 98765
 reencode: 3081ac0201033011020400001092020300ffe304010102010304383036041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040cc865a75524791b089744a7fa0400305a041180001f8804636f6465632d656e67696e65040d636f6465632d636f6e74657874a236020301e2400201000201003029301606082b06010201010500040a636f6465632d686f7374300f06082b0601020101030043030181cd
-unmarshal-trap: error
+unmarshal-trap: error (ErrWrongDigest)
 
 == crafted/v3/auth-no-priv-sha/zero-decoder
-decode: error
+decode: error (ErrUnknownSecurityLevel)
 
 == crafted/v3/auth-priv-sha-aes/wrong-priv-pass
-decode: error (ErrInvalidPacketLength)
-unmarshal-trap: error (ErrInvalidPacketLength)
+decode: error (ErrInvalidPacketLength, ErrDecryption)
+unmarshal-trap: error (ErrInvalidPacketLength, ErrDecryption)
 
 == crafted/v3/auth-priv-sha-aes/no-priv-decoder
-decode: error
-unmarshal-trap: error
+decode: error (ErrUnknownSecurityLevel)
+unmarshal-trap: error (ErrUnknownSecurityLevel)
 
 == crafted/v3/auth-priv-sha-aes/localized-decoder
 decode: ok
@@ -2046,7 +2046,7 @@ reencode: identical
 unmarshal-trap: ok
 
 == crafted/v3/auth-priv-sha-aes/engine-id-without-keys
-decode: error
+decode: error (ErrDecryption)
 unmarshal-trap: ok
 
 == crafted/v3/auth-priv-md5-des/localized-decoder
@@ -2063,7 +2063,7 @@ reencode: identical
 unmarshal-trap: ok
 
 == crafted/v3/auth-priv-md5-des/engine-id-without-keys
-decode: error
+decode: error (ErrDecryption)
 unmarshal-trap: ok
 
 == crafted/v3/auth-no-priv-sha/localized-decoder
@@ -2080,27 +2080,27 @@ reencode: identical
 unmarshal-trap: ok
 
 == crafted/v3/auth-priv-md5-des/wrong-priv-pass
-decode: error
-unmarshal-trap: error
+decode: error (ErrDecryption)
+unmarshal-trap: error (ErrDecryption)
 
 == crafted/v3/parse/security-model-259
-decode: error
+decode: error (ErrUnknownSecurityModels)
 
 == crafted/v3/parse/security-model-minus-253
-decode: error
+decode: error (ErrUnknownSecurityModels)
 
 == crafted/v3/parse/security-model-0
-decode: error
+decode: error (ErrUnknownSecurityModels)
 
 == crafted/v3/parse/security-model-octet-string
-decode: error
+decode: error (ErrUnknownSecurityModels)
 
 == crafted/v3/parse/security-model-absent
-decode: error
+decode: error (ErrUnknownSecurityModels)
 
 == crafted/v3/parse/security-model-octet-string-auth
-decode: error
-unmarshal-trap: error
+decode: error (ErrUnknownSecurityModels)
+unmarshal-trap: error (ErrUnknownSecurityModels)
 
 == crafted/v3/parse/global-data-under-declared
 decode: ok
@@ -2114,10 +2114,10 @@ vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: 307a020103301102040000002a020300ffe3040100020103042c302a041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040004003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
 
 == crafted/v3/parse/global-data-over-declared
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == crafted/v3/parse/global-data-extra-field
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == crafted/v3/parse/security-parameters-cover-scoped-pdu
 decode: ok
@@ -2131,19 +2131,19 @@ vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: 307a020103301102040000002a020300ffe3040100020103042c302a041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040004003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
 
 == crafted/v3/parse/security-parameters-over-declared
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == crafted/v3/parse/security-parameters-trailing-data
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == crafted/v3/parse/usm-extra-field
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == crafted/v3/parse/usm-under-declared
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == crafted/v3/parse/usm-over-declared
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == crafted/v3/parse/auth-params-long-form-length
 decode: ok
@@ -2167,7 +2167,7 @@ pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeate
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: 308186020103301102040000002a020300ffe304010102010304383036041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040c43140317f897f64d07d863ba04003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
-unmarshal-trap: error
+unmarshal-trap: error (ErrWrongDigest)
 
 == crafted/v3/parse/auth-params-13-octets
 decode: ok
@@ -2179,7 +2179,7 @@ pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeate
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: 308186020103301102040000002a020300ffe304010102010304383036041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040c43140317f897f64d07d863ba04003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
-unmarshal-trap: error
+unmarshal-trap: error (ErrWrongDigest)
 
 == crafted/v3/parse/auth-params-empty
 decode: ok
@@ -2191,7 +2191,7 @@ pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeate
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: 308186020103301102040000002a020300ffe304010102010304383036041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040c43140317f897f64d07d863ba04003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
-unmarshal-trap: error
+unmarshal-trap: error (ErrWrongDigest)
 
 == crafted/v3/parse/auth-params-short-form
 decode: ok
@@ -2218,10 +2218,10 @@ reencode: 30240201000400a21d0201000201000201003012301006083030303030303030400400
 decode: error (ErrIntegerTooLarge)
 
 == fuzz/0417cb36c0c20e24
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == fuzz/0583a15304f27091
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == fuzz/061e968f79a05516
 decode: ok
@@ -2251,10 +2251,10 @@ vb[0]: .1.8.48.48.48.48.48.48.48 0x40 (IPAddress) string "48.48.48.48"
 reencode: 30240201000400a21d0201000201000201003012301006083030303030303030400430303030
 
 == fuzz/0b9cde681aa5791f
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == fuzz/0c014b73220900b7
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == fuzz/0cbd3e6bb134ec4f
 decode: ok
@@ -2278,7 +2278,7 @@ decode: error
 decode: error
 
 == fuzz/11feb782f38ce3bb
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == fuzz/1424b8af6b20ae15
 decode: ok
@@ -2290,7 +2290,7 @@ vb[0]: .1.8.48.48.48.48.48.48.48 0x40 (IPAddress) string "0:30:3030:3030:3030:30
 reencode: 30240201000400a21d0201000201000201003012301006083030303030303030400430303030
 
 == fuzz/19503ef8181a5aa0
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == fuzz/198c4ca7652d127e
 decode: ok
@@ -2311,7 +2311,7 @@ vb[0]: .1.8.48.48.48.48.48.48.48 0x40 (IPAddress) string "::3030:3030:3030:3030:
 reencode: 30240201000400a21d0201000201000201003012301006083030303030303030400430303030
 
 == fuzz/1ba486e14820bf7b
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == fuzz/1bd072baf6e4e375
 decode: error (ErrIntegerTooLarge)
@@ -2344,7 +2344,7 @@ decode: error
 decode: error (ErrZeroLenInteger)
 
 == fuzz/2cc593de11f61fd4
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == fuzz/2ffa8ad3122bd6af
 decode: ok
@@ -2443,7 +2443,7 @@ decode: error
 decode: error
 
 == fuzz/5c1bd600e3907764
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == fuzz/5ff8c360e1021173
 decode: ok
@@ -2470,7 +2470,7 @@ decode: error
 decode: error
 
 == fuzz/6a8ace6305e92d7f
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == fuzz/6b16f3feb63282cf
 decode: error
@@ -2500,7 +2500,7 @@ decode: error
 decode: error
 
 == fuzz/74c1c36caaca68a9
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == fuzz/77dd102027aa77d0
 decode: error
@@ -2512,7 +2512,7 @@ decode: error
 decode: error (ErrInvalidPacketLength)
 
 == fuzz/7b3a83e9ea4bb032
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == fuzz/7c2cb81727f29d31
 decode: error (ErrInvalidPacketLength)
@@ -2575,7 +2575,7 @@ decode: error
 decode: error
 
 == fuzz/9bb4a97bc78bb20b
-decode: error (ErrInvalidPacketLength)
+decode: error (ErrInvalidPacketLength, ErrInvalidMsgs)
 
 == fuzz/9d76ee024c1df6b6
 decode: error
@@ -2596,7 +2596,7 @@ decode: error
 decode: error
 
 == fuzz/b12e039ada7c3a9b
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == fuzz/b190a2aa2687b324
 decode: ok
@@ -2674,7 +2674,7 @@ vb[0]: .1.8.48.48.48.48.48.48.48 0x40 (IPAddress) string "3030:3030:3030:3030:30
 reencode: 30240201000400a21d0201000201000201003012301006083030303030303030400430303030
 
 == fuzz/d1c387aa45f0b6b5
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == fuzz/d4998e6969fd8310
 decode: ok
@@ -2710,7 +2710,7 @@ vb[0]: .1.8.48.48.48.48.48.48.48 0x40 (IPAddress) string "30:3030:3030:3030:3030
 reencode: 30240201000400a21d0201000201000201003012301006083030303030303030400430303030
 
 == fuzz/dfb8544a79fd7237
-decode: error (ErrIntegerTooLarge)
+decode: error (ErrIntegerTooLarge, ErrInvalidMsgs)
 
 == fuzz/e01df02a9aae7240
 decode: error
@@ -2794,7 +2794,7 @@ vb[0]: .1.8.48.48.48.48.48.48.48 0x00 (EndOfContents) <nil>
 reencode: error
 
 == fuzz/fa67a7e82489f94f
-decode: error
+decode: error (ErrInvalidMsgs)
 
 == fuzz/fa6f71ca8c4ea7f3
 decode: error

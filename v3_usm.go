@@ -395,13 +395,31 @@ func (sp *UsmSecurityParameters) checkProtocols() error {
 	return nil
 }
 
-// checkLevel rejects message flags that ask for authentication or privacy
-// without a protocol for it.
-func (sp *UsmSecurityParameters) checkLevel(flags SnmpV3MsgFlags) error {
-	if flags.authFlag() && sp.AuthenticationProtocol <= NoAuth {
-		return errAuthProtocolRequired
+// missingProtocol reports which protocol the security level of flags needs
+// and sp lacks: an authentication protocol for the authFlag, a privacy
+// protocol for the privFlag. It is the one rule of what a level needs, for
+// outgoing messages (checkLevel, validate) and incoming ones (receive).
+func (sp *UsmSecurityParameters) missingProtocol(flags SnmpV3MsgFlags) (auth, priv bool) {
+	return flags.authFlag() && sp.AuthenticationProtocol <= NoAuth, flags.privFlag() && sp.PrivacyProtocol <= NoPriv
+}
+
+// levelFloor is the security level a trap receiver requires of a message for
+// sp at the least: authentication when sp has an authentication protocol,
+// privacy optional.
+func (sp *UsmSecurityParameters) levelFloor() SnmpV3MsgFlags {
+	if sp.AuthenticationProtocol > NoAuth {
+		return AuthNoPriv
 	}
-	if flags.privFlag() && sp.PrivacyProtocol <= NoPriv {
+	return NoAuthNoPriv
+}
+
+// checkLevel rejects message flags that ask for authentication or privacy
+// without a protocol for it, authentication first.
+func (sp *UsmSecurityParameters) checkLevel(flags SnmpV3MsgFlags) error {
+	switch auth, priv := sp.missingProtocol(flags); {
+	case auth:
+		return errAuthProtocolRequired
+	case priv:
 		return errPrivProtocolRequired
 	}
 	return nil
@@ -415,25 +433,14 @@ func (sp *UsmSecurityParameters) validate(flags SnmpV3MsgFlags) error {
 		return err
 	}
 
-	securityLevel := flags & AuthPriv // isolate flags that determine security level
-
-	switch securityLevel {
-	case AuthPriv:
-		if sp.PrivacyProtocol <= NoPriv {
-			return errPrivProtocolRequired
-		}
-		fallthrough
-	case AuthNoPriv:
-		if sp.AuthenticationProtocol <= NoAuth {
-			return errAuthProtocolRequired
-		}
-		fallthrough
-	case NoAuthNoPriv:
-		if sp.UserName == "" {
-			return fmt.Errorf("securityParameters.UserName is required")
-		}
-	default:
+	if flags.privFlag() && !flags.authFlag() {
 		return fmt.Errorf("validate: MsgFlags must be populated with an appropriate security level")
+	}
+	if err := sp.checkLevel(flags); err != nil {
+		return err
+	}
+	if sp.UserName == "" {
+		return fmt.Errorf("securityParameters.UserName is required")
 	}
 
 	if sp.PrivacyProtocol > NoPriv && len(sp.PrivacyKey) == 0 && sp.PrivacyPassphrase == "" {
@@ -502,39 +509,6 @@ func (sp *UsmSecurityParameters) sign(packet []byte, auth int) error {
 	return nil
 }
 
-// isAuthentic reports whether the message in is from the user of sp and
-// carries the digest of its parameters, which need an authentication protocol
-// and a key that fits it (derived for a new engine ID first).
-func (sp *UsmSecurityParameters) isAuthentic(in *inbound) (bool, error) {
-	msgSP := in.sp
-	if msgSP.UserName != sp.UserName {
-		return false, nil
-	}
-	if msgSP.AuthenticationProtocol <= NoAuth {
-		return false, errAuthProtocolRequired
-	}
-	if in.derive {
-		if err := msgSP.deriveAuthKey(); err != nil {
-			return false, err
-		}
-	}
-	return msgSP.AuthenticationProtocol.spec().VerifyField(msgSP.SecretKey, in.msg, in.wire.authOff, in.wire.authLen)
-}
-
-// isAuthenticAnswer reports whether msg, an answer to a request made with sp
-// whose USM fields are in w and its security parameters in, is authentic: it
-// names sp's user and engine ID, and its digest checks with sp's key,
-// localized to that engine ID (RFC 3414 section 3.2 steps 3-6).
-func (sp *UsmSecurityParameters) isAuthenticAnswer(msg []byte, w *v3Wire, in *UsmSecurityParameters) (bool, error) {
-	if in.UserName != sp.UserName || in.AuthoritativeEngineID != sp.AuthoritativeEngineID {
-		return false, nil
-	}
-	if sp.AuthenticationProtocol <= NoAuth {
-		return false, errAuthProtocolRequired
-	}
-	return sp.AuthenticationProtocol.spec().VerifyField(sp.SecretKey, msg, w.authOff, w.authLen)
-}
-
 // encryptPacket returns the ciphertext of the scoped PDU.
 func (sp *UsmSecurityParameters) encryptPacket(scopedPdu, salt []byte) ([]byte, error) {
 	return sp.PrivacyProtocol.spec().Encrypt(sp.PrivacyKey, salt,
@@ -543,9 +517,7 @@ func (sp *UsmSecurityParameters) encryptPacket(scopedPdu, salt []byte) ([]byte, 
 
 // decryptPacket returns the plaintext of the OCTET STRING at packet[cursor:],
 // a new buffer: the ciphertext is the rest of the packet after the string's
-// header, whatever its declared length. Known bug: without a privacy protocol
-// it returns the string unchanged, header included, and the caller reads its
-// content as a plaintext scoped PDU.
+// header, whatever its declared length.
 func (sp *UsmSecurityParameters) decryptPacket(packet []byte, cursor int) ([]byte, error) {
 	_, cursorTmp, err := ber.Length(packet[cursor:])
 	if err != nil {
@@ -556,11 +528,7 @@ func (sp *UsmSecurityParameters) decryptPacket(packet []byte, cursor int) ([]byt
 		return nil, errors.New("error decrypting ScopedPDU: truncated packet")
 	}
 
-	spec := sp.PrivacyProtocol.spec()
-	if spec.Cipher == usm.NoCipher {
-		return packet[cursor:], nil
-	}
-	return spec.Decrypt(sp.PrivacyKey, sp.PrivacyParameters,
+	return sp.PrivacyProtocol.spec().Decrypt(sp.PrivacyKey, sp.PrivacyParameters,
 		sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime, packet[cursorTmp:])
 }
 
@@ -587,18 +555,18 @@ func (sp *UsmSecurityParameters) marshal(dst []byte, flags SnmpV3MsgFlags, salt 
 
 // receive makes sp, a private copy of a receiver's parameters, the security
 // parameters of a message with flags whose USM fields are w: it takes the
-// fields that decoded, after the checks made before the digest: valid
-// protocols; with bind, the engine ID rule of adoptEngineID (keys given
-// without a passphrase take no other engine ID); an authentication protocol
-// when the flags ask for authentication, and a privacy protocol when they ask
-// for privacy too and the privacy parameters decoded. Another engine ID drops
-// the keys: with bind, derive reports that they derive for it from the
-// passphrases when needed, the authentication key here when the flags ask for
-// authentication (to check the message, or to answer it with the parameters
-// SnmpDecodePacket returns) or to verify (isAuthentic), the privacy key only to
-// decrypt (inbound.scopedPDU), which a Reeder-extended protocol caches per
-// engine ID; without bind both stay missing, as the answer to a request has no
-// keys for another engine.
+// fields that decoded, after the checks of RFC 3414 section 3.2 made before
+// the digest: valid protocols (a local failure); with bind, the engine ID rule
+// of adoptEngineID, keys given without a passphrase take no other engine ID
+// (step 4: the user is looked up by name and engine ID, ErrUnknownUsername);
+// the protocols the flags ask for (step 5, ErrUnknownSecurityLevel). Another
+// engine ID drops the keys: with bind, derive reports that they derive for it
+// from the passphrases when needed, the authentication key here when the
+// flags ask for authentication (to check the message, or to answer it with
+// the parameters SnmpDecodePacket returns), the privacy key only to decrypt
+// (inbound.scopedPDU), which a Reeder-extended protocol caches per engine ID;
+// without bind both stay missing, as the answer to a request has no keys for
+// another engine.
 func (sp *UsmSecurityParameters) receive(flags SnmpV3MsgFlags, w *v3Wire, bind bool) (derive bool, err error) {
 	if err := sp.checkProtocols(); err != nil {
 		return false, err
@@ -606,7 +574,7 @@ func (sp *UsmSecurityParameters) receive(flags SnmpV3MsgFlags, w *v3Wire, bind b
 	if w.has&hasEngineID != 0 && w.engineID != sp.AuthoritativeEngineID {
 		if bind {
 			if err := sp.checkRelocalizable(); err != nil {
-				return false, err
+				return false, inCategory(ErrUnknownUsername, err)
 			}
 		}
 		sp.AuthoritativeEngineID = w.engineID
@@ -630,14 +598,14 @@ func (sp *UsmSecurityParameters) receive(flags SnmpV3MsgFlags, w *v3Wire, bind b
 	if w.has&hasAuthParams != 0 {
 		sp.AuthenticationParameters = w.authParams
 	}
-	if flags.authFlag() && sp.AuthenticationProtocol <= NoAuth {
-		return false, errors.New("error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message")
-	}
 	if w.has&hasPrivParams != 0 {
 		sp.PrivacyParameters = w.privParams
-		if flags.authFlag() && flags.privFlag() && sp.PrivacyProtocol <= NoPriv {
-			return false, errors.New("error parsing SNMPv3 User Security Model: privacy parameters are not configured to parse incoming encrypted message")
-		}
+	}
+	switch auth, priv := sp.missingProtocol(flags); {
+	case auth:
+		return false, errNoAuthForMsg
+	case priv:
+		return false, errNoPrivForMsg
 	}
 	return derive, nil
 }
@@ -667,15 +635,32 @@ func receiveV3(msg []byte, w v3Wire, result *SnmpPacket, sp *UsmSecurityParamete
 	return inbound{msg: msg, wire: w, sp: sp, derive: derive}, nil
 }
 
-// scopedPDU reads the scoped PDU into result (unmarshalScopedPDU), deriving
-// the privacy key for a new engine ID first when it is encrypted.
+// verify checks the digest of a message that asks for authentication with
+// sp's key (RFC 3414 section 3.2 step 6), which receive derived for a new
+// engine ID: errWrongDigest when it does not check, a key that does not fit
+// the protocol a local error.
+func (in *inbound) verify() error {
+	ok, err := in.sp.AuthenticationProtocol.spec().VerifyField(in.sp.SecretKey, in.msg, in.wire.authOff, in.wire.authLen)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errWrongDigest
+	}
+	return nil
+}
+
+// scopedPDU reads the scoped PDU into result (unmarshalScopedPDU), decrypted
+// exactly when the message's privFlag is set, deriving the privacy key for a
+// new engine ID first.
 func (in *inbound) scopedPDU(result *SnmpPacket) ([]byte, int, error) {
-	if in.derive && in.wire.scoped < len(in.msg) && PDUType(in.msg[in.wire.scoped]) == PDUType(OctetString) {
+	encrypted := result.MsgFlags.privFlag()
+	if encrypted && in.derive && in.wire.scoped < len(in.msg) && PDUType(in.msg[in.wire.scoped]) == PDUType(OctetString) {
 		if err := in.sp.derivePrivKey(); err != nil {
 			return nil, 0, err
 		}
 	}
-	return unmarshalScopedPDU(in.msg, in.wire.scoped, result)
+	return unmarshalScopedPDU(in.msg, in.wire.scoped, result, encrypted)
 }
 
 // usmField prefixes the names of the USM fields in decode errors.

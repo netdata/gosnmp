@@ -84,6 +84,7 @@ var testsUnmarshalTrap = []struct {
 }
 
 func TestUnmarshalTrap(t *testing.T) {
+	useEngineTimes(t)
 	gs := newTestGoSNMP()
 	gs.Version = Version3
 
@@ -110,6 +111,7 @@ SANITY:
 }
 
 func TestUnmarshalTrapWithMultipleUsers(t *testing.T) {
+	useEngineTimes(t)
 	usmMap := NewSnmpV3SecurityParametersTable(NewLogger(log.New(io.Discard, "", 0)))
 	for _, sp := range secParamsList {
 		require.NoError(t, usmMap.Add(sp.UserName, sp))

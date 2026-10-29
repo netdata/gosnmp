@@ -62,7 +62,9 @@ func packetSHA224AuthenticationParams(t *testing.T) string {
 	return string(params)
 }
 
-func TestIsAuthenticWrongUsername(t *testing.T) {
+// TestTrapOtherUser pins that a single trap user does not take a message
+// naming another user (RFC 3414 section 3.2 step 4), before its digest.
+func TestTrapOtherUser(t *testing.T) {
 	var err error
 
 	sp := UsmSecurityParameters{
@@ -91,9 +93,13 @@ func TestIsAuthenticWrongUsername(t *testing.T) {
 	verifier := sp.Copy().usm()
 	verifier.UserName = "foo"
 
-	authentic, err := verifier.isAuthentic(testInbound(t, packetSHA224Authenticated(t), sp.Copy().usm()))
-	require.NoError(t, err, "Authentication check of key failed")
-	require.False(t, authentic, "Packet was considered to be authentic")
+	msg := packetSHA224Authenticated(t)
+	res := new(SnmpPacket)
+	_, w, err := unmarshalHeader(msg, res)
+	require.NoError(t, err)
+	step, err := decodeTrapV3(msg, w, res, verifier, trapRule{singleUser: true})
+	require.ErrorIs(t, err, ErrUnknownUsername)
+	assert.Equal(t, stepUser, step)
 }
 
 func TestAuthenticationSHA224(t *testing.T) {
@@ -155,9 +161,7 @@ func TestIsAuthenticSHA224(t *testing.T) {
 	require.NoError(t, err, "Generation of key failed")
 	require.Equal(t, correctKeySHA224(t), sp.SecretKey, "Wrong key generated")
 
-	authentic, err := sp.isAuthentic(testInbound(t, packetSHA224Authenticated(t), sp.Copy().usm()))
-	require.NoError(t, err, "Authentication check of key failed")
-	require.True(t, authentic, "Packet was not considered to be authentic")
+	require.NoError(t, testInbound(t, packetSHA224Authenticated(t), sp.Copy().usm()).verify(), "Packet was not considered to be authentic")
 }
 
 func correctKeySHA512(t *testing.T) []byte {
@@ -247,9 +251,7 @@ func TestIsAuthenticSHA512(t *testing.T) {
 	require.NoError(t, err, "Generation of key failed")
 	require.Equal(t, correctKeySHA512(t), sp.SecretKey, "Wrong key generated")
 
-	authentic, err := sp.isAuthentic(testInbound(t, packetSHA512Authenticated(t), sp.Copy().usm()))
-	require.NoError(t, err, "Authentication check of key failed")
-	require.True(t, authentic, "Packet was not considered to be authentic")
+	require.NoError(t, testInbound(t, packetSHA512Authenticated(t), sp.Copy().usm()).verify(), "Packet was not considered to be authentic")
 }
 
 // TestParseTruncatedUSMSequence verifies that the header parse returns an
@@ -290,6 +292,7 @@ func testInbound(t *testing.T, msg []byte, sp *UsmSecurityParameters) *inbound {
 // encoding without validation, and decoding with table parameters changed
 // after Add.
 func TestUSMUnsupportedProtocols(t *testing.T) {
+	useEngineTimes(t)
 	const (
 		authErr = "securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(8) is not supported"
 		privErr = "securityParameters.PrivacyProtocol SnmpV3PrivProtocol(8) is not supported"
@@ -460,8 +463,10 @@ func TestUSMDecodeSecurityLevel(t *testing.T) {
 // TestUSMTrapTableAttempts checks how the trap table path tries the
 // parameter sets of a user, in the order they were added, on the one trap (no
 // attempt writes it): the first that decodes wins, and when none does the
-// error carries the last attempt's.
+// error carries the one of the set that got furthest, whatever the order: a
+// wrong digest after a local failure that comes before it.
 func TestUSMTrapTableAttempts(t *testing.T) {
+	useEngineTimes(t)
 	data := usmCharTrap(t, AES, usmCharVarbinds)
 	params := func(authPass string) *UsmSecurityParameters {
 		return &UsmSecurityParameters{
@@ -498,7 +503,8 @@ func TestUSMTrapTableAttempts(t *testing.T) {
 		"wrong passphrase, then right":    {sets: []func(*SnmpV3SecurityParametersTable){add(wrongPass()), add(good())}},
 		"right passphrase first":          {sets: []func(*SnmpV3SecurityParametersTable){add(good()), add(wrongPass())}},
 		"unsupported, then not authentic": {sets: []func(*SnmpV3SecurityParametersTable){unsupported, add(wrongPass())}, wantErr: prefix + notAuthentic},
-		"not authentic, then unsupported": {sets: []func(*SnmpV3SecurityParametersTable){add(wrongPass()), unsupported}, wantErr: prefix + notSupportedV8},
+		"not authentic, then unsupported": {sets: []func(*SnmpV3SecurityParametersTable){add(wrongPass()), unsupported}, wantErr: prefix + notAuthentic},
+		"unsupported twice":               {sets: []func(*SnmpV3SecurityParametersTable){unsupported, unsupported}, wantErr: prefix + notSupportedV8},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -523,6 +529,7 @@ func TestUSMTrapTableAttempts(t *testing.T) {
 // TestUSMTrapTableSkipsV1V2c checks that a receiver with a trap table
 // decodes SNMPv1 and SNMPv2c traps without it.
 func TestUSMTrapTableSkipsV1V2c(t *testing.T) {
+	useEngineTimes(t)
 	vbl := craftedVBL(craftedVB(intTLV(5)))
 	vars := []SnmpPDU{{Name: ".1.3.6.1.2.1.1.5.0", Type: Integer, Value: 5}}
 	tests := map[string]struct {
@@ -550,10 +557,12 @@ func TestUSMTrapTableSkipsV1V2c(t *testing.T) {
 }
 
 // TestUSMReceiverAuthenticationWithoutProtocol checks that a single-user
-// UnmarshalTrap receiver whose flags require authentication, but whose
-// parameters have no authentication protocol, rejects a trap from its user
-// instead of panicking or accepting it unauthenticated.
+// UnmarshalTrap receiver whose flags require authentication rejects an
+// unauthenticated trap from its user as below its minimum level, whether or
+// not its parameters have an authentication protocol, instead of panicking or
+// accepting it; a trap from another user is rejected before.
 func TestUSMReceiverAuthenticationWithoutProtocol(t *testing.T) {
+	useEngineTimes(t)
 	sender := &SnmpPacket{
 		Version:            Version3,
 		MsgFlags:           NoAuthNoPriv,
@@ -571,11 +580,11 @@ func TestUSMReceiverAuthenticationWithoutProtocol(t *testing.T) {
 	}{
 		"unset protocol": {
 			receiver: &UsmSecurityParameters{UserName: "codec-user"},
-			wantErr:  "securityParameters.AuthenticationProtocol is required",
+			wantErr:  "incoming packet has a lower security level than its user requires, discarding",
 		},
 		"NoAuth": {
 			receiver: &UsmSecurityParameters{UserName: "codec-user", AuthenticationProtocol: NoAuth},
-			wantErr:  "securityParameters.AuthenticationProtocol is required",
+			wantErr:  "incoming packet has a lower security level than its user requires, discarding",
 		},
 		"authentication protocol": {
 			receiver: &UsmSecurityParameters{
@@ -583,7 +592,7 @@ func TestUSMReceiverAuthenticationWithoutProtocol(t *testing.T) {
 				AuthenticationProtocol:   SHA,
 				AuthenticationPassphrase: "codec-auth-pass",
 			},
-			wantErr: "incoming packet is not authentic, discarding",
+			wantErr: "incoming packet has a lower security level than its user requires, discarding",
 		},
 		"other user": {
 			receiver: &UsmSecurityParameters{UserName: "other-user"},
@@ -610,6 +619,7 @@ func TestUSMReceiverAuthenticationWithoutProtocol(t *testing.T) {
 // panicking, when encoding and when decoding a message made with enforcement
 // off.
 func TestUSMFIPS140OnlyDigest(t *testing.T) {
+	useEngineTimes(t)
 	if !fips140.Enforced() {
 		t.Skip("run with GODEBUG=fips140=only")
 	}
@@ -811,6 +821,7 @@ func TestUSMFIPS140OnlyKeyDerivation(t *testing.T) {
 // differs from its unsigned layout only in that field and decodes as an
 // authentic trap.
 func TestSignDigestOffset(t *testing.T) {
+	useEngineTimes(t)
 	// usmLen is the length of the encoded USM SEQUENCE of a message from user.
 	usmLen := func(t *testing.T, auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol, user string) int {
 		m := splitV3Message(t, signedTestTrap(t, auth, priv, usmCharEngineID, user, nil))

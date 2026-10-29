@@ -64,6 +64,7 @@ func BenchmarkUSMEncode(b *testing.B) {
 // BenchmarkUSMDecode measures UnmarshalTrap of a secured SNMPv3 trap by a
 // receiver whose keys are localized to the sender's engine ID.
 func BenchmarkUSMDecode(b *testing.B) {
+	useEngineTimes(b)
 	for _, priv := range usmBenchPrivProtocols {
 		b.Run(priv.String(), func(b *testing.B) {
 			data := usmCharTrap(b, priv, usmCharVarbinds)
@@ -96,6 +97,7 @@ func BenchmarkUSMDecode(b *testing.B) {
 // one decoding it: keys localized to another engine ID without passphrases
 // first, then the sender's credentials.
 func BenchmarkUSMDecodeTable(b *testing.B) {
+	useEngineTimes(b)
 	for _, priv := range usmBenchPrivProtocols {
 		b.Run(priv.String(), func(b *testing.B) {
 			data := usmCharTrap(b, priv, usmCharVarbinds)

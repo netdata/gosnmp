@@ -33,7 +33,7 @@ func TestDecodeCharacterization(t *testing.T) {
 
 	results := make([]goldenCase, 0, len(cases))
 	for _, c := range cases {
-		results = append(results, goldenCase{name: c.name, dump: dumpDecode(c)})
+		results = append(results, goldenCase{name: c.name, dump: dumpDecode(t, c)})
 	}
 	codecGolden.check(t, "decode", results)
 }
@@ -45,7 +45,10 @@ type decodeCase struct {
 	decoder func() *GoSNMP // nil means a zero GoSNMP
 }
 
-func dumpDecode(c decodeCase) string {
+// dumpDecode decodes c with SnmpDecodePacket and, for a trap, UnmarshalTrap,
+// with trap timeliness records of its own.
+func dumpDecode(t *testing.T, c decodeCase) string {
+	useEngineTimes(t)
 	x := &GoSNMP{}
 	if c.decoder != nil {
 		x = c.decoder()
