@@ -154,7 +154,7 @@ func TestDecodeFailurePartialResults(t *testing.T) {
 		"v3 message ID":     {in: craftedV3(bad, intTLV(65507), octets("\x04"), intTLV(3), craftedNoAuthUSM, nil), wantErr: header + "error parsing SNMPV3 message ID" + notInt, want: with(decodedFields{version: Version3}, func(*decodedFields) {})},
 		"v3 max size":       {in: craftedV3(intTLV(42), bad, octets("\x04"), intTLV(3), craftedNoAuthUSM, nil), wantErr: header + "error parsing SNMPV3 msgMaxSize" + notInt, want: with(decodedFields{version: Version3}, func(d *decodedFields) { d.msgID = 42 })},
 		"v3 flags":          {in: v3(bad, intTLV(3), craftedNoAuthUSM), wantErr: header + "error parsing SNMPV3 msgFlags: not an OCTET STRING of one octet", want: with(decodedFields{version: Version3}, func(d *decodedFields) { d.msgID, d.msgMaxSize = 42, 65507 })},
-		"v3 security model": {in: v3(octets("\x04"), bad, craftedNoAuthUSM), wantErr: header + "error parsing SNMPV3: the security model is not USM", want: with(v3Header, func(d *decodedFields) { d.securityModel = 0 })},
+		"v3 security model": {in: v3(octets("\x04"), bad, craftedNoAuthUSM), wantErr: header + "error parsing SNMPV3 msgSecModel" + notInt, want: with(v3Header, func(d *decodedFields) { d.securityModel = 0 })},
 		"v3 nothing after the security model": {
 			in:      tlv(0x30, intTLV(3), tlv(0x30, intTLV(42), intTLV(65507), octets("\x04"), intTLV(3))),
 			wantErr: header + "error parsing SNMPV3: nothing after the security model",

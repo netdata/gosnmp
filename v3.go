@@ -315,8 +315,9 @@ func v3ParseError(err error) error {
 // section 6, RFC 3414 section 2.4), each range applying once the INTEGER is
 // cut to 32 bits: msgID an INTEGER of 0..2147483647, msgMaxSize one of
 // 484..2147483647, msgFlags an OCTET STRING of one octet, the security model
-// the INTEGER 3 (any other value or tag is another model), and then the flags
-// may not ask for privacy without authentication; the USM fields of their
+// an INTEGER of 1..2147483647, the User-based Security Model's 3 (another
+// value is another model), and then the flags may not ask for privacy without
+// authentication; the USM fields of their
 // types, the engine boots and time within 0..2147483647 (RFC 3414 section 3.2
 // step 1) and the user name at most 32 octets. It writes nothing into packet
 // and derives no key.
@@ -358,12 +359,13 @@ func parseV3(packet []byte, cursor int, response *SnmpPacket) (v3Wire, error) {
 	}
 	response.MsgFlags = SnmpV3MsgFlags(flags[0])
 	model, err := readInt32(&r)
-	switch {
-	case errors.Is(err, errNotInteger):
-		return w, errNotUSM
-	case err != nil:
+	if err == nil && model < 1 {
+		err = fmt.Errorf("%d is outside 1..2147483647", model)
+	}
+	if err != nil {
 		return w, fmt.Errorf("error parsing SNMPV3 msgSecModel: %w", err)
-	case model != int32(UserSecurityModel):
+	}
+	if model != int32(UserSecurityModel) {
 		return w, errNotUSM
 	}
 	if response.MsgFlags.privFlag() && !response.MsgFlags.authFlag() {

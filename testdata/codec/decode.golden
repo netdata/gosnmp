@@ -2189,26 +2189,26 @@ unmarshal-trap: error (ErrDecryption)
 decode: error (ErrUnknownSecurityModels)
 
 == crafted/v3/parse/security-model-minus-253
-decode: error (ErrUnknownSecurityModels)
+decode: error (ErrInvalidMsgs)
 
 == crafted/v3/parse/security-model-0
-decode: error (ErrUnknownSecurityModels)
+decode: error (ErrInvalidMsgs)
 
 == crafted/v3/parse/security-model-octet-string
-decode: error (ErrUnknownSecurityModels)
+decode: error (ErrInvalidMsgs)
 
 == crafted/v3/parse/security-model-null
-decode: error (ErrUnknownSecurityModels)
+decode: error (ErrInvalidMsgs)
 
 == crafted/v3/parse/security-model-absent
-decode: error (ErrUnknownSecurityModels)
+decode: error (ErrInvalidMsgs)
 
 == crafted/v3/parse/security-model-2-privacy-only
 decode: error (ErrUnknownSecurityModels)
 
 == crafted/v3/parse/security-model-octet-string-auth
-decode: error (ErrUnknownSecurityModels)
-unmarshal-trap: error (ErrUnknownSecurityModels)
+decode: error (ErrInvalidMsgs)
+unmarshal-trap: error (ErrInvalidMsgs)
 
 == crafted/v3/parse/global-data-under-declared
 decode: ok
