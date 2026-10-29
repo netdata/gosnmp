@@ -118,31 +118,36 @@ func Uint64(bytes []byte) (uint64, error) {
 	return ret, nil
 }
 
-// base128Uint32 parses a base-128 encoded unsigned integer from the given
-// offset in the given byte slice. Returns the value and the new offset.
-func base128Uint32(bytes []byte, initOffset int) (uint32, int, error) {
+// oidSubIdentifier reads one base-128 OID subidentifier and returns its value
+// and the next offset. limit is maxSubIdentifier for an individual arc or that
+// limit plus 80 for the packed first two arcs; either bounds the accumulator
+// below 2^33 before each shift.
+func oidSubIdentifier(bytes []byte, initOffset int, limit uint64) (uint64, int, error) {
 	var ret uint64
 	offset := initOffset
 	for offset < len(bytes) {
 		b := bytes[offset]
 		offset++
 		ret = (ret << 7) | uint64(b&0x7f)
-		if ret > math.MaxUint32 {
+		if ret > limit {
 			return 0, 0, ErrBase128IntegerTooLarge
 		}
 		if b&0x80 == 0 {
-			return uint32(ret), offset, nil
+			return ret, offset, nil
 		}
 	}
 	return 0, 0, ErrBase128IntegerTruncated
 }
 
 // OID decodes the content octets of an OBJECT IDENTIFIER into dotted form
-// with a leading dot, such as ".1.3.6.1". Empty content decodes as ".0.0", as
-// net-snmp does.
+// with a leading dot, such as ".1.3.6.1". Empty content decodes as ".0.0"
+// for compatibility with earlier versions of this library. Each arc may be up
+// to 2^32-1 (RFC 2578 section 3.5), so the first subidentifier, which packs the
+// first two arcs, may reach 2^32+79 (X.690 section 8.19.4). net-snmp v5.9.4
+// rejects any subidentifier above 2^32-1, the packed first one included, so it
+// cannot exchange an OID whose second arc under arc 2 exceeds 4294967215.
 func OID(src []byte) (string, error) {
 	if len(src) == 0 {
-		// net-snmp decodes a zero-length encoded OID as ".0.0"
 		return ".0.0", nil
 	}
 
@@ -151,28 +156,28 @@ func OID(src []byte) (string, error) {
 
 	// First sub-identifier encodes arc1 and arc2 as (arc1*40 + arc2);
 	// arc1 is 0, 1, or 2, with arc2 <= 39 when arc1 < 2.
-	// Remaining arcs are encoded individually.
-	v, offset, err := base128Uint32(src, 0)
+	// The packed pair can reach MaxUint32+80; later arcs remain uint32.
+	v, offset, err := oidSubIdentifier(src, 0, maxSubIdentifier+80)
 	if err != nil {
 		return "", err
 	}
 	out = append(out, '.')
 	if v < 80 {
-		out = strconv.AppendUint(out, uint64(v/40), 10)
+		out = strconv.AppendUint(out, v/40, 10)
 		out = append(out, '.')
-		out = strconv.AppendUint(out, uint64(v%40), 10)
+		out = strconv.AppendUint(out, v%40, 10)
 	} else {
 		out = append(out, '2', '.')
-		out = strconv.AppendUint(out, uint64(v-80), 10)
+		out = strconv.AppendUint(out, v-80, 10)
 	}
 
 	for offset < len(src) {
 		out = append(out, '.')
-		v, offset, err = base128Uint32(src, offset)
+		v, offset, err = oidSubIdentifier(src, offset, maxSubIdentifier)
 		if err != nil {
 			return "", err
 		}
-		out = strconv.AppendUint(out, uint64(v), 10)
+		out = strconv.AppendUint(out, v, 10)
 	}
 	return string(out), nil
 }

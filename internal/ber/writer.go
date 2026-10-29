@@ -17,7 +17,7 @@ var (
 	ErrOIDOutOfRange = errors.New("object identifier sub-identifier out of range")
 )
 
-// Limits AppendOID enforces.
+// SNMP OID component limits (RFC 2578 section 3.5).
 const (
 	maxSubIDs        = 128 // sub-identifiers in an SNMP OID (RFC 2578 3.5)
 	maxSubIdentifier = math.MaxUint32
@@ -117,7 +117,9 @@ func AppendFloat64(dst []byte, v float64) []byte {
 // dotted form, with or without a leading dot, such as ".1.3.6.1". It needs two
 // to 128 sub-identifiers of at most 2^32-1; the first is 0, 1 or 2, and the
 // second is below 40 unless the first is 2. Empty sub-identifiers (repeated or
-// trailing dots) are skipped. On error dst is returned unchanged.
+// trailing dots) are skipped. On error dst is returned unchanged. A second arc
+// above 4294967215 under arc 2 packs the first two arcs above 2^32-1, which
+// net-snmp v5.9.4 refuses to decode (see OID).
 func AppendOID(dst []byte, oid string) ([]byte, error) {
 	start := len(dst)
 	var firstArc uint64
@@ -144,9 +146,7 @@ func AppendOID(dst []byte, oid string) ([]byte, error) {
 			if firstArc < 2 && val >= 40 {
 				return dst[:start], ErrInvalidOID
 			}
-			if val > maxSubIdentifier-80 {
-				return dst[:start], ErrOIDOutOfRange
-			}
+			// The packed pair can exceed uint32; nextArc bounded each arc.
 			dst = appendBase128(dst, firstArc*40+val)
 		default:
 			dst = appendBase128(dst, val)

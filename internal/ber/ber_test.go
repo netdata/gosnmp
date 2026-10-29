@@ -240,6 +240,51 @@ func TestOID(t *testing.T) {
 			data: []byte{0x81, 0x34, 0x03}, // first sub-id 180 = 2*40+100, then arc 3
 			want: ".2.100.3",
 		},
+		{
+			name: "first packed value at uint32 max",
+			data: []byte{0x8f, 0xff, 0xff, 0xff, 0x7f},
+			want: ".2.4294967215",
+		},
+		{
+			name: "first packed value above uint32 max",
+			data: []byte{0x90, 0x80, 0x80, 0x80, 0x00},
+			want: ".2.4294967216",
+		},
+		{
+			name: "second arc at uint32 max",
+			data: []byte{0x90, 0x80, 0x80, 0x80, 0x4f},
+			want: ".2.4294967295",
+		},
+		{
+			name: "maximum second and later arcs",
+			data: []byte{0x90, 0x80, 0x80, 0x80, 0x4f, 0x8f, 0xff, 0xff, 0xff, 0x7f},
+			want: ".2.4294967295.4294967295",
+		},
+		{
+			name: "non-minimal maximum second arc",
+			data: []byte{0x80, 0x90, 0x80, 0x80, 0x80, 0x4f},
+			want: ".2.4294967295",
+		},
+		{
+			name:    "second arc above uint32 max",
+			data:    []byte{0x90, 0x80, 0x80, 0x80, 0x50},
+			wantErr: ErrBase128IntegerTooLarge,
+		},
+		{
+			name:    "later arc above uint32 max after maximum second arc",
+			data:    []byte{0x90, 0x80, 0x80, 0x80, 0x4f, 0x90, 0x80, 0x80, 0x80, 0x00},
+			wantErr: ErrBase128IntegerTooLarge,
+		},
+		{
+			name:    "truncated maximum second arc",
+			data:    []byte{0x90, 0x80, 0x80, 0x80, 0xcf},
+			wantErr: ErrBase128IntegerTruncated,
+		},
+		{
+			name:    "first packed value exceeding uint64",
+			data:    []byte{0x82, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00},
+			wantErr: ErrBase128IntegerTooLarge,
+		},
 		// Standard OIDs
 		{
 			name: "sysDescr (1.3.6.1.2.1.1.1)",
@@ -328,12 +373,12 @@ func TestOID(t *testing.T) {
 	}
 }
 
-func TestBase128Uint32(t *testing.T) {
+func TestOIDSubIdentifier(t *testing.T) {
 	tests := []struct {
 		name       string
 		data       []byte
 		initOffset int
-		want       uint32
+		want       uint64
 		wantOffset int
 		wantErr    error
 	}{
@@ -453,17 +498,17 @@ func TestBase128Uint32(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, offset, err := base128Uint32(tt.data, tt.initOffset)
+			got, offset, err := oidSubIdentifier(tt.data, tt.initOffset, maxSubIdentifier)
 			if err != tt.wantErr {
-				t.Errorf("base128Uint32() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("oidSubIdentifier() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if err == nil {
 				if got != tt.want {
-					t.Errorf("base128Uint32() value = %v, want %v", got, tt.want)
+					t.Errorf("oidSubIdentifier() value = %v, want %v", got, tt.want)
 				}
 				if offset != tt.wantOffset {
-					t.Errorf("base128Uint32() offset = %v, want %v", offset, tt.wantOffset)
+					t.Errorf("oidSubIdentifier() offset = %v, want %v", offset, tt.wantOffset)
 				}
 			}
 		})
