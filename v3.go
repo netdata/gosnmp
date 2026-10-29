@@ -109,7 +109,8 @@ func (packet *SnmpPacket) sign(msg []byte, auth int) ([]byte, error) {
 // message must name the user and carry a digest that checks with result's
 // key, localized to the engine ID the message names. The flags and the user
 // are the client's, or the message's own when useResponseSecurityParameters
-// is set, so its user name always matches.
+// is set, so its user name always matches. A client without security
+// parameters whose flags ask for authentication has no key to check one with.
 // Engine discovery (RFC 3414 section 4): a message with an empty user name and
 // engine ID is accepted without authentication. Known bugs: the discovery
 // exception holds whatever the message's flags and variable bindings (the
@@ -133,6 +134,9 @@ func (x *GoSNMP) testAuthentication(in *inbound, result *SnmpPacket, useResponse
 	}
 	if !msgFlags.authFlag() {
 		return nil
+	}
+	if verifier == nil {
+		return errNotAuthentic
 	}
 
 	authentic, err := verifier.usm().isAuthentic(in)
@@ -262,14 +266,16 @@ var errMsgFlags = errors.New("error parsing SNMPV3 msgFlags: not an OCTET STRING
 
 // parseV3 reads the SNMPv3 header at packet[cursor:]: the message ID, maximum
 // size, flags and security model into response, and the USM fields and the
-// offsets security processing needs into the v3Wire it returns. It reads as
-// net-snmp v5.9.4 does: every declared length must fit what remains; the
+// offsets security processing needs into the v3Wire it returns. It takes
+// net-snmp v5.9.4's extents: every declared length must fit what remains; the
 // fields of msgGlobalData are read against the rest of the message, whatever
 // its declared length; the USM fields are bounded by their SEQUENCE and the
 // SEQUENCE by the security parameters' OCTET STRING; msgData starts right
 // after msgPrivacyParameters. msgFlags must be an OCTET STRING of one octet
-// and the security model the INTEGER 3. It writes nothing into packet and
-// derives no key.
+// and the security model the INTEGER 3, as there. Unlike net-snmp, it reads
+// the other fields leniently (see the package documentation) and leaves
+// privacy without authentication to the security processing. It writes
+// nothing into packet and derives no key.
 func parseV3(packet []byte, cursor int, response *SnmpPacket) (v3Wire, error) {
 	w := v3Wire{authOff: -1}
 	if PDUType(packet[cursor]) != Sequence {

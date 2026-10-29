@@ -504,7 +504,7 @@ func (sp *UsmSecurityParameters) sign(packet []byte, auth int) error {
 
 // isAuthentic reports whether the message in is from the user of sp and
 // carries the digest of its parameters, which need an authentication protocol
-// and a key that fits it.
+// and a key that fits it (derived for a new engine ID first).
 func (sp *UsmSecurityParameters) isAuthentic(in *inbound) (bool, error) {
 	msgSP := in.sp
 	if msgSP.UserName != sp.UserName {
@@ -512,6 +512,11 @@ func (sp *UsmSecurityParameters) isAuthentic(in *inbound) (bool, error) {
 	}
 	if msgSP.AuthenticationProtocol <= NoAuth {
 		return false, errAuthProtocolRequired
+	}
+	if in.derive {
+		if err := msgSP.deriveAuthKey(); err != nil {
+			return false, err
+		}
 	}
 	return msgSP.AuthenticationProtocol.spec().VerifyField(msgSP.SecretKey, in.msg, in.wire.authOff, in.wire.authLen)
 }
@@ -587,11 +592,13 @@ func (sp *UsmSecurityParameters) marshal(dst []byte, flags SnmpV3MsgFlags, salt 
 // without a passphrase take no other engine ID); an authentication protocol
 // when the flags ask for authentication, and a privacy protocol when they ask
 // for privacy too and the privacy parameters decoded. Another engine ID drops
-// the keys: with bind, the authentication key derives for it at once (it adds
-// nothing to the key cache) and derive reports that the privacy key derives
-// only to decrypt (inbound.scopedPDU), which a Reeder-extended protocol
-// caches per engine ID; without bind both stay missing, as the answer to a
-// request has no keys for another engine.
+// the keys: with bind, derive reports that they derive for it from the
+// passphrases when needed, the authentication key here when the flags ask for
+// authentication (to check the message, or to answer it with the parameters
+// SnmpDecodePacket returns) or to verify (isAuthentic), the privacy key only to
+// decrypt (inbound.scopedPDU), which a Reeder-extended protocol caches per
+// engine ID; without bind both stay missing, as the answer to a request has no
+// keys for another engine.
 func (sp *UsmSecurityParameters) receive(flags SnmpV3MsgFlags, w *v3Wire, bind bool) (derive bool, err error) {
 	if err := sp.checkProtocols(); err != nil {
 		return false, err
@@ -604,12 +611,12 @@ func (sp *UsmSecurityParameters) receive(flags SnmpV3MsgFlags, w *v3Wire, bind b
 		}
 		sp.AuthoritativeEngineID = w.engineID
 		sp.SecretKey, sp.PrivacyKey = nil, nil
-		if bind {
+		if bind && flags.authFlag() {
 			if err := sp.deriveAuthKey(); err != nil {
 				return false, err
 			}
-			derive = true
 		}
+		derive = bind
 	}
 	if w.has&hasBoots != 0 {
 		sp.AuthoritativeEngineBoots = w.boots
@@ -643,8 +650,8 @@ type inbound struct {
 	msg  []byte
 	wire v3Wire
 	sp   *UsmSecurityParameters
-	// derive is set when sp took another engine ID: its privacy key derives
-	// from the passphrase only to decrypt.
+	// derive is set when sp took another engine ID: its keys derive from the
+	// passphrases when needed (receive).
 	derive bool
 }
 

@@ -216,6 +216,114 @@ error: error parsing SNMPv3 User Security Model: authentication parameters are n
 == authNoPriv, empty user name and engine ID/SHA-AES/single, version unset
 error: testAuthentication called with non Version3 connection
 
+== authPriv, INTEGER privacy parameters/no protocols/table
+error: no credentials successfully unmarshaled trap: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
+
+== authPriv, INTEGER privacy parameters/no protocols/single
+error: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
+
+== authPriv, INTEGER privacy parameters/no protocols/single, message flags
+error: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
+
+== authPriv, INTEGER privacy parameters/no protocols/SnmpDecodePacket
+error: unable to decode packet header: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
+
+== authPriv, INTEGER privacy parameters/SHA/table
+error: no credentials successfully unmarshaled trap: incoming packet is not authentic, discarding
+
+== authPriv, INTEGER privacy parameters/SHA/single
+error: incoming packet is not authentic, discarding
+
+== authPriv, INTEGER privacy parameters/SHA/single, message flags
+error: incoming packet is not authentic, discarding
+
+== authPriv, INTEGER privacy parameters/SHA/SnmpDecodePacket
+error: error parsing SNMPV3 contextEngineID: unknown field type: 13
+
+== authPriv, INTEGER privacy parameters/SHA-AES/table
+error: no credentials successfully unmarshaled trap: incoming packet is not authentic, discarding
+
+== authPriv, INTEGER privacy parameters/SHA-AES/single
+error: incoming packet is not authentic, discarding
+
+== authPriv, INTEGER privacy parameters/SHA-AES/single, message flags
+error: incoming packet is not authentic, discarding
+
+== authPriv, INTEGER privacy parameters/SHA-AES/SnmpDecodePacket
+error: usm: decrypting: salt of 0 octets, want 8
+
+== authPriv, INTEGER privacy parameters/unknown authentication protocol/table
+error: add: securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(99) is not supported
+
+== authPriv, INTEGER privacy parameters/unknown authentication protocol/single
+error: securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(99) is not supported
+
+== authPriv, INTEGER privacy parameters/unknown authentication protocol/single, message flags
+error: securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(99) is not supported
+
+== authPriv, INTEGER privacy parameters/unknown authentication protocol/SnmpDecodePacket
+error: unable to decode packet header: securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(99) is not supported
+
+== authPriv, INTEGER privacy parameters/no parameters/single
+error: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
+
+== authPriv, INTEGER privacy parameters/SHA-AES/single, version unset
+error: testAuthentication called with non Version3 connection
+
+== authNoPriv, long-form digest field length/no protocols/table
+error: no credentials successfully unmarshaled trap: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
+
+== authNoPriv, long-form digest field length/no protocols/single
+error: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
+
+== authNoPriv, long-form digest field length/no protocols/single, message flags
+error: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
+
+== authNoPriv, long-form digest field length/no protocols/SnmpDecodePacket
+error: unable to decode packet header: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
+
+== authNoPriv, long-form digest field length/SHA/table
+ok
+
+== authNoPriv, long-form digest field length/SHA/single
+ok
+
+== authNoPriv, long-form digest field length/SHA/single, message flags
+ok
+
+== authNoPriv, long-form digest field length/SHA/SnmpDecodePacket
+ok
+
+== authNoPriv, long-form digest field length/SHA-AES/table
+ok
+
+== authNoPriv, long-form digest field length/SHA-AES/single
+ok
+
+== authNoPriv, long-form digest field length/SHA-AES/single, message flags
+ok
+
+== authNoPriv, long-form digest field length/SHA-AES/SnmpDecodePacket
+ok
+
+== authNoPriv, long-form digest field length/unknown authentication protocol/table
+error: add: securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(99) is not supported
+
+== authNoPriv, long-form digest field length/unknown authentication protocol/single
+error: securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(99) is not supported
+
+== authNoPriv, long-form digest field length/unknown authentication protocol/single, message flags
+error: securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(99) is not supported
+
+== authNoPriv, long-form digest field length/unknown authentication protocol/SnmpDecodePacket
+error: unable to decode packet header: securityParameters.AuthenticationProtocol SnmpV3AuthProtocol(99) is not supported
+
+== authNoPriv, long-form digest field length/no parameters/single
+error: error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message
+
+== authNoPriv, long-form digest field length/SHA-AES/single, version unset
+error: testAuthentication called with non Version3 connection
+
 == mixed sets/keys only, then passphrases/from codec-engine
 ok
 

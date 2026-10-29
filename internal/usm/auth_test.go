@@ -56,8 +56,9 @@ func TestDigest(t *testing.T) {
 	require.ErrorIs(t, err, errNoAuth)
 }
 
-// TestVerify checks that Verify accepts the digest only: not a changed or a
-// shortened one.
+// TestVerifyField checks that VerifyField accepts the digest of the message
+// with the field zeroed only, in a field of the MAC's length, and writes
+// nothing.
 func TestVerifyField(t *testing.T) {
 	for name, a := range testAuths {
 		t.Run(name, func(t *testing.T) {

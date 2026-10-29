@@ -16,6 +16,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netdata/gosnmp/internal/usm"
 )
 
 // decodeV3ParseCases are SNMPv3 messages that pin how the header and the USM
@@ -122,6 +124,14 @@ func TestV3ReceiverRules(t *testing.T) {
 		{"authPriv", func() []byte { return signedTestTrap(t, SHA, AES, usmCharEngineID, "codec-user", nil) }},
 		{"noAuthNoPriv", func() []byte { return usmPlainTrap(3, usmCharEngineID, "codec-user") }},
 		{"authNoPriv, empty user name and engine ID", func() []byte { return discoveryAuth }},
+		{"authPriv, INTEGER privacy parameters", func() []byte {
+			// A fixed salt: a receiver without privacy reads the ciphertext.
+			usm.Salts.Set(usmCharSalt(AES))
+			m := splitV3Message(t, signedTestTrap(t, SHA, AES, usmCharEngineID, "codec-user", nil))
+			m.usmTags[5] = byte(Integer)
+			return m.bytes()
+		}},
+		{"authNoPriv, long-form digest field length", func() []byte { return signedAuthField([]byte{0x04, 0x81, 0x0c}, 12) }},
 	}
 	sets := []struct {
 		name string
@@ -256,6 +266,9 @@ func TestV3DecodeKeyDerivation(t *testing.T) {
 	reeder := func() *UsmSecurityParameters {
 		return usmDecoder(SHA, "codec-auth-pass", AES256C, "receiver-priv-pass")().SecurityParameters.usm()
 	}
+	// The passphrases' own cache entries, and a single user's keys for its
+	// empty engine ID, are made once, before any count.
+	require.NoError(t, reeder().InitSecurityKeys())
 	wrongDigest := func(data []byte) []byte {
 		m := splitV3Message(t, data)
 		m.usm[4] = bytes.Clone(m.usm[4])
@@ -264,28 +277,67 @@ func TestV3DecodeKeyDerivation(t *testing.T) {
 	}
 	signed := func(engineID string) []byte { return signedTestTrap(t, SHA, AES256C, engineID, "codec-user", nil) }
 
+	// single is a single-user receiver with flags, its keys derived for
+	// its own (empty) engine ID beforehand.
+	single := func(flags SnmpV3MsgFlags, useResponse bool) func([]byte) (*SnmpPacket, error) {
+		return func(in []byte) (*SnmpPacket, error) {
+			x := &GoSNMP{Version: Version3, MsgFlags: flags, SecurityModel: UserSecurityModel, SecurityParameters: reeder()}
+			require.NoError(t, x.SecurityParameters.InitSecurityKeys())
+			return x.UnmarshalTrap(in, useResponse)
+		}
+	}
+	table := func(in []byte) (*SnmpPacket, error) {
+		tb := NewSnmpV3SecurityParametersTable(Logger{})
+		require.NoError(t, tb.Add("codec-user", reeder()))
+		return (&GoSNMP{Version: Version3, TrapSecurityParametersTable: tb}).UnmarshalTrap(in, false)
+	}
+	privacyOnly := func(e string) []byte { return splitV3Message(t, signed(e)).withFlags(t, usmPrivacyFlag).bytes() }
+	noAuthEncrypted := func(e string) []byte { return splitV3Message(t, signed(e)).withFlags(t, NoAuthNoPriv).bytes() }
+
 	tests := map[string]struct {
-		in   func(engineID string) []byte
-		want int // cache entries added
+		in       func(engineID string) []byte
+		receiver func(in []byte) (*SnmpPacket, error) // the table by default
+		want     int                                  // cache entries added
 	}{
 		"authPriv, signed":       {in: signed, want: 1},
 		"authPriv, wrong digest": {in: func(e string) []byte { return wrongDigest(signed(e)) }},
 		"noAuthNoPriv plaintext": {in: func(e string) []byte { return usmPlainTrap(3, e, "codec-user") }},
-		// Known bug: the table path decrypts these without a digest check, so
-		// they derive the privacy key.
-		"privacy only":                  {in: func(e string) []byte { return splitV3Message(t, signed(e)).withFlags(t, usmPrivacyFlag).bytes() }, want: 1},
-		"noAuthNoPriv flags, encrypted": {in: func(e string) []byte { return splitV3Message(t, signed(e)).withFlags(t, NoAuthNoPriv).bytes() }, want: 1},
+		"authPriv, wrong digest, single user at authPriv": {
+			in: func(e string) []byte { return wrongDigest(signed(e)) }, receiver: single(AuthPriv, false),
+		},
+		// Known bug: these are decrypted without a digest check (the table
+		// path and the message flags take the message's level, a single user
+		// at noAuthNoPriv checks none), so they derive the privacy key.
+		"privacy only":                  {in: privacyOnly, want: 1},
+		"noAuthNoPriv flags, encrypted": {in: noAuthEncrypted, want: 1},
+		"authPriv, wrong digest, single user at noAuthNoPriv": {
+			in: func(e string) []byte { return wrongDigest(signed(e)) }, receiver: single(NoAuthNoPriv, false), want: 1,
+		},
+		"noAuthNoPriv flags, encrypted, single user, message flags": {
+			in: noAuthEncrypted, receiver: single(AuthPriv, true), want: 1,
+		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			tb := NewSnmpV3SecurityParametersTable(Logger{})
-			require.NoError(t, tb.Add("codec-user", reeder()))
+			receiver := tc.receiver
+			if receiver == nil {
+				receiver = table
+			}
 			in := tc.in(newEngine())
 			before := passwordCache.Len()
-			_, _ = (&GoSNMP{Version: Version3, TrapSecurityParametersTable: tb}).UnmarshalTrap(in, false)
+			_, _ = receiver(in)
 			assert.Equal(t, tc.want, passwordCache.Len()-before)
 		})
 	}
+
+	// An accepted noAuthNoPriv message from a new engine ID needs no key: the
+	// table's set derives none for it.
+	t.Run("noAuthNoPriv plaintext, the decoded keys", func(t *testing.T) {
+		res, err := table(usmPlainTrap(3, newEngine(), "codec-user"))
+		require.NoError(t, err)
+		usp := res.SecurityParameters.usm()
+		assert.Equal(t, [][]byte{nil, nil}, [][]byte{usp.SecretKey, usp.PrivacyKey})
+	})
 
 	// A client's request, answered by an unauthenticated Report naming a new
 	// engine ID.
@@ -323,6 +375,44 @@ func TestV3ReplyDecode(t *testing.T) {
 		assert.Nil(t, reply)
 		assert.False(t, verified)
 		require.ErrorIs(t, err, errMsgFlags)
+	})
+
+	t.Run("authNoPriv reply, long-form digest field length", func(t *testing.T) {
+		e, _ := request(AuthNoPriv|Reportable, NoPriv)
+		reply, verified, err := e.decode(signedAuthField([]byte{0x04, 0x81, 0x0c}, 12))
+		require.NoError(t, err)
+		assert.True(t, verified)
+		assert.NotNil(t, reply)
+	})
+
+	// A reply naming another engine ID carries none of the request's keys
+	// and derives none for that engine.
+	t.Run("unauthenticated Report from another engine, the reply's keys", func(t *testing.T) {
+		e, _ := request(AuthPriv|Reportable, AES)
+		other := signedTestUSM(t, SHA, AES, usmOtherEngineID, "codec-user")
+		data, err := (&SnmpPacket{
+			Version: Version3, MsgFlags: NoAuthNoPriv, SecurityModel: UserSecurityModel, SecurityParameters: other,
+			MsgID: 7, PDUType: Report, Variables: []SnmpPDU{{Name: ".1.3.6.1.6.3.15.1.1.4.0", Type: Counter32, Value: uint32(1)}},
+		}).MarshalMsg()
+		require.NoError(t, err)
+		reply, verified, err := e.decode(data)
+		require.NoError(t, err)
+		assert.False(t, verified)
+		usp := reply.SecurityParameters.usm()
+		assert.Equal(t, []any{usmOtherEngineID, []byte(nil), []byte(nil)}, []any{usp.AuthoritativeEngineID, usp.SecretKey, usp.PrivacyKey})
+	})
+
+	t.Run("encrypted reply from another engine to a noAuthNoPriv request", func(t *testing.T) {
+		e, _ := request(NoAuthNoPriv|Reportable, AES)
+		data, err := (&SnmpPacket{
+			Version: Version3, MsgFlags: AuthPriv, SecurityModel: UserSecurityModel,
+			SecurityParameters: signedTestUSM(t, SHA, AES, usmOtherEngineID, "codec-user"),
+			MsgID:              7, PDUType: GetResponse, RequestID: 1, Variables: usmPlainVars,
+		}).MarshalMsg()
+		require.NoError(t, err)
+		reply, _, err := e.decode(data)
+		assert.Nil(t, reply)
+		require.ErrorContains(t, err, "decrypting")
 	})
 
 	t.Run("authPriv reply, another engine time", func(t *testing.T) {
@@ -449,6 +539,25 @@ func TestV3DigestField(t *testing.T) {
 	for name, in := range tests {
 		t.Run(name, func(t *testing.T) {
 			_, err := trapDecoder().UnmarshalTrap(in, false)
+			require.ErrorIs(t, err, errNotAuthentic)
+		})
+	}
+}
+
+// TestV3SingleUserWithoutParameters pins a single-user receiver whose flags ask
+// for authentication but which has no security parameters: it has no key to
+// check a digest with, so a message with a user name or engine ID is not
+// authentic, whatever its own flags, and decoding it does not panic.
+func TestV3SingleUserWithoutParameters(t *testing.T) {
+	for name, in := range map[string][]byte{
+		"noAuthNoPriv":          usmPlainTrap(3, usmCharEngineID, "codec-user"),
+		"noAuthNoPriv, no user": usmPlainTrap(3, usmCharEngineID, ""),
+	} {
+		t.Run(name, func(t *testing.T) {
+			x := &GoSNMP{Version: Version3, MsgFlags: AuthNoPriv, SecurityModel: UserSecurityModel}
+			var err error
+			v, _ := recoverPanic(func() { _, err = x.UnmarshalTrap(bytes.Clone(in), false) })
+			require.Nil(t, v, "UnmarshalTrap panicked")
 			require.ErrorIs(t, err, errNotAuthentic)
 		})
 	}

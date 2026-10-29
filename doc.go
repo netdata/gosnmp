@@ -162,11 +162,11 @@
 // its varbind holds (seen from MikroTik devices), an IPAddress may be empty,
 // and a varbind name may be an OCTET STRING or an IpAddress, kept as text.
 // INTEGER values decode into the platform's int, so 32-bit platforms reject
-// what 64-bit ones accept. The SNMPv3 header is read as net-snmp reads it:
-// msgFlags must be an OCTET STRING of one octet, the security model the
-// User-based Security Model's, and every declared length must fit what
-// remains (a msgGlobalData declared shorter than its fields, or security
-// parameters declared to cover the scoped PDU, are read).
+// what 64-bit ones accept. The SNMPv3 header takes net-snmp's extents and two
+// of its field rules: msgFlags must be an OCTET STRING of one octet, the
+// security model the User-based Security Model's, and every declared length
+// must fit what remains (a msgGlobalData declared shorter than its fields, or
+// security parameters declared to cover the scoped PDU, are read).
 //
 // The decoders never write their input. [GoSNMP.SnmpDecodePacket] and
 // [GoSNMP.UnmarshalTrap] return OctetString and Opaque values that alias the
@@ -186,11 +186,14 @@
 // to: parameters holding one decode no trap, inform or SnmpDecodePacket message
 // naming another engine ID, whatever its security level, and take none from
 // discovery. Decoding derives keys for another engine ID a message names only
-// on those paths, and the privacy key only to decrypt; a client derives none
-// for an engine ID a reply names. Deriving a key starts with hashing a megabyte
-// of the passphrase (RFC 3414 appendix A.2.1). The package caches that result
-// for every client, by passphrase and hash, until [PasswordCaching] turns the
-// cache off; it holds the passphrases in memory meanwhile.
+// on those paths, the authentication key when the message asks for
+// authentication or the receiver checks it, the privacy key only to decrypt;
+// decoding a reply derives none, while discovery and, without authentication, a
+// stored answer or a lent Report localize the client's keys to the engine ID it
+// names. Deriving a key starts with hashing a megabyte of the passphrase (RFC
+// 3414 appendix A.2.1). The package caches that result for every client, by
+// passphrase and hash, until [PasswordCaching] turns the cache off; it holds
+// the passphrases in memory meanwhile.
 //
 // # Traps
 //
