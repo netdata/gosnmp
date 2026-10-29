@@ -5,6 +5,7 @@
 package gosnmp
 
 import (
+	"bytes"
 	"fmt"
 	"sync"
 	"testing"
@@ -21,7 +22,10 @@ type timelyMessage struct {
 	user        string // codec-user when empty
 	boots, time uint32
 	inform      bool
-	wait        time.Duration
+	// flipped sends the reportable flag the other way than RFC 3412
+	// section 6.4 sets it for the PDU (set for a trap, clear for an inform).
+	flipped bool
+	wait    time.Duration
 	// want is the error a rejection unwraps to, nil for an accepted one.
 	want error
 }
@@ -50,6 +54,9 @@ func encodeTimely(t *testing.T, engineID string, m timelyMessage) []byte {
 	pdu := SNMPv2Trap
 	if m.inform {
 		flags, pdu = flags|Reportable, InformRequest
+	}
+	if m.flipped {
+		flags ^= Reportable
 	}
 	data, err := (&SnmpPacket{
 		Version: Version3, MsgFlags: flags, SecurityModel: UserSecurityModel, SecurityParameters: sp,
@@ -100,6 +107,7 @@ func TestTrapTimeliness(t *testing.T) {
 	}
 	after := func(wait time.Duration, m timelyMessage) timelyMessage { m.wait = wait; return m }
 	inform := func(m timelyMessage) timelyMessage { m.inform = true; return m }
+	flipped := func(m timelyMessage) timelyMessage { m.flipped = true; return m }
 	from := func(user string, m timelyMessage) timelyMessage { m.user = user; return m }
 
 	tests := map[string][]timelyMessage{
@@ -118,7 +126,11 @@ func TestTrapTimeliness(t *testing.T) {
 		"boots above 2147483647, then low":    {invalid(maxBoots+1, 10), ok(1, 1)},
 		"time above 2147483647, then low":     {invalid(1, maxBoots+1), ok(1, 1)},
 		"informs, then a trap":                {inform(ok(3, 1000)), inform(ok(2, 1)), ok(1, 1)},
+		"reportable traps, 151 s later":       {flipped(ok(3, 1000)), after(151*time.Second, flipped(rejected(3, 1000)))},
+		"a reportable trap, then lower boots": {flipped(ok(5, 100)), rejected(4, 999)},
+		"unreportable informs, then a trap":   {flipped(inform(ok(3, 1000))), flipped(inform(ok(2, 1))), ok(1, 1)},
 		"unauthenticated, then authenticated": {from("plain-user", ok(100, 100)), ok(3, 77)},
+		"unauthenticated, 151 s later":        {from("plain-user", ok(3, 1000)), after(151*time.Second, from("plain-user", ok(3, 1000)))},
 		"another credential, lower boots":     {ok(9, 9), from("other-user", ok(1, 1))},
 	}
 
@@ -233,4 +245,45 @@ func TestEngineTimesConcurrent(t *testing.T) {
 	wg.Wait()
 	assert.LessOrEqual(t, len(s.records), 4)
 	assert.Equal(t, len(s.records), s.updated.Len())
+}
+
+// TestTrapEncodedReplay pins that a trap the library's own encoder makes,
+// whose reportable flag SnmpEncodePacket sets as for every SNMPv3 message, is
+// still a trap to the receiver (RFC 3412 section 6.4): a copy of it a day
+// later is outside the time window, on both trap paths.
+func TestTrapEncodedReplay(t *testing.T) {
+	for _, path := range []string{"single", "table"} {
+		t.Run(path, func(t *testing.T) {
+			advance := useEngineTimes(t)
+			sp := signedTestUSM(t, SHA256, AES, usmCharEngineID, "codec-user")
+			sender := &GoSNMP{Version: Version3, MsgFlags: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy()}
+			wire, err := sender.SnmpEncodePacket(SNMPv2Trap, usmPlainVars, 0, 0)
+			require.NoError(t, err)
+			receiver := &GoSNMP{Version: Version3, MsgFlags: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy()}
+			if path == "table" {
+				receiver.TrapSecurityParametersTable = NewSnmpV3SecurityParametersTable(Logger{})
+				require.NoError(t, receiver.TrapSecurityParametersTable.Add("codec-user", sp.Copy()))
+			}
+			got, err := receiver.UnmarshalTrap(bytes.Clone(wire), false)
+			require.NoError(t, err)
+			require.Equal(t, AuthPriv|Reportable, got.MsgFlags)
+			advance(24 * time.Hour)
+			_, err = receiver.UnmarshalTrap(bytes.Clone(wire), false)
+			require.ErrorIs(t, err, ErrNotInTimeWindow)
+		})
+	}
+}
+
+// TestPDUTypeConfirmed pins the Confirmed Class of RFC 3411 section 2.8.2,
+// which the time window leaves to the API phase: requests and informs.
+func TestPDUTypeConfirmed(t *testing.T) {
+	want := map[PDUType]bool{
+		GetRequest: true, GetNextRequest: true, GetBulkRequest: true, SetRequest: true, InformRequest: true,
+		GetResponse: false, Trap: false, SNMPv2Trap: false, Report: false, Sequence: false,
+	}
+	got := make(map[PDUType]bool, len(want))
+	for pdu := range want {
+		got[pdu] = pdu.confirmed()
+	}
+	assert.Equal(t, want, got)
 }

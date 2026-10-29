@@ -131,6 +131,16 @@ const (
 
 //go:generate go tool -modfile=tools/go.mod stringer -type=PDUType
 
+// confirmed reports whether t is a PDU of the Confirmed Class (RFC 3411
+// section 2.8.2): a request or an inform, which its receiver answers.
+func (t PDUType) confirmed() bool {
+	switch t {
+	case GetRequest, GetNextRequest, GetBulkRequest, SetRequest, InformRequest:
+		return true
+	}
+	return false
+}
+
 // SafeString formats the packet for logs, with the SafeString of its
 // security parameters, which leaves the passphrases and keys out; the
 // community is in it.

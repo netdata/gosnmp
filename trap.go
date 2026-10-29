@@ -29,10 +29,10 @@ import (
 // localized to; the user must have the protocols the message asks for
 // (ErrUnknownSecurityLevel); a message that asks for authentication must
 // carry a digest that checks with the user's key, localized to the message's
-// engine ID (ErrWrongDigest); an authenticated message whose reportable flag
-// is clear, a trap, not an inform, must be in the time window of its engine
-// (ErrNotInTimeWindow, see the package documentation); a message is decrypted
-// exactly when it asks for privacy (ErrDecryption). Then the receiver's
+// engine ID (ErrWrongDigest); a message is decrypted exactly when it asks for
+// privacy (ErrDecryption); an authenticated message whose PDU is not a request
+// or an inform, a trap, must be in the time window of its engine
+// (ErrNotInTimeWindow, see the package documentation). Then the receiver's
 // minimum level applies (ErrUnknownSecurityLevel): a table set or the single
 // user with an authentication protocol accepts only authenticated messages;
 // the single user also requires the level of the client's MsgFlags, unless
@@ -152,16 +152,17 @@ type trapRule struct {
 }
 
 // trapStep is how far an SNMPv3 trap got through decodeTrapV3 with one set:
-// the steps of RFC 3414 section 3.2 from step 4 on, the minimum level, the
-// PDU. A local failure counts at the step it occurred in.
+// the steps of RFC 3414 section 3.2 from step 4 on (step 7 after step 8, which
+// reveals the PDU type it depends on), the minimum level, the PDU. A local
+// failure counts at the step it occurred in.
 type trapStep uint8
 
 const (
 	stepUser trapStep = iota
 	stepLevel
 	stepDigest
-	stepTimeliness
 	stepPrivacy
+	stepTimeliness
 	stepMinimum
 	stepPDU
 )
@@ -169,8 +170,9 @@ const (
 // decodeTrapV3 decodes the SNMPv3 trap whose header is in result and w with
 // sp, a private copy of the receiver's parameters, and returns how far it
 // got: the security processing from RFC 3414 section 3.2 step 4 on, by the
-// message's flags, the minimum level of rule and sp, then the scoped PDU and
-// the PDU.
+// message's flags, with step 7 by the class of the decrypted PDU (RFC 3412
+// section 6.4: the PDU type, not the reportable flag, decides once the PDU
+// decodes), the minimum level of rule and sp, then the PDU.
 func decodeTrapV3(trap []byte, w v3Wire, result *SnmpPacket, sp *UsmSecurityParameters, rule trapRule) (trapStep, error) {
 	if rule.singleUser && w.userName != sp.UserName {
 		return stepUser, errUnknownUser
@@ -188,15 +190,18 @@ func decodeTrapV3(trap []byte, w v3Wire, result *SnmpPacket, sp *UsmSecurityPara
 		if err = in.verify(); err != nil {
 			return stepDigest, err
 		}
-		if flags&Reportable == 0 {
-			if err = trapEngineTimes.admit(keyOf(sp), sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime); err != nil {
-				return stepTimeliness, err
-			}
-		}
 	}
 	scoped, cursor, err := in.scopedPDU(result)
 	if err != nil {
 		return stepPrivacy, err
+	}
+	// Step 7 b, for a message whose sender is the authoritative engine: any
+	// but a Confirmed-class one (an inform), whose receiver is, and whose time
+	// the library does not keep. A PDU that does not decode fails below.
+	if flags.authFlag() && (cursor >= len(scoped) || !PDUType(scoped[cursor]).confirmed()) {
+		if err = trapEngineTimes.admit(keyOf(sp), sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime); err != nil {
+			return stepTimeliness, err
+		}
 	}
 	if auth, priv := minimum.authFlag() && !flags.authFlag(), minimum.privFlag() && !flags.privFlag(); auth || priv {
 		return stepMinimum, errBelowMinimum

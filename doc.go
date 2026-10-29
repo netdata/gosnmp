@@ -218,9 +218,10 @@
 // and the minimum level a receiver requires. The library does not listen for
 // traps or answer informs.
 //
-// An authenticated SNMPv3 message whose reportable flag is clear, as a trap's
-// is (RFC 3412 section 6.4), must be in the time window of its engine (RFC
-// 3414 section 3.2 step 7 b), or it is rejected with [ErrNotInTimeWindow]. For
+// An authenticated SNMPv3 trap, any message whose PDU is not of the Confirmed
+// Class (a request or an inform), whatever its reportable flag (RFC 3412
+// section 6.4), must be in the time window of its engine (RFC 3414 section 3.2
+// step 7 b), or it is rejected with [ErrNotInTimeWindow]. For
 // each engine and credential that authenticated a trap, the package keeps the
 // latest engine boots and time received and when, for all clients: a trap
 // newer than the latest updates them and is accepted; one with lower boots, an
@@ -229,15 +230,13 @@
 // an exact copy of a trap is rejected after 150 seconds. Like snmptrapd, a
 // receiver then loses the traps of a device whose engine time does not advance
 // in real time, whose boots do not increase when it restarts, or that shares
-// its engine ID with another, until the process restarts. Messages with the
-// reportable flag, as informs, are neither checked nor recorded (an inform's
-// receiver is the authoritative engine, whose time the library does not keep),
-// so neither is a trap a sender marks reportable against RFC 3412; nor are
-// unauthenticated traps. The package keeps at most 65536 records, replacing
-// the least recently updated one, of whatever engine and credential: a holder
-// of one credential who sends traps from that many engine IDs makes the
-// package forget another credential's records, whose traps it then accepts
-// as first contacts.
+// its engine ID with another, until the process restarts. Informs are neither
+// checked nor recorded (an inform's receiver is the authoritative engine,
+// whose time the library does not keep), nor are unauthenticated traps. The
+// package keeps at most 65536 records, replacing the least recently updated
+// one, of whatever engine and credential: a holder of one credential who sends
+// traps from that many engine IDs makes the package forget another
+// credential's records, whose traps it then accepts as first contacts.
 //
 // # Errors
 //
