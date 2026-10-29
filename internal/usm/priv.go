@@ -68,8 +68,8 @@ func (p Priv) CheckKey(key []byte) error {
 }
 
 // CheckUse returns why the process cannot encrypt or decrypt with key, apart
-// from what a message carries: a key CheckKey refuses, or AES-CFB in FIPS
-// 140-only mode.
+// from what a message carries: a key CheckKey refuses, or a cipher FIPS
+// 140-only mode refuses (AES-CFB, DES).
 func (p Priv) CheckUse(key []byte) error {
 	if err := p.CheckKey(key); err != nil {
 		return err
@@ -77,10 +77,18 @@ func (p Priv) CheckUse(key []byte) error {
 	return p.allowed()
 }
 
-// allowed returns the error of AES-CFB in FIPS 140-only mode.
+// allowed returns why FIPS 140-only mode refuses the cipher: AES-CFB by this
+// package's rule, DES by crypto/des, whose own refusal it returns.
 func (p Priv) allowed() error {
-	if p.Cipher == AESCFB && fips140.Enforced() {
+	if !fips140.Enforced() {
+		return nil
+	}
+	switch p.Cipher {
+	case AESCFB:
 		return errCFBNotAllowed
+	case DESCBC:
+		_, err := des.NewCipher(make([]byte, des.BlockSize))
+		return err
 	}
 	return nil
 }

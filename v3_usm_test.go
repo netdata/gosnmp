@@ -763,35 +763,66 @@ func TestUSMFIPS140OnlyDigest(t *testing.T) {
 }
 
 // TestUSMFIPS140OnlyDecrypt checks, when run with GODEBUG=fips140=only, that
-// a receiver refusing AES-CFB rejects an authPriv trap made with enforcement
-// off with the refusal, a local failure that unwraps to no RFC 3414 error
-// (not ErrDecryption: the message is not at fault), after checking its digest.
+// a receiver whose privacy cipher the mode refuses (DES, AES-CFB) rejects an
+// authPriv message made with enforcement off with the refusal, a local
+// failure that unwraps to no RFC 3414 error (not ErrDecryption: the message is
+// not at fault), after checking its digest: on the trap paths, the raw decode
+// and a reply, for every privacy protocol.
 func TestUSMFIPS140OnlyDecrypt(t *testing.T) {
 	useEngineTimes(t)
 	if !fips140.Enforced() {
 		t.Skip("run with GODEBUG=fips140=only")
 	}
-	sp := &UsmSecurityParameters{
-		UserName: "codec-user", AuthoritativeEngineID: usmCharEngineID,
-		AuthenticationProtocol: SHA256, AuthenticationPassphrase: "codec-auth-pass",
-		PrivacyProtocol: AES, PrivacyPassphrase: "codec-priv-pass",
-	}
-	var data []byte
-	fips140.WithoutEnforcement(func() {
-		require.NoError(t, sp.InitSecurityKeys())
-		var err error
-		data, err = (&SnmpPacket{
-			Version: Version3, MsgFlags: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy(),
-			PDUType: SNMPv2Trap, Variables: usmCharVarbinds,
-		}).MarshalMsg()
-		require.NoError(t, err)
-	})
-
-	x := &GoSNMP{Version: Version3, MsgFlags: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy()}
-	_, err := x.UnmarshalTrap(bytes.Clone(data), false)
-	require.ErrorContains(t, err, "not allowed in FIPS 140-only mode")
-	for _, category := range []error{ErrDecryption, ErrWrongDigest, ErrInvalidMsgs} {
-		assert.NotErrorIs(t, err, category)
+	for _, priv := range usmPrivProtocols[1:] {
+		t.Run(priv.String(), func(t *testing.T) {
+			sp := &UsmSecurityParameters{
+				UserName: "codec-user", AuthoritativeEngineID: usmCharEngineID,
+				AuthenticationProtocol: SHA256, AuthenticationPassphrase: "codec-auth-pass",
+				PrivacyProtocol: priv, PrivacyPassphrase: "codec-priv-pass",
+			}
+			var trap, reply []byte
+			fips140.WithoutEnforcement(func() {
+				require.NoError(t, sp.InitSecurityKeys())
+				var err error
+				trap, err = (&SnmpPacket{
+					Version: Version3, MsgFlags: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy(),
+					PDUType: SNMPv2Trap, Variables: usmCharVarbinds,
+				}).MarshalMsg()
+				require.NoError(t, err)
+				reply, err = (&SnmpPacket{
+					Version: Version3, MsgFlags: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy(),
+					MsgID: 7, PDUType: GetResponse, RequestID: 1, Variables: usmCharVarbinds,
+				}).MarshalMsg()
+				require.NoError(t, err)
+			})
+			client := func() *GoSNMP {
+				return &GoSNMP{Version: Version3, MsgFlags: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy()}
+			}
+			paths := map[string]func() error{
+				"single": func() error { _, err := client().UnmarshalTrap(bytes.Clone(trap), false); return err },
+				"table": func() error {
+					tb := NewSnmpV3SecurityParametersTable(Logger{})
+					require.NoError(t, tb.Add("codec-user", sp.Copy()))
+					_, err := (&GoSNMP{Version: Version3, TrapSecurityParametersTable: tb}).UnmarshalTrap(bytes.Clone(trap), false)
+					return err
+				},
+				"raw": func() error { _, err := client().SnmpDecodePacket(bytes.Clone(trap)); return err },
+				"reply": func() error {
+					req := &SnmpPacket{Version: Version3, MsgFlags: AuthPriv | Reportable, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy(), MsgID: 7}
+					_, _, err := (&exchange{x: client(), packet: req}).decode(reply)
+					return err
+				},
+			}
+			for name, decode := range paths {
+				t.Run(name, func(t *testing.T) {
+					err := decode()
+					require.ErrorContains(t, err, "not allowed in FIPS 140-only mode")
+					for _, category := range []error{ErrDecryption, ErrWrongDigest, ErrInvalidMsgs} {
+						assert.NotErrorIs(t, err, category)
+					}
+				})
+			}
+		})
 	}
 }
 
