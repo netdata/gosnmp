@@ -2197,6 +2197,9 @@ decode: error (ErrUnknownSecurityModels)
 == crafted/v3/parse/security-model-octet-string
 decode: error (ErrUnknownSecurityModels)
 
+== crafted/v3/parse/security-model-null
+decode: error (ErrUnknownSecurityModels)
+
 == crafted/v3/parse/security-model-absent
 decode: error (ErrUnknownSecurityModels)
 
@@ -2332,6 +2335,30 @@ version: 3 (3)
 community: ""
 v3: msg-id=42 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=78a91604eb0509767fe4cc76 priv-params=0000000000000001
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: 30818d020103300e02012a020300ffe30401030201030440303e041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040c4950d0f2b8200b4dd30d9164040800000000000000010436cdfd70ed7da6078b60e0f621da87c222f187f9362893efe46f7bd6cb090806e019640bcef16def38545821d4e055eea35fa37fa83b0c
+unmarshal-trap: ok
+
+== crafted/v3/parse/encrypted-scoped-pdu-trailing-octets
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=7c249a518b70267f2b549d26 priv-params=0000000000000001
+pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
+reencode: 30818d020103300e02012a020300ffe30401030201030440303e041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040c4950d0f2b8200b4dd30d9164040800000000000000010436cdfd70ed7da6078b60e0f621da87c222f187f9362893efe46f7bd6cb090806e019640bcef16def38545821d4e055eea35fa37fa83b0c
+unmarshal-trap: ok
+
+== crafted/v3/parse/encrypted-scoped-pdu-not-sequence
+decode: ok
+version: 3 (3)
+community: ""
+v3: msg-id=42 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=762810f01abcd775f3a10a72 priv-params=0000000000000001
 pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5

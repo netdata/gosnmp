@@ -55,6 +55,7 @@ func decodeV3ParseCases() []decodeCase {
 		{name: "crafted/v3/parse/security-model-minus-253", in: withModel(intTLV(-253))},
 		{name: "crafted/v3/parse/security-model-0", in: withModel(intTLV(0))},
 		{name: "crafted/v3/parse/security-model-octet-string", in: withModel(octets("\x03"))},
+		{name: "crafted/v3/parse/security-model-null", in: withModel(tlv(byte(Null)))},
 		{name: "crafted/v3/parse/security-model-absent", in: msg(tlv(0x30, intTLV(42), intTLV(65507), octets("\x00")), tlv(byte(OctetString), usm), scoped)},
 		// Another model and privacy without authentication: the model is
 		// checked first (RFC 3412 section 7.2 step 4 before step 5).
@@ -98,6 +99,18 @@ func decodeV3ParseCases() []decodeCase {
 		{name: "crafted/v3/parse/encrypted-scoped-pdu", in: encryptedV3(scoped, encryptedData(0)), decoder: localizedPriv},
 		{name: "crafted/v3/parse/encrypted-scoped-pdu-over-declared", in: encryptedV3(scoped, encryptedData(5)), decoder: localizedPriv},
 		{name: "crafted/v3/parse/encrypted-scoped-pdu-under-declared", in: encryptedV3(scoped, encryptedData(-5)), decoder: localizedPriv},
+		{
+			name: "crafted/v3/parse/encrypted-scoped-pdu-trailing-octets",
+			in: encryptedV3(scoped, func(ciphertext []byte) []byte {
+				return cat(header(byte(OctetString), len(ciphertext)), ciphertext, bytes.Repeat([]byte{0x5a}, 16))
+			}),
+			decoder: localizedPriv,
+		},
+		{
+			name:    "crafted/v3/parse/encrypted-scoped-pdu-not-sequence",
+			in:      encryptedV3(tlv(byte(OctetString), craftedEngineID, octets("ctx"), craftedPDU(GetResponse, craftedVBL(craftedVB(intTLV(5))))), encryptedData(0)),
+			decoder: localizedPriv,
+		},
 		{
 			name:    "crafted/v3/parse/encrypted-context-engine-id-integer",
 			in:      encryptedV3(tlv(0x30, intTLV(1), octets("ctx"), craftedPDU(GetResponse, craftedVBL(craftedVB(intTLV(5))))), encryptedData(0)),
