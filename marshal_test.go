@@ -1524,7 +1524,7 @@ func TestUnmarshalEmptyPanic(t *testing.T) {
 	in := []byte{}
 	res := new(SnmpPacket)
 
-	_, err := newTestGoSNMP().unmarshalHeader(in, res)
+	_, _, err := unmarshalHeader(in, res)
 	if err == nil {
 		t.Errorf("unmarshalHeader did not gracefully detect empty packet")
 	}
@@ -1691,7 +1691,7 @@ func serveGetResponses(t *testing.T, srvr *net.UDPConn, x *GoSNMP, send func(rep
 		req := buf[:n]
 
 		var reqPkt SnmpPacket
-		cursor, err := x.unmarshalHeader(req, &reqPkt)
+		cursor, _, err := unmarshalHeader(req, &reqPkt)
 		if err != nil {
 			t.Errorf("error: %s", err)
 		}

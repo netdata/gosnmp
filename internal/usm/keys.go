@@ -54,6 +54,13 @@ func (c *Cache) Enabled() bool {
 	return c.keys != nil
 }
 
+// Len returns the number of password-to-key results the cache holds.
+func (c *Cache) Len() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return len(c.keys)
+}
+
 // LocalizedKey returns passphrase localized to engineID with hash h (RFC 3414
 // appendix A.2.2): the hash of the password-to-key result, the engine ID and
 // the password-to-key result again. An empty passphrase is an error.

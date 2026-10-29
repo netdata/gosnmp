@@ -90,7 +90,10 @@ func TestCacheKeys(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, want, got, "%v %s", k.hash, k.password)
 		}
+		assert.Equal(t, len(keys), c.Len(), "one result per hash and password")
 	}
+	c.SetEnabled(false)
+	assert.Zero(t, c.Len())
 }
 
 // blockingHash holds its first Write until release is closed, after closing

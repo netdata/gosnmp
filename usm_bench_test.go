@@ -90,3 +90,32 @@ func BenchmarkUSMDecode(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkUSMDecodeTable measures UnmarshalTrap of a secured SNMPv3 trap
+// through a credentials table whose user has two parameter sets, the second
+// one decoding it: keys localized to another engine ID without passphrases
+// first, then the sender's credentials.
+func BenchmarkUSMDecodeTable(b *testing.B) {
+	for _, priv := range usmBenchPrivProtocols {
+		b.Run(priv.String(), func(b *testing.B) {
+			data := usmCharTrap(b, priv, usmCharVarbinds)
+			table := NewSnmpV3SecurityParametersTable(Logger{})
+			other := usmDecoder(SHA, "codec-auth-pass", priv, "codec-priv-pass")().SecurityParameters.(*UsmSecurityParameters)
+			if err := table.Add("codec-user", usmKeysOnly(other, usmOtherEngineID)); err != nil {
+				b.Fatal(err)
+			}
+			if err := table.Add("codec-user", usmDecoder(SHA, "codec-auth-pass", priv, "codec-priv-pass")().SecurityParameters); err != nil {
+				b.Fatal(err)
+			}
+			x := &GoSNMP{Version: Version3, TrapSecurityParametersTable: table}
+			in := make([]byte, len(data))
+			b.ReportAllocs()
+			for b.Loop() {
+				copy(in, data)
+				if _, err := x.UnmarshalTrap(in, false); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}

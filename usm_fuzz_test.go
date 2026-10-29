@@ -6,9 +6,7 @@ package gosnmp
 
 import (
 	"bytes"
-	"fmt"
 	"runtime/debug"
-	"strings"
 	"testing"
 	"time"
 
@@ -60,9 +58,9 @@ func usmFuzzPairs() []usmFuzzPair {
 // first argument selects: SnmpDecodePacket, which decrypts without checking
 // the digest, and UnmarshalTrap for a single user and through a credentials
 // table, the latter also with keys localized to another engine ID and no
-// passphrases. Each must return within a second and must not panic, except
-// for the known bugs v3DecodeKnownPanic names. Seeds are a secured trap for every
-// pair and malformed variants of it.
+// passphrases. Each must return within a second, must not panic and must not
+// write into its input. Seeds are a secured trap for every pair and malformed
+// variants of it.
 func FuzzDecodeV3(f *testing.F) {
 	pairs := usmFuzzPairs()
 	index := make(map[usmFuzzPair]uint8, len(pairs))
@@ -141,12 +139,13 @@ func FuzzDecodeV3(f *testing.F) {
 
 		for _, r := range receivers {
 			start := time.Now()
-			// No spare capacity: the decoders write into the input.
+			// No spare capacity, so a write past the input panics.
 			in := bytes.Clone(data)[:len(data):len(data)]
 			if v, stack := recoverPanic(func() { _ = r.decode(in) }); v != nil {
-				if bug := v3DecodeKnownPanic(r.name, p, data, v, stack); bug == "" {
-					t.Fatalf("%s with %v/%v credentials panicked: %v\ninput: %x\n%s", r.name, p.auth, p.priv, v, data, stack)
-				}
+				t.Fatalf("%s with %v/%v credentials panicked: %v\ninput: %x\n%s", r.name, p.auth, p.priv, v, data, stack)
+			}
+			if !bytes.Equal(in, data) {
+				t.Fatalf("%s with %v/%v credentials wrote into its input: %x", r.name, p.auth, p.priv, data)
 			}
 			if e := time.Since(start); e > time.Second {
 				t.Errorf("%s took %s", r.name, e)
@@ -165,56 +164,4 @@ func recoverPanic(fn func()) (v any, stack string) {
 	}()
 	fn()
 	return nil, ""
-}
-
-// panicSite returns the function that panicked, from a goroutine stack: the
-// first frame below the panic call outside the runtime.
-func panicSite(stack string) string {
-	lines := strings.Split(stack, "\n")
-	for i, l := range lines {
-		if !strings.HasPrefix(l, "panic(") {
-			continue
-		}
-		for _, frame := range lines[i+1:] {
-			if frame == "" || strings.HasPrefix(frame, "\t") || strings.HasPrefix(frame, "runtime.") {
-				continue
-			}
-			if j := strings.LastIndex(frame, "("); j > 0 {
-				return frame[:j]
-			}
-			return frame
-		}
-	}
-	return ""
-}
-
-// v3DecodeKnownPanic names the known bug behind a FuzzDecodeV3 panic, by the
-// function that panicked, the runtime error and the input that leads there,
-// or returns "" for an unknown panic. Fixing a bug removes its case; each is
-// also pinned by TestUSMTrapUnauthenticated or TestUSMAuthFieldZeroing.
-func v3DecodeKnownPanic(receiver string, p usmFuzzPair, data []byte, v any, stack string) string {
-	msg := fmt.Sprint(v)
-
-	switch strings.TrimPrefix(panicSite(stack), "github.com/netdata/gosnmp.") {
-	// The table path reads the user name from the security parameters of a
-	// header that failed to decode before they were set.
-	case "(*GoSNMP).getTrapIdentifier":
-		id := new(SnmpPacket)
-		_, err := (&GoSNMP{}).unmarshalHeader(bytes.Clone(data), id)
-		if (receiver == fuzzTable || receiver == fuzzTableKeysOnly) && strings.Contains(msg, "nil pointer dereference") &&
-			id.Version == Version3 && err != nil && id.SecurityParameters == nil {
-			return "getTrapIdentifier on a nil SecurityParameters"
-		}
-
-	// Before any digest check, readAuthParams zeroes the expected digest
-	// length after the authentication parameters' first two octets, whatever
-	// the field's length, so it slices past the end of a short input.
-	case "(*UsmSecurityParameters).readAuthParams":
-		var n, c int
-		if _, err := fmt.Sscanf(msg, "runtime error: slice bounds out of range [:%d] with capacity %d", &n, &c); err == nil &&
-			n == 2+p.auth.spec().MACLen && c < n {
-			return "USM unmarshal zeroes the digest past the end of the input"
-		}
-	}
-	return ""
 }

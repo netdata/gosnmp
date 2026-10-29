@@ -27,9 +27,9 @@ func codecFuzzSeeds(tb testing.TB) [][]byte {
 	return seeds
 }
 
-// FuzzUnmarshal checks that SnmpDecodePacket returns quickly and does not
-// panic. Its corpus in testdata/fuzz/FuzzUnmarshal is also pinned by
-// TestDecodeCharacterization.
+// FuzzUnmarshal checks that SnmpDecodePacket returns quickly, does not panic
+// and does not write into its input. Its corpus in testdata/fuzz/FuzzUnmarshal
+// is also pinned by TestDecodeCharacterization.
 func FuzzUnmarshal(f *testing.F) {
 	for _, seed := range codecFuzzSeeds(f) {
 		f.Add(seed)
@@ -39,10 +39,14 @@ func FuzzUnmarshal(f *testing.F) {
 	vhandle.Logger = NewLogger(log.New(io.Discard, "", 0))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		stime := time.Now()
-		_, _ = vhandle.SnmpDecodePacket(data)
+		in := bytes.Clone(data)
+		_, _ = vhandle.SnmpDecodePacket(in)
 
 		if e := time.Since(stime); e > (time.Second * 1) {
 			t.Errorf("SnmpDecodePacket() took too long: %s", e)
+		}
+		if !bytes.Equal(in, data) {
+			t.Errorf("SnmpDecodePacket() wrote into its input: %x", data)
 		}
 	})
 }

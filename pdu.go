@@ -177,10 +177,12 @@ func readVersion(packet []byte) (SnmpVersion, int, error) {
 	return SnmpVersion(version.i), cursor, nil //nolint:gosec
 }
 
-// unmarshalHeader reads the message header: the version and, for SNMPv1 and
-// SNMPv2c, the community, or for SNMPv3 the header and security parameters.
-// It returns the offset of the PDU.
-func (x *GoSNMP) unmarshalHeader(packet []byte, response *SnmpPacket) (int, error) {
+// unmarshalHeader reads the message header into response: the version and,
+// for SNMPv1 and SNMPv2c, the community, or for SNMPv3 the header (parseV3),
+// whose USM fields it returns for security processing, also those that
+// decoded before an error. It returns the offset of the PDU, or of the scoped
+// PDU.
+func unmarshalHeader(packet []byte, response *SnmpPacket) (int, v3Wire, error) {
 	version, cursor, err := readVersion(packet)
 	// Known bug: a packet that is not too short to read presets the variables
 	// to an empty list, also when it then fails to decode.
@@ -188,16 +190,16 @@ func (x *GoSNMP) unmarshalHeader(packet []byte, response *SnmpPacket) (int, erro
 		response.Variables = make([]SnmpPDU, 0, 5)
 	}
 	if err != nil {
-		return 0, err
+		return 0, v3Wire{}, err
 	}
 	response.Version = version
 
 	if response.Version == Version3 {
-		cursor, err = x.unmarshalV3Header(packet, cursor, response)
+		w, err := parseV3(packet, cursor, response)
 		if err != nil {
-			return 0, err
+			return 0, w, err
 		}
-		return cursor, nil
+		return w.scoped, w, nil
 	}
 
 	r := ber.NewReader(packet[cursor:])
@@ -206,9 +208,9 @@ func (x *GoSNMP) unmarshalHeader(packet []byte, response *SnmpPacket) (int, erro
 		response.Community = v
 	}
 	if fr.err != nil {
-		return 0, fr.err
+		return 0, v3Wire{}, fr.err
 	}
-	return len(packet) - r.Len(), nil
+	return len(packet) - r.Len(), v3Wire{}, nil
 }
 
 // unmarshalPayload reads the PDU at packet[cursor:], which must span the rest

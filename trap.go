@@ -5,7 +5,6 @@
 package gosnmp
 
 import (
-	"bytes"
 	"fmt"
 )
 
@@ -14,25 +13,24 @@ import (
 // and does not compare the community: check PDUType and Community.
 //
 // An SNMPv3 message is decoded, when TrapSecurityParametersTable is set, with
-// the sets the table holds for its user name, each on a copy of trap, until
-// one decodes it; useResponseSecurityParameters is then always set. Otherwise
-// UnmarshalTrap derives the missing keys of SecurityParameters, so parameters
-// naming a protocol with neither a key nor a passphrase fail every message,
-// and decodes trap in place (see the package documentation) with a copy of
-// them. When the flags ask for authentication, a User-based Security Model
-// message must name the user and carry a digest that checks with the user's
-// key, localized to the engine ID the message names. Parameters with a key
-// given without its passphrase decode only messages naming the engine ID it
-// was localized to. The flags and the user are the client's, or, with
-// useResponseSecurityParameters, the message's own.
+// the sets the table holds for its user name, until one decodes it;
+// useResponseSecurityParameters is then always set. Otherwise UnmarshalTrap
+// derives the missing keys of SecurityParameters, so parameters naming a
+// protocol with neither a key nor a passphrase fail every message, and decodes
+// it with a copy of them. trap is not written (see the package documentation
+// for the values that alias it). The message must be of the User-based
+// Security Model; when the flags ask for authentication, it must name the user
+// and carry a digest that checks with the user's key, localized to the engine
+// ID the message names. Parameters with a key given without its passphrase
+// decode only messages naming the engine ID it was localized to. The flags and
+// the user are the client's, or, with useResponseSecurityParameters, the
+// message's own.
 //
 // Known bugs: these messages are accepted without the security their user
-// needs: one of another security model, and one with an empty user name and
-// engine ID, as in engine discovery, both unchecked; with
-// useResponseSecurityParameters, so on the table path, one without the
-// authentication flag; and one without privacy, for a client at authPriv (the
-// client's flags decide only whether a digest is checked). Some malformed
-// messages make it panic (see the package documentation).
+// needs: one with an empty user name and engine ID, as in engine discovery,
+// unchecked; with useResponseSecurityParameters, so on the table path, one
+// without the authentication flag; and one without privacy, for a client at
+// authPriv (the client's flags decide only whether a digest is checked).
 func (x *GoSNMP) UnmarshalTrap(trap []byte, useResponseSecurityParameters bool) (*SnmpPacket, error) {
 	version, _, err := readVersion(trap)
 	if err != nil {
@@ -41,89 +39,85 @@ func (x *GoSNMP) UnmarshalTrap(trap []byte, useResponseSecurityParameters bool) 
 	if x.TrapSecurityParametersTable != nil && version == Version3 {
 		return x.unmarshalTrapByUser(trap)
 	}
-	return x.unmarshalTrapBase(trap, nil, useResponseSecurityParameters)
+	return x.unmarshalTrapBase(trap, useResponseSecurityParameters)
 }
 
-// unmarshalTrapByUser decodes an SNMPv3 trap with the parameter sets the
-// table holds for its user name, in the order they were added, each with the
-// message's security parameters and on its own copy of the trap. The first
-// set that decodes it wins; when none does, the error wraps the last
-// attempt's.
+// unmarshalTrapByUser decodes an SNMPv3 trap, whose header it reads once,
+// with the parameter sets the table holds for its user name, in the order
+// they were added, each a private copy with the message's security
+// parameters. The first set that decodes it wins; when none does, the error
+// wraps the last attempt's.
 func (x *GoSNMP) unmarshalTrapByUser(trap []byte) (*SnmpPacket, error) {
-	identifier, err := x.getTrapIdentifier(trap)
+	var header SnmpPacket
+	_, w, err := unmarshalHeader(trap, &header)
 	if err != nil {
 		return nil, err
 	}
-	secParamsList, err := x.TrapSecurityParametersTable.Get(identifier)
+	secParamsList, err := x.TrapSecurityParametersTable.Get(w.userName)
 	if err != nil {
 		return nil, err
 	}
 	var lastErr error
 	for _, secParams := range secParamsList {
-		result, err := x.unmarshalTrapBase(bytes.Clone(trap), secParams.Copy(), true)
-		if err == nil {
+		// The attempts share the header's empty variable list: they run one
+		// after the other, and only the last one's result is kept.
+		result := new(SnmpPacket)
+		*result = header
+		if lastErr = x.decodeTrapV3(trap, w, result, secParams.Copy().usm(), true); lastErr == nil {
 			return result, nil
 		}
-		lastErr = err
 	}
 	return nil, fmt.Errorf("no credentials successfully unmarshaled trap: %w", lastErr)
 }
 
-// getTrapIdentifier returns the user name of an SNMPv3 message, the table key
-// of its parameter sets; a header that fails to decode after the user name
-// still gives it. Known bug: a header that fails before the security
-// parameters leaves them nil, and reading the user name panics.
-func (x *GoSNMP) getTrapIdentifier(trap []byte) (string, error) {
-	// Initialize a packet with no auth/priv to unmarshal ID/key for security parameters to use
-	packet := new(SnmpPacket)
-	_, err := x.unmarshalHeader(trap, packet)
-	// Return err if no identifier was able to be parsed after unmarshaling
-	userName := packet.SecurityParameters.usm().UserName
-	if err != nil && userName == "" {
-		return "", err
-	}
-	return userName, nil
-}
-
-// unmarshalTrapBase decodes trap in place with sp, or, when sp is nil, with a
-// copy of the client's security parameters, whose keys it derives first.
-// Known bug: the digest of an SNMPv3 message is checked only for the
-// User-based Security Model; a message of another model is decrypted, when
-// its scoped PDU is encrypted, and accepted.
-func (x *GoSNMP) unmarshalTrapBase(trap []byte, sp SnmpV3SecurityParameters, useResponseSecurityParameters bool) (*SnmpPacket, error) {
+// unmarshalTrapBase decodes trap with a copy of the client's security
+// parameters, whose keys it derives first.
+func (x *GoSNMP) unmarshalTrapBase(trap []byte, useResponseSecurityParameters bool) (*SnmpPacket, error) {
 	result := new(SnmpPacket)
-
-	if x.SecurityParameters != nil && sp == nil {
-		err := x.SecurityParameters.InitSecurityKeys()
-		if err != nil {
+	if x.SecurityParameters != nil {
+		if err := x.SecurityParameters.InitSecurityKeys(); err != nil {
 			return nil, err
 		}
 		result.SecurityParameters = x.SecurityParameters.Copy()
-	} else {
-		result.SecurityParameters = sp
 	}
 
-	cursor, err := x.unmarshalHeader(trap, result)
+	cursor, w, err := unmarshalHeader(trap, result)
 	if err != nil {
 		return nil, err
 	}
-
-	if result.Version == Version3 {
-		if result.SecurityModel == UserSecurityModel {
-			err = x.testAuthentication(trap, result, useResponseSecurityParameters)
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		trap, cursor, err = unmarshalScopedPDU(trap, cursor, result)
-		if err != nil {
+	if result.Version != Version3 {
+		if err := unmarshalPayload(trap, cursor, result); err != nil {
 			return nil, err
 		}
+		return result, nil
 	}
-	err = unmarshalPayload(trap, cursor, result)
-	if err != nil {
+
+	var sp *UsmSecurityParameters
+	if result.SecurityParameters != nil {
+		sp = result.SecurityParameters.usm()
+	} else {
+		sp = &UsmSecurityParameters{Logger: x.Logger}
+	}
+	if err := x.decodeTrapV3(trap, w, result, sp, useResponseSecurityParameters); err != nil {
 		return nil, err
 	}
 	return result, nil
+}
+
+// decodeTrapV3 decodes the SNMPv3 trap whose header is in result and w with
+// sp, a private copy of the receiver's parameters: the security processing,
+// then the scoped PDU and the PDU.
+func (x *GoSNMP) decodeTrapV3(trap []byte, w v3Wire, result *SnmpPacket, sp *UsmSecurityParameters, useResponseSecurityParameters bool) error {
+	in, err := receiveV3(trap, w, result, sp)
+	if err != nil {
+		return err
+	}
+	if err = x.testAuthentication(&in, result, useResponseSecurityParameters); err != nil {
+		return err
+	}
+	scoped, cursor, err := in.scopedPDU(result)
+	if err != nil {
+		return err
+	}
+	return unmarshalPayload(scoped, cursor, result)
 }
