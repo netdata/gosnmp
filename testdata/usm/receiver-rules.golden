@@ -330,8 +330,14 @@ ok
 == mixed sets/keys only, then passphrases/from other-engine
 ok
 
+== mixed sets/keys only, then passphrases/from codec-engine, wrong digest
+error: no credentials successfully unmarshaled trap: incoming packet is not authentic, discarding
+
 == mixed sets/passphrases, then keys only/from codec-engine
 ok
 
 == mixed sets/passphrases, then keys only/from other-engine
 ok
+
+== mixed sets/passphrases, then keys only/from codec-engine, wrong digest
+error: no credentials successfully unmarshaled trap: usm: without a passphrase, the authentication key cannot be localized to another engine ID

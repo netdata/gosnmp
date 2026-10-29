@@ -53,18 +53,21 @@ type mockAgentUnknownUserNames struct {
 	done                 chan struct{}
 	errs                 chan error
 	failAuthRequests     bool
-	omitEngineIDInReport bool // send usmStatsUnknownUserNames with empty AuthoritativeEngineID
+	omitEngineIDInReport bool   // send usmStatsUnknownUserNames with empty AuthoritativeEngineID
+	reportUserName       string // the user name of the usmStatsUnknownUserNames Report
 }
 
-func newMockAgentUnknownUserNames(t *testing.T, engineID string, boots, engineTime uint32) *mockAgentUnknownUserNames {
+// newMockAgentUnknownUserNames returns an agent with the engine
+// testDiscoveryEngineID, testDiscoveryEngineBoots and testDiscoveryEngineTime.
+func newMockAgentUnknownUserNames(t *testing.T) *mockAgentUnknownUserNames {
 	t.Helper()
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
 	require.NoError(t, err)
 	return &mockAgentUnknownUserNames{
 		conn:       conn,
-		engineID:   engineID,
-		boots:      boots,
-		engineTime: engineTime,
+		engineID:   testDiscoveryEngineID,
+		boots:      testDiscoveryEngineBoots,
+		engineTime: testDiscoveryEngineTime,
 		logger:     NewLogger(log.New(io.Discard, "", 0)),
 		done:       make(chan struct{}),
 		errs:       make(chan error, 16),
@@ -181,6 +184,7 @@ func (m *mockAgentUnknownUserNames) marshalUnknownUserNamesReport(req *SnmpPacke
 	if m.omitEngineIDInReport {
 		secParams.AuthoritativeEngineID = ""
 	}
+	secParams.UserName = m.reportUserName
 	pkt := &SnmpPacket{
 		Version:            Version3,
 		MsgFlags:           NoAuthNoPriv,
@@ -241,7 +245,7 @@ func newV3NoAuthClientForDiscoveryTest(port uint16) *GoSNMP {
 // themselves.
 func setupDiscoveryTest(t *testing.T) *GoSNMP {
 	t.Helper()
-	agent := newMockAgentUnknownUserNames(t, testDiscoveryEngineID, testDiscoveryEngineBoots, testDiscoveryEngineTime)
+	agent := newMockAgentUnknownUserNames(t)
 	go agent.serve()
 	t.Cleanup(func() { agent.closeAndCheck(t) })
 
@@ -308,7 +312,7 @@ func TestV3GetWithDiscoveryUnknownUserNames(t *testing.T) {
 // USM security parameters. Without a valid engine ID there is nothing useful to
 // extract, so the error must not be suppressed.
 func TestV3DiscoveryUnknownUserNamesNoEngineID(t *testing.T) {
-	agent := newMockAgentUnknownUserNames(t, testDiscoveryEngineID, testDiscoveryEngineBoots, testDiscoveryEngineTime)
+	agent := newMockAgentUnknownUserNames(t)
 	agent.omitEngineIDInReport = true
 	go agent.serve()
 	t.Cleanup(func() { agent.closeAndCheck(t) })
@@ -331,7 +335,7 @@ func TestV3DiscoveryUnknownUserNamesNoEngineID(t *testing.T) {
 // Discovery succeeds (the fix applies), but the subsequent Get fails because
 // the agent continues to reject the user on the actual request.
 func TestV3GetRealUnknownUserNameStillFails(t *testing.T) {
-	agent := newMockAgentUnknownUserNames(t, testDiscoveryEngineID, testDiscoveryEngineBoots, testDiscoveryEngineTime)
+	agent := newMockAgentUnknownUserNames(t)
 	// failAuthRequests must be set before serve() is started.
 	agent.failAuthRequests = true
 	go agent.serve()
@@ -344,4 +348,23 @@ func TestV3GetRealUnknownUserNameStillFails(t *testing.T) {
 	_, err := ts.Get([]string{".1.3.6.1.2.1.1.1.0"})
 	require.ErrorIs(t, err, ErrUnknownUsername,
 		"ErrUnknownUsername from a post-discovery request must not be suppressed")
+}
+
+// TestV3DiscoveryUnknownUserNamesOtherUser pins a discovery answered with a
+// usmStatsUnknownUserNames Report that names another user than the
+// discovery's empty one: the client takes the engine parameters it carries.
+func TestV3DiscoveryUnknownUserNamesOtherUser(t *testing.T) {
+	agent := newMockAgentUnknownUserNames(t)
+	agent.reportUserName = "other-user"
+	go agent.serve()
+	t.Cleanup(func() { agent.closeAndCheck(t) })
+
+	ts := newV3NoAuthClientForDiscoveryTest(agent.port())
+	require.NoError(t, ts.Connect())
+	t.Cleanup(func() { ts.Conn.Close() })
+
+	pkt := ts.MkSnmpPacket(GetRequest, nil, 0, 0)
+	err := ts.negotiateInitialSecurityParameters(new(ts.prepareRequest()), pkt)
+	require.NoError(t, err)
+	require.Equal(t, testDiscoveryEngineID, ts.SecurityParameters.usm().AuthoritativeEngineID)
 }
