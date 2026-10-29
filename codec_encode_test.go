@@ -467,8 +467,10 @@ func encodeCases(t *testing.T) []encodeCase {
 		{"oid/128-arcs", marshal(oidName(".1.3" + strings.Repeat(".1", 126)))},
 		{"oid/129-arcs", marshal(oidName(".1.3" + strings.Repeat(".1", 127)))},
 		{"oid/content-128", marshal(oidName(".1.3" + strings.Repeat(".129", 63) + ".1"))},
-		{"oid/second-arc-max-under-2", marshal(oidName(".2.4294967215"))},
-		{"oid/second-arc-over-max-under-2", marshal(oidName(".2.4294967216"))},
+		{"oid/first-packed-value-max-uint32", marshal(oidName(".2.4294967215"))},
+		{"oid/first-packed-value-over-uint32", marshal(oidName(".2.4294967216"))},
+		{"oid/second-arc-max-uint32", marshal(oidName(".2.4294967295"))},
+		{"oid/second-arc-over-uint32", marshal(oidName(".2.4294967296"))},
 
 		// v1 Trap.
 		{"v1-trap/basic", marshal(v1Trap(func(*SnmpTrap) {}))},
