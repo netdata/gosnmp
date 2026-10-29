@@ -141,7 +141,11 @@ func oidSubIdentifier(bytes []byte, initOffset int, limit uint64) (uint64, int, 
 
 // OID decodes the content octets of an OBJECT IDENTIFIER into dotted form
 // with a leading dot, such as ".1.3.6.1". Empty content decodes as ".0.0"
-// for compatibility with earlier versions of this library.
+// for compatibility with earlier versions of this library. Each arc may be up
+// to 2^32-1 (RFC 2578 section 3.5), so the first subidentifier, which packs the
+// first two arcs, may reach 2^32+79 (X.690 section 8.19.4). net-snmp v5.9.4
+// rejects any subidentifier above 2^32-1, the packed first one included, so it
+// cannot exchange an OID whose second arc under arc 2 exceeds 4294967215.
 func OID(src []byte) (string, error) {
 	if len(src) == 0 {
 		return ".0.0", nil
