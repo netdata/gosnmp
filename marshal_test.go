@@ -1942,13 +1942,9 @@ func TestMarshalVarbindRoundTrip(t *testing.T) {
 
 			// Parse OID
 			r := ber.NewReader(result[cursor:])
-			var fr fieldReader
-			parsedOID, ok := fr.string(&r, "OID")
-			if fr.err != nil {
-				t.Fatalf("reading the OID: %v", fr.err)
-			}
-			if !ok {
-				t.Fatal("OID did not decode to text")
+			parsedOID, err := readOID(&r)
+			if err != nil {
+				t.Fatalf("reading the OID: %v", err)
 			}
 			if parsedOID != tt.pdu.Name {
 				t.Errorf("OID mismatch: got %q, want %q", parsedOID, tt.pdu.Name)

@@ -5,6 +5,7 @@
 package gosnmp
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"slices"
@@ -250,9 +251,11 @@ func classFlags(level SnmpV3MsgFlags, pdu PDUType) SnmpV3MsgFlags {
 }
 
 // TestValueRules checks the value rules: a type with a rule encodes and one
-// without does not, and Set takes exactly the value types a manager writes:
-// those with a rule but the exceptions (noSuchObject, noSuchInstance,
-// endOfMibView), which only responses carry (RFC 3416 section 4.2.1).
+// without does not, the decoder reads what the encoder writes back to the same
+// type and a value that encodes the same, and Set takes exactly the value types
+// a manager writes: those with a rule but the exceptions (noSuchObject,
+// noSuchInstance, endOfMibView), which only responses carry (RFC 3416 section
+// 4.2.1).
 func TestValueRules(t *testing.T) {
 	sample := map[valueKind]any{
 		kindNull:        nil,
@@ -273,12 +276,26 @@ func TestValueRules(t *testing.T) {
 		case OpaqueDouble:
 			value = float64(1)
 		}
-		_, err := appendValue(nil, Asn1BER(tag), value)
+		out, err := appendValue(nil, Asn1BER(tag), value)
 		switch {
 		case rule.kind == kindNone && err == nil:
 			t.Errorf("%v: encodes without a rule", Asn1BER(tag))
 		case rule.kind != kindNone && err != nil:
 			t.Errorf("%v: %v", Asn1BER(tag), err)
+		case err == nil:
+			r := ber.NewReader(out)
+			wireTag, content, err := r.Next()
+			if err != nil {
+				t.Fatalf("%v: %x: %v", Asn1BER(tag), out, err)
+			}
+			typ, decoded, err := decodeValue(Asn1BER(wireTag), content)
+			if err != nil {
+				t.Fatalf("%v: decoding %x: %v", Asn1BER(tag), out, err)
+			}
+			again, err := appendValue(nil, typ, decoded)
+			if typ != Asn1BER(tag) || err != nil || !bytes.Equal(again, out) {
+				t.Errorf("%v: decodes as %v %#v, which encodes as %x (%v), not %x", Asn1BER(tag), typ, decoded, again, err, out)
+			}
 		}
 		wantSettable := rule.kind != kindNone && (rule.kind != kindNull || Asn1BER(tag) == Null)
 		if rule.settable != wantSettable {

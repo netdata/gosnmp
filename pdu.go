@@ -15,118 +15,146 @@ import (
 
 // -- Header fields ------------------------------------------------------------
 
-// fieldKind is the Go type a field decoded to.
-type fieldKind uint8
+// A message, PDU or SNMPv1 trap header field, or a varbind name, has one rule:
+// its tag, then its range once cut to 32 bits; a field that breaks it, or is
+// missing, fails the message. The reads take the reader as a parameter and
+// keep it nowhere, so that it stays on the caller's stack.
 
-const (
-	fieldNone   fieldKind = iota // an IpAddress with no octets
-	fieldInt                     // INTEGER
-	fieldString                  // OCTET STRING, OBJECT IDENTIFIER or a 4-octet IpAddress
-	fieldUint                    // TimeTicks
+// Errors of a header field that is missing or of another tag than its rule's.
+var (
+	errNoField    = errors.New("no field left to read")
+	errNotInteger = errors.New("not an INTEGER")
+	errNotOctets  = errors.New("not an OCTET STRING")
+	errNotOID     = errors.New("not an OBJECT IDENTIFIER")
 )
 
-// field is a message, PDU or v1 trap header field, or a varbind name,
-// decoded by its own tag. The decoders keep a field only when it decoded to
-// the kind they expect, but a field that fails to decode fails the packet.
-type field struct {
-	kind fieldKind
-	i    int
-	u    uint
-	s    string
+// readTagged reads the next field, which must have the tag want; a field of
+// another tag fails with notTag before its length is read.
+func readTagged(r *ber.Reader, want Asn1BER, notTag error) ([]byte, error) {
+	tag, ok := r.Peek()
+	switch {
+	case !ok:
+		return nil, errNoField
+	case Asn1BER(tag) != want:
+		return nil, notTag
+	}
+	_, content, err := r.Next()
+	return content, err
 }
 
-// readField reads the next field. Only INTEGER, OCTET STRING, OBJECT
-// IDENTIFIER, IpAddress and TimeTicks are fields; the tag is checked before
-// the length is parsed.
-func readField(r *ber.Reader) (field, error) {
-	tag, ok := r.Peek()
-	if !ok {
-		return field{}, errors.New("no field left to read")
+// readInt32 reads the next field, an INTEGER, cut to 32 bits (int32Value).
+func readInt32(r *ber.Reader) (int32, error) {
+	content, err := readTagged(r, Integer, errNotInteger)
+	if err != nil {
+		return 0, err
 	}
-	switch Asn1BER(tag) {
-	case Integer, OctetString, ObjectIdentifier, IPAddress, TimeTicks:
-	default:
-		return field{}, fmt.Errorf("unknown field type: %x", tag)
+	return int32Value(content)
+}
+
+// readOctets reads the next field, an OCTET STRING, whose content aliases the
+// input.
+func readOctets(r *ber.Reader) ([]byte, error) {
+	return readTagged(r, OctetString, errNotOctets)
+}
+
+// readOID reads the next field, an OBJECT IDENTIFIER, by the value rule
+// (ber.OID).
+func readOID(r *ber.Reader) (string, error) {
+	content, err := readTagged(r, ObjectIdentifier, errNotOID)
+	if err != nil {
+		return "", err
+	}
+	return ber.OID(content)
+}
+
+// readCount reads an error index or non-repeaters: an INTEGER (readInt32) that
+// is not negative, saturated at 255, the most their one-octet fields hold (RFC
+// 3416 allows up to 2147483647: a request of more than 255 varbinds can be
+// answered with a larger error index).
+func readCount(r *ber.Reader) (uint8, error) {
+	v, err := readInt32(r)
+	switch {
+	case err != nil:
+		return 0, err
+	case v < 0:
+		return 0, fmt.Errorf("%d is negative", v)
+	case v > math.MaxUint8:
+		return math.MaxUint8, nil
+	}
+	return uint8(v), nil
+}
+
+// readAgentAddress reads an SNMPv1 trap's agent address (RFC 1157's
+// NetworkAddress) as dotted text: an IpAddress of four octets, or an OCTET
+// STRING of four octets, as some agents send it; an empty IpAddress, from
+// buggy agents, reads as "".
+func readAgentAddress(r *ber.Reader) (string, error) {
+	tag, ok := r.Peek()
+	switch {
+	case !ok:
+		return "", errNoField
+	case Asn1BER(tag) != IPAddress && Asn1BER(tag) != OctetString:
+		return "", errors.New("not an IpAddress or OCTET STRING")
+	}
+	_, content, err := r.Next()
+	switch {
+	case err != nil:
+		return "", err
+	case len(content) == 4:
+		return net.IP(content).String(), nil
+	case len(content) == 0 && Asn1BER(tag) == IPAddress:
+		return "", nil
+	}
+	return "", fmt.Errorf("%d octets, not 4", len(content))
+}
+
+// readTimestamp reads an SNMPv1 trap's time-stamp: a TimeTicks, or another
+// unsigned tag of 32 bits as net-snmp v5.9.4 takes, cut to 32 bits
+// (unsigned32); empty content is an error.
+func readTimestamp(r *ber.Reader) (uint32, error) {
+	tag, ok := r.Peek()
+	switch {
+	case !ok:
+		return 0, errNoField
+	case valueRules[tag].kind != kindUnsigned32:
+		return 0, errors.New("not TimeTicks or another unsigned type")
 	}
 	_, content, err := r.Next()
 	if err != nil {
-		return field{}, err
+		return 0, err
 	}
+	v, ok := unsigned32(content)
+	if !ok {
+		return 0, fmt.Errorf("%d octets, not 1 to 8 or 9 with a leading zero", len(content))
+	}
+	return v, nil
+}
 
+// readName reads a varbind name: an OBJECT IDENTIFIER by the value rule, or,
+// as some devices send it, an OCTET STRING or an IpAddress of four octets,
+// kept as text.
+func readName(r *ber.Reader) (string, error) {
+	tag, ok := r.Peek()
+	if !ok {
+		return "", errNoField
+	}
 	switch Asn1BER(tag) {
-	case Integer:
-		i, err := parseInt(content)
-		if err != nil {
-			return field{}, fmt.Errorf("unable to parse raw INTEGER: %w", err)
-		}
-		return field{kind: fieldInt, i: i}, nil
-	case OctetString:
-		return field{kind: fieldString, s: string(content)}, nil
-	case ObjectIdentifier:
-		oid, err := ber.OID(content)
-		if err != nil {
-			return field{}, err
-		}
-		return field{kind: fieldString, s: oid}, nil
-	case IPAddress:
-		switch len(content) {
-		case 0: // real life, buggy devices returning bad data
-			return field{kind: fieldNone}, nil
-		case 4:
-			return field{kind: fieldString, s: net.IP(content).String()}, nil
-		default:
-			return field{}, fmt.Errorf("got ipaddress len %d, expected 4", len(content))
-		}
-	default: // TimeTicks
-		u, err := parseUint(content)
-		if err != nil {
-			return field{}, fmt.Errorf("error in parseUint: %w", err)
-		}
-		return field{kind: fieldUint, u: u}, nil
+	case ObjectIdentifier, OctetString, IPAddress:
+	default:
+		return "", errors.New("not an OBJECT IDENTIFIER or text")
 	}
-}
-
-// fieldReader reads header fields in order: each read returns the value and
-// whether the field decoded to the expected kind. The first failure is kept
-// in err as "error parsing <name>: <cause>", and every read after it returns
-// false without reading, so a decoder checks err once after its reads, and
-// before anything that must not run after a failure. The reader is passed to
-// each read rather than kept here: escape analysis tracks a struct as one
-// value, so returning err would move a reader kept beside it to the heap.
-type fieldReader struct {
-	err error
-}
-
-// int reads the next field; ok reports whether it is an INTEGER.
-func (fr *fieldReader) int(r *ber.Reader, name string) (v int, ok bool) {
-	f := fr.next(r, name)
-	return f.i, f.kind == fieldInt
-}
-
-// string reads the next field; ok reports whether it decoded to text.
-func (fr *fieldReader) string(r *ber.Reader, name string) (v string, ok bool) {
-	f := fr.next(r, name)
-	return f.s, f.kind == fieldString
-}
-
-// uint reads the next field; ok reports whether it is TimeTicks.
-func (fr *fieldReader) uint(r *ber.Reader, name string) (v uint, ok bool) {
-	f := fr.next(r, name)
-	return f.u, f.kind == fieldUint
-}
-
-// next reads the next field unless an earlier read failed; a failed or
-// skipped read returns the zero field, whose kind matches no read.
-func (fr *fieldReader) next(r *ber.Reader, name string) field {
-	if fr.err != nil {
-		return field{}
+	_, content, err := r.Next()
+	switch {
+	case err != nil:
+		return "", err
+	case Asn1BER(tag) == ObjectIdentifier:
+		return ber.OID(content)
+	case Asn1BER(tag) == OctetString:
+		return string(content), nil
+	case len(content) != 4:
+		return "", fmt.Errorf("an IpAddress of %d octets, not 4", len(content))
 	}
-	f, err := readField(r)
-	if err != nil {
-		fr.err = fmt.Errorf("error parsing %s: %w", name, err)
-		return field{}
-	}
-	return f
+	return net.IP(content).String(), nil
 }
 
 // readWhole reads the TLV that b must consist of and returns its content.
@@ -148,8 +176,8 @@ func readWhole(b []byte) ([]byte, error) {
 var errEmptyPacket = errors.New("cannot unmarshal empty packet")
 
 // readVersion reads the message SEQUENCE, which must span the whole packet,
-// and its version field. It returns the version and the offset of the field
-// after it. A version that is not an INTEGER reads as Version1.
+// and its version field, an INTEGER of SNMPv1 (0), SNMPv2c (1) or SNMPv3 (3).
+// It returns the version and the offset of the field after it.
 func readVersion(packet []byte) (SnmpVersion, int, error) {
 	if len(packet) < 2 {
 		return 0, 0, errEmptyPacket
@@ -163,18 +191,17 @@ func readVersion(packet []byte) (SnmpVersion, int, error) {
 	}
 
 	r := ber.NewReader(msg)
-	version, err := readField(&r)
+	version, err := readInt32(&r)
 	if err != nil {
 		return 0, 0, fmt.Errorf("error parsing SNMP packet version: %w", err)
+	}
+	if version != int32(Version1) && version != int32(Version2c) && version != int32(Version3) {
+		return 0, 0, fmt.Errorf("error parsing SNMP packet version: %d is not 0, 1 or 3", version)
 	}
 	if r.Len() == 0 {
 		return 0, 0, errors.New("error parsing SNMP packet: nothing after the version")
 	}
-	cursor := len(packet) - r.Len()
-	if version.kind != fieldInt {
-		return 0, cursor, nil
-	}
-	return SnmpVersion(version.i), cursor, nil //nolint:gosec
+	return SnmpVersion(version), len(packet) - r.Len(), nil //nolint:gosec // 0, 1 or 3
 }
 
 // unmarshalHeader reads the message header into response: the version and,
@@ -196,21 +223,19 @@ func unmarshalHeader(packet []byte, response *SnmpPacket) (int, v3Wire, error) {
 	response.Version = version
 
 	if response.Version == Version3 {
-		w, err := parseV3(packet, cursor, response)
-		if err != nil {
+		var w v3Wire
+		if w, err = parseV3(packet, cursor, response); err != nil {
 			return 0, w, v3ParseError(err)
 		}
 		return w.scoped, w, nil
 	}
 
 	r := ber.NewReader(packet[cursor:])
-	var fr fieldReader
-	if v, ok := fr.string(&r, "community string"); ok {
-		response.Community = v
+	community, err := readOctets(&r)
+	if err != nil {
+		return 0, v3Wire{}, fmt.Errorf("error parsing community string: %w", err)
 	}
-	if fr.err != nil {
-		return 0, v3Wire{}, fr.err
-	}
+	response.Community = string(community)
 	return len(packet) - r.Len(), v3Wire{}, nil
 }
 
@@ -244,71 +269,83 @@ func unmarshalPayload(packet []byte, cursor int, response *SnmpPacket) error {
 }
 
 // unmarshalResponse reads a PDU of pduType other than the SNMPv1 trap: the
-// request ID, the non-repeaters and max-repetitions of a GetBulkRequest or the
-// error status and index of any other PDU, and the varbinds. Fields of another
-// type than INTEGER are skipped; error status and index keep their low byte.
+// request ID, an Integer32 whose two's complement RequestID holds; the
+// non-repeaters (readCount) and the max-repetitions, not negative (RFC 3416), of
+// a GetBulkRequest, or the error status, 0..255, and the error index
+// (readCount) of any other PDU; and the varbinds. Fields read before an error
+// stay set.
 func unmarshalResponse(packet []byte, pduType PDUType, response *SnmpPacket) error {
 	pdu, err := readWhole(packet)
 	if err != nil {
 		return fmt.Errorf("error verifying Response sanity: %w", err)
 	}
 	r := ber.NewReader(pdu)
-	var fr fieldReader
 
-	if v, ok := fr.int(&r, "SNMP packet request ID"); ok {
-		response.RequestID = uint32(v) //nolint:gosec
+	requestID, err := readInt32(&r)
+	if err != nil {
+		return fmt.Errorf("error parsing SNMP packet request ID: %w", err)
 	}
+	response.RequestID = uint32(requestID) //nolint:gosec // the Integer32's two's complement
 	if pduType == GetBulkRequest {
-		if v, ok := fr.int(&r, "SNMP packet non repeaters"); ok {
-			response.NonRepeaters = uint8(v) //nolint:gosec
+		if response.NonRepeaters, err = readCount(&r); err != nil {
+			return fmt.Errorf("error parsing SNMP packet non repeaters: %w", err)
 		}
-		if v, ok := fr.int(&r, "SNMP packet max repetitions"); ok {
-			response.MaxRepetitions = uint32(v & math.MaxInt32)
+		maxRepetitions, err := readInt32(&r)
+		if err == nil && maxRepetitions < 0 {
+			err = fmt.Errorf("%d is negative", maxRepetitions)
 		}
+		if err != nil {
+			return fmt.Errorf("error parsing SNMP packet max repetitions: %w", err)
+		}
+		response.MaxRepetitions = uint32(maxRepetitions) //nolint:gosec // not negative
 	} else {
-		if v, ok := fr.int(&r, "SNMP packet error"); ok {
-			response.Error = SNMPError(v) //nolint:gosec
+		errorStatus, err := readInt32(&r)
+		if err == nil && (errorStatus < 0 || errorStatus > math.MaxUint8) {
+			err = fmt.Errorf("%d is outside 0..255", errorStatus)
 		}
-		if v, ok := fr.int(&r, "SNMP packet error index"); ok {
-			response.ErrorIndex = uint8(v) //nolint:gosec
+		if err != nil {
+			return fmt.Errorf("error parsing SNMP packet error: %w", err)
 		}
-	}
-	if fr.err != nil {
-		return fr.err
+		response.Error = SNMPError(errorStatus) //nolint:gosec // 0..255
+		if response.ErrorIndex, err = readCount(&r); err != nil {
+			return fmt.Errorf("error parsing SNMP packet error index: %w", err)
+		}
 	}
 	return unmarshalVBL(r.Rest(), response)
 }
 
-// unmarshalTrapV1 reads an SNMPv1 trap PDU: enterprise, agent address,
-// generic and specific trap, timestamp and the varbinds. Fields of another
-// type than expected are skipped; any text field fills enterprise and agent
-// address.
+// unmarshalTrapV1 reads an SNMPv1 trap PDU: the enterprise, an OBJECT
+// IDENTIFIER; the agent address (readAgentAddress); the generic and specific
+// trap, INTEGERs cut to 32 bits; the timestamp (readTimestamp); and the
+// varbinds. Fields read before an error stay set.
 func unmarshalTrapV1(packet []byte, response *SnmpPacket) error {
 	pdu, err := readWhole(packet)
 	if err != nil {
 		return fmt.Errorf("error verifying Response sanity: %w", err)
 	}
 	r := ber.NewReader(pdu)
-	var fr fieldReader
 
-	if v, ok := fr.string(&r, "SNMPv1 trap enterprise"); ok {
-		response.Enterprise = v
+	if response.Enterprise, err = readOID(&r); err != nil {
+		return fmt.Errorf("error parsing SNMPv1 trap enterprise: %w", err)
 	}
-	if v, ok := fr.string(&r, "SNMPv1 trap agent address"); ok {
-		response.AgentAddress = v
+	if response.AgentAddress, err = readAgentAddress(&r); err != nil {
+		return fmt.Errorf("error parsing SNMPv1 trap agent address: %w", err)
 	}
-	if v, ok := fr.int(&r, "SNMPv1 trap generic trap"); ok {
-		response.GenericTrap = v
+	generic, err := readInt32(&r)
+	if err != nil {
+		return fmt.Errorf("error parsing SNMPv1 trap generic trap: %w", err)
 	}
-	if v, ok := fr.int(&r, "SNMPv1 trap specific trap"); ok {
-		response.SpecificTrap = v
+	response.GenericTrap = int(generic)
+	specific, err := readInt32(&r)
+	if err != nil {
+		return fmt.Errorf("error parsing SNMPv1 trap specific trap: %w", err)
 	}
-	if v, ok := fr.uint(&r, "SNMPv1 trap timestamp"); ok {
-		response.Timestamp = v
+	response.SpecificTrap = int(specific)
+	timestamp, err := readTimestamp(&r)
+	if err != nil {
+		return fmt.Errorf("error parsing SNMPv1 trap timestamp: %w", err)
 	}
-	if fr.err != nil {
-		return fr.err
-	}
+	response.Timestamp = uint(timestamp)
 	return unmarshalVBL(r.Rest(), response)
 }
 
@@ -338,8 +375,8 @@ func unmarshalVBL(packet []byte, response *SnmpPacket) error {
 	return nil
 }
 
-// readVarbind reads the next varbind: a SEQUENCE of the name, any text field,
-// and the value TLV, which must span the rest of it.
+// readVarbind reads the next varbind: a SEQUENCE of the name (readName) and
+// the value TLV, which must span the rest of it.
 func readVarbind(r *ber.Reader) (SnmpPDU, error) {
 	if tag, _ := r.Peek(); PDUType(tag) != Sequence {
 		return SnmpPDU{}, fmt.Errorf("expected a sequence when unmarshalling a VB, got %x", tag)
@@ -350,12 +387,9 @@ func readVarbind(r *ber.Reader) (SnmpPDU, error) {
 	}
 
 	fields := ber.NewReader(vb)
-	name, err := readField(&fields)
+	name, err := readName(&fields)
 	if err != nil {
 		return SnmpPDU{}, fmt.Errorf("error parsing OID Value: %w", err)
-	}
-	if name.kind != fieldString {
-		return SnmpPDU{}, errors.New("varbind name is not an OBJECT IDENTIFIER or text")
 	}
 
 	value := fields.Rest()
@@ -369,15 +403,15 @@ func readVarbind(r *ber.Reader) (SnmpPDU, error) {
 	tag := Asn1BER(value[0])
 	// Some MikroTik responses overdeclare OctetString lengths by one byte.
 	// The enclosing varbind provides the content boundary for this case.
-	overdeclared := tag == OctetString && length == len(value)+1
-	if length != len(value) && !overdeclared {
+	overdeclared := tag == OctetString && length == uint64(len(value))+1
+	if length != uint64(len(value)) && !overdeclared {
 		return SnmpPDU{}, fmt.Errorf("value TLV length mismatch in varbind (TLV %d, remaining %d)", length, len(value))
 	}
 	typ, val, err := decodeValue(tag, value[header:])
 	if err != nil {
 		return SnmpPDU{}, fmt.Errorf("error decoding value: %w", err)
 	}
-	return SnmpPDU{Name: name.s, Type: typ, Value: val}, nil
+	return SnmpPDU{Name: name, Type: typ, Value: val}, nil
 }
 
 // marshalMsg encodes the message: a SEQUENCE of the version, then the

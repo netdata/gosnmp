@@ -1101,8 +1101,9 @@ func authParamsOffset(t *testing.T, data []byte) int {
 	t.Helper()
 	r := ber.NewReader(data)
 	enter := func() {
-		_, err := r.SkipHeader()
+		_, header, err := ber.Length(r.Rest())
 		require.NoError(t, err)
+		r = ber.NewReader(r.Rest()[header:])
 	}
 	skip := func(n int) {
 		for range n {

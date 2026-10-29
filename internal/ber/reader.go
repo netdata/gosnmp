@@ -4,12 +4,16 @@
 
 package ber
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
-// Errors returned by Reader.Next besides those of Length.
+// Errors returned by Reader.Next besides those of Length. ErrTruncated, which
+// Length returns too, unwraps to ErrInvalidPacketLength.
 var (
 	ErrEmpty     = errors.New("no TLV left to read")
-	ErrTruncated = errors.New("TLV length exceeds the remaining input")
+	ErrTruncated = fmt.Errorf("%w: TLV length exceeds the remaining input", ErrInvalidPacketLength)
 )
 
 // Reader reads consecutive TLVs from a byte slice. A TLV's content is read
@@ -52,28 +56,10 @@ func (r *Reader) Next() (tag byte, content []byte, err error) {
 	if err != nil {
 		return 0, nil, err
 	}
-	if length > len(r.b) {
+	if length > uint64(len(r.b)) {
 		return 0, nil, ErrTruncated
 	}
 	tag, content = r.b[0], r.b[header:length]
 	r.b = r.b[length:]
 	return tag, content, nil
-}
-
-// SkipHeader reads the tag and length octets of the next TLV and leaves the
-// reader at its content. Unlike Next, it neither checks the declared length
-// against the input nor bounds later reads to it: the SNMPv3 decoder reads a
-// plaintext scoped PDU this way, so one with a wrong length decodes as long as
-// its fields follow.
-func (r *Reader) SkipHeader() (tag byte, err error) {
-	if len(r.b) == 0 {
-		return 0, ErrEmpty
-	}
-	_, header, err := Length(r.b)
-	if err != nil {
-		return 0, err
-	}
-	tag = r.b[0]
-	r.b = r.b[header:]
-	return tag, nil
 }

@@ -5,7 +5,6 @@
 package gosnmp
 
 import (
-	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -69,7 +68,7 @@ func fieldsOf(p *SnmpPacket) decodedFields {
 // bug: the variables are an empty list, not nil, for any input of two octets
 // or more, decoded or not.
 func TestDecodeFailurePartialResults(t *testing.T) {
-	bad := tlv(0x05) // a NULL where a field goes: "unknown field type: 5"
+	bad := tlv(0x05) // a NULL where a field goes: a field of another tag
 	vbl := craftedVBL(craftedVB(intTLV(5)))
 	firstVB := []SnmpPDU{{Name: ".1.3.6.1.2.1.1.5.0", Type: Integer, Value: 5}}
 	secondVB := func(vb []byte) []byte {
@@ -103,7 +102,8 @@ func TestDecodeFailurePartialResults(t *testing.T) {
 		body   = "unable to decode packet body: error in unmarshalResponse: "
 		trapV1 = "unable to decode packet body: error in unmarshalTrapV1: error parsing SNMPv1 trap "
 		usm    = header + "error parsing SNMPV3 User Security Model "
-		unk    = ": unknown field type: 5"
+		notInt = ": not an INTEGER"
+		notStr = ": not an OCTET STRING"
 	)
 
 	tests := map[string]struct {
@@ -115,46 +115,46 @@ func TestDecodeFailurePartialResults(t *testing.T) {
 		"empty input":    {in: []byte{}, wantErr: header + "cannot unmarshal empty packet"},
 		"one octet":      {in: []byte{0x30}, wantErr: header + "cannot unmarshal empty packet"},
 		"not a sequence": {in: cat([]byte{0x31}, craftedValue(intTLV(5))[1:]), wantErr: header + "invalid packet header", want: with(decodedFields{}, func(*decodedFields) {})},
-		"version":        {in: tlv(0x30, bad, octets("public"), vbl), wantErr: header + "error parsing SNMP packet version" + unk, want: with(decodedFields{}, func(*decodedFields) {})},
-		"community":      {in: tlv(0x30, intTLV(1), bad, vbl), wantErr: header + "error parsing community string" + unk, want: with(decodedFields{version: Version2c}, func(*decodedFields) {})},
+		"version":        {in: tlv(0x30, bad, octets("public"), vbl), wantErr: header + "error parsing SNMP packet version" + notInt, want: with(decodedFields{}, func(*decodedFields) {})},
+		"community":      {in: tlv(0x30, intTLV(1), bad, vbl), wantErr: header + "error parsing community string" + notStr, want: with(decodedFields{version: Version2c}, func(*decodedFields) {})},
 
 		// PDU header.
-		"request ID":      {in: craftedMsg(1, tlv(byte(GetResponse), bad, intTLV(2), intTLV(3), vbl)), wantErr: body + "error parsing SNMP packet request ID" + unk, want: resp},
-		"error status":    {in: craftedMsg(1, tlv(byte(GetResponse), intTLV(7), bad, intTLV(3), vbl)), wantErr: body + "error parsing SNMP packet error" + unk, want: with(resp, func(d *decodedFields) { d.requestID = 7 })},
-		"error index":     {in: craftedMsg(1, tlv(byte(GetResponse), intTLV(7), intTLV(2), bad, vbl)), wantErr: body + "error parsing SNMP packet error index" + unk, want: with(resp, func(d *decodedFields) { d.requestID, d.errorStatus = 7, 2 })},
-		"non-repeaters":   {in: craftedMsg(1, tlv(byte(GetBulkRequest), intTLV(7), bad, intTLV(9), vbl)), wantErr: body + "error parsing SNMP packet non repeaters" + unk, want: bulk},
-		"max-repetitions": {in: craftedMsg(1, tlv(byte(GetBulkRequest), intTLV(7), intTLV(3), bad, vbl)), wantErr: body + "error parsing SNMP packet max repetitions" + unk, want: with(bulk, func(d *decodedFields) { d.nonRepeaters = 3 })},
+		"request ID":      {in: craftedMsg(1, tlv(byte(GetResponse), bad, intTLV(2), intTLV(3), vbl)), wantErr: body + "error parsing SNMP packet request ID" + notInt, want: resp},
+		"error status":    {in: craftedMsg(1, tlv(byte(GetResponse), intTLV(7), bad, intTLV(3), vbl)), wantErr: body + "error parsing SNMP packet error" + notInt, want: with(resp, func(d *decodedFields) { d.requestID = 7 })},
+		"error index":     {in: craftedMsg(1, tlv(byte(GetResponse), intTLV(7), intTLV(2), bad, vbl)), wantErr: body + "error parsing SNMP packet error index" + notInt, want: with(resp, func(d *decodedFields) { d.requestID, d.errorStatus = 7, 2 })},
+		"non-repeaters":   {in: craftedMsg(1, tlv(byte(GetBulkRequest), intTLV(7), bad, intTLV(9), vbl)), wantErr: body + "error parsing SNMP packet non repeaters" + notInt, want: bulk},
+		"max-repetitions": {in: craftedMsg(1, tlv(byte(GetBulkRequest), intTLV(7), intTLV(3), bad, vbl)), wantErr: body + "error parsing SNMP packet max repetitions" + notInt, want: with(bulk, func(d *decodedFields) { d.nonRepeaters = 3 })},
 
 		// Varbind list.
 		"no varbind list":              {in: craftedMsg(1, tlv(byte(GetResponse), intTLV(7), intTLV(2), intTLV(3))), wantErr: body + "truncated packet when unmarshalling a VBL", want: respFields},
 		"varbind list not a sequence":  {in: craftedMsg(1, tlv(byte(GetResponse), intTLV(7), intTLV(2), intTLV(3), intTLV(1))), wantErr: body + "expected a sequence when unmarshalling a VBL, got 2", want: respFields},
 		"varbind not a sequence":       {in: secondVB(intTLV(1)), wantErr: body + "expected a sequence when unmarshalling a VB, got 2", want: with(respFields, func(d *decodedFields) { d.variables = firstVB })},
-		"varbind past the list":        {in: secondVB([]byte{0x30, 0x10, 0x06}), wantErr: body + "error reading varbind: TLV length exceeds the remaining input", want: with(respFields, func(d *decodedFields) { d.variables = firstVB })},
-		"varbind name":                 {in: secondVB(tlv(0x30, bad, intTLV(6))), wantErr: body + "error parsing OID Value" + unk, want: with(respFields, func(d *decodedFields) { d.variables = firstVB })},
-		"varbind name not text":        {in: secondVB(tlv(0x30, intTLV(1), intTLV(6))), wantErr: body + "varbind name is not an OBJECT IDENTIFIER or text", want: with(respFields, func(d *decodedFields) { d.variables = firstVB })},
+		"varbind past the list":        {in: secondVB([]byte{0x30, 0x10, 0x06}), wantErr: body + "error reading varbind: invalid packet length: TLV length exceeds the remaining input", want: with(respFields, func(d *decodedFields) { d.variables = firstVB })},
+		"varbind name":                 {in: secondVB(tlv(0x30, bad, intTLV(6))), wantErr: body + "error parsing OID Value" + ": not an OBJECT IDENTIFIER or text", want: with(respFields, func(d *decodedFields) { d.variables = firstVB })},
+		"varbind name not text":        {in: secondVB(tlv(0x30, intTLV(1), intTLV(6))), wantErr: body + "error parsing OID Value: not an OBJECT IDENTIFIER or text", want: with(respFields, func(d *decodedFields) { d.variables = firstVB })},
 		"varbind without a value":      {in: secondVB(tlv(0x30, craftedOID)), wantErr: body + "error decoding value: zero byte buffer", want: with(respFields, func(d *decodedFields) { d.variables = firstVB })},
 		"varbind value shorter":        {in: secondVB(tlv(0x30, craftedOID, intTLV(6), intTLV(7))), wantErr: body + "value TLV length mismatch in varbind (TLV 3, remaining 6)", want: with(respFields, func(d *decodedFields) { d.variables = firstVB })},
 		"varbind value not decodable":  {in: secondVB(tlv(0x30, craftedOID, tlv(byte(Integer)))), wantErr: body + "error decoding value: invalid Integer: zero length integer", want: with(respFields, func(d *decodedFields) { d.variables = firstVB })},
 		"varbind value unknown length": {in: secondVB(tlv(0x30, craftedOID, []byte{0x02, 0x85})), wantErr: body + "error parsing value TLV in varbind: invalid packet length", want: with(respFields, func(d *decodedFields) { d.variables = firstVB })},
 
 		// SNMPv1 trap header.
-		"v1 trap enterprise":    {in: craftedV1Trap(bad, craftedAgentAddress, intTLV(6), intTLV(1), craftedTimestamp, vbl), wantErr: trapV1 + "enterprise" + unk, want: v1Trap},
-		"v1 trap agent address": {in: craftedV1Trap(craftedEnterprise, bad, intTLV(6), intTLV(1), craftedTimestamp, vbl), wantErr: trapV1 + "agent address" + unk, want: with(v1Trap, func(d *decodedFields) { d.enterprise = ".1.3.6.1.4.1.20372" })},
-		"v1 trap generic trap": {in: craftedV1Trap(craftedEnterprise, craftedAgentAddress, bad, intTLV(1), craftedTimestamp, vbl), wantErr: trapV1 + "generic trap" + unk, want: with(v1Trap, func(d *decodedFields) {
+		"v1 trap enterprise":    {in: craftedV1Trap(bad, craftedAgentAddress, intTLV(6), intTLV(1), craftedTimestamp, vbl), wantErr: trapV1 + "enterprise" + ": not an OBJECT IDENTIFIER", want: v1Trap},
+		"v1 trap agent address": {in: craftedV1Trap(craftedEnterprise, bad, intTLV(6), intTLV(1), craftedTimestamp, vbl), wantErr: trapV1 + "agent address" + ": not an IpAddress or OCTET STRING", want: with(v1Trap, func(d *decodedFields) { d.enterprise = ".1.3.6.1.4.1.20372" })},
+		"v1 trap generic trap": {in: craftedV1Trap(craftedEnterprise, craftedAgentAddress, bad, intTLV(1), craftedTimestamp, vbl), wantErr: trapV1 + "generic trap" + notInt, want: with(v1Trap, func(d *decodedFields) {
 			d.enterprise, d.agentAddress = ".1.3.6.1.4.1.20372", "192.0.2.1"
 		})},
-		"v1 trap specific trap": {in: craftedV1Trap(craftedEnterprise, craftedAgentAddress, intTLV(6), bad, craftedTimestamp, vbl), wantErr: trapV1 + "specific trap" + unk, want: with(v1Trap, func(d *decodedFields) {
+		"v1 trap specific trap": {in: craftedV1Trap(craftedEnterprise, craftedAgentAddress, intTLV(6), bad, craftedTimestamp, vbl), wantErr: trapV1 + "specific trap" + notInt, want: with(v1Trap, func(d *decodedFields) {
 			d.enterprise, d.agentAddress, d.genericTrap = ".1.3.6.1.4.1.20372", "192.0.2.1", 6
 		})},
-		"v1 trap timestamp": {in: craftedV1Trap(craftedEnterprise, craftedAgentAddress, intTLV(6), intTLV(1), bad, vbl), wantErr: trapV1 + "timestamp" + unk, want: with(v1Trap, func(d *decodedFields) {
+		"v1 trap timestamp": {in: craftedV1Trap(craftedEnterprise, craftedAgentAddress, intTLV(6), intTLV(1), bad, vbl), wantErr: trapV1 + "timestamp" + ": not TimeTicks or another unsigned type", want: with(v1Trap, func(d *decodedFields) {
 			d.enterprise, d.agentAddress, d.genericTrap, d.specificTrap = ".1.3.6.1.4.1.20372", "192.0.2.1", 6, 1
 		})},
 
 		// SNMPv3 header.
-		"v3 message ID":     {in: craftedV3(bad, intTLV(65507), octets("\x04"), intTLV(3), craftedNoAuthUSM, nil), wantErr: header + "error parsing SNMPV3 message ID" + unk, want: with(decodedFields{version: Version3}, func(*decodedFields) {})},
-		"v3 max size":       {in: craftedV3(intTLV(42), bad, octets("\x04"), intTLV(3), craftedNoAuthUSM, nil), wantErr: header + "error parsing SNMPV3 msgMaxSize" + unk, want: with(decodedFields{version: Version3}, func(d *decodedFields) { d.msgID = 42 })},
-		"v3 flags":          {in: v3(bad, intTLV(3), craftedNoAuthUSM), wantErr: header + "error parsing SNMPV3 msgFlags" + unk, want: with(decodedFields{version: Version3}, func(d *decodedFields) { d.msgID, d.msgMaxSize = 42, 65507 })},
-		"v3 security model": {in: v3(octets("\x04"), bad, craftedNoAuthUSM), wantErr: header + "error parsing SNMPV3 msgSecModel" + unk, want: with(v3Header, func(d *decodedFields) { d.securityModel = 0 })},
+		"v3 message ID":     {in: craftedV3(bad, intTLV(65507), octets("\x04"), intTLV(3), craftedNoAuthUSM, nil), wantErr: header + "error parsing SNMPV3 message ID" + notInt, want: with(decodedFields{version: Version3}, func(*decodedFields) {})},
+		"v3 max size":       {in: craftedV3(intTLV(42), bad, octets("\x04"), intTLV(3), craftedNoAuthUSM, nil), wantErr: header + "error parsing SNMPV3 msgMaxSize" + notInt, want: with(decodedFields{version: Version3}, func(d *decodedFields) { d.msgID = 42 })},
+		"v3 flags":          {in: v3(bad, intTLV(3), craftedNoAuthUSM), wantErr: header + "error parsing SNMPV3 msgFlags: not an OCTET STRING of one octet", want: with(decodedFields{version: Version3}, func(d *decodedFields) { d.msgID, d.msgMaxSize = 42, 65507 })},
+		"v3 security model": {in: v3(octets("\x04"), bad, craftedNoAuthUSM), wantErr: header + "error parsing SNMPV3: the security model is not USM", want: with(v3Header, func(d *decodedFields) { d.securityModel = 0 })},
 		"v3 nothing after the security model": {
 			in:      tlv(0x30, intTLV(3), tlv(0x30, intTLV(42), intTLV(65507), octets("\x04"), intTLV(3))),
 			wantErr: header + "error parsing SNMPV3: nothing after the security model",
@@ -167,19 +167,19 @@ func TestDecodeFailurePartialResults(t *testing.T) {
 		},
 
 		// USM security parameters.
-		"usm engine ID":   {in: usmWith(bad, intTLV(7), intTLV(1234), octets("codec-user"), octets(""), octets("")), wantErr: usm + "msgAuthoritativeEngineID" + unk, want: v3Header},
-		"usm boots":       {in: usmWith(craftedEngineID, bad, intTLV(1234), octets("codec-user"), octets(""), octets("")), wantErr: usm + "msgAuthoritativeEngineBoots" + unk, want: with(v3Header, func(d *decodedFields) { d.usmEngineID = "\x80\x00\x1f\x88\x04codec-engine" })},
-		"usm engine time": {in: usmWith(craftedEngineID, intTLV(7), bad, octets("codec-user"), octets(""), octets("")), wantErr: usm + "msgAuthoritativeEngineTime" + unk, want: with(v3Header, func(d *decodedFields) { d.usmEngineID, d.usmBoots = "\x80\x00\x1f\x88\x04codec-engine", 7 })},
-		"usm user name": {in: usmWith(craftedEngineID, intTLV(7), intTLV(1234), bad, octets(""), octets("")), wantErr: usm + "msgUserName" + unk, want: with(v3Header, func(d *decodedFields) {
+		"usm engine ID":   {in: usmWith(bad, intTLV(7), intTLV(1234), octets("codec-user"), octets(""), octets("")), wantErr: usm + "msgAuthoritativeEngineID" + notStr, want: v3Header},
+		"usm boots":       {in: usmWith(craftedEngineID, bad, intTLV(1234), octets("codec-user"), octets(""), octets("")), wantErr: usm + "msgAuthoritativeEngineBoots" + notInt, want: with(v3Header, func(d *decodedFields) { d.usmEngineID = "\x80\x00\x1f\x88\x04codec-engine" })},
+		"usm engine time": {in: usmWith(craftedEngineID, intTLV(7), bad, octets("codec-user"), octets(""), octets("")), wantErr: usm + "msgAuthoritativeEngineTime" + notInt, want: with(v3Header, func(d *decodedFields) { d.usmEngineID, d.usmBoots = "\x80\x00\x1f\x88\x04codec-engine", 7 })},
+		"usm user name": {in: usmWith(craftedEngineID, intTLV(7), intTLV(1234), bad, octets(""), octets("")), wantErr: usm + "msgUserName" + notStr, want: with(v3Header, func(d *decodedFields) {
 			d.usmEngineID, d.usmBoots, d.usmTime = "\x80\x00\x1f\x88\x04codec-engine", 7, 1234
 		})},
-		"usm authentication parameters": {in: usmWith(craftedEngineID, intTLV(7), intTLV(1234), octets("codec-user"), bad, octets("")), wantErr: usm + "msgAuthenticationParameters" + unk, want: with(v3USM, func(d *decodedFields) { d.msgFlags = Reportable })},
-		"usm privacy parameters":        {in: usmWith(craftedEngineID, intTLV(7), intTLV(1234), octets("codec-user"), octets(""), bad), wantErr: usm + "msgPrivacyParameters" + unk, want: with(v3USM, func(d *decodedFields) { d.msgFlags = Reportable })},
+		"usm authentication parameters": {in: usmWith(craftedEngineID, intTLV(7), intTLV(1234), octets("codec-user"), bad, octets("")), wantErr: usm + "msgAuthenticationParameters" + notStr, want: with(v3USM, func(d *decodedFields) { d.msgFlags = Reportable })},
+		"usm privacy parameters":        {in: usmWith(craftedEngineID, intTLV(7), intTLV(1234), octets("codec-user"), octets(""), bad), wantErr: usm + "msgPrivacyParameters" + notStr, want: with(v3USM, func(d *decodedFields) { d.msgFlags = Reportable })},
 		// Flags asking for authentication, which the decoder has no protocol
 		// for: after a header error, and as the error (step 5).
 		"usm privacy parameters, authenticated": {
 			in:      v3(octets("\x05"), intTLV(3), craftedUSM(craftedEngineID, intTLV(7), intTLV(1234), octets("codec-user"), octets(""), bad)),
-			wantErr: usm + "msgPrivacyParameters" + unk,
+			wantErr: usm + "msgPrivacyParameters" + notStr,
 			want:    with(v3USM, func(d *decodedFields) { d.msgFlags = Reportable | AuthNoPriv }),
 		},
 		"security level without a protocol": {
@@ -189,8 +189,8 @@ func TestDecodeFailurePartialResults(t *testing.T) {
 		},
 
 		// SNMPv3 scoped PDU.
-		"context engine ID": {in: craftedV3NoAuth(tlv(0x30, bad, octets("ctx"), craftedPDU(GetResponse, vbl))), wantErr: "error parsing SNMPV3 contextEngineID" + unk, want: v3USM},
-		"context name": {in: craftedV3NoAuth(tlv(0x30, craftedEngineID, bad, craftedPDU(GetResponse, vbl))), wantErr: "error parsing SNMPV3 contextName" + unk, want: with(v3USM, func(d *decodedFields) {
+		"context engine ID": {in: craftedV3NoAuth(tlv(0x30, bad, octets("ctx"), craftedPDU(GetResponse, vbl))), wantErr: "error parsing SNMPV3 contextEngineID" + notStr, want: v3USM},
+		"context name": {in: craftedV3NoAuth(tlv(0x30, craftedEngineID, bad, craftedPDU(GetResponse, vbl))), wantErr: "error parsing SNMPV3 contextName" + notStr, want: with(v3USM, func(d *decodedFields) {
 			d.contextEngineID = "\x80\x00\x1f\x88\x04codec-engine"
 		})},
 	}
@@ -232,8 +232,8 @@ func TestDecodeUSMFields(t *testing.T) {
 		"auth parameters as an INTEGER": {in: fields(func(f [][]byte) { f[4] = intTLV(3) }), invalid: true},
 		"priv parameters as an INTEGER": {in: fields(func(f [][]byte) { f[5] = intTLV(4) }), invalid: true},
 		"boots 2147483647":              {in: fields(func(f [][]byte) { f[1] = intTLV(2147483647) })},
-		// 2^32+5, cut to 5 where an int decodes it (a 32-bit int does not).
-		"boots 4294967301": {in: fields(func(f [][]byte) { f[1] = intTLV(4294967301) }), invalid: strconv.IntSize == 32},
+		// 2^32+5, cut to 5 on every platform.
+		"boots 4294967301": {in: fields(func(f [][]byte) { f[1] = intTLV(4294967301) })},
 		"boots -1":         {in: fields(func(f [][]byte) { f[1] = intTLV(-1) }), invalid: true},
 		"time -2147483648": {in: fields(func(f [][]byte) { f[2] = intTLV(-2147483648) }), invalid: true},
 	}

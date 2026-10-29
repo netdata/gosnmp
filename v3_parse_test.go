@@ -182,7 +182,7 @@ func TestV3ReceiverRules(t *testing.T) {
 			// A fixed salt: a receiver without privacy reads the ciphertext.
 			usm.Salts.Set(usmCharSalt(AES))
 			m := splitV3Message(t, signedTestTrap(t, SHA, AES, usmCharEngineID, "codec-user", nil))
-			// One octet: the INTEGER decodes on 32-bit platforms too.
+			// An INTEGER where the OCTET STRING goes.
 			m.usmTags[5], m.usm[5] = byte(Integer), []byte{0x05}
 			return m.bytes()
 		}},

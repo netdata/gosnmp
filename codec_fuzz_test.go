@@ -8,12 +8,11 @@ import (
 	"bytes"
 	"io"
 	"log"
-	"math"
 	"slices"
-	"strconv"
 	"testing"
 	"time"
 
+	"github.com/netdata/gosnmp/internal/ber"
 	"github.com/netdata/gosnmp/internal/usm"
 )
 
@@ -51,11 +50,12 @@ func FuzzUnmarshal(f *testing.F) {
 	})
 }
 
-// FuzzDecodeReencode checks what holds for the packets SnmpDecodePacket
-// accepts today: MarshalMsg does not panic on them, the bytes MarshalMsg
-// produces decode again, and a second decode and encode pass, drawing the
-// same salt, reproduces them exactly. Decoding the re-encoded bytes does not
-// always return the original values (known codec bugs, pinned by
+// FuzzDecodeReencode checks that the decoder takes no value or field the
+// encoder refuses but the named quirks (decodeQuirk): MarshalMsg encodes what
+// SnmpDecodePacket accepts, the bytes it produces decode again, and a second
+// decode and encode pass, drawing the same salt, reproduces them exactly.
+// Decoding the re-encoded bytes does not always return the original values
+// (the quirks and the values the decoder cuts, pinned by
 // TestDecodeCharacterization).
 func FuzzDecodeReencode(f *testing.F) {
 	for _, seed := range codecFuzzSeeds(f) {
@@ -64,13 +64,16 @@ func FuzzDecodeReencode(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		first, err := (&GoSNMP{}).SnmpDecodePacket(bytes.Clone(data))
-		if err != nil || reencodeKnownBug(first) {
+		if err != nil {
 			return
 		}
 		usm.Salts.Set(1)
 		encoded, err := first.MarshalMsg()
 		if err != nil {
-			return
+			if decodeQuirk(first) {
+				return
+			}
+			t.Fatalf("decoded packet does not encode: %v\ninput: %x", err, data)
 		}
 
 		second, err := (&GoSNMP{}).SnmpDecodePacket(bytes.Clone(encoded))
@@ -88,13 +91,18 @@ func FuzzDecodeReencode(f *testing.F) {
 	})
 }
 
-// reencodeKnownBug reports packets that hit known codec bugs breaking the
-// FuzzDecodeReencode properties: on 32-bit platforms a Uinteger32 above
-// MaxInt32 re-encodes to five octets, which the decoder, reading Uinteger32
-// as a signed int, rejects. Fixing the bug removes the case.
-func reencodeKnownBug(p *SnmpPacket) bool {
-	return strconv.IntSize == 32 && slices.ContainsFunc(p.Variables, func(v SnmpPDU) bool {
-		u, ok := v.Value.(uint32)
-		return ok && v.Type == Uinteger32 && u > math.MaxInt32
+// decodeQuirk reports whether p holds what the decoder takes from devices
+// and the encoder refuses: a value of UnknownType (an unknown tag, or an
+// unsigned value that does not decode), an empty IpAddress value or SNMPv1
+// agent address, or a varbind name sent as text that is not an OID.
+func decodeQuirk(p *SnmpPacket) bool {
+	if p.PDUType == Trap && p.AgentAddress == "" {
+		return true
+	}
+	return slices.ContainsFunc(p.Variables, func(v SnmpPDU) bool {
+		if _, err := ber.AppendOID(nil, v.Name); err != nil {
+			return true
+		}
+		return v.Type == UnknownType || v.Type == IPAddress && v.Value == nil
 	})
 }

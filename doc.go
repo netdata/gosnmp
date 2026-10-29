@@ -143,15 +143,16 @@
 // A varbind ([SnmpPDU]) holds its value as an any whose Go type depends on its
 // Type. Decoding gives:
 //
-//   - Integer: int; Uinteger32: uint32; Counter32, Gauge32: uint; TimeTicks:
-//     uint32; Counter64: uint64
-//   - OctetString, Opaque: []byte; OpaqueFloat: float32, OpaqueDouble: float64
-//     (net-snmp's floats, wrapped in an Opaque)
+//   - Integer: int, within the int32 range; Uinteger32: uint32; Counter32,
+//     Gauge32: uint, below 2^32; TimeTicks: uint32; Counter64: uint64
+//   - OctetString, Opaque: []byte, empty included; OpaqueFloat: float32,
+//     OpaqueDouble: float64 (net-snmp's floats, wrapped in an Opaque)
 //   - ObjectIdentifier: a dotted string with a leading dot
 //   - IPAddress: an IPv4 or IPv6 address as a string, or nil when empty
 //   - Null, NoSuchObject, NoSuchInstance, EndOfMibView: nil
-//   - any other type, Boolean and BitString included, and a Counter32,
-//     Gauge32, TimeTicks or Counter64 that does not decode: UnknownType, nil
+//   - any other type, Boolean and BitString included, and a Uinteger32,
+//     Counter32, Gauge32, TimeTicks or Counter64 that is empty or too long:
+//     UnknownType, nil
 //
 // Encoding takes an int within the int32 range for Integer; uint32, or uint up
 // to 4294967295, for Counter32, Gauge32, TimeTicks and Uinteger32; uint64 for
@@ -177,23 +178,43 @@
 //
 // # Decoding
 //
-// The decoder accepts some malformed messages, because devices send them: a
-// header field of another field type (INTEGER, OCTET STRING, OBJECT
-// IDENTIFIER, IpAddress, TimeTicks) than the one expected is skipped, so a
-// version of such a type reads as SNMPv1, the declared length of a plaintext
-// scoped PDU is not enforced, an OctetString may declare one octet more than
-// its varbind holds (seen from MikroTik devices), an IPAddress may be empty,
-// and a varbind name may be an OCTET STRING or an IpAddress, kept as text.
-// INTEGER values decode into the platform's int, so 32-bit platforms reject
-// what 64-bit ones accept. The SNMPv3 header takes net-snmp's extents and its
-// field rules but for msgGlobalData's message ID and maximum size: msgFlags
-// must be an OCTET STRING of one octet, the security model the User-based
-// Security Model's, the flags may not ask for privacy without authentication,
-// the USM fields must be of their types (RFC 3414 section 2.4), with engine
-// boots and time within 0..2147483647 once cut to 32 bits, and every declared
-// length must fit what remains (a msgGlobalData declared shorter than its
-// fields, or security parameters declared to cover the scoped PDU, are read);
-// unlike net-snmp, a user name may exceed 32 octets.
+// The decoder applies one rule per value type and header field, with the same
+// results on every platform. An INTEGER, value or header field, has one to
+// eight octets and is cut to 32 bits by two's complement (an Integer32, RFC
+// 2578 section 7.1.1); Uinteger32, Counter32, Gauge32 and TimeTicks values are
+// unsigned, of one to eight octets or nine with a leading zero, and keep their
+// low 32 bits; an OBJECT IDENTIFIER has at most 128 arcs. A header field must
+// be of its type and, once cut, within its range, or it fails the message, as
+// a missing one does: the version SNMPv1, SNMPv2c or SNMPv3; the community,
+// contextEngineID and contextName OCTET STRINGs; the error status 0..255; the
+// error index and non-repeaters not negative, read as 255 above it (the most
+// their fields hold); max-repetitions not negative; an SNMPv1 trap's
+// enterprise an OBJECT IDENTIFIER, its agent address four octets, an IpAddress
+// or an OCTET STRING, and its timestamp TimeTicks or another unsigned type, as
+// net-snmp v5.9.4 takes it. The SNMPv3 header takes net-snmp's field rules
+// (RFC 3412 section 6, RFC 3414 section 2.4): msgID 0..2147483647, msgMaxSize
+// 484..2147483647, msgFlags an OCTET STRING of one octet, the User-based
+// Security Model's number, flags that do not ask for privacy without
+// authentication, the USM fields of their types, engine boots and time within
+// 0..2147483647 and a user name of at most 32 octets. A length needs its
+// length octet, takes at most eight long-form ones, and must fit what remains;
+// bytes after the message, the PDU or the varbind list fail it. As net-snmp
+// does, the decoder reads the SNMPv3 header and the scoped PDU against the
+// rest of the message: a msgGlobalData declared shorter than its fields,
+// security parameters declared to cover the scoped PDU, and a scoped PDU
+// declared shorter than its content, are read.
+//
+// It accepts some malformed values, because devices send them: an OctetString
+// may declare one octet more than its varbind holds (seen from MikroTik
+// devices), an IPAddress value may be empty or of 16 octets, an SNMPv1 agent
+// address an empty IpAddress, a varbind name an OCTET STRING or an IpAddress,
+// kept as text, and an unsigned value that is empty or too long decodes as
+// UnknownType with a nil value instead of failing its message. Other
+// differences from net-snmp: an empty OBJECT IDENTIFIER reads as .0.0, not .0;
+// an INTEGER above 2147483647 keeps its low 32 bits as an int32 (3000000000
+// reads -1294967296), not unsigned; the community and context fields take OCTET STRINGs only; the error status, the
+// error index and non-repeaters are checked against their ranges; unknown value
+// types decode as UnknownType instead of failing the message.
 //
 // The decoders never write their input. [GoSNMP.SnmpDecodePacket] and
 // [GoSNMP.UnmarshalTrap] return OctetString and Opaque values that alias the
@@ -261,8 +282,8 @@
 // or RFC 3414 section 3.2 step that rejected it, with its own text:
 // [ErrUnknownSecurityModels] for another security model, [ErrInvalidMsgs] for
 // privacy without authentication and, in place of snmpInASNParseErrs, which
-// has no error of its own, for a header or a plaintext scoped PDU that does
-// not parse, [ErrUnknownEngineID] through [ErrDecryption] for the security
+// has no error of its own, for a header or a scoped PDU that does not parse
+// before decryption, [ErrUnknownEngineID] through [ErrDecryption] for the security
 // processing, [ErrUnknownSecurityLevel] for a trap receiver's minimum level
 // too. A request whose attempts ran out after discarded replies fails with the
 // last one's error, so it matches these errors without a Report. A local

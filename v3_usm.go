@@ -541,21 +541,10 @@ func (sp *UsmSecurityParameters) encryptPacket(scopedPdu, salt []byte) ([]byte, 
 		sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime, scopedPdu)
 }
 
-// decryptPacket returns the plaintext of the OCTET STRING at packet[cursor:],
-// a new buffer: the ciphertext is the rest of the packet after the string's
-// header, whatever its declared length.
-func (sp *UsmSecurityParameters) decryptPacket(packet []byte, cursor int) ([]byte, error) {
-	_, cursorTmp, err := ber.Length(packet[cursor:])
-	if err != nil {
-		return nil, err
-	}
-	cursorTmp += cursor
-	if cursorTmp > len(packet) {
-		return nil, errors.New("error decrypting ScopedPDU: truncated packet")
-	}
-
+// decryptPacket returns the plaintext of ciphertext, in a new buffer.
+func (sp *UsmSecurityParameters) decryptPacket(ciphertext []byte) ([]byte, error) {
 	return sp.PrivacyProtocol.spec().Decrypt(sp.PrivacyKey, sp.PrivacyParameters,
-		sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime, packet[cursorTmp:])
+		sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime, ciphertext)
 }
 
 // marshal appends the User Security Model parameters: a SEQUENCE of the
