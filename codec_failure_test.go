@@ -174,6 +174,18 @@ func TestDecodeFailurePartialResults(t *testing.T) {
 		})},
 		"usm authentication parameters": {in: usmWith(craftedEngineID, intTLV(7), intTLV(1234), octets("codec-user"), bad, octets("")), wantErr: usm + "msgAuthenticationParameters" + unk, want: with(v3USM, func(d *decodedFields) { d.msgFlags = Reportable })},
 		"usm privacy parameters":        {in: usmWith(craftedEngineID, intTLV(7), intTLV(1234), octets("codec-user"), octets(""), bad), wantErr: usm + "msgPrivacyParameters" + unk, want: with(v3USM, func(d *decodedFields) { d.msgFlags = Reportable })},
+		// Flags asking for authentication, which the decoder has no protocol
+		// for: after a header error, and as the error (step 5).
+		"usm privacy parameters, authenticated": {
+			in:      v3(octets("\x05"), intTLV(3), craftedUSM(craftedEngineID, intTLV(7), intTLV(1234), octets("codec-user"), octets(""), bad)),
+			wantErr: usm + "msgPrivacyParameters" + unk,
+			want:    with(v3USM, func(d *decodedFields) { d.msgFlags = Reportable | AuthNoPriv }),
+		},
+		"security level without a protocol": {
+			in:      v3(octets("\x05"), intTLV(3), craftedUSM(craftedEngineID, intTLV(7), intTLV(1234), octets("codec-user"), octets(""), octets(""))),
+			wantErr: header + "error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message",
+			want:    with(v3USM, func(d *decodedFields) { d.msgFlags = Reportable | AuthNoPriv }),
+		},
 
 		// SNMPv3 scoped PDU.
 		"context engine ID": {in: craftedV3NoAuth(tlv(0x30, bad, octets("ctx"), craftedPDU(GetResponse, vbl))), wantErr: "error parsing SNMPV3 contextEngineID" + unk, want: v3USM},

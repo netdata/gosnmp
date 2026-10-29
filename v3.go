@@ -403,7 +403,7 @@ func usmEngineValue(r *ber.Reader, name string) (uint32, error) {
 	}
 	v := uint32(f.i) //nolint:gosec // net-snmp's narrowing
 	if v > maxEngineValue {
-		return 0, fmt.Errorf("error parsing %s%s: %d is above %d", usmField, name, v, maxEngineValue)
+		return 0, fmt.Errorf("error parsing %s%s: %d is outside 0..%d", usmField, name, f.i, maxEngineValue)
 	}
 	return v, nil
 }

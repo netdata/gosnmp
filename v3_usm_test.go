@@ -10,6 +10,7 @@ import (
 	"crypto/fips140"
 	"crypto/hmac"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -534,6 +535,49 @@ func TestUSMTrapTableAttempts(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, usmCharVarbinds, res.Variables)
+		})
+	}
+}
+
+// TestUSMReceiveEngineBinding pins the categories of the engine ID rule when a
+// receiver takes a message from another engine ID: a key given without its
+// passphrase is bound to its engine, so the user is unknown there
+// (ErrUnknownUsername, RFC 3414 section 3.2 step 4), for either key; a
+// protocol with neither key nor passphrase is the receiver's configuration
+// error, of no RFC category.
+func TestUSMReceiveEngineBinding(t *testing.T) {
+	w := v3Wire{engineID: usmCharEngineID, has: hasEngineID}
+	keysOnly := func(edit func(sp *UsmSecurityParameters)) *UsmSecurityParameters {
+		sp := usmKeysOnly(usmDecoder(SHA, "codec-auth-pass", AES, "codec-priv-pass")().SecurityParameters.usm(), usmOtherEngineID)
+		edit(sp)
+		return sp
+	}
+	tests := map[string]struct {
+		sp      *UsmSecurityParameters
+		wantErr error
+		unknown bool // unwraps to ErrUnknownUsername
+	}{
+		"authentication key only": {
+			sp: keysOnly(func(*UsmSecurityParameters) {}), wantErr: errAuthKeyBoundToEngine, unknown: true,
+		},
+		"privacy key only": {
+			sp:      keysOnly(func(sp *UsmSecurityParameters) { sp.AuthenticationPassphrase = "codec-auth-pass" }),
+			wantErr: errPrivKeyBoundToEngine, unknown: true,
+		},
+		"privacy protocol without key or passphrase": {
+			sp: keysOnly(func(sp *UsmSecurityParameters) {
+				sp.AuthenticationPassphrase, sp.PrivacyKey = "codec-auth-pass", nil
+			}),
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := tc.sp.receive(AuthPriv, &w, true)
+			require.Error(t, err)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+			}
+			assert.Equal(t, tc.unknown, errors.Is(err, ErrUnknownUsername))
 		})
 	}
 }

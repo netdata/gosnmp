@@ -567,8 +567,9 @@ func (sp *UsmSecurityParameters) marshal(dst []byte, flags SnmpV3MsgFlags, salt 
 // (local failures); with bind, the engine ID rule of adoptEngineID, keys given
 // without a passphrase take no other engine ID (step 4: the user is looked up
 // by name and engine ID, ErrUnknownUsername); the protocols the flags ask for
-// (step 5, ErrUnknownSecurityLevel). Another engine ID drops the keys: with
-// bind, derive reports that they derive for it from the passphrases when
+// (step 5, ErrUnknownSecurityLevel), after taking the fields, so that a
+// rejected message's parameters show them. Another engine ID drops the keys:
+// with bind, derive reports that they derive for it from the passphrases when
 // needed, the authentication key here when the flags ask for authentication
 // (to check the message, or to answer it with the parameters SnmpDecodePacket
 // returns), the privacy key only to decrypt (inbound.scopedPDU), which a
@@ -590,21 +591,9 @@ func (sp *UsmSecurityParameters) receive(flags SnmpV3MsgFlags, w *v3Wire, bind b
 			return false, errPrivKeyOtherEngine
 		}
 	}
-	switch auth, priv := sp.missingProtocol(flags); {
-	case auth:
-		return false, errNoAuthForMsg
-	case priv:
-		return false, errNoPrivForMsg
-	}
 	if newEngine {
 		sp.AuthoritativeEngineID = w.engineID
 		sp.SecretKey, sp.PrivacyKey = nil, nil
-		if bind && flags.authFlag() {
-			if err := sp.deriveAuthKey(); err != nil {
-				return false, err
-			}
-		}
-		derive = bind
 	}
 	if w.has&hasBoots != 0 {
 		sp.AuthoritativeEngineBoots = w.boots
@@ -621,7 +610,18 @@ func (sp *UsmSecurityParameters) receive(flags SnmpV3MsgFlags, w *v3Wire, bind b
 	if w.has&hasPrivParams != 0 {
 		sp.PrivacyParameters = w.privParams
 	}
-	return derive, nil
+	switch auth, priv := sp.missingProtocol(flags); {
+	case auth:
+		return false, errNoAuthForMsg
+	case priv:
+		return false, errNoPrivForMsg
+	}
+	if bind && newEngine && flags.authFlag() {
+		if err := sp.deriveAuthKey(); err != nil {
+			return false, err
+		}
+	}
+	return bind && newEngine, nil
 }
 
 // inbound is an SNMPv3 message in security processing for one receiver (RFC

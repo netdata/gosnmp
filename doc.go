@@ -251,8 +251,7 @@
 // has no error of its own, for a header or a plaintext scoped PDU that does
 // not parse, [ErrUnknownEngineID] through [ErrDecryption] for the security
 // processing, [ErrUnknownSecurityLevel] for a trap receiver's minimum level
-// too. A request whose
-// attempts ran out after discarded replies fails with the last one's error,
-// so it matches these errors without a Report. A local failure, such as a key
-// that does not fit its protocol, matches none of them.
+// too. A request whose attempts ran out after discarded replies fails with the
+// last one's error, so it matches these errors without a Report. A local
+// failure, such as a key that does not fit its protocol, matches none of them.
 package gosnmp
