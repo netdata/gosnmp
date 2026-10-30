@@ -1010,6 +1010,10 @@
 0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1=Integer:1]
 0s    result: error "OID not increasing: .1.3.6.1.2.1.1.1.0 >= .1.3.6.1.2.1.1" *errors.errorString
 
+== walk/root-invalid
+0s    client: 2c root="1.3.6.x" bulk=false max-repetitions=0
+0s    result: error "unable to marshal OID \"1.3.6.x\": invalid object identifier" *fmt.wrapError
+
 == walk/root-past-mib
 0s    client: 2c root=".1.3.6.1.4.1.99.2" bulk=false max-repetitions=0
 0s    deadline +1s

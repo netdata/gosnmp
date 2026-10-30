@@ -222,6 +222,9 @@ func walkScenarios() map[string]walkScenario {
 		"walkfn-error/bulk":     {root: walkSystem, bulk: true, stopAfter: 2},
 		"walk-all":              {root: walkIfDescr, all: true},
 		"walk-all/bulk":         {root: walkIfDescr, bulk: true, all: true},
+		// A root the codec cannot encode fails the walk before any request,
+		// naming the root as given.
+		"root-invalid": {root: "1.3.6.x"},
 
 		// A leaf as the root: the first answer is outside the subtree, so the
 		// walk gets the root.
