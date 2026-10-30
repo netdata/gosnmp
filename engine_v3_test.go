@@ -1128,6 +1128,35 @@ func v3Scenarios() map[string]v3Scenario {
 			sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = 0, 0
 			return x.Get([]string{engineOID})
 		}},
+		// Devices that do not check the time of requests and never report
+		// notInTimeWindow, whose answers fall outside the time window: one that
+		// restarts without raising its boots, and a failover pair sharing an
+		// engine ID that fails back to the unit with lower boots; the request
+		// after the failed one.
+		"clock/no-time-check/restart-same-boots": {user: "codec-md5", run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+			a.noTimeCheck = true
+			return getThrice(func(a *fakeV3Agent) { a.restartWithoutBoots() })(x, a)
+		}},
+		"clock/no-time-check/boots-down": {user: "codec-md5", run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+			a.noTimeCheck = true
+			return getThrice(func(a *fakeV3Agent) { a.boots-- })(x, a)
+		}},
+		// The resend an unauthenticated notInTimeWindow Report lent its clock
+		// to is answered outside the time window on every attempt, with other
+		// boots than the Report's; the request after it.
+		"clock/resend-answers-outside-window": {
+			user: "codec-md5", run: getThrice(nil), script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				switch {
+				case n == 3:
+					return agentAnswer{report: usmStatsNotInTimeWindows, why: "not in time window, unauthenticated"}, true
+				case n >= 4 && n <= 6:
+					return agentAnswer{level: AuthNoPriv, why: "GetResponse with lower engine boots", edit: func(p *SnmpPacket) {
+						p.SecurityParameters.usm().AuthoritativeEngineBoots = agentBoots - 1
+					}}, true
+				}
+				return agentAnswer{}, false
+			},
+		},
 		// A device whose engine time stands still and that checks the time of
 		// requests: after 150 s of silence the client's advancing time is
 		// outside its window, and its authenticated notInTimeWindow Report
