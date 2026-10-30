@@ -1110,6 +1110,32 @@ func v3Scenarios() map[string]v3Scenario {
 				unauthenticatedTimeWindow(a, nil)
 			}),
 		},
+		// A device that does not check the time of requests restarts without
+		// raising its boots: its answers are outside the time window until the
+		// caller zeroes the engine boots and time, and the next authenticated
+		// answer sets the clock.
+		"clock/restart-same-boots/no-time-check": {user: "codec-md5", run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+			a.noTimeCheck = true
+			if _, err := x.Get([]string{engineOID}); err != nil {
+				return nil, fmt.Errorf("first Get: %w", err)
+			}
+			time.Sleep(10 * time.Second)
+			a.restartWithoutBoots()
+			res, err := x.Get([]string{engineOID})
+			a.tr.addf("second Get: %s", describeEngineResult(res, err))
+			a.tr.addf("caller sets the engine boots and time to zero")
+			sp := x.SecurityParameters.usm()
+			sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = 0, 0
+			return x.Get([]string{engineOID})
+		}},
+		// A device whose engine time stands still and that checks the time of
+		// requests: after 150 s of silence the client's advancing time is
+		// outside its window, and its authenticated notInTimeWindow Report
+		// sets the clock (one more round trip, as with net-snmp).
+		"clock/frozen-time/silence-over-150s": {user: "codec-md5", run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+			a.frozen = true
+			return getAfter(200*time.Second, nil)(x, a)
+		}},
 		"clock/boots-max-after-update": {
 			user: "codec-md5", run: getThrice(nil), script: onRequest(3, agentAnswer{
 				level: AuthNoPriv, why: "GetResponse with engine boots 2147483647",

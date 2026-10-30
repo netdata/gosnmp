@@ -183,7 +183,13 @@
 // Report with the error.
 //
 // An application that expects a replaced device clears the engine ID to
-// discover again.
+// discover again. Requests that keep failing with [ErrNotInTimeWindow] can
+// come from a device whose authenticated answers stay outside the time window
+// and that does not report it: one that does not check the time of requests and
+// whose engine time went back without its boots going up (a restart, a
+// stepped wall clock), or whose boots went down (a failover pair sharing an
+// engine ID); net-snmp rejects them too. Setting the engine boots and time to
+// zero drops the clock, and the next authenticated answer sets it.
 //
 // # Walks
 //
