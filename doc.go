@@ -107,40 +107,72 @@
 // refuses MD5 and SHA-1) end the request with the derivation's error, before
 // any discovery. A client given the engine ID derives its keys instead.
 //
+// The engine boots and time are a clock: the latest values received and when,
+// advancing with the local clock (RFC 3414 section 2.3); each attempt of a
+// request carries its current values, wrapping into the next boots past
+// 2147483647. A clock from an authenticated answer signs every request; one
+// from discovery, an unauthenticated answer or the caller signs read requests
+// (Get, GetNext, GetBulk) and requests without authentication only, and an
+// authenticated write then carries boots and time zero, which the agent
+// answers with an authenticated usmStatsNotInTimeWindows Report carrying its
+// own (RFC 3414 section 4: one more round trip; net-snmp signs writes with
+// unauthenticated time too). A request without authentication carries the
+// clock's values (as net-snmp; RFC 3414 section 3.1 step 6 c sends zeros).
+//
 // The engine state shows in the client's fields: the engine ID, boots, time and
 // keys of SecurityParameters, and ContextEngineID, which requests take from the
-// engine ID unless the caller sets one. The client writes a field only while it
-// holds what the client last wrote or read there. A field the caller changed,
-// also from a hook or the Logger during a request, is the caller's from the
-// next request on: an engine ID (empty: discover again), boots and time, a key,
-// which must be localized to the engine ID (empty: derive), a context engine ID
-// (empty: the engine ID again). Another SecurityParameters value is the
-// caller's whole, and a changed protocol or passphrase derives the keys the
-// client derived again. A value the caller sets that equals the client's is the
-// client's; a SecurityParameters value serves one client.
+// engine ID unless the caller sets one. The boots and time fields show the
+// latest values received, not the advancing ones. The client writes a field
+// only while it holds what the client last wrote or read there. A field the
+// caller changed, also from a hook or the Logger during a request, is the
+// caller's from the next request on: an engine ID (empty: discover again;
+// another one has no clock until an answer gives one), boots and time (a clock
+// received then, as an unauthenticated one; zeros: none), a key, which must be
+// localized to the engine ID (empty: derive), a context engine ID (empty: the
+// engine ID again). Another SecurityParameters value is the caller's whole, and
+// a changed protocol or passphrase derives the keys the client derived again.
+// A value the caller sets that equals the client's is the client's; a
+// SecurityParameters value serves one client.
 //
 // A reply goes through the security processing of RFC 3414 section 3.2 by its
 // own flags before it answers: it names the request's user, or the empty user
 // of discovery, which has no protocols; its user has the protocols the reply
 // asks for; a reply that asks for authentication names the request's engine ID
 // and carries a digest that checks with the request's key, whatever the
-// request's level; a request that asks for authentication takes no other
-// reply but an unauthenticated Report; a reply is decrypted exactly when it
-// asks for privacy. A reply that fails is treated as one that does not decode.
+// request's level, and is in the time window of the clock (section 3.2 step 7
+// b, below); a request that asks for authentication takes no other reply but
+// an unauthenticated Report; a reply is decrypted exactly when it asks for
+// privacy. A reply that fails is treated as one that does not decode: the
+// request is sent again, and after the retries its error matches the step's,
+// [ErrNotInTimeWindow] for the time window.
 //
-// The client takes the engine ID, boots and time of each answer whose digest it
-// checked (another engine ID than its own only from a resend an unauthenticated
-// Report lent it to) and, to a request without authentication, of each answer
-// but Reports: such a client follows an agent whose engine ID changed (net-snmp
-// keeps the first engine ID), with keys derived for it, and an answer whose
-// engine ID gives no valid state answers without changing the state. A Report
-// that says the request's engine ID or time is out of date
-// (usmStatsUnknownEngineIDs, usmStatsNotInTimeWindows) makes the client send
-// the request once more, with the engine parameters the Report carries when it
-// was authenticated. An unauthenticated Report lends them to that resend only:
-// to a request without authentication; to an authenticated read request only
-// the boots and time of a usmStatsNotInTimeWindows Report naming the request's
-// engine ID. So an authenticated request to an agent whose engine ID changed
+// The client takes the engine ID of each answer whose digest it checked
+// (another engine ID than its own only from a resend an unauthenticated Report
+// lent it to, with keys derived for it and a new clock) and, to a request
+// without authentication, of each answer but Reports: such a client follows an
+// agent whose engine ID changed (net-snmp keeps the first engine ID), with keys
+// derived for it, and an answer whose engine ID gives no valid state answers
+// without changing the state. An authenticated answer's boots and time update
+// the clock when they are newer than the latest or equal to them (net-snmp; an
+// answer matches a request, so it replays nothing), and one with lower boots,
+// or a time more than 150 s behind the clock's, is outside the time window, as
+// every answer is once the boots reach 2147483647 (RFC 3414 section 3.2 step 7
+// b); the first authenticated answer sets the clock. An unauthenticated answer
+// sets the clock only while no authenticated one did. A Report that says the
+// request's engine ID or time is out of date (usmStatsUnknownEngineIDs,
+// usmStatsNotInTimeWindows) makes the client send the request once more, with
+// the engine parameters the Report carries when it was authenticated; an
+// authenticated usmStatsNotInTimeWindows Report sets the clock, whatever the
+// order of its boots and time, for agents whose boots do not go up when they
+// restart (a deviation from RFC 3414 section 3.2 step 7 b and net-snmp). An
+// unauthenticated Report lends them to that resend only: to a request without
+// authentication; to an authenticated read request only the boots and time of
+// a usmStatsNotInTimeWindows Report naming the request's engine ID, and when
+// the authenticated answer to that resend is outside the time window but has
+// the lent boots and a time within 150 s of the lent time, it sets the clock:
+// agents that restart without raising their boots and report
+// usmStatsNotInTimeWindows without authentication so recover (net-snmp locks
+// them out). So an authenticated request to an agent whose engine ID changed
 // ends with [ErrUnknownEngineID]. Any other Report, or a second resynchronizing
 // one, ends the discovery or the request with the error of its counter,
 // [ErrUnknownUsername] or [ErrWrongDigest] for example, and
@@ -151,12 +183,6 @@
 //
 // An application that expects a replaced device clears the engine ID to
 // discover again.
-//
-// Known bugs a client meets: the engine time is not advanced locally, so an
-// authenticated request after 150 s of silence is first answered with
-// usmStatsNotInTimeWindows, and resent when the rules above allow it; the
-// boots and time of any authentic answer are taken, older or outside the time
-// window ones included (RFC 3414 section 3.2 step 7 b).
 //
 // # Walks
 //

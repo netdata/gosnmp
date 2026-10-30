@@ -1571,13 +1571,13 @@ func TestSendOneRequest_dups(t *testing.T) {
 	// This is not actually a GetResponse, but we need something our test server can unmarshal.
 	reqPkt := x.MkSnmpPacket(GetResponse, pdus, 0, 0)
 
-	_, _, err = x.sendOneRequest(new(x.prepareRequest()), reqPkt, false)
+	_, _, err = x.sendOneRequest(new(x.prepareRequest()), reqPkt, false, sourcedClock{})
 	if err != nil {
 		t.Errorf("error: %s", err)
 		return
 	}
 
-	_, _, err = x.sendOneRequest(new(x.prepareRequest()), reqPkt, false)
+	_, _, err = x.sendOneRequest(new(x.prepareRequest()), reqPkt, false, sourcedClock{})
 	if err != nil {
 		t.Errorf("error: %s", err)
 		return
@@ -1669,7 +1669,7 @@ func withUnconnectedSocket(t *testing.T, enable bool) {
 	// This is not actually a GetResponse, but we need something our test server can unmarshal.
 	reqPkt := x.MkSnmpPacket(GetResponse, pdus, 0, 0)
 
-	_, _, err = x.sendOneRequest(new(x.prepareRequest()), reqPkt, false)
+	_, _, err = x.sendOneRequest(new(x.prepareRequest()), reqPkt, false, sourcedClock{})
 	if err != nil && enable {
 		t.Errorf("with unconnected socket enabled got unexpected error: %v", err)
 	} else if err == nil && !enable {

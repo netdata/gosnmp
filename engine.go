@@ -51,6 +51,8 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 	if x.Logger.enabled() {
 		x.Logger.Print("SEND INIT")
 	}
+	// clock is the engine clock the attempts carry.
+	var clock sourcedClock
 	if packetOut.Version == Version3 {
 		if x.Logger.enabled() {
 			x.Logger.Print("SEND INIT NEGOTIATE SECURITY PARAMS")
@@ -61,10 +63,11 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 		if x.Logger.enabled() {
 			x.Logger.Print("SEND END NEGOTIATE SECURITY PARAMS")
 		}
+		clock = x.engine.clock
 	}
 
 	var stored bool
-	result, stored, err = x.sendOneRequest(&cfg, packetOut, false)
+	result, stored, err = x.sendOneRequest(&cfg, packetOut, false, clock)
 	if err != nil {
 		x.Logger.Printf("SEND Error on the first Request Error: %s", err)
 	}
@@ -86,13 +89,14 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 	}
 	if stored {
 		x.engine.stamp(packetOut)
+		clock = x.engine.clock
 	} else if !mayLend(packetOut, result, kind) {
 		return result, kind.err
-	} else if err = x.lendEngineParameters(packetOut, result, kind); err != nil {
+	} else if clock, err = x.lendEngineParameters(packetOut, result, kind); err != nil {
 		x.Logger.Printf("ERROR lendEngineParameters error: %s", err)
 		return result, err
 	}
-	result, _, err = x.sendOneRequest(&cfg, packetOut, false)
+	result, _, err = x.sendOneRequest(&cfg, packetOut, false, clock)
 	if err != nil && x.Logger.enabled() {
 		x.Logger.Printf("ERROR "+kind.name+" retransmit error: %s", err)
 	}
@@ -176,6 +180,9 @@ type exchange struct {
 	// discovery marks the engine discovery's exchange, whose answer gives the
 	// engine state its engine ID (settle).
 	discovery bool
+	// clock is the engine clock the attempts of an SNMPv3 request carry
+	// (encode): the engine state's, or the one a Report lent to a resend.
+	clock sourcedClock
 }
 
 // attemptKind is how an attempt ended.
@@ -272,13 +279,14 @@ type sentIDs struct {
 }
 
 // sendOneRequest sends packetOut, the engine discovery's request when
-// discovery is set, and returns the reply that answers it, and whether the
-// reply's engine parameters were committed into the engine state, retrying up
-// to cfg.retries times. OnFinish runs when it succeeds. Once Close closed the
-// client, an attempt that ends without a reply ends the request with
-// net.ErrClosed, whatever else ended it.
-func (x *GoSNMP) sendOneRequest(cfg *requestConfig, packetOut *SnmpPacket, discovery bool) (*SnmpPacket, bool, error) {
-	e := exchange{x: x, packet: packetOut, cfg: *cfg, timeout: cfg.timeout, discovery: discovery}
+// discovery is set, an SNMPv3 one with the engine boots and time of clock, and
+// returns the reply that answers it, and whether the reply's engine parameters
+// were committed into the engine state, retrying up to cfg.retries times.
+// OnFinish runs when it succeeds. Once Close closed the client, an attempt
+// that ends without a reply ends the request with net.ErrClosed, whatever else
+// ended it.
+func (x *GoSNMP) sendOneRequest(cfg *requestConfig, packetOut *SnmpPacket, discovery bool, clock sourcedClock) (*SnmpPacket, bool, error) {
+	e := exchange{x: x, packet: packetOut, cfg: *cfg, timeout: cfg.timeout, discovery: discovery, clock: clock}
 	// The IDs of the attempts before the current one, in a local array, not a
 	// field of exchange, so that eight of them stay on the stack: a field
 	// would always escape to the heap, and a slice made for cfg.retries+1 of
@@ -402,13 +410,18 @@ func attemptDeadline(ctx context.Context, timeout time.Duration) (deadline time.
 	return deadline, false
 }
 
-// encode marshals the request, for SNMPv3 with a new message ID (the encoder
-// draws the salt of an encrypted message). An authenticated request is signed
-// with the user's key, which must fit its protocol (usm.Auth.CheckKey).
+// encode marshals the request, for SNMPv3 with a new message ID and the
+// engine boots and time the exchange's clock gives at this attempt
+// (sourcedClock.timeFor; the encoder draws the salt of an encrypted message).
+// An authenticated request is signed with the user's key, which must fit its
+// protocol (usm.Auth.CheckKey).
 func (e *exchange) encode() ([]byte, error) {
 	x, p := e.x, e.packet
 	if p.Version == Version3 {
 		p.MsgID = x.nextMsgID()
+		if sp := usmOf(p.SecurityParameters); sp != nil {
+			sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = e.clock.timeFor(p, time.Now())
+		}
 		p.SecurityParameters.Log()
 	}
 	out, err := p.marshalMsg()
@@ -654,6 +667,9 @@ type reportKind struct {
 	// should have had (RFC 3414 section 3.2 step 3): a resend takes the
 	// Report's engine ID along with its boots and time.
 	namesEngine bool
+	// timeWindow marks the Report that says the request's engine boots and
+	// time are outside the time window (RFC 3414 section 3.2 step 7 b).
+	timeWindow bool
 	// name names a resync Report in log lines.
 	name string
 }
@@ -662,7 +678,7 @@ type reportKind struct {
 // (RFC 3412) a Report can carry.
 var reportKinds = map[string]reportKind{ //nolint:gochecknoglobals // a read-only table
 	usmStatsUnsupportedSecLevels: {err: ErrUnknownSecurityLevel},
-	usmStatsNotInTimeWindows:     {err: ErrNotInTimeWindow, resync: true, name: "out-of-time-window"},
+	usmStatsNotInTimeWindows:     {err: ErrNotInTimeWindow, resync: true, timeWindow: true, name: "out-of-time-window"},
 	usmStatsUnknownUserNames:     {err: ErrUnknownUsername},
 	usmStatsUnknownEngineIDs:     {err: ErrUnknownEngineID, resync: true, namesEngine: true, name: "unknown engine id"},
 	usmStatsWrongDigests:         {err: ErrWrongDigest},

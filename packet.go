@@ -153,6 +153,16 @@ func (t PDUType) confirmed() bool {
 	return false
 }
 
+// read reports whether t is a PDU of the Read Class (RFC 3411 section 2.8.1):
+// a request that changes nothing at its receiver.
+func (t PDUType) read() bool {
+	switch t {
+	case GetRequest, GetNextRequest, GetBulkRequest:
+		return true
+	}
+	return false
+}
+
 // SafeString formats the packet for logs, with the SafeString of its
 // security parameters, which leaves the passphrases and keys out; the
 // community is in it.

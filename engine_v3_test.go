@@ -665,10 +665,10 @@ func v3Scenarios() map[string]v3Scenario {
 			}),
 		},
 
-		"time-window/silence-over-150s": {
-			user: "codec-md5", run: getAfter(200*time.Second, nil),
-			knownBug: "the client sends the engine time of the last message, not the current one (RFC 3414 section 3.1 step 6 a), so a request after 150 s of silence is first answered with notInTimeWindow",
-		},
+		// The client's notion of the engine time advances with its clock
+		// (RFC 3414 section 2.3): a request after 150 s of silence is in the
+		// time window.
+		"time-window/silence-over-150s": {user: "codec-md5", run: getAfter(200*time.Second, nil)},
 		"time-window/always-not-in-time-window": {
 			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
 				return agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "always not in time window"}, n > 1
@@ -1383,20 +1383,21 @@ func v3Scenarios() map[string]v3Scenario {
 			edit: fromOtherEngine,
 		})},
 
-		// Authentic replies with older engine values, and forged Reports.
+		// Authentic replies with older engine values (RFC 3414 section 3.2
+		// step 7 b: an older time within the time window is accepted, the
+		// latest kept; lower boots are outside it, and the request is sent
+		// again), and forged Reports.
 		"time-window/older-time": {
 			user: "codec-md5", run: getTwice(nil), script: onRequest(3, agentAnswer{
 				level: AuthNoPriv, why: "GetResponse with an older engine time",
 				edit: func(p *SnmpPacket) { p.SecurityParameters.usm().AuthoritativeEngineTime = agentTimeBase - 100 },
 			}),
-			knownBug: "an authentic reply with an older engine time is adopted (RFC 3414 section 3.2 step 7 b keeps the latest)",
 		},
 		"time-window/older-boots": {
 			user: "codec-md5", run: getTwice(nil), script: onRequest(3, agentAnswer{
 				level: AuthNoPriv, why: "GetResponse with lower engine boots",
 				edit: func(p *SnmpPacket) { p.SecurityParameters.usm().AuthoritativeEngineBoots = agentBoots - 1 },
 			}),
-			knownBug: "an authentic reply with lower engine boots is accepted and adopted (RFC 3414 section 3.2 step 7 b: outside the time window)",
 		},
 		"answer/forged-report/not-in-time-windows": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "Report signed with another key", edit: forgeReport,

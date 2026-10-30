@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"errors"
 	"slices"
+	"time"
 )
 
 // engineState is the client's notion of the agent's SNMPv3 engine, the local
@@ -21,8 +22,10 @@ type engineState struct {
 	// the first SNMPv3 request.
 	params *UsmSecurityParameters
 
-	engineID          string
-	boots, engineTime uint32
+	engineID string
+	// clock is the notion of the engine's boots and time, none for a new
+	// engine ID (RFC 3414 section 2.3).
+	clock sourcedClock
 
 	// authKey and privKey are the keys localized to engineID. The exported
 	// fields get copies, so that a write into them changes no request; the
@@ -38,6 +41,48 @@ type engineState struct {
 	// context is the context engine ID the caller configured; empty, requests
 	// take engineID.
 	context string
+}
+
+// clockSource is where an engine clock came from.
+type clockSource uint8
+
+const (
+	// fromUnauthenticated: discovery, an unauthenticated answer, a Report
+	// lent to a resend, or the caller.
+	fromUnauthenticated clockSource = iota
+	// fromTimeWindowReport: an unauthenticated notInTimeWindow Report lent
+	// to a resend (exchange.settle).
+	fromTimeWindowReport
+	// fromAuthenticated: an authenticated message (RFC 3414 section 3.2 step
+	// 7 b).
+	fromAuthenticated
+)
+
+// sourcedClock is an engine clock and where it came from.
+type sourcedClock struct {
+	engineClock
+	source clockSource
+}
+
+// clockOf returns the clock of engine boots and time received at now from
+// source.
+func clockOf(boots, engineTime uint32, now time.Time, source clockSource) sourcedClock {
+	return sourcedClock{engineClock{boots: boots, latest: engineTime, received: now}, source}
+}
+
+// timeFor returns the engine boots and time packet, a request, carries when
+// it is sent at now (RFC 3414 section 3.1 step 6): c's notion of them when c
+// is authenticated, when the request asks for no authentication, which no
+// agent checks the time of (net-snmp sends its notion too; section 3.1 step 6
+// c sends zeros), or when it is a read request, which an on-path sender could
+// replay only as itself; else zeros, as without a clock, which an agent
+// answers with an authenticated notInTimeWindow Report carrying its own
+// (section 4).
+func (c sourcedClock) timeFor(packet *SnmpPacket, now time.Time) (boots, engineTime uint32) {
+	if !c.known() || c.source != fromAuthenticated && packet.MsgFlags.authFlag() && !packet.PDUType.read() {
+		return 0, 0
+	}
+	return c.at(now)
 }
 
 // credentials are the parameters' fields the keys derive from.
@@ -75,8 +120,8 @@ func (s *engineState) contextEngineID() string {
 func (s *engineState) fields() engineFields {
 	return engineFields{
 		engineID:        s.engineID,
-		boots:           s.boots,
-		engineTime:      s.engineTime,
+		boots:           s.clock.boots,
+		engineTime:      s.clock.latest,
 		authKey:         s.authKey,
 		privKey:         s.privKey,
 		contextEngineID: s.contextEngineID(),
@@ -99,8 +144,9 @@ func (s *engineState) sp() *UsmSecurityParameters {
 
 // withEngine returns the state for the engine engineID: the same state for its
 // own engine ID, else one with the keys keysFor localizes to engineID (an
-// error for keys given without a passphrase, H24) and the boots and time of
-// the old engine, which the commit replaces. An empty engine ID is an error.
+// error for keys given without a passphrase, which stay bound to their engine
+// ID) and no clock (RFC 3414 section 2.3: the next authentic message
+// synchronizes it). An empty engine ID is an error.
 func (s *engineState) withEngine(engineID string) (engineState, error) {
 	next := *s
 	switch engineID {
@@ -115,6 +161,7 @@ func (s *engineState) withEngine(engineID string) (engineState, error) {
 	}
 	next.engineID, next.authKey, next.privKey = engineID, authKey, privKey
 	next.authGiven, next.privGiven = false, false
+	next.clock = sourcedClock{}
 	return next, nil
 }
 
@@ -122,11 +169,12 @@ func (s *engineState) withEngine(engineID string) (engineState, error) {
 // request, what the caller changed since the client last wrote the exported
 // fields: another SecurityParameters value is configuration whole; otherwise a
 // field that no longer holds the state's value is the caller's from this
-// request on (an empty engine ID discovers again, an empty key derives, an
-// empty context engine ID follows the engine ID). Keys localize to the engine
-// ID: the client derives the missing ones for a known engine ID, a key given
-// for another engine ID again from its passphrase (none: an error, H24, but a
-// key given without an engine ID or passphrase serves the first one), and the
+// request on (an empty engine ID discovers again, another one has no clock,
+// boots and time are a clock, an empty key derives, an empty context engine ID
+// follows the engine ID). Keys localize to the engine ID: the client derives
+// the missing ones for a known engine ID, a key given for another engine ID
+// again from its passphrase (none: an error, the key is bound, but a key
+// given without an engine ID or passphrase serves the first one), and the
 // ones it derived again after a change of the credentials; a key its passphrase
 // derives is the client's, however it reached the field. Without an engine ID
 // the keys must derive all the same, before discovery. An error ends the
@@ -155,27 +203,35 @@ func (x *GoSNMP) reconcileEngine() error {
 
 	prev := &x.engine
 	same := prev.params == sp
-	if same && cur.engineID == prev.engineID && cur.boots == prev.boots && cur.engineTime == prev.engineTime &&
+	newClock := !same || cur.boots != prev.clock.boots || cur.engineTime != prev.clock.latest
+	if same && cur.engineID == prev.engineID && !newClock &&
 		bytes.Equal(cur.authKey, prev.authKey) && bytes.Equal(cur.privKey, prev.privKey) &&
 		cred == prev.cred && cur.contextEngineID == prev.contextEngineID() {
 		return nil
 	}
 
 	// A field that holds the state's value and one the caller changed both
-	// give the field's value; the keys and the context engine ID also need
-	// to know which it was.
+	// give the field's value; the keys, the clock and the context engine ID
+	// also need to know which it was.
 	next := engineState{
-		params:     sp,
-		engineID:   cur.engineID,
-		boots:      cur.boots,
-		engineTime: cur.engineTime,
-		cred:       cred,
-		context:    prev.context,
+		params:   sp,
+		engineID: cur.engineID,
+		cred:     cred,
+		context:  prev.context,
 	}
 	if cur.contextEngineID != prev.contextEngineID() {
 		next.context = cur.contextEngineID
 	}
 	newEngine, newCred := same && cur.engineID != prev.engineID, same && cred != prev.cred
+	// The boots and time are one pair: one the caller set is an
+	// unauthenticated clock received now, none for zeros (net-snmp takes
+	// non-zero ones only); the state's clock stays for its engine ID.
+	switch {
+	case newClock && (cur.boots != 0 || cur.engineTime != 0):
+		next.clock = clockOf(cur.boots, cur.engineTime, time.Now(), fromUnauthenticated)
+	case !newClock && !newEngine:
+		next.clock = prev.clock
+	}
 	fromNone := prev.engineID == ""
 	var err error
 	if next.authKey, next.authGiven, err = nextKey(cur.authKey, prev.authKey, prev.authGiven, same, newEngine, newCred,
@@ -266,7 +322,7 @@ func (x *GoSNMP) mirrorEngine(was engineFields, s *engineState) {
 		sp.AuthoritativeEngineID = s.engineID
 	}
 	if sp.AuthoritativeEngineBoots == was.boots && sp.AuthoritativeEngineTime == was.engineTime {
-		sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = s.boots, s.engineTime
+		sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = s.clock.boots, s.clock.latest
 	}
 	if !bytes.Equal(s.authKey, was.authKey) && bytes.Equal(sp.SecretKey, was.authKey) {
 		sp.SecretKey = slices.Clone(s.authKey)
@@ -281,10 +337,10 @@ func (x *GoSNMP) mirrorEngine(was engineFields, s *engineState) {
 }
 
 // stamp gives packet, a request's private copy of the parameters, the engine
-// state's engine ID, keys, boots and time, and its context engine ID.
+// state's engine ID and keys, and its context engine ID; each attempt gives it
+// the engine boots and time (exchange.encode).
 func (s *engineState) stamp(packet *SnmpPacket) {
 	sp := packet.SecurityParameters.usm()
 	sp.AuthoritativeEngineID, sp.SecretKey, sp.PrivacyKey = s.engineID, s.authKey, s.privKey
-	sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = s.boots, s.engineTime
 	packet.ContextEngineID = s.contextEngineID()
 }
