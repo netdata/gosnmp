@@ -25,10 +25,12 @@ type engineState struct {
 	boots, engineTime uint32
 
 	// authKey and privKey are the keys localized to engineID. The exported
-	// fields get copies, so that a write into them changes no request.
+	// fields get copies, so that a write into them changes no request; the
+	// packets of requests and their answers share these.
 	authKey, privKey []byte
-	// authGiven and privGiven mark keys the caller gave, which no change of
-	// the credentials derives again.
+	// authGiven and privGiven mark keys the caller gave that their
+	// passphrases do not derive, which no change of the credentials derives
+	// again.
 	authGiven, privGiven bool
 	// cred are the credentials the keys the client derived come from.
 	cred credentials
@@ -55,9 +57,10 @@ type engineFields struct {
 	contextEngineID   string
 }
 
-// errNoDiscoveredEngineID is the error of a discovery whose answer names no
-// engine ID (RFC 3414 section 3.2 step 3: a zero-length engine ID is unknown).
-var errNoDiscoveredEngineID = inCategory(ErrUnknownEngineID, errors.New("the discovery answer names no engine ID"))
+// errAnswerNoEngineID is the error of an answer that names no engine ID where
+// the client needs one, from discovery or to lend (RFC 3414 section 3.2 step 3:
+// a zero-length engine ID is unknown).
+var errAnswerNoEngineID = inCategory(ErrUnknownEngineID, errors.New("the answer names no engine ID"))
 
 // contextEngineID returns the context engine ID of requests: the configured
 // one, else the engine ID.
@@ -102,7 +105,7 @@ func (s *engineState) withEngine(engineID string) (engineState, error) {
 	next := *s
 	switch engineID {
 	case "":
-		return next, errNoDiscoveredEngineID
+		return next, errAnswerNoEngineID
 	case s.engineID:
 		return next, nil
 	}
@@ -122,9 +125,12 @@ func (s *engineState) withEngine(engineID string) (engineState, error) {
 // request on (an empty engine ID discovers again, an empty key derives, an
 // empty context engine ID follows the engine ID). Keys localize to the engine
 // ID: the client derives the missing ones for a known engine ID, a key given
-// for another engine ID again from its passphrase (none: an error, H24), and
-// the ones it derived again after a change of the credentials. An error ends
-// the request and changes nothing.
+// for another engine ID again from its passphrase (none: an error, H24; a key
+// given without an engine ID serves the first one), and the ones it derived
+// again after a change of the credentials; a key its passphrase derives is
+// the client's, however it reached the field. Without an engine ID the keys
+// must derive all the same, before discovery. An error ends the request and
+// changes nothing.
 func (x *GoSNMP) reconcileEngine() error {
 	sp := usmOf(x.SecurityParameters)
 	if sp == nil {
@@ -169,7 +175,8 @@ func (x *GoSNMP) reconcileEngine() error {
 	if cur.contextEngineID != prev.contextEngineID() {
 		next.context = cur.contextEngineID
 	}
-	newEngine, newCred := same && cur.engineID != prev.engineID, same && cred != prev.cred
+	newEngine := same && prev.engineID != "" && cur.engineID != prev.engineID
+	newCred := same && cred != prev.cred
 	var err error
 	if next.authKey, next.authGiven, err = nextKey(cur.authKey, prev.authKey, prev.authGiven, same, newEngine, newCred,
 		cred.authProtocol > NoAuth && cred.authPassphrase == ""); err != nil {
@@ -179,12 +186,26 @@ func (x *GoSNMP) reconcileEngine() error {
 		cred.privProtocol > NoPriv && cred.privPassphrase == ""); err != nil {
 		return errPrivKeyBoundToEngine
 	}
-	if next.engineID != "" {
+	if next.engineID == "" {
+		// Keys derive for any engine ID alike: a refusal (FIPS 140-only mode)
+		// ends the request before discovery.
+		if err := next.sp().deriveKeys(); err != nil {
+			return err
+		}
+	} else {
 		keys := next.sp()
 		if err := keys.InitSecurityKeys(); err != nil {
 			return err
 		}
 		next.authKey, next.privKey = keys.SecretKey, keys.PrivacyKey
+		if next.authGiven || next.privGiven {
+			derived := next.sp()
+			derived.SecretKey, derived.PrivacyKey = nil, nil
+			if derived.deriveKeys() == nil {
+				next.authGiven = next.authGiven && !bytes.Equal(next.authKey, derived.SecretKey)
+				next.privGiven = next.privGiven && !bytes.Equal(next.privKey, derived.PrivacyKey)
+			}
+		}
 	}
 	*prev = next
 	x.mirrorEngine(cur, prev)

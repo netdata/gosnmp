@@ -71,11 +71,13 @@ func TestEngineReconcile(t *testing.T) {
 	const (
 		authPass, privPass = "codec-auth-pass", "codec-priv-pass"
 		otherPass          = "codec-other-pass"
+		thirdPass          = "codec-third-pass"
 	)
 	authE1, privE1 := stateKeys(t, authPass, privPass, usmCharEngineID)
 	authE2, privE2 := stateKeys(t, authPass, privPass, usmOtherEngineID)
 	authOther, _ := stateKeys(t, otherPass, privPass, usmCharEngineID)
 	_, privOther := stateKeys(t, authPass, otherPass, usmCharEngineID)
+	_, privThird := stateKeys(t, authPass, thirdPass, usmCharEngineID)
 
 	// Each case starts from a client whose state followed its parameters
 	// (SHA/AES passphrases, engine usmCharEngineID, boots 7, time 1000) once;
@@ -103,12 +105,32 @@ func TestEngineReconcile(t *testing.T) {
 			steps: []func(*GoSNMP, *UsmSecurityParameters){
 				func(_ *GoSNMP, sp *UsmSecurityParameters) { sp.SecretKey = bytes.Clone(authOther) },
 				func(_ *GoSNMP, sp *UsmSecurityParameters) {
-					sp.AuthenticationPassphrase, sp.PrivacyPassphrase = otherPass, otherPass
+					sp.AuthenticationPassphrase, sp.PrivacyPassphrase = thirdPass, thirdPass
 				},
 			},
 			want: func(v engineView) engineView {
 				v.authKey, v.authGiven, v.fieldAuthKey = authOther, true, authOther
-				v.privKey, v.fieldPrivKey = privOther, privOther
+				v.privKey, v.fieldPrivKey = privThird, privThird
+				return v
+			},
+		},
+		// A key equal to what its passphrase derives is the client's, however
+		// it reached the field.
+		"a key the passphrase derives is the client's": {
+			steps: []func(*GoSNMP, *UsmSecurityParameters){
+				func(_ *GoSNMP, sp *UsmSecurityParameters) { sp.SecretKey = bytes.Clone(authOther) },
+				func(_ *GoSNMP, sp *UsmSecurityParameters) { sp.AuthenticationPassphrase = otherPass },
+				func(_ *GoSNMP, sp *UsmSecurityParameters) { sp.AuthenticationPassphrase = authPass },
+			},
+			want: func(v engineView) engineView { return v },
+		},
+		"keys derived into the field before the first request": {
+			setup: func(_ *GoSNMP, sp *UsmSecurityParameters) { require.NoError(t, sp.InitSecurityKeys()) },
+			steps: []func(*GoSNMP, *UsmSecurityParameters){func(_ *GoSNMP, sp *UsmSecurityParameters) {
+				sp.AuthenticationPassphrase = otherPass
+			}},
+			want: func(v engineView) engineView {
+				v.authKey, v.fieldAuthKey = authOther, authOther
 				return v
 			},
 		},
@@ -136,14 +158,18 @@ func TestEngineReconcile(t *testing.T) {
 		},
 		"another value is the caller's whole": {
 			steps: []func(*GoSNMP, *UsmSecurityParameters){
-				func(x *GoSNMP, sp *UsmSecurityParameters) { x.SecurityParameters = sp.Copy() },
+				func(x *GoSNMP, sp *UsmSecurityParameters) {
+					x.SecurityParameters = sp.Copy()
+					x.SecurityParameters.usm().SecretKey = bytes.Clone(authOther)
+				},
 				func(x *GoSNMP, _ *UsmSecurityParameters) {
 					sp := x.SecurityParameters.usm()
-					sp.AuthenticationPassphrase, sp.PrivacyPassphrase = otherPass, otherPass
+					sp.AuthenticationPassphrase, sp.PrivacyPassphrase = thirdPass, otherPass
 				},
 			},
 			want: func(v engineView) engineView {
-				v.authGiven, v.privGiven = true, true
+				v.authKey, v.authGiven, v.fieldAuthKey = authOther, true, authOther
+				v.privKey, v.fieldPrivKey = privOther, privOther
 				return v
 			},
 		},
@@ -160,6 +186,19 @@ func TestEngineReconcile(t *testing.T) {
 				return v
 			},
 		},
+		"a configured context engine ID equal to the engine ID stays": {
+			setup: func(x *GoSNMP, _ *UsmSecurityParameters) { x.ContextEngineID = "codec-context" },
+			steps: []func(*GoSNMP, *UsmSecurityParameters){
+				func(x *GoSNMP, _ *UsmSecurityParameters) { x.ContextEngineID = usmCharEngineID },
+				func(_ *GoSNMP, sp *UsmSecurityParameters) { sp.AuthoritativeEngineID = usmOtherEngineID },
+			},
+			want: func(v engineView) engineView {
+				v.engineID, v.fieldEngineID = usmOtherEngineID, usmOtherEngineID
+				v.authKey, v.fieldAuthKey, v.privKey, v.fieldPrivKey = authE2, authE2, privE2, privE2
+				v.context, v.fieldContextEngineID = usmCharEngineID, usmCharEngineID
+				return v
+			},
+		},
 		"an emptied context engine ID follows the engine ID": {
 			setup: func(x *GoSNMP, _ *UsmSecurityParameters) { x.ContextEngineID = "codec-context" },
 			steps: []func(*GoSNMP, *UsmSecurityParameters){func(x *GoSNMP, _ *UsmSecurityParameters) {
@@ -167,6 +206,19 @@ func TestEngineReconcile(t *testing.T) {
 			}},
 			want: func(v engineView) engineView {
 				v.context, v.fieldContextEngineID = "", usmCharEngineID
+				return v
+			},
+		},
+		"keys given without an engine ID serve the first engine ID set": {
+			setup: func(_ *GoSNMP, sp *UsmSecurityParameters) {
+				usmKeysOnly(sp, usmCharEngineID)
+				sp.AuthoritativeEngineID = ""
+			},
+			steps: []func(*GoSNMP, *UsmSecurityParameters){func(_ *GoSNMP, sp *UsmSecurityParameters) {
+				sp.AuthoritativeEngineID = usmCharEngineID
+			}},
+			want: func(v engineView) engineView {
+				v.engineID, v.fieldEngineID, v.fieldContextEngineID = usmCharEngineID, usmCharEngineID, usmCharEngineID
 				return v
 			},
 		},

@@ -24,8 +24,8 @@ func getFirstOf2(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
 func v3FIPSScenarios() map[string]v3Scenario {
 	return map[string]v3Scenario{
 		"discovery/noauth": {user: "codec-noauth"},
-		// A refused key derivation ends the discovery with its error, and the
-		// client learns nothing: the next request discovers again.
+		// A refused key derivation ends each request before discovery: no
+		// traffic, nothing learned.
 		"discovery/md5":            {user: "codec-md5", run: getFirstOf2},
 		"discovery/sha-aes":        {user: "codec-sha-aes", run: getFirstOf2},
 		"discovery/sha256-des":     {user: "codec-sha256-des"},

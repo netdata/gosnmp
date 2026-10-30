@@ -973,6 +973,21 @@ func v3Scenarios() map[string]v3Scenario {
 					sp.AuthoritativeEngineID = agentOtherEngineID
 				}),
 		},
+		// Keys given without the engine ID they were localized to cannot take
+		// the one discovery finds; the caller then sets it.
+		"caller/keys-only-engine-id-after-failed-discovery": {
+			user: "codec-sha-aes", setup: func(x *GoSNMP, sp *UsmSecurityParameters) {
+				configuredKeys(agentEngineID)(x, sp)
+				sp.AuthoritativeEngineID = ""
+			},
+			run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+				res, err := x.Get([]string{engineOID})
+				a.tr.addf("first Get: %s", describeEngineResult(res, err))
+				a.tr.addf("caller sets the engine ID the keys were localized to")
+				x.SecurityParameters.usm().AuthoritativeEngineID = agentEngineID
+				return x.Get([]string{engineOID})
+			},
+		},
 		"caller/new-security-parameters": {user: "codec-md5", run: changeThenGet(
 			"sets new security parameters", func(x *GoSNMP, _ *UsmSecurityParameters) {
 				x.SecurityParameters = userParameters("codec-md5")
@@ -1028,6 +1043,22 @@ func v3Scenarios() map[string]v3Scenario {
 		"noauth/answer-without-engine-id": {
 			user: "codec-noauth", run: getTwice(nil),
 			script: onRequest(2, agentAnswer{why: "GetResponse without an engine ID", edit: withoutEngineID}),
+		},
+		// Keys given without passphrases, at noAuthNoPriv: an unauthenticated
+		// answer from another engine, whose keys do not derive, answers without
+		// changing the engine state.
+		"noauth/keys-only-answer-from-other-engine": {
+			user: "codec-md5", setup: func(x *GoSNMP, sp *UsmSecurityParameters) {
+				configuredKeys(agentEngineID)(x, sp)
+				x.MsgFlags = NoAuthNoPriv
+			},
+			script: onRequest(1, agentAnswer{why: "GetResponse from the other engine", edit: fromOtherEngine}),
+		},
+		// An unknownEngineIDs Report without an engine ID has none to lend.
+		"noauth/unknown-engine-report-without-engine-id": {
+			user: "codec-noauth", script: onRequest(2, agentAnswer{
+				report: usmStatsUnknownEngineIDs, why: "Report without an engine ID", edit: withoutEngineID,
+			}),
 		},
 		// The parameters of a request without authentication have an
 		// authentication protocol: an authenticated answer from the engine an

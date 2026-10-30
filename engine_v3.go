@@ -55,7 +55,10 @@ func engineFoundDespiteUnknownUser(result *SnmpPacket, err error) bool {
 // checked against the request (verified), or, unverified, to a request without
 // authentication when it is not a Report (RFC 3414 section 3.2 step 7 takes the
 // engine boots and time from authenticated messages only); a reply whose
-// engine ID gives no valid state answers without a commit.
+// engine ID gives no valid state answers without a commit. Known bug: the
+// boots and time of any authentic reply are taken, older or outside the time
+// window ones included (RFC 3414 section 3.2 step 7 b), and kept without when
+// they were received (section 2.3).
 func (e *exchange) settle(out attemptOutcome) attemptOutcome {
 	x, reply := e.x, out.packet
 	if reply.Version != Version3 {
@@ -70,9 +73,6 @@ func (e *exchange) settle(out attemptOutcome) attemptOutcome {
 	case !out.verified && (isReport || e.packet.MsgFlags.authFlag()):
 		return out
 	}
-	if x.Logger.enabled() {
-		x.Logger.Printf("SEND STORE SECURITY PARAMS from result: %s", reply.SecurityParameters.SafeString())
-	}
 	from := reply.SecurityParameters.usm()
 	next, err := x.engine.withEngine(from.AuthoritativeEngineID)
 	if err != nil {
@@ -84,6 +84,9 @@ func (e *exchange) settle(out attemptOutcome) attemptOutcome {
 	next.boots, next.engineTime = from.AuthoritativeEngineBoots, from.AuthoritativeEngineTime
 	x.commitEngine(next)
 	out.committed = true
+	if x.Logger.enabled() {
+		x.Logger.Printf("SEND STORE SECURITY PARAMS from result: %s", reply.SecurityParameters.SafeString())
+	}
 	return out
 }
 
@@ -114,22 +117,21 @@ func mayLend(packetOut, report *SnmpPacket, kind reportKind) bool {
 
 // lendEngineParameters puts the engine parameters of report, a resync Report
 // the client does not store, into packetOut only, for one resend: the engine
-// ID, boots and time of a Report that names the engine (the packet's keys are
-// localized to that engine ID, and the context engine ID follows it unless
-// the caller configured one), the boots and time of another (RFC 3414 section
-// 3.2 checks the engine ID before the time window). The client takes the
-// agent's from the authenticated answer.
+// ID, boots and time of a Report that names the engine (by the rule of a
+// commit, withEngine: keys localized to that engine ID, an error for an empty
+// one; the context engine ID follows it unless the caller configured one), the
+// boots and time of another (RFC 3414 section 3.2 checks the engine ID before
+// the time window). The client takes the agent's from the authenticated
+// answer.
 func (x *GoSNMP) lendEngineParameters(packetOut, report *SnmpPacket, kind reportKind) error {
 	from, sp := report.SecurityParameters.usm(), packetOut.SecurityParameters.usm()
 	if kind.namesEngine {
-		authKey, privKey, err := sp.keysFor(from.AuthoritativeEngineID)
+		lent, err := x.engine.withEngine(from.AuthoritativeEngineID)
 		if err != nil {
 			return err
 		}
-		sp.AuthoritativeEngineID, sp.SecretKey, sp.PrivacyKey = from.AuthoritativeEngineID, authKey, privKey
-		if x.engine.context == "" {
-			packetOut.ContextEngineID = from.AuthoritativeEngineID
-		}
+		sp.AuthoritativeEngineID, sp.SecretKey, sp.PrivacyKey = lent.engineID, lent.authKey, lent.privKey
+		packetOut.ContextEngineID = lent.contextEngineID()
 	}
 	sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = from.AuthoritativeEngineBoots, from.AuthoritativeEngineTime
 	return nil
