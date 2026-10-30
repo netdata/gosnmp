@@ -80,14 +80,22 @@ func TestEngineV3FIPS140OnlyDiscoveryPreflight(t *testing.T) {
 		authKeyOnly bool
 		wantErr     string
 	}{
-		{name: "MD5", auth: MD5, priv: NoPriv,
-			wantErr: "crypto/md5: use of MD5 is not allowed in FIPS 140-only mode"},
-		{name: "SHA", auth: SHA, priv: NoPriv,
-			wantErr: "crypto/sha1: use of SHA-1 is not allowed in FIPS 140-only mode"},
-		{name: "SHA-AES", auth: SHA, priv: AES,
-			wantErr: "crypto/sha1: use of SHA-1 is not allowed in FIPS 140-only mode"},
-		{name: "SHA-AES/privacy-only-passphrase", auth: SHA, priv: AES, authKeyOnly: true,
-			wantErr: "crypto/sha1: use of SHA-1 is not allowed in FIPS 140-only mode"},
+		{
+			name: "MD5", auth: MD5, priv: NoPriv,
+			wantErr: "crypto/md5: use of MD5 is not allowed in FIPS 140-only mode",
+		},
+		{
+			name: "SHA", auth: SHA, priv: NoPriv,
+			wantErr: "crypto/sha1: use of SHA-1 is not allowed in FIPS 140-only mode",
+		},
+		{
+			name: "SHA-AES", auth: SHA, priv: AES,
+			wantErr: "crypto/sha1: use of SHA-1 is not allowed in FIPS 140-only mode",
+		},
+		{
+			name: "SHA-AES/privacy-only-passphrase", auth: SHA, priv: AES, authKeyOnly: true,
+			wantErr: "crypto/sha1: use of SHA-1 is not allowed in FIPS 140-only mode",
+		},
 	}
 	keySets := []struct {
 		name       string
