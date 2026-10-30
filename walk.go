@@ -8,6 +8,8 @@ import (
 	"cmp"
 	"fmt"
 	"strings"
+
+	"github.com/netdata/gosnmp/internal/ber"
 )
 
 //
@@ -71,11 +73,15 @@ func (x *GoSNMP) WalkAll(rootOid string) (results []SnmpPDU, err error) {
 // an answer ends the walk (visit's rule). When that answer shows the root to
 // be a leaf, the walk gets it once (getRoot).
 func (x *GoSNMP) walk(getRequestType PDUType, rootOid string, walkFn WalkFunc) error {
+	root, err := walkRoot(rootOid)
+	if err != nil {
+		return err
+	}
 	// AppOpt 'c': do not check that returned OIDs increase.
 	_, unchecked := x.AppOpts["c"]
 	w := walker{
 		x:               x,
-		root:            walkRoot(rootOid),
+		root:            root,
 		maxReps:         cmp.Or(x.MaxRepetitions, defaultMaxRepetitions),
 		checkIncreasing: !unchecked,
 	}
@@ -130,20 +136,24 @@ const (
 	walkDone
 )
 
-// walkRoot is the root of a walk asked for rootOid, with a leading dot. An
-// empty root or "." walks the 'internet' subtree .1.3.6.1 (IANA, under the
+// walkRoot returns rootOid in the canonical dotted form used by decoded
+// response names, so subtree, equality and ordering checks share its identity.
+// An empty root or "." walks the 'internet' subtree .1.3.6.1 (IANA, under the
 // ISO OID structure of X.660; see https://oidref.com/1.3.6.1), which holds
 // both the standard (MIB-2) and the vendor branches and encodes as an OID,
 // which needs at least two arcs: X.690 section 8.19 encodes the first two as
 // one subidentifier, 40 * arc1 + arc2.
-func walkRoot(rootOid string) string {
+func walkRoot(rootOid string) (string, error) {
 	if rootOid == "" || rootOid == "." {
-		return ".1.3.6.1"
+		return ".1.3.6.1", nil
 	}
-	if !strings.HasPrefix(rootOid, ".") {
-		return "." + rootOid
+	// Use the wire codec's grammar, including leading zeros and empty arcs,
+	// rather than comparing the caller's spelling with decoded names.
+	content, err := ber.AppendOID(nil, rootOid)
+	if err != nil {
+		return "", fmt.Errorf("unable to marshal OID %q: %w", rootOid, err)
 	}
-	return rootOid
+	return ber.OID(content)
 }
 
 // request asks the agent for the objects after oid.

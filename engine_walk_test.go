@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -422,6 +423,97 @@ func TestEngineWalkCharacterization(t *testing.T) {
 		results = append(results, goldenCase{name: "walk/" + name, dump: dump})
 	}
 	engineGolden.check(t, "walk", results)
+}
+
+// TestEngineWalkRootSpellings exercises the public walks through the codec:
+// equivalent root spellings must visit the same objects and get a leaf once.
+func TestEngineWalkRootSpellings(t *testing.T) {
+	spellings := []struct {
+		name string
+		root func(string) string
+	}{
+		{"canonical", func(root string) string { return root }},
+		{"undotted", func(root string) string { return strings.TrimPrefix(root, ".") }},
+		{"leading-zeros", func(root string) string { return strings.ReplaceAll(root, ".", ".0") }},
+		{"leading-dots", func(root string) string { return "." + root }},
+		{"repeated-dots", func(root string) string { return strings.ReplaceAll(root, ".", "..") }},
+		{"trailing-dot", func(root string) string { return root + "." }},
+		{"combined", func(root string) string { return strings.ReplaceAll(root, ".", "..0") + ".." }},
+	}
+	cases := []struct {
+		name    string
+		root    string
+		version SnmpVersion
+		want    []SnmpPDU
+		gets    int
+		equal   bool // answer the first request with the root itself
+	}{
+		{name: "subtree", root: walkIfDescr, version: Version2c, want: walkMIB[3:6]},
+		{name: "subtree-v1", root: walkIfDescr, version: Version1, want: walkMIB[3:6]},
+		{name: "leaf", root: walkMIB[2].Name, version: Version2c, want: walkMIB[2:3], gets: 1},
+		{name: "last-leaf-v1", root: walkMIB[6].Name, version: Version1, want: walkMIB[6:7], gets: 1},
+		{name: "last-leaf-v2", root: walkMIB[6].Name, version: Version2c},
+		{name: "equal-root", root: walkIfDescr, version: Version2c, equal: true},
+	}
+	for _, api := range []string{"Walk", "WalkAll", "BulkWalk", "BulkWalkAll"} {
+		for _, tc := range cases {
+			if tc.version == Version1 && strings.HasPrefix(api, "Bulk") {
+				continue // GetBulk is not supported by SNMPv1.
+			}
+			for _, spelling := range spellings {
+				t.Run(api+"/"+tc.name+"/"+spelling.name, func(t *testing.T) {
+					synctest.Test(t, func(t *testing.T) {
+						gets := 0
+						agent := &mibAgent{mib: walkMIB, script: func(n int, req, out *SnmpPacket) bool {
+							if n == 1 || req.PDUType == GetRequest {
+								if len(req.Variables) != 1 || req.Variables[0].Name != tc.root {
+									t.Fatalf("request root = %v, want %q", req.Variables, tc.root)
+								}
+							}
+							if req.PDUType == GetRequest {
+								gets++
+							}
+							if tc.equal && n == 1 {
+								out.Variables = []SnmpPDU{{Name: tc.root, Type: Integer, Value: 1}}
+							}
+							return false
+						}}
+						x := newEngineClient(t, nil, tc.version, fakePacketTransport{newFakeTransport(nil, agent.handle)})
+						root := spelling.root(tc.root)
+						var got []SnmpPDU
+						var err error
+						visit := func(vb SnmpPDU) error {
+							got = append(got, vb)
+							return nil
+						}
+						switch api {
+						case "Walk":
+							err = x.Walk(root, visit)
+						case "WalkAll":
+							got, err = x.WalkAll(root)
+						case "BulkWalk":
+							err = x.BulkWalk(root, visit)
+						case "BulkWalkAll":
+							got, err = x.BulkWalkAll(root)
+						}
+						if tc.equal {
+							if err == nil || !strings.Contains(err.Error(), "OID not increasing") {
+								t.Errorf("error = %v, want OID not increasing", err)
+							}
+						} else if err != nil {
+							t.Errorf("walk: %v", err)
+						}
+						if !reflect.DeepEqual(got, tc.want) {
+							t.Errorf("values = %v, want %v", got, tc.want)
+						}
+						if gets != tc.gets {
+							t.Errorf("leaf Gets = %d, want %d", gets, tc.gets)
+						}
+					})
+				})
+			}
+		}
+	}
 }
 
 // runWalkScenario runs sc in the calling synctest bubble and returns its
