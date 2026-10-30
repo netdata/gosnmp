@@ -157,9 +157,9 @@
 // answer matches a request, so it replays nothing), and one with lower boots,
 // or a time more than 150 s behind the clock's, is outside the time window, as
 // is every answer carrying boots 2147483647, whose engine must be reconfigured
-// (RFC 3414 section 3.2 step 7 b; net-snmp accepts one such answer, then
-// none); the first authenticated answer sets the clock. An unauthenticated answer
-// sets the clock only while no authenticated one did. A Report that says the
+// (RFC 3414 section 3.2 step 7 b; net-snmp accepts one such answer, then none);
+// the first authenticated answer sets the clock. An unauthenticated answer sets
+// the clock only while no authenticated one did. A Report that says the
 // request's engine ID or time is out of date (usmStatsUnknownEngineIDs,
 // usmStatsNotInTimeWindows) makes the client send the request once more, with
 // the engine parameters the Report carries when it was authenticated; an
@@ -167,10 +167,10 @@
 // order of its boots and time, for agents whose boots do not go up when they
 // restart (a deviation from RFC 3414 section 3.2 step 7 b and net-snmp). An
 // unauthenticated Report lends them to that resend only: to a request without
-// authentication; to an authenticated read request only the boots and time of
-// a usmStatsNotInTimeWindows Report naming the request's engine ID, and when
-// the authenticated answer to that resend is outside the time window but has
-// the lent boots and a time within 150 s of the lent time, it sets the clock:
+// authentication; to an authenticated read request only the boots and time of a
+// usmStatsNotInTimeWindows Report naming the request's engine ID, and when the
+// authenticated answer to that resend is outside the time window but has the
+// lent boots and a time within 150 s of the lent time, it sets the clock:
 // agents that restart without raising their boots and report
 // usmStatsNotInTimeWindows without authentication so recover (net-snmp locks
 // them out). So an authenticated request to an agent whose engine ID changed
