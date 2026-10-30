@@ -76,13 +76,14 @@
 // except that after a timeout the error's text is "request timeout (after N
 // retries)" and after the agent closed the TCP connection "max retries (N)
 // exceeded"; both match the attempt's reason with [errors.Is] and [errors.As]
-// (the timeout, a [net.Error]; [io.EOF]). When the request discarded replies,
-// such an error, and one at the Context's deadline, also matches the reason of
-// the discarded reply that came closest to answering it (the last authentic
-// one naming the request, by its SNMPv3 msgID, else the last naming it, by
-// that msgID or its SNMPv1 or SNMPv2c request ID, else the last one whose ID
-// could not be read; replies to other requests do not count), and its text
-// ends with ": last discarded reply: " and that reason's text. An answer's
+// (the timeout, a [net.Error]; [io.EOF]). When the request discarded replies
+// that did not decode, authenticate or fall in the time window, such an error,
+// and one at the Context's deadline, also matches the reason of the one that
+// came closest to answering it (the last authentic one naming the request, by
+// its SNMPv3 msgID, else the last naming it, by that msgID or its SNMPv1 or
+// SNMPv2c request ID, else the last one whose ID could not be read; replies to
+// other requests do not count), and its text ends with ": last discarded
+// reply: " and that reason's text. An answer's
 // error status ([SnmpPacket].Error) is not an error of the request. Connect
 // uses Timeout and the Context too, for its name lookups and its dial
 // together. Known bugs: a Response without varbinds or error status, or with
@@ -192,8 +193,9 @@
 // Report with the error.
 //
 // A request that discarded an authentic answer outside the time window and
-// ends without an answer, however it ended, drops the clock: the next request
-// carries boots and time zero, which
+// ends without an answer (its attempts ran out, the Context ended it, Close,
+// or a failure; not a panic) drops the clock: the next request carries boots
+// and time zero, which
 // an agent that checks the time window answers with an authenticated
 // usmStatsNotInTimeWindows Report carrying its own, and the next authenticated
 // answer of one that does not sets the clock. So a device that does not check

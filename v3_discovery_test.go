@@ -355,7 +355,7 @@ func TestV3GetRealUnknownUserNameStillFails(t *testing.T) {
 // TestV3DiscoveryUnknownUserNamesOtherUser pins a discovery answered with a
 // usmStatsUnknownUserNames Report that names another user than the
 // discovery's empty one: the client discards it (RFC 3414 section 3.2 step 4),
-// so the discovery fails with the discard's error, which unwraps to
+// so the discovery times out with an error that also unwraps to the discard's,
 // ErrUnknownUsername, and the client takes no engine parameters.
 func TestV3DiscoveryUnknownUserNamesOtherUser(t *testing.T) {
 	agent := newMockAgentUnknownUserNames(t)

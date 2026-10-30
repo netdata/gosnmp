@@ -385,7 +385,8 @@ func (e *exchange) attemptsError(text string, reason error) *attemptsError {
 // answer: an error at the Context's deadline that also unwraps to the discard
 // the exchange recorded, if any (attemptsError); any other error unchanged.
 // After a discarded authentic answer outside the time window it drops the
-// engine clock, however the exchange ended (forgetEngineTime).
+// engine clock, however the exchange ended (forgetEngineTime); a panic, which
+// send recovers, does not get here.
 func (e *exchange) unanswered(err error) error {
 	if e.outOfWindow {
 		e.x.forgetEngineTime()
@@ -492,8 +493,8 @@ func (e *exchange) encode() ([]byte, error) {
 // await reads replies on c until one answers the request. A message that does
 // not decode, does not authenticate or that the commit rejects is discarded,
 // its reason recorded (discard), and the read goes on until the attempt's
-// deadline (RFC 3412 section 7.2 steps 2, 6 and 7); so is one that answers
-// another request.
+// deadline (RFC 3412 section 7.2 steps 2, 6 and 7); a message that decodes but
+// answers another request is read past, its reason not recorded.
 func (e *exchange) await(c *connection, earlier []sentIDs) attemptOutcome {
 	x := e.x
 	for {

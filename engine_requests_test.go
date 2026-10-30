@@ -478,6 +478,16 @@ func engineScenarios() map[string]engineScenario {
 		"answer/undecodable-other-request": {agent: func(_ int, req []byte) []agentReply {
 			return []agentReply{{data: errorStatusOutOfRange(req, 100)}}
 		}},
+		// A datagram that does not decode, then the agent closes the TCP
+		// connection: the request's error names the discard.
+		"answer/garbage-then-eof-tcp": {
+			shape: shapeStream,
+			setup: func(x *GoSNMP, c *fakeTransport) {
+				x.Transport, x.Retries = "tcp", 0
+				c.failRead = func(n int) error { return map[int]error{2: io.EOF}[n] }
+			},
+			agent: func(int, []byte) []agentReply { return []agentReply{{data: garbage}} },
+		},
 		"answer/split-tcp": {
 			shape: shapeStream,
 			setup: func(x *GoSNMP, _ *fakeTransport) { x.Transport, x.Retries = "tcp", 0 },
@@ -1832,6 +1842,38 @@ func TestExchangeRankOf(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			e := exchange{packet: &SnmpPacket{Version: tc.version, RequestID: 2, MsgID: 7}}
 			assert.Equal(t, tc.want, e.rankOf(tc.read, tc.verified, earlier))
+		})
+	}
+}
+
+// TestExchangeDecodeRequestID checks that decode returns an SNMPv1 or SNMPv2c
+// message it could not finish when, and only when, it decoded the PDU's
+// request ID, which ranks the discard.
+func TestExchangeDecodeRequestID(t *testing.T) {
+	vbl := craftedVBL(craftedVB(intTLV(5)))
+	tests := map[string]struct {
+		msg  []byte
+		want *uint32 // the request ID of the message returned, nil for none
+	}{
+		"error status after the request ID": {
+			msg: craftedMsg(1, tlv(byte(GetResponse), intTLV(9), intTLV(-1), intTLV(0), vbl)), want: new(uint32(9)),
+		},
+		"request ID that does not decode": {msg: craftedMsg(1, tlv(byte(GetResponse), octets("x"), intTLV(0), intTLV(0), vbl))},
+		"unknown PDU type":                {msg: craftedMsg(1, tlv(0xaf, intTLV(9), intTLV(0), intTLV(0), vbl))},
+		"SNMPv1 trap tag":                 {msg: craftedMsg(0, tlv(byte(Trap), intTLV(9), intTLV(0)))},
+		"a PDU without its message":       {msg: tlv(byte(GetResponse), intTLV(9), intTLV(-1), intTLV(0), vbl)},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			e := &exchange{x: &GoSNMP{Version: Version2c}, packet: &SnmpPacket{Version: Version2c, PDUType: GetRequest}}
+			reply, _, err := e.decode(tc.msg)
+			require.Error(t, err)
+			if tc.want == nil {
+				assert.Nil(t, reply)
+				return
+			}
+			require.NotNil(t, reply)
+			assert.Equal(t, *tc.want, reply.RequestID)
 		})
 	}
 }

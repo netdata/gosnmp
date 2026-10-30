@@ -1568,6 +1568,32 @@ func v3Scenarios() map[string]v3Scenario {
 			x.Context = context.Background()
 			return x.Get([]string{engineOID})
 		}},
+		// The Context's deadline passes while OnRetry runs after the second
+		// Get's first attempt discarded the answer of an agent that restarted
+		// without raising its boots and does not check the time window: the
+		// next attempt does not start.
+		"clock/no-time-check/restart-same-boots/context-deadline-in-retry": {user: "codec-md5", run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+			a.noTimeCheck = true
+			if _, err := x.Get([]string{engineOID}); err != nil {
+				return nil, fmt.Errorf("first Get: %w", err)
+			}
+			time.Sleep(10 * time.Second)
+			a.restartWithoutBoots()
+			ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+			defer cancel()
+			x.Context = ctx
+			onRetry := x.OnRetry
+			x.OnRetry = func(x *GoSNMP) {
+				onRetry(x)
+				a.tr.addf("hook OnRetry waits 1 s")
+				time.Sleep(time.Second)
+			}
+			res, err := x.Get([]string{engineOID})
+			a.tr.addf("second Get, with a Context deadline after 1.5 s: %s", describeEngineResult(res, err))
+			time.Sleep(10 * time.Second)
+			x.Context, x.OnRetry = context.Background(), onRetry
+			return x.Get([]string{engineOID})
+		}},
 		// Close ends the second Get once it has read the answer of an agent
 		// that restarted without raising its boots and does not check the
 		// time window.
