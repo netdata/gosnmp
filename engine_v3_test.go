@@ -1568,6 +1568,24 @@ func v3Scenarios() map[string]v3Scenario {
 			x.Context = context.Background()
 			return x.Get([]string{engineOID})
 		}},
+		// Close ends the second Get once it has read the answer of an agent
+		// that restarted without raising its boots and does not check the
+		// time window.
+		"clock/no-time-check/restart-same-boots/closed": {user: "codec-md5", run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+			a.noTimeCheck = true
+			if _, err := x.Get([]string{engineOID}); err != nil {
+				return nil, fmt.Errorf("first Get: %w", err)
+			}
+			time.Sleep(10 * time.Second)
+			a.restartWithoutBoots()
+			onRecv := x.OnRecv
+			x.OnRecv = func(x *GoSNMP) {
+				onRecv(x)
+				a.tr.addf("hook OnRecv closes the client")
+				_ = x.Close()
+			}
+			return x.Get([]string{engineOID})
+		}},
 	}
 
 	// Every Report counter after discovery, unauthenticated to a
