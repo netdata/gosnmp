@@ -1862,6 +1862,12 @@ func TestExchangeDecodeRequestID(t *testing.T) {
 		"unknown PDU type":                {msg: craftedMsg(1, tlv(0xaf, intTLV(9), intTLV(0), intTLV(0), vbl))},
 		"SNMPv1 trap tag":                 {msg: craftedMsg(0, tlv(byte(Trap), intTLV(9), intTLV(0)))},
 		"a PDU without its message":       {msg: tlv(byte(GetResponse), intTLV(9), intTLV(-1), intTLV(0), vbl)},
+		// An SNMPv3 message names its request by its msgID.
+		"SNMPv3 message whose msgData is a PDU": {
+			msg: craftedV3(intTLV(7), intTLV(65507), octets("\x00"), intTLV(3),
+				craftedUSM(octets(usmCharEngineID), intTLV(3), intTLV(77), octets("codec-user"), octets(""), octets("")),
+				tlv(byte(GetResponse), intTLV(9), intTLV(-1), intTLV(0), vbl)),
+		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
