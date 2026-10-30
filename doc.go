@@ -128,24 +128,26 @@
 // reply but an unauthenticated Report; a reply is decrypted exactly when it
 // asks for privacy. A reply that fails is treated as one that does not decode.
 //
-// The client takes the engine ID, boots and time of each answer whose digest
-// it checked (another engine ID than its own only from a resend an
-// unauthenticated Report lent it to) and, to a request without
-// authentication, of each answer but Reports: such a client follows an agent
-// whose engine ID changed (net-snmp keeps the first engine ID), with keys
-// derived for it, and an answer whose engine ID gives no valid state answers
-// without changing the state. A Report that says the request's engine ID or time is out of date
+// The client takes the engine ID, boots and time of each answer whose digest it
+// checked (another engine ID than its own only from a resend an unauthenticated
+// Report lent it to) and, to a request without authentication, of each answer
+// but Reports: such a client follows an agent whose engine ID changed (net-snmp
+// keeps the first engine ID), with keys derived for it, and an answer whose
+// engine ID gives no valid state answers without changing the state. A Report
+// that says the request's engine ID or time is out of date
 // (usmStatsUnknownEngineIDs, usmStatsNotInTimeWindows) makes the client send
 // the request once more, with the engine parameters the Report carries when it
 // was authenticated. An unauthenticated Report lends them to that resend only:
 // to a request without authentication; to an authenticated read request only
 // the boots and time of a usmStatsNotInTimeWindows Report naming the request's
 // engine ID. So an authenticated request to an agent whose engine ID changed
-// ends with [ErrUnknownEngineID]. Any other Report, or a second
-// resynchronizing one, ends the discovery or the request with the error of its
-// counter, [ErrUnknownUsername] or [ErrWrongDigest] for example, and
-// [ErrUnknownReportPDU] for a counter the library does not know; a request,
-// unlike the discovery, returns the Report with the error.
+// ends with [ErrUnknownEngineID]. Any other Report, or a second resynchronizing
+// one, ends the discovery or the request with the error of its counter,
+// [ErrUnknownUsername] or [ErrWrongDigest] for example, and
+// [ErrUnknownReportPDU] for a counter the library does not know, and a
+// usmStatsUnknownEngineIDs Report without an engine ID with an error that
+// matches [ErrUnknownEngineID]; a request, unlike the discovery, returns the
+// Report with the error.
 //
 // An application that expects a replaced device clears the engine ID to
 // discover again.
@@ -274,19 +276,18 @@
 // naming another engine ID, whatever its security level, and a client holding
 // one takes no engine ID but the first one the caller gives it: discovery, or
 // the caller giving it another one, ends the request with an error. A key its
-// passphrase derives counts as one the client derived: other credentials
-// derive it again. Decoding derives keys for another engine ID a message names
-// only on those paths, the authentication key when the message asks for
-// authentication, the privacy key only to decrypt it (on the trap paths, once
-// its digest checked); decoding a reply derives none, while discovery and,
-// without authentication, an answer the client takes or a lent Report localize
-// the client's keys to the engine ID it names. The SecurityParameters of a
+// passphrase derives counts as one the client derived: other credentials derive
+// it again. Decoding derives keys for another engine ID a message names only on
+// those paths, the authentication key when the message asks for authentication,
+// the privacy key only to decrypt it (on the trap paths, once its digest
+// checked); decoding a reply derives none, while discovery and, without
+// authentication, an answer the client takes or a lent Report localize the
+// client's keys to the engine ID it names. The SecurityParameters of a
 // request's packet and answer share the client's keys: do not write into them.
 // Deriving a key starts with hashing a megabyte of the passphrase (RFC 3414
-// appendix A.2.1). The package caches
-// that result for every client, by passphrase and hash, until
-// [PasswordCaching] turns the cache off; it holds the passphrases in memory
-// meanwhile.
+// appendix A.2.1). The package caches that result for every client, by
+// passphrase and hash, until [PasswordCaching] turns the cache off; it holds
+// the passphrases in memory meanwhile.
 //
 // # Traps
 //

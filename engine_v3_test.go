@@ -988,6 +988,26 @@ func v3Scenarios() map[string]v3Scenario {
 				return x.Get([]string{engineOID})
 			},
 		},
+		// Keys derived into the parameters before they have an engine ID are
+		// localized to none: the engine ID the caller sets takes keys derived
+		// for it.
+		"caller/derived-keys-then-engine-id": {
+			user: "codec-md5", setup: func(_ *GoSNMP, sp *UsmSecurityParameters) {
+				if err := sp.InitSecurityKeys(); err != nil {
+					panic(err)
+				}
+			},
+			script: onRequest(1, agentAnswer{
+				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
+			}),
+			run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+				res, err := x.Get([]string{engineOID})
+				a.tr.addf("first Get: %s", describeEngineResult(res, err))
+				a.tr.addf("caller sets the agent's engine ID")
+				x.SecurityParameters.usm().AuthoritativeEngineID = agentEngineID
+				return x.Get([]string{engineOID})
+			},
+		},
 		"caller/new-security-parameters": {user: "codec-md5", run: changeThenGet(
 			"sets new security parameters", func(x *GoSNMP, _ *UsmSecurityParameters) {
 				x.SecurityParameters = userParameters("codec-md5")

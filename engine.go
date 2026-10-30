@@ -90,7 +90,7 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 		return result, kind.err
 	} else if err = x.lendEngineParameters(packetOut, result, kind); err != nil {
 		x.Logger.Printf("ERROR lendEngineParameters error: %s", err)
-		return nil, err
+		return result, err
 	}
 	result, _, err = x.sendOneRequest(&cfg, packetOut, false)
 	if err != nil && x.Logger.enabled() {

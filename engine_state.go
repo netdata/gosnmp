@@ -125,12 +125,12 @@ func (s *engineState) withEngine(engineID string) (engineState, error) {
 // request on (an empty engine ID discovers again, an empty key derives, an
 // empty context engine ID follows the engine ID). Keys localize to the engine
 // ID: the client derives the missing ones for a known engine ID, a key given
-// for another engine ID again from its passphrase (none: an error, H24; a key
-// given without an engine ID serves the first one), and the ones it derived
-// again after a change of the credentials; a key its passphrase derives is
-// the client's, however it reached the field. Without an engine ID the keys
-// must derive all the same, before discovery. An error ends the request and
-// changes nothing.
+// for another engine ID again from its passphrase (none: an error, H24, but a
+// key given without an engine ID or passphrase serves the first one), and the
+// ones it derived again after a change of the credentials; a key its passphrase
+// derives is the client's, however it reached the field. Without an engine ID
+// the keys must derive all the same, before discovery. An error ends the
+// request and changes nothing.
 func (x *GoSNMP) reconcileEngine() error {
 	sp := usmOf(x.SecurityParameters)
 	if sp == nil {
@@ -175,21 +175,22 @@ func (x *GoSNMP) reconcileEngine() error {
 	if cur.contextEngineID != prev.contextEngineID() {
 		next.context = cur.contextEngineID
 	}
-	newEngine := same && prev.engineID != "" && cur.engineID != prev.engineID
-	newCred := same && cred != prev.cred
+	newEngine, newCred := same && cur.engineID != prev.engineID, same && cred != prev.cred
+	fromNone := prev.engineID == ""
 	var err error
 	if next.authKey, next.authGiven, err = nextKey(cur.authKey, prev.authKey, prev.authGiven, same, newEngine, newCred,
-		cred.authProtocol > NoAuth && cred.authPassphrase == ""); err != nil {
+		fromNone, cred.authProtocol > NoAuth && cred.authPassphrase == ""); err != nil {
 		return errAuthKeyBoundToEngine
 	}
 	if next.privKey, next.privGiven, err = nextKey(cur.privKey, prev.privKey, prev.privGiven, same, newEngine, newCred,
-		cred.privProtocol > NoPriv && cred.privPassphrase == ""); err != nil {
+		fromNone, cred.privProtocol > NoPriv && cred.privPassphrase == ""); err != nil {
 		return errPrivKeyBoundToEngine
 	}
 	if next.engineID == "" {
 		// Keys derive for any engine ID alike: a refusal (FIPS 140-only mode)
-		// ends the request before discovery.
-		if err := next.sp().deriveKeys(); err != nil {
+		// ends the request before discovery. With PasswordCaching off, the
+		// passphrases are hashed again for the discovered engine ID.
+		if err := next.sp().InitSecurityKeys(); err != nil {
 			return err
 		}
 	} else {
@@ -219,13 +220,17 @@ var errKeyBound = errors.New("key bound to another engine ID")
 // key and the state's key, whether the caller gave it, and what changed in
 // the same SecurityParameters value (same): the field's key when the caller
 // changed it or the value is another (empty: none, to derive); for another
-// engine ID none, to derive again, but errKeyBound for a key the caller gave
-// whose passphrase is empty (bound); for other credentials none, to derive
-// again, when the client derived it; else the state's key.
-func nextKey(field, key []byte, given, same, newEngine, newCred, bound bool) ([]byte, bool, error) {
+// engine ID none, to derive again, but for a key the caller gave whose
+// passphrase is empty (bound) the key itself when the state had no engine ID
+// (fromNone: the key serves the first one), else errKeyBound; for other
+// credentials none, to derive again, when the client derived it; else the
+// state's key.
+func nextKey(field, key []byte, given, same, newEngine, newCred, fromNone, bound bool) ([]byte, bool, error) {
 	switch {
 	case !same || !bytes.Equal(field, key):
 		return slices.Clone(field), len(field) != 0, nil
+	case newEngine && given && bound && fromNone:
+		return key, given, nil
 	case newEngine && given && bound:
 		return nil, false, errKeyBound
 	case newEngine, newCred && !given:

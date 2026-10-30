@@ -239,6 +239,21 @@ func TestEngineReconcile(t *testing.T) {
 				return v
 			},
 		},
+		"keys derived without an engine ID derive again for the first one set": {
+			setup: func(_ *GoSNMP, sp *UsmSecurityParameters) {
+				sp.AuthoritativeEngineID = ""
+				require.NoError(t, sp.InitSecurityKeys())
+			},
+			steps: []func(*GoSNMP, *UsmSecurityParameters){func(_ *GoSNMP, sp *UsmSecurityParameters) {
+				sp.AuthoritativeEngineID = usmCharEngineID
+			}},
+			want: func(v engineView) engineView {
+				v.engineID, v.fieldEngineID, v.fieldContextEngineID = usmCharEngineID, usmCharEngineID, usmCharEngineID
+				v.authKey, v.fieldAuthKey, v.privKey, v.fieldPrivKey = authE1, authE1, privE1, privE1
+				v.authGiven, v.privGiven = false, false
+				return v
+			},
+		},
 		"an authentication key without its passphrase serves its engine ID only": {
 			setup: func(_ *GoSNMP, sp *UsmSecurityParameters) { usmKeysOnly(sp, usmCharEngineID) },
 			steps: []func(*GoSNMP, *UsmSecurityParameters){func(_ *GoSNMP, sp *UsmSecurityParameters) {
