@@ -146,6 +146,19 @@ func answerRaw(edit func(reply []byte) []byte) engineAgent {
 
 var sysDescr = SnmpPDU{Name: engineOID, Type: OctetString, Value: []byte("codec agent")}
 
+// errorStatusOutOfRange is the sysDescr reply to req, its request ID raised by
+// idDelta, with the error status -1: the request ID decodes, then the PDU
+// fails.
+func errorStatusOutOfRange(req []byte, idDelta uint32) []byte {
+	r := replyTo(req, func(p *SnmpPacket) { p.RequestID += idDelta }, sysDescr)
+	i := bytes.Index(r, []byte{byte(Integer), 1, 0, byte(Integer), 1, 0}) // error status and index
+	if i < 0 {
+		panic("no error status")
+	}
+	r[i+2] = 0xff
+	return r
+}
+
 // errEngineWrite is the error of a failing write in the engine scenarios.
 var errEngineWrite = errors.New("codec write failure")
 
@@ -453,11 +466,28 @@ func engineScenarios() map[string]engineScenario {
 		"answer/other-community": {agent: answerWith(func(p *SnmpPacket) { p.Community = "private" }, sysDescr)},
 		"answer/garbage-then-valid": {
 			agent: func(_ int, req []byte) []agentReply {
-				return []agentReply{{data: []byte{0x30, 0x03, 0x02, 0x01}}, {data: replyTo(req, nil, sysDescr)}}
+				return []agentReply{{data: garbage}, {data: replyTo(req, nil, sysDescr)}}
 			},
-			knownBug: "an undecodable reply ends the attempt and the request is sent again at once, instead of reading on",
 		},
-		"answer/garbage": {agent: func(int, []byte) []agentReply { return []agentReply{{data: []byte{0x30, 0x03, 0x02, 0x01}}} }},
+		"answer/garbage": {agent: func(int, []byte) []agentReply { return []agentReply{{data: garbage}} }},
+		// A reply with the request's ID whose PDU does not decode, then a
+		// datagram another sender sent.
+		"answer/undecodable-then-garbage": {agent: func(_ int, req []byte) []agentReply {
+			return []agentReply{{data: errorStatusOutOfRange(req, 0)}, {data: garbage}}
+		}},
+		"answer/undecodable-other-request": {agent: func(_ int, req []byte) []agentReply {
+			return []agentReply{{data: errorStatusOutOfRange(req, 100)}}
+		}},
+		// A datagram that does not decode, then the agent closes the TCP
+		// connection: the request's error names the discard.
+		"answer/garbage-then-eof-tcp": {
+			shape: shapeStream,
+			setup: func(x *GoSNMP, c *fakeTransport) {
+				x.Transport, x.Retries = "tcp", 0
+				c.failRead = func(n int) error { return map[int]error{2: io.EOF}[n] }
+			},
+			agent: func(int, []byte) []agentReply { return []agentReply{{data: garbage}} },
+		},
 		"answer/split-tcp": {
 			shape: shapeStream,
 			setup: func(x *GoSNMP, _ *fakeTransport) { x.Transport, x.Retries = "tcp", 0 },
@@ -1750,6 +1780,190 @@ func BenchmarkSendOneRequest(b *testing.B) {
 		if _, _, err := x.sendOneRequest(&cfg, pkt, false, sourcedClock{}); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+// TestExchangeDiscard checks which discarded message's reason an exchange
+// records: the one that came closest to answering it, the later of two as
+// close, and none for a message that answers another request.
+func TestExchangeDiscard(t *testing.T) {
+	unread, named, authentic := errors.New("unread"), errors.New("named"), errors.New("authentic")
+	type discarded struct {
+		err  error
+		rank discardRank
+	}
+	tests := map[string]struct {
+		discards []discarded
+		want     error
+	}{
+		"none":                              {},
+		"another request's message":         {discards: []discarded{{named, 0}}},
+		"unread":                            {discards: []discarded{{unread, rankUnread}}, want: unread},
+		"named after unread":                {discards: []discarded{{unread, rankUnread}, {named, rankNamed}}, want: named},
+		"unread after named":                {discards: []discarded{{named, rankNamed}, {unread, rankUnread}}, want: named},
+		"authentic, then noise":             {discards: []discarded{{authentic, rankAuthentic}, {named, rankNamed}, {unread, rankUnread}}, want: authentic},
+		"the later of two as close":         {discards: []discarded{{unread, rankUnread}, {named, rankUnread}}, want: named},
+		"another request's after a discard": {discards: []discarded{{unread, rankUnread}, {named, 0}}, want: unread},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			var e exchange
+			for _, d := range tc.discards {
+				e.discard(d.err, d.rank)
+			}
+			assert.Equal(t, tc.want, e.discarded)
+		})
+	}
+}
+
+// TestExchangeRankOf checks the rank of a message decode failed on, by the ID
+// it read that names the request's attempts, if any (the msgID of an SNMPv3
+// request, the request ID of an SNMPv2c one), and whether its digest checked.
+func TestExchangeRankOf(t *testing.T) {
+	earlier := []sentIDs{{requestID: 1, msgID: 5}}
+	tests := map[string]struct {
+		version  SnmpVersion
+		read     *SnmpPacket
+		verified bool
+		want     discardRank
+	}{
+		"v3/msgID not read":                    {version: Version3, want: rankUnread},
+		"v3/another request's msgID":           {version: Version3, read: &SnmpPacket{MsgID: 6, RequestID: 2}},
+		"v3/another request's msgID, verified": {version: Version3, read: &SnmpPacket{MsgID: 6, RequestID: 2}, verified: true},
+		"v3/the attempt's msgID":               {version: Version3, read: &SnmpPacket{MsgID: 7}, want: rankNamed},
+		"v3/an earlier attempt's msgID":        {version: Version3, read: &SnmpPacket{MsgID: 5}, want: rankNamed},
+		"v3/the attempt's msgID, verified":     {version: Version3, read: &SnmpPacket{MsgID: 7}, verified: true, want: rankAuthentic},
+		"v2c/request ID not read":              {version: Version2c, want: rankUnread},
+		"v2c/another request's ID":             {version: Version2c, read: &SnmpPacket{RequestID: 3, MsgID: 7}},
+		"v2c/the attempt's request ID":         {version: Version2c, read: &SnmpPacket{RequestID: 2}, want: rankNamed},
+		"v2c/an earlier attempt's request ID":  {version: Version2c, read: &SnmpPacket{RequestID: 1}, want: rankNamed},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			e := exchange{packet: &SnmpPacket{Version: tc.version, RequestID: 2, MsgID: 7}}
+			assert.Equal(t, tc.want, e.rankOf(tc.read, tc.verified, earlier))
+		})
+	}
+}
+
+// TestExchangeDecodeRequestID checks that decode returns an SNMPv1 or SNMPv2c
+// message it could not finish when, and only when, it decoded the PDU's
+// request ID, which ranks the discard.
+func TestExchangeDecodeRequestID(t *testing.T) {
+	vbl := craftedVBL(craftedVB(intTLV(5)))
+	tests := map[string]struct {
+		msg  []byte
+		want *uint32 // the request ID of the message returned, nil for none
+	}{
+		"error status after the request ID": {
+			msg: craftedMsg(1, tlv(byte(GetResponse), intTLV(9), intTLV(-1), intTLV(0), vbl)), want: new(uint32(9)),
+		},
+		"request ID that does not decode": {msg: craftedMsg(1, tlv(byte(GetResponse), octets("x"), intTLV(0), intTLV(0), vbl))},
+		"unknown PDU type":                {msg: craftedMsg(1, tlv(0xaf, intTLV(9), intTLV(0), intTLV(0), vbl))},
+		"SNMPv1 trap tag":                 {msg: craftedMsg(0, tlv(byte(Trap), intTLV(9), intTLV(0)))},
+		"a PDU without its message":       {msg: tlv(byte(GetResponse), intTLV(9), intTLV(-1), intTLV(0), vbl)},
+		// An SNMPv3 message names its request by its msgID.
+		"SNMPv3 message whose msgData is a PDU": {
+			msg: craftedV3(intTLV(7), intTLV(65507), octets("\x00"), intTLV(3),
+				craftedUSM(octets(usmCharEngineID), intTLV(3), intTLV(77), octets("codec-user"), octets(""), octets("")),
+				tlv(byte(GetResponse), intTLV(9), intTLV(-1), intTLV(0), vbl)),
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			e := &exchange{x: &GoSNMP{Version: Version2c}, packet: &SnmpPacket{Version: Version2c, PDUType: GetRequest}}
+			reply, _, err := e.decode(tc.msg)
+			require.Error(t, err)
+			if tc.want == nil {
+				assert.Nil(t, reply)
+				return
+			}
+			require.NotNil(t, reply)
+			assert.Equal(t, *tc.want, reply.RequestID)
+		})
+	}
+}
+
+// TestExchangeEndErrors checks the error of an exchange that ends without an
+// answer, with and without a recorded discard: an attemptsError and an error
+// at the Context's deadline add the discard; others stay as they are.
+func TestExchangeEndErrors(t *testing.T) {
+	reason := inCategory(ErrNotInTimeWindow, errors.New("out of window"))
+	tests := map[string]struct {
+		discarded error
+		end       func(e *exchange) error
+		wantText  string
+		wantIs    []error
+		wantNotIs []error
+		same      error // the error returned unchanged, if any
+	}{
+		"timeout": {
+			end: func(e *exchange) error {
+				return e.attemptsError("request timeout (after 1 retries)", os.ErrDeadlineExceeded)
+			},
+			wantText: "request timeout (after 1 retries)", wantIs: []error{os.ErrDeadlineExceeded}, wantNotIs: []error{ErrNotInTimeWindow},
+		},
+		"timeout after a discard": {
+			discarded: reason,
+			end: func(e *exchange) error {
+				return e.attemptsError("request timeout (after 1 retries)", os.ErrDeadlineExceeded)
+			},
+			wantText: "request timeout (after 1 retries): last discarded reply: out of window",
+			wantIs:   []error{os.ErrDeadlineExceeded, ErrNotInTimeWindow},
+		},
+		"agent closed after a discard": {
+			discarded: reason,
+			end:       func(e *exchange) error { return e.attemptsError("max retries (1) exceeded", io.EOF) },
+			wantText:  "max retries (1) exceeded: last discarded reply: out of window",
+			wantIs:    []error{io.EOF, ErrNotInTimeWindow},
+		},
+		"deadline": {
+			end:      func(e *exchange) error { return e.unanswered(context.DeadlineExceeded) },
+			wantText: "context deadline exceeded", same: context.DeadlineExceeded,
+		},
+		"deadline after a discard": {
+			discarded: reason,
+			end:       func(e *exchange) error { return e.unanswered(context.DeadlineExceeded) },
+			wantText:  "context deadline exceeded: last discarded reply: out of window",
+			wantIs:    []error{context.DeadlineExceeded, ErrNotInTimeWindow},
+		},
+		"canceled after a discard": {
+			discarded: reason,
+			end:       func(e *exchange) error { return e.unanswered(context.Canceled) },
+			wantText:  "context canceled", same: context.Canceled, wantNotIs: []error{ErrNotInTimeWindow},
+		},
+		"timeout at the Context's deadline after a discard": {
+			discarded: reason,
+			end: func(e *exchange) error {
+				return e.unanswered(e.attemptsError("request timeout (after 1 retries)", context.DeadlineExceeded))
+			},
+			wantText: "request timeout (after 1 retries): last discarded reply: out of window",
+			wantIs:   []error{context.DeadlineExceeded, ErrNotInTimeWindow},
+		},
+		"closed after a discard": {
+			discarded: reason,
+			end:       func(e *exchange) error { return e.unanswered(errClosed) },
+			wantText:  errClosed.Error(), same: errClosed, wantNotIs: []error{ErrNotInTimeWindow},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			e := exchange{x: &GoSNMP{}}
+			if tc.discarded != nil {
+				e.discard(tc.discarded, rankAuthentic)
+			}
+			err := tc.end(&e)
+			require.EqualError(t, err, tc.wantText)
+			if tc.same != nil {
+				assert.Equal(t, tc.same, err)
+			}
+			for _, target := range tc.wantIs {
+				assert.ErrorIs(t, err, target)
+			}
+			for _, target := range tc.wantNotIs {
+				assert.NotErrorIs(t, err, target)
+			}
+		})
 	}
 }
 

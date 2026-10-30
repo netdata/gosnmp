@@ -80,7 +80,14 @@ type agentAnswer struct {
 	// reflect sends the request back unchanged instead of an answer, as a
 	// loop or an on-path sender does.
 	reflect bool
-	why     string
+	// then also answers the request as the agent would without its script,
+	// right after this answer: a message the client rejects, then the answer.
+	then bool
+	// noise, when set, follows this answer: a datagram another sender sent.
+	noise []byte
+	// also, when set, is another answer the agent sends right after this one.
+	also *agentAnswer
+	why  string
 }
 
 const (
@@ -190,15 +197,34 @@ func (a *fakeV3Agent) handle(n int, data []byte) []agentReply {
 	if ans.report != "" && req.pdu == nil && req.flags&Reportable == 0 {
 		ans = agentAnswer{drop: true, why: "no Report: the request is not reportable and its PDU unknown"}
 	}
-	if ans.drop {
+	var replies []agentReply
+	switch {
+	case ans.drop:
 		a.tr.addf("agent: drops #%d (%s)", n, ans.why)
-		return nil
-	}
-	if ans.reflect {
+	case ans.reflect:
 		a.tr.addf("agent: reflects #%d unchanged (%s)", n, ans.why)
-		return []agentReply{{data: bytes.Clone(data)}}
+		replies = append(replies, agentReply{data: bytes.Clone(data)})
+	default:
+		replies = append(replies, agentReply{data: a.encodeAnswer(n, req, ans)})
 	}
+	if ans.also != nil {
+		replies = append(replies, agentReply{data: a.encodeAnswer(n, req, *ans.also)})
+	}
+	if ans.noise != nil {
+		a.tr.addf("agent: another sender sends %d octets after #%d", len(ans.noise), n)
+		replies = append(replies, agentReply{data: ans.noise})
+	}
+	if ans.then {
+		script := a.script
+		a.script = nil
+		replies = append(replies, a.handle(n, data)...)
+		a.script = script
+	}
+	return replies
+}
 
+// encodeAnswer encodes ans to req, the n-th request.
+func (a *fakeV3Agent) encodeAnswer(n int, req agentRequest, ans agentAnswer) []byte {
 	out := a.answer(req, ans)
 	a.tr.addf("agent: answers #%d with %s at %s (%s)", n, describeAnswerPDU(out), describeFlags(out.MsgFlags), ans.why)
 	b, err := out.MarshalMsg()
@@ -219,7 +245,7 @@ func (a *fakeV3Agent) handle(n int, data []byte) []agentReply {
 			b = m.bytes()
 		}
 	}
-	return []agentReply{{data: b}}
+	return b
 }
 
 // check runs the RFC 3414 section 3.2 checks on req, read from data as m,

@@ -269,11 +269,13 @@ type v3Wire struct {
 	scoped int
 }
 
-// v3WireFields records which USM fields of a v3Wire decoded.
+// v3WireFields records which USM fields of a v3Wire decoded, and whether the
+// msgID, which parseV3 writes into the message, did.
 type v3WireFields uint8
 
 const (
-	hasEngineID v3WireFields = 1 << iota
+	hasMsgID v3WireFields = 1 << iota
+	hasEngineID
 	hasBoots
 	hasEngineTime
 	hasUserName
@@ -340,6 +342,7 @@ func parseV3(packet []byte, cursor int, response *SnmpPacket) (v3Wire, error) {
 		return w, fmt.Errorf("error parsing SNMPV3 message ID: %w", err)
 	}
 	response.MsgID = uint32(msgID) //nolint:gosec // not negative
+	w.has |= hasMsgID
 	maxSize, err := readInt32(&r)
 	if err == nil && maxSize < minMsgMaxSize {
 		err = fmt.Errorf("%d is outside %d..%d", maxSize, minMsgMaxSize, maxMsgMaxSize)
