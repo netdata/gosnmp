@@ -19,23 +19,24 @@ import (
 type WalkFunc func(dataUnit SnmpPDU) error
 
 // BulkWalk walks the subtree under rootOid with GETBULK requests (SNMPv2c and
-// SNMPv3), calling walkFn for each value in it, in order. An empty or "."
-// rootOid walks .1.3.6.1. The walk ends as net-snmp's snmpwalk and
-// snmpbulkwalk end theirs: at the first name outside the subtree (rootOid
-// itself is in it) or exception value (NoSuchObject, NoSuchInstance,
-// EndOfMibView), and at an answer whose Error is NoSuchName, the end of an
-// SNMPv1 MIB, without an error. When the walk's first answer ends it at its
-// first value, outside the subtree, or with NoSuchName, rootOid is taken for
-// a leaf and fetched with one Get, whose value walkFn gets when it names
-// rootOid. An exception value ends the walk without that Get, also as the
+// SNMPv3), calling walkFn for each value in it, in the order the agent
+// returns them. An empty or "." rootOid walks .1.3.6.1. The subtree is
+// rootOid and the names under it. The walk ends as net-snmp's snmpbulkwalk
+// ends its walk: at the first name outside the subtree or exception value
+// (NoSuchObject, NoSuchInstance, EndOfMibView), and at an answer whose Error
+// is NoSuchName, the end of an SNMPv1 MIB, without an error. When the walk's
+// first answer ends it with NoSuchName or with a first name outside the
+// subtree, rootOid is taken for a leaf and fetched with one Get, whose first
+// value walkFn gets when it names rootOid and is not an exception value. An
+// exception value in the subtree ends the walk without that Get, also in the
 // first answer: a leaf rootOid that is the agent's last object answers
 // EndOfMibView and is not fetched. The walk returns at once the error of a
 // failed request or of walkFn, and an error for a name in the subtree,
-// rootOid included, that is not after the requested one; each name of an
-// answer is compared with the requested one, as snmpbulkwalk does, and
-// AppOpts "c" turns this check off. Known bugs: an empty answer, or one whose
-// Error is another of TooBig through InconsistentName, ends the walk without
-// an error; another Error is ignored.
+// rootOid included, that is not after the requested one: each name of an
+// answer is compared with the requested one, and AppOpts "c" turns this check
+// off. Known bugs: an empty answer, or one whose Error is another of TooBig
+// through InconsistentName, ends the walk without an error; another Error is
+// ignored.
 func (x *GoSNMP) BulkWalk(rootOid string, walkFn WalkFunc) error {
 	return x.walk(GetBulkRequest, rootOid, walkFn)
 }
@@ -49,8 +50,10 @@ func (x *GoSNMP) BulkWalkAll(rootOid string) (results []SnmpPDU, err error) {
 }
 
 // Walk walks the subtree under rootOid with GETNEXT requests, one per value,
-// where BulkWalk asks for many at a time, calling walkFn for each value in it,
-// in order. It starts, ends and fails as BulkWalk does.
+// where BulkWalk asks for many at a time, calling walkFn for each value in it.
+// It starts, ends and fails as BulkWalk does; net-snmp's snmpwalk differs only
+// for a name before rootOid, which fails its increasing check where Walk ends
+// (or, as the first answer, gets rootOid).
 func (x *GoSNMP) Walk(rootOid string, walkFn WalkFunc) error {
 	return x.walk(GetNextRequest, rootOid, walkFn)
 }
@@ -158,8 +161,9 @@ func (w *walker) request(requestType PDUType, oid string) (*SnmpPacket, error) {
 // apps/snmpbulkwalk.c at v5.9.4), to response: it passes the values of
 // response that lie in the subtree to walkFn, in order, and returns what the
 // walk does next. oid is the name the request asked for; firstAnswer marks the
-// walk's first answer, the only one that can end a walk that passed nothing
-// on, after which net-snmp gets the root.
+// walk's first answer: a walk goes on only after an answer whose values all
+// went to walkFn, so only the first answer can end a walk that found nothing,
+// the case in which net-snmp gets the root.
 func (w *walker) visit(response *SnmpPacket, oid string, firstAnswer bool, walkFn WalkFunc) (walkStep, error) {
 	x := w.x
 	// The error statuses tooBig to inconsistentName (RFC 3416) end the walk.
