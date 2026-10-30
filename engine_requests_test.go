@@ -1747,7 +1747,7 @@ func BenchmarkSendOneRequest(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, _, err := x.sendOneRequest(&cfg, pkt); err != nil {
+		if _, _, err := x.sendOneRequest(&cfg, pkt, false); err != nil {
 			b.Fatal(err)
 		}
 	}

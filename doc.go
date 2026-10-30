@@ -20,9 +20,8 @@
 // A request reads the client's configuration when it starts and does not
 // change it: a change a hook or the Logger makes applies from the next
 // request. Exceptions: the Logger itself is used as it is set, the SNMPv3
-// engine state the client learns (in SecurityParameters and ContextEngineID)
-// is the running request's too, and each attempt uses the connection Conn
-// holds when it starts. A TCP connection whose write or read fails otherwise
+// engine state the client learns during a request serves the rest of it (see
+// SNMPv3), and each attempt uses the connection Conn holds when it starts. A TCP connection whose write or read fails otherwise
 // than by the attempt's deadline or a close ([net.ErrClosed]), as when the
 // agent closed or reset it, is lost while Conn holds it: the next attempt, of
 // the same request or a later one, opens it again before writing, within the
@@ -92,14 +91,32 @@
 //
 // # SNMPv3
 //
-// Before a request, a client that does not know the agent's engine ID
-// (SecurityParameters' AuthoritativeEngineID) discovers it (RFC 3414 section
-// 4): it sends an unauthenticated, empty Get, takes the engine ID, boots and
-// time from the answer, derives its keys for that engine ID, and takes the
-// engine ID as ContextEngineID when that is empty. The answer is usually a
-// usmStatsUnknownEngineIDs Report; a usmStatsUnknownUserNames Report that
-// carries an engine ID, as some devices send, serves too. A client given the
-// engine ID derives its keys instead.
+// The client keeps what it knows of the agent's engine, its engine state (RFC
+// 3414 section 2.3): the engine ID, the user's keys localized to it, the
+// engine boots and time, and the context engine ID of requests. Every request
+// reads it; only an answer that matched a request changes it, whole, once the
+// new state is valid. A request without an engine ID first discovers it (RFC
+// 3414 section 4): it sends an unauthenticated, empty Get and takes the engine
+// ID, boots and time of the answer, with keys derived for that engine ID. The
+// answer is usually a usmStatsUnknownEngineIDs Report; a
+// usmStatsUnknownUserNames Report that carries an engine ID, as some devices
+// send, serves too. An answer without an engine ID ends the request with an
+// error that matches [ErrUnknownEngineID], a key that does not derive with the
+// derivation's error: the client learns nothing, and the next request
+// discovers again. A client given the engine ID derives its keys instead, and
+// ends the request with the error when they do not derive.
+//
+// The engine state shows in the client's fields: the engine ID, boots, time
+// and keys of SecurityParameters, and ContextEngineID, which requests take
+// from the engine ID unless the caller sets one. The client writes a field
+// only while it holds what the client wrote there last. A field the caller
+// changed, also from a hook or the Logger during a request, is the caller's
+// from the next request on: an engine ID (empty: discover again), boots and
+// time, a key, which must be localized to the engine ID (empty: derive), a
+// context engine ID (empty: the engine ID again). Another SecurityParameters
+// value is the caller's whole, and a changed protocol or passphrase derives
+// the keys the client derived again. A value the caller sets that equals the
+// client's is the client's; a SecurityParameters value serves one client.
 //
 // A reply goes through the security processing of RFC 3414 section 3.2 by its
 // own flags before it answers: it names the request's user, or the empty user
@@ -110,9 +127,12 @@
 // reply but an unauthenticated Report; a reply is decrypted exactly when it
 // asks for privacy. A reply that fails is treated as one that does not decode.
 //
-// The client stores the engine ID, boots and time of each answer whose digest
-// it checked, and, when it does not authenticate, of each answer but Reports.
-// A Report that says the request's engine ID or time is out of date
+// The client takes the engine boots and time of each answer whose digest it
+// checked, and, to a request without authentication, the engine ID, boots and
+// time of each answer but Reports: such a client follows an agent whose engine
+// ID changed (net-snmp keeps the first engine ID), with keys derived for it,
+// and an answer whose engine ID gives no valid state answers without changing
+// the state. A Report that says the request's engine ID or time is out of date
 // (usmStatsUnknownEngineIDs, usmStatsNotInTimeWindows) makes the client send
 // the request once more, with the engine parameters the Report carries when it
 // was authenticated. An unauthenticated Report lends them to that resend only:
@@ -125,12 +145,14 @@
 // [ErrUnknownReportPDU] for a counter the library does not know; a request,
 // unlike the discovery, returns the Report with the error.
 //
-// Known bugs a client meets: once the agent's engine ID is known, a change of
-// it fails every authenticated request with [ErrUnknownEngineID], while a
-// client without authentication takes the new engine ID but keeps the old
-// context engine ID; the engine time is not advanced locally, so an
+// An application that expects a replaced device clears the engine ID to
+// discover again.
+//
+// Known bugs a client meets: the engine time is not advanced locally, so an
 // authenticated request after 150 s of silence is first answered with
-// usmStatsNotInTimeWindows, and resent when the rules above allow it.
+// usmStatsNotInTimeWindows, and resent when the rules above allow it; the
+// boots and time of any authentic answer are taken, older or outside the time
+// window ones included (RFC 3414 section 3.2 step 7 b).
 //
 // # Walks
 //
@@ -247,13 +269,14 @@
 // passphrases of any length (RFC 3414 section 11.2 asks for at least 8 octets);
 // a key given without a passphrase serves only the engine ID it was localized
 // to: parameters holding one decode no trap, inform or SnmpDecodePacket message
-// naming another engine ID, whatever its security level, and take none from
-// discovery. Decoding derives keys for another engine ID a message names only
+// naming another engine ID, whatever its security level, and a client holding
+// one takes no other engine ID: discovery, or the caller giving it another
+// one, ends the request with an error. Decoding derives keys for another engine ID a message names only
 // on those paths, the authentication key when the message asks for
 // authentication, the privacy key only to decrypt it (on the trap paths, once
 // its digest checked); decoding a reply derives none, while discovery and,
-// without authentication, a stored answer or a lent Report localize the
-// client's keys to the engine ID it names. Deriving a key starts with hashing
+// without authentication, an answer the client takes or a lent Report localize
+// the client's keys to the engine ID it names. Deriving a key starts with hashing
 // a megabyte of the passphrase (RFC 3414 appendix A.2.1). The package caches
 // that result for every client, by passphrase and hash, until
 // [PasswordCaching] turns the cache off; it holds the passphrases in memory

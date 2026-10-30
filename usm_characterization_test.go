@@ -653,12 +653,12 @@ func TestUSMKeysBoundToEngine(t *testing.T) {
 	}
 }
 
-// TestUSMAdoptEngineID pins the rule of adopting an engine ID: keys localize
-// to one engine ID, so another one takes keys derived for it from the
+// TestUSMKeysFor pins the rule of the keys for an engine ID: keys localize to
+// one engine ID, so another one takes keys derived for it from the
 // passphrases, and parameters with a protocol whose passphrase is empty, with
-// a key given without it or none, refuse it with that protocol's error and
-// stay unchanged; the same engine ID changes nothing.
-func TestUSMAdoptEngineID(t *testing.T) {
+// a key given without it or none, have none for it: that protocol's error; the
+// same engine ID gives the parameters' own keys. The parameters never change.
+func TestUSMKeysFor(t *testing.T) {
 	// params returns SHA/AES parameters localized to usmOtherEngineID, with
 	// edit applied.
 	params := func(edit func(sp *UsmSecurityParameters)) *UsmSecurityParameters {
@@ -670,17 +670,17 @@ func TestUSMAdoptEngineID(t *testing.T) {
 		}
 		return sp
 	}
-	keysFor := func(engineID string) []any {
+	derived := func(engineID string) []any {
 		sp := params(nil)
 		sp.AuthoritativeEngineID, sp.SecretKey, sp.PrivacyKey = engineID, nil, nil
 		require.NoError(t, sp.InitSecurityKeys())
-		return []any{engineID, sp.SecretKey, sp.PrivacyKey}
+		return []any{sp.SecretKey, sp.PrivacyKey}
 	}
 
 	tests := map[string]struct {
 		edit     func(sp *UsmSecurityParameters)
 		engineID string
-		wantErr  error // the parameters then stay unchanged
+		wantErr  error
 	}{
 		"passphrases":                     {engineID: usmCharEngineID},
 		"passphrases, no keys yet":        {edit: func(sp *UsmSecurityParameters) { sp.SecretKey, sp.PrivacyKey = nil, nil }, engineID: usmCharEngineID},
@@ -721,21 +721,22 @@ func TestUSMAdoptEngineID(t *testing.T) {
 			sp := params(tc.edit)
 			before := []any{sp.AuthoritativeEngineID, sp.SecretKey, sp.PrivacyKey}
 
-			err := sp.adoptEngineID(tc.engineID)
-			got := []any{sp.AuthoritativeEngineID, sp.SecretKey, sp.PrivacyKey}
+			authKey, privKey, err := sp.keysFor(tc.engineID)
+			got := []any{authKey, privKey}
+			assert.Equal(t, before, []any{sp.AuthoritativeEngineID, sp.SecretKey, sp.PrivacyKey}, "the parameters")
 			switch {
 			case tc.wantErr != nil:
 				require.ErrorIs(t, err, tc.wantErr)
-				assert.Equal(t, before, got)
+				assert.Equal(t, []any{[]byte(nil), []byte(nil)}, got)
 			case tc.engineID == usmOtherEngineID:
 				require.NoError(t, err)
-				assert.Equal(t, before, got)
+				assert.Equal(t, before[1:], got)
 			case sp.AuthenticationProtocol == NoAuth:
 				require.NoError(t, err)
-				assert.Equal(t, []any{tc.engineID, []byte(nil), []byte(nil)}, got)
+				assert.Equal(t, []any{[]byte(nil), []byte(nil)}, got)
 			default:
 				require.NoError(t, err)
-				assert.Equal(t, keysFor(tc.engineID), got)
+				assert.Equal(t, derived(tc.engineID), got)
 			}
 		})
 	}

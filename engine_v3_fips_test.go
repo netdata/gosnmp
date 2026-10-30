@@ -22,17 +22,18 @@ func getFirstOf2(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
 
 // v3FIPSScenarios are the scenarios of TestEngineV3FIPS140Only.
 func v3FIPSScenarios() map[string]v3Scenario {
-	const partialState = "a failed key derivation leaves the agent's engine ID adopted without keys, boots or time, so the next request skips the discovery; its error is dropped and the request ends for want of a key"
 	return map[string]v3Scenario{
-		"discovery/noauth":         {user: "codec-noauth"},
-		"discovery/md5":            {user: "codec-md5", run: getFirstOf2, knownBug: partialState},
-		"discovery/sha-aes":        {user: "codec-sha-aes", run: getFirstOf2, knownBug: partialState},
+		"discovery/noauth": {user: "codec-noauth"},
+		// A refused key derivation ends the discovery with its error, and the
+		// client learns nothing: the next request discovers again.
+		"discovery/md5":            {user: "codec-md5", run: getFirstOf2},
+		"discovery/sha-aes":        {user: "codec-sha-aes", run: getFirstOf2},
 		"discovery/sha256-des":     {user: "codec-sha256-des"},
 		"discovery/sha256-aes":     {user: "codec-sha256-aes"},
 		"discovery/sha512-aes256c": {user: "codec-sha512-aes256c"},
+		// A refused key derivation for a given engine ID ends the request.
 		"known-engine/md5": {
 			user: "codec-md5", setup: func(_ *GoSNMP, sp *UsmSecurityParameters) { sp.AuthoritativeEngineID = agentEngineID },
-			knownBug: "the key derivation error is ignored when the engine ID is known",
 		},
 	}
 }

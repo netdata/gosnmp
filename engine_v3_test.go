@@ -264,22 +264,6 @@ func configuredKeys(engineID string) func(*GoSNMP, *UsmSecurityParameters) {
 	}
 }
 
-// presetKey gives the client the user's key localized to the agent's engine
-// ID, as a configured key.
-func presetKey(_ *GoSNMP, sp *UsmSecurityParameters) {
-	creds := agentCreds[sp.UserName]
-	k := &UsmSecurityParameters{
-		UserName:                 sp.UserName,
-		AuthenticationProtocol:   creds.auth,
-		AuthenticationPassphrase: creds.authPass,
-		AuthoritativeEngineID:    agentEngineID,
-	}
-	if err := k.InitSecurityKeys(); err != nil {
-		panic(err)
-	}
-	sp.SecretKey = k.SecretKey
-}
-
 // otherEngineTime gives an answer engine boots and time the agent does not
 // have.
 func otherEngineTime(p *SnmpPacket) {
@@ -689,75 +673,17 @@ func v3Scenarios() map[string]v3Scenario {
 				return agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "always not in time window"}, n > 1
 			},
 		},
-		// Discovery answered by a Report without an engine ID.
+		// Discovery answered by a Report without an engine ID fails (RFC 3414
+		// section 3.2 step 3; net-snmp's probe fails the same way): the client
+		// learns nothing, and the next request discovers again.
 		"discovery/report-without-engine-id/md5": {
 			user: "codec-md5", script: onRequest(1, agentAnswer{
 				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
 			}),
-			knownBug: "a discovery answer without an engine ID is accepted, and an authenticated request then fails for want of a key localized to an engine ID",
-		},
-		// A configured key survives a discovery answer without an engine ID, so
-		// the authenticated request goes out while the client has none.
-		"discovery/report-without-engine-id/then-forged-empty-identity": {
-			user: "codec-md5", setup: presetKey, script: func(n int, _ agentRequest) (agentAnswer, bool) {
-				switch n {
-				case 1:
-					return agentAnswer{report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID}, true
-				case 2:
-					return agentAnswer{
-						report: usmStatsUnknownUserNames, level: AuthNoPriv, why: "Report signed with another key, without a user name and engine ID",
-						edit: func(p *SnmpPacket) {
-							forgeReport(p)
-							usp := p.SecurityParameters.usm()
-							usp.UserName, usp.AuthoritativeEngineID = "", ""
-						},
-					}, true
-				}
-				return agentAnswer{}, false
-			},
-			knownBug: "a discovery answer without an engine ID is accepted, and the request goes out with an empty engine ID",
-		},
-		"discovery/report-without-engine-id/then-report-other-msg-id": {
-			user: "codec-md5", setup: presetKey, script: func(n int, _ agentRequest) (agentAnswer, bool) {
-				switch n {
-				case 1:
-					return agentAnswer{report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID}, true
-				case 2:
-					return agentAnswer{
-						report: usmStatsUnknownEngineIDs, why: "unauthenticated, from the other engine, for another message",
-						edit: func(p *SnmpPacket) {
-							fromOtherEngine(p)
-							p.MsgID += 100
-						},
-					}, true
-				}
-				return agentAnswer{}, false
-			},
-			knownBug: "a discovery answer without an engine ID is accepted, and the request goes out with an empty engine ID",
-		},
-		"discovery/report-without-engine-id/then-privacy-only-report-other-msg-id": {
-			user: "codec-md5", setup: presetKey, script: func(n int, _ agentRequest) (agentAnswer, bool) {
-				switch n {
-				case 1:
-					return agentAnswer{report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID}, true
-				case 2:
-					return agentAnswer{
-						report: usmStatsUnknownEngineIDs, why: "privacy-only msgFlags, from the other engine, for another message",
-						edit: func(p *SnmpPacket) {
-							fromOtherEngine(p)
-							p.MsgID += 100
-						},
-						raw: msgFlagsOctets(byte(AuthPriv &^ AuthNoPriv)),
-					}, true
-				}
-				return agentAnswer{}, false
-			},
-			knownBug: "a discovery answer without an engine ID is accepted, and the request goes out with an empty engine ID",
 		},
 		// A key given without a passphrase serves only the engine ID it was
 		// localized to, here none: discovery cannot give the client the agent's,
-		// and the request fails there, its security parameters unchanged (the
-		// context engine ID is taken before them).
+		// and the request fails there, the client's engine fields unchanged.
 		"empty-key/key-only-user-empty-passphrase": {
 			user: "codec-md5", creds: &agentUser{auth: MD5, authPass: ""},
 			setup: func(_ *GoSNMP, sp *UsmSecurityParameters) { sp.SecretKey = bytes.Repeat([]byte{0x11}, 16) },
@@ -766,22 +692,18 @@ func v3Scenarios() map[string]v3Scenario {
 			user: "codec-sha256-des", script: onRequest(1, agentAnswer{
 				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
 			}),
-			knownBug: "a discovery answer without an engine ID is accepted, and an authenticated request then fails for want of a key localized to an engine ID",
 		},
 		"discovery/report-without-engine-id/sha-aes": {
 			user: "codec-sha-aes", script: onRequest(1, agentAnswer{
 				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
 			}),
-			knownBug: "a discovery answer without an engine ID is accepted, and an authenticated request then fails for want of a key localized to an engine ID",
 		},
-		// A request without authentication needs no key: the agent's
-		// unknownEngineID Report lends it the engine ID, and the context engine
-		// ID it lacks.
+		// A request without authentication needs no key, but no engine ID
+		// either: it fails the same way.
 		"discovery/report-without-engine-id/noauth": {
 			user: "codec-noauth", script: onRequest(1, agentAnswer{
 				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
 			}),
-			knownBug: "a discovery answer without an engine ID is accepted, and the request goes out with an empty engine ID",
 		},
 
 		// The client's Logger is user code that runs inside send, before the
@@ -848,13 +770,6 @@ func v3Scenarios() map[string]v3Scenario {
 		"hooks/logger-changes-version-after-negotiation": {
 			user: "codec-md5",
 			run:  onLogging("SEND END NEGOTIATE SECURITY PARAMS", func(x *GoSNMP) { x.Version = Version2c }),
-		},
-		"hooks/logger-changes-version-after-negotiation/engine-less-discovery": {
-			user: "codec-md5", script: onRequest(1, agentAnswer{
-				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
-			}),
-			run:      onLogging("SEND END NEGOTIATE SECURITY PARAMS", func(x *GoSNMP) { x.Version = Version2c }),
-			knownBug: "a discovery answer without an engine ID is accepted, and an authenticated request then fails for want of a key localized to an engine ID",
 		},
 		"hooks/logger-panics-after-failed-retransmission": {
 			user: "codec-noauth", script: func(n int, _ agentRequest) (agentAnswer, bool) {
@@ -1002,9 +917,10 @@ func v3Scenarios() map[string]v3Scenario {
 		"engine-change/sha-aes": {
 			user: "codec-sha-aes", run: getTwice(func(a *fakeV3Agent) { a.setEngineID(agentOtherEngineID) }),
 		},
+		// A client without authentication follows the agent's engine ID, and
+		// its context engine ID follows (net-snmp keeps the first one).
 		"engine-change/noauth": {
 			user: "codec-noauth", run: getThrice(func(a *fakeV3Agent) { a.setEngineID(agentOtherEngineID) }),
-			knownBug: "the context engine ID stays the old engine's after the client adopts a new engine ID",
 		},
 		"unknown-engine-report/noauth-retransmit-unanswered": {
 			user: "codec-noauth", script: func(n int, _ agentRequest) (agentAnswer, bool) {
@@ -1066,7 +982,6 @@ func v3Scenarios() map[string]v3Scenario {
 				"changes the authentication passphrase", func(_ *GoSNMP, sp *UsmSecurityParameters) {
 					sp.AuthenticationPassphrase = "codec-other-pass"
 				}),
-			knownBug: "a changed passphrase does not apply: the keys derived from the old one stay",
 		},
 		"caller/context-engine-id/engine-change/noauth": {
 			user: "codec-noauth", setup: func(x *GoSNMP, _ *UsmSecurityParameters) { x.ContextEngineID = "codec-context" },
@@ -1095,13 +1010,11 @@ func v3Scenarios() map[string]v3Scenario {
 			user: "codec-md5", run: onFinishThenGet(1, "clears the engine ID", func(x *GoSNMP) {
 				x.SecurityParameters.usm().AuthoritativeEngineID = ""
 			}),
-			knownBug: "the engine parameters stored after the discovery exchange overwrite the hook's change",
 		},
 		"hooks/request-onfinish-replaces-security-parameters": {
 			user: "codec-md5", run: onFinishThenGet(2, "sets new security parameters", func(x *GoSNMP) {
 				x.SecurityParameters = userParameters("codec-md5")
 			}),
-			knownBug: "the answer's engine parameters are stored into the new security parameters",
 		},
 		"hooks/logger-sets-context-engine-id": {user: "codec-md5", run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
 			if _, err := onLogging("SEND INIT", func(x *GoSNMP) { x.ContextEngineID = "codec-context" })(x, a); err != nil {

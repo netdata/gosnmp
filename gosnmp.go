@@ -189,8 +189,9 @@ type GoSNMP struct {
 	SecurityModel SnmpV3SecurityModel
 
 	// SecurityParameters are the SNMPv3 security parameters, a
-	// *UsmSecurityParameters. The client stores the agent's engine ID, boots
-	// and time, and the keys, in them.
+	// *UsmSecurityParameters, one value per client. The client keeps what it
+	// learns of the agent's engine to itself and shows it in their engine ID,
+	// boots, time and keys (see the package documentation, SNMPv3).
 	SecurityParameters SnmpV3SecurityParameters
 
 	// TrapSecurityParametersTable, when set, holds the security parameters
@@ -199,7 +200,8 @@ type GoSNMP struct {
 	TrapSecurityParametersTable *SnmpV3SecurityParametersTable
 
 	// ContextEngineID is the SNMPv3 context engine ID of requests; when it is
-	// empty, the client takes the agent's engine ID.
+	// empty, requests take the agent's engine ID, which the client then shows
+	// here.
 	ContextEngineID string
 
 	// ContextName is the SNMPv3 context name of requests.
@@ -215,6 +217,9 @@ type GoSNMP struct {
 
 	// rxBuf is the receive buffer, allocated by the first request.
 	rxBuf *[rxBufSize]byte // has to be pointer due to https://github.com/golang/go/issues/11728
+
+	// engine is the SNMPv3 engine state requests read and commit.
+	engine engineState
 
 	// mu guards Conn, opened, closed, lost, attempt and unconnectedAddr against
 	// Close, which may run on any goroutine: Connect, Close and a TCP reopen
