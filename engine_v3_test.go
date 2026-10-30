@@ -1148,6 +1148,13 @@ func v3Scenarios() map[string]v3Scenario {
 			a.frozen = true
 			return getAfter(200*time.Second, nil)(x, a)
 		}},
+		// An engine at boots 2147483647 checks the time of authenticated
+		// messages only (RFC 3414 section 3.2 step 7): discovery and a
+		// request without authentication still work.
+		"clock/noauth/engine-boots-max": {user: "codec-noauth", run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+			a.boots = maxEngineValue
+			return getTwice(nil)(x, a)
+		}},
 		"clock/boots-max-after-update": {
 			user: "codec-md5", run: getThrice(nil), script: onRequest(3, agentAnswer{
 				level: AuthNoPriv, why: "GetResponse with engine boots 2147483647",
