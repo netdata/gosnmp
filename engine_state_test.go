@@ -173,6 +173,23 @@ func TestEngineReconcile(t *testing.T) {
 				return v
 			},
 		},
+		// The keys of another value that its passphrases no longer derive
+		// are the caller's.
+		"another value's keys its passphrase does not derive": {
+			steps: []func(*GoSNMP, *UsmSecurityParameters){
+				func(x *GoSNMP, sp *UsmSecurityParameters) {
+					x.SecurityParameters = sp.Copy()
+					x.SecurityParameters.usm().AuthenticationPassphrase = otherPass
+				},
+				func(x *GoSNMP, _ *UsmSecurityParameters) {
+					x.SecurityParameters.usm().AuthenticationPassphrase = thirdPass
+				},
+			},
+			want: func(v engineView) engineView {
+				v.authGiven = true
+				return v
+			},
+		},
 		"a configured context engine ID stays": {
 			setup: func(x *GoSNMP, _ *UsmSecurityParameters) { x.ContextEngineID = "codec-context" },
 			steps: []func(*GoSNMP, *UsmSecurityParameters){
