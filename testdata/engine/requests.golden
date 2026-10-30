@@ -619,7 +619,7 @@
 2s    read from 127.0.0.2:161: 52 octets, not decodable (error in unmarshalResponse: error parsing SNMP packet error: -1 is outside 0..255)
 2s    hook OnRecv
 3s    read from 127.0.0.2:161: deadline
-3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: error in unmarshalResponse: error parsing SNMP packet error: -1 is outside 0..255" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
+3s    result: packet nil, error "request timeout (after 2 retries)" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
 3s    client after: retries=2 next request id=1004
 
 == requests/answer/undecodable-then-garbage
@@ -659,7 +659,7 @@
 2s    read from 127.0.0.2:161: 4 octets, not decodable (error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input)
 2s    hook OnRecv
 3s    read from 127.0.0.2:161: deadline
-3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
+3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: error in unmarshalResponse: error parsing SNMP packet error: -1 is outside 0..255" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
 3s    client after: retries=2 next request id=1004
 
 == requests/answer/unknown-pdu-type

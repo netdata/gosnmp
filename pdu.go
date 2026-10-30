@@ -268,6 +268,35 @@ func unmarshalPayload(packet []byte, cursor int, response *SnmpPacket) error {
 	return nil
 }
 
+// readRequestID reads the request ID of the PDU at packet, which must span
+// packet, of a type other than the SNMPv1 trap: an Integer32, returned as its
+// two's complement, with the reader of the PDU's fields after it.
+func readRequestID(packet []byte) (ber.Reader, uint32, error) {
+	pdu, err := readWhole(packet)
+	if err != nil {
+		return ber.Reader{}, 0, fmt.Errorf("error verifying Response sanity: %w", err)
+	}
+	r := ber.NewReader(pdu)
+	requestID, err := readInt32(&r)
+	if err != nil {
+		return ber.Reader{}, 0, fmt.Errorf("error parsing SNMP packet request ID: %w", err)
+	}
+	return r, uint32(requestID), nil //nolint:gosec // the Integer32's two's complement
+}
+
+// requestIDRead reports whether the PDU at packet[cursor:] decodes as far as
+// its request ID (readRequestID), whatever fails after it.
+func requestIDRead(packet []byte, cursor int) bool {
+	if cursor >= len(packet) {
+		return false
+	}
+	if t := PDUType(packet[cursor]); !t.known() || t == Trap {
+		return false
+	}
+	_, _, err := readRequestID(packet[cursor:])
+	return err == nil
+}
+
 // unmarshalResponse reads a PDU of pduType other than the SNMPv1 trap: the
 // request ID, an Integer32 whose two's complement RequestID holds; the
 // non-repeaters (readCount) and the max-repetitions, not negative (RFC 3416), of
@@ -275,17 +304,11 @@ func unmarshalPayload(packet []byte, cursor int, response *SnmpPacket) error {
 // (readCount) of any other PDU; and the varbinds. Fields read before an error
 // stay set.
 func unmarshalResponse(packet []byte, pduType PDUType, response *SnmpPacket) error {
-	pdu, err := readWhole(packet)
+	r, requestID, err := readRequestID(packet)
 	if err != nil {
-		return fmt.Errorf("error verifying Response sanity: %w", err)
+		return err
 	}
-	r := ber.NewReader(pdu)
-
-	requestID, err := readInt32(&r)
-	if err != nil {
-		return fmt.Errorf("error parsing SNMP packet request ID: %w", err)
-	}
-	response.RequestID = uint32(requestID) //nolint:gosec // the Integer32's two's complement
+	response.RequestID = requestID
 	if pduType == GetBulkRequest {
 		if response.NonRepeaters, err = readCount(&r); err != nil {
 			return fmt.Errorf("error parsing SNMP packet non repeaters: %w", err)

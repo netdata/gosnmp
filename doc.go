@@ -75,17 +75,18 @@
 // When the attempts run out, the request fails with the last attempt's error,
 // except that after a timeout the error's text is "request timeout (after N
 // retries)" and after the agent closed the TCP connection "max retries (N)
-// exceeded"; both unwrap to the attempt's reason (the timeout, a [net.Error];
-// [io.EOF]). When the request discarded replies, such an error, and one at the
-// Context's deadline, also unwraps to the reason of the discarded reply that
-// came closest to answering it (the last authentic one with the request's
-// msgID, else the last with it, else the last one whose msgID could not be
-// read; replies to other requests do not count), and its text ends with
-// ": last discarded reply: " and that reason's text. An answer's error status
-// ([SnmpPacket].Error) is not an error of the request. Connect uses Timeout
-// and the Context too, for its name lookups and its dial together. Known bugs:
-// a Response without varbinds or error status, or with request ID 0, answers a
-// request whatever its request ID.
+// exceeded"; both match the attempt's reason with [errors.Is] and [errors.As]
+// (the timeout, a [net.Error]; [io.EOF]). When the request discarded replies,
+// such an error, and one at the Context's deadline, also matches the reason of
+// the discarded reply that came closest to answering it (the last authentic
+// one naming the request, by its SNMPv3 msgID, else the last naming it, by
+// that msgID or its SNMPv1 or SNMPv2c request ID, else the last one whose ID
+// could not be read; replies to other requests do not count), and its text
+// ends with ": last discarded reply: " and that reason's text. An answer's
+// error status ([SnmpPacket].Error) is not an error of the request. Connect
+// uses Timeout and the Context too, for its name lookups and its dial
+// together. Known bugs: a Response without varbinds or error status, or with
+// request ID 0, answers a request whatever its request ID.
 //
 // # Hooks
 //
@@ -149,9 +150,10 @@
 // request's level, and is in the time window of the clock (section 3.2 step 7
 // b, below); a request that asks for authentication takes no other reply but
 // an unauthenticated Report; a reply is decrypted exactly when it asks for
-// privacy. A reply that fails is discarded like one that does not decode, and
-// the error of a request that ends without an answer after it matches the
-// step's, [ErrNotInTimeWindow] for the time window.
+// privacy. A reply that fails is discarded like one that does not decode; the
+// error of a request that then times out, loses its TCP connection or ends at
+// the Context's deadline also matches the step's, [ErrNotInTimeWindow] for the
+// time window (see Attempts and timeouts).
 //
 // The client takes the engine ID of each answer whose digest it checked
 // (another engine ID than its own only from a resend an unauthenticated Report
@@ -379,9 +381,10 @@
 // level too. A decode error also unwraps to [ErrInvalidPacketLength] when a
 // length caused it, besides its category: after a wrong privacy key, a
 // decrypted scoped PDU whose length runs past its plaintext matches both
-// [ErrDecryption] and [ErrInvalidPacketLength]. A request that ends without an
-// answer after discarded replies fails with an error that also unwraps to the
-// reason of the one that came closest to answering it (see Attempts and
-// timeouts), so it matches these errors without a Report. A local failure,
-// such as a key that does not fit its protocol, matches none of them.
+// [ErrDecryption] and [ErrInvalidPacketLength]. A request that times out,
+// loses its TCP connection or ends at the Context's deadline after discarded
+// replies fails with an error that also matches the reason of the one that
+// came closest to answering it (see Attempts and timeouts), so it matches
+// these errors without a Report. A local failure, such as a key that does not
+// fit its protocol, matches none of them.
 package gosnmp

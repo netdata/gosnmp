@@ -194,16 +194,16 @@ type exchange struct {
 }
 
 // discardRank orders the messages an exchange discards by how close they came
-// to answering it; zero is a message that answers another request, whose
-// reason is not recorded.
+// to answering it, by the ID that names its attempts: the msgID of an SNMPv3
+// request, the request ID of another. Zero is a message that answers another
+// request, whose reason is not recorded.
 type discardRank uint8
 
 const (
-	// rankUnread: a message whose msgID could not be read, or any message to
-	// an SNMPv1 or SNMPv2c request.
+	// rankUnread: a message whose ID could not be read.
 	rankUnread discardRank = iota + 1
-	// rankNamed: a message with the msgID of one of the exchange's attempts
-	// that did not authenticate.
+	// rankNamed: a message with the ID of one of the exchange's attempts that
+	// did not authenticate.
 	rankNamed
 	// rankAuthentic: an authentic message with the msgID of one of the
 	// exchange's attempts.
@@ -390,7 +390,7 @@ func (e *exchange) unanswered(err error) error {
 	if e.outOfWindow {
 		e.x.forgetEngineTime()
 	}
-	if e.discarded != nil && errors.Is(err, context.DeadlineExceeded) {
+	if _, ended := err.(*attemptsError); e.discarded != nil && !ended && errors.Is(err, context.DeadlineExceeded) {
 		return e.attemptsError(err.Error(), err)
 	}
 	return err
@@ -532,7 +532,9 @@ func (e *exchange) await(c *connection, earlier []sentIDs) attemptOutcome {
 			e.discard(rejected, rankAuthentic)
 			continue
 		}
-		x.Logger.Print("ERROR out of order")
+		if x.Logger.enabled() {
+			x.Logger.Print("ERROR out of order")
+		}
 	}
 }
 
@@ -546,14 +548,15 @@ func (e *exchange) discard(err error, rank discardRank) {
 }
 
 // rankOf returns the rank of a message decode failed on: read is the message
-// as far as decode read it when its msgID was, and verified reports that its
-// digest checked. A message with the msgID of none of the exchange's attempts
-// answers another request: rank zero.
+// as far as decode read it when it read the ID that names the request's
+// attempts, and verified reports that its digest checked. A message with the
+// ID of none of the exchange's attempts answers another request: rank zero.
 func (e *exchange) rankOf(read *SnmpPacket, verified bool, earlier []sentIDs) discardRank {
 	switch {
 	case read == nil:
 		return rankUnread
-	case !e.sentWithMsgID(read.MsgID, earlier):
+	case e.packet.Version == Version3 && !e.sentWithMsgID(read.MsgID, earlier),
+		e.packet.Version != Version3 && !e.sentWithRequestID(read.RequestID, earlier):
 		return 0
 	case verified:
 		return rankAuthentic
@@ -567,8 +570,8 @@ func (e *exchange) rankOf(read *SnmpPacket, verified bool, earlier []sentIDs) di
 // security parameters are the request's with the USM fields the reply
 // carries, keeping the request's keys only for the request's engine ID: no key
 // derives for an engine a reply names. With an error it returns the message
-// as far as it read it when it read its msgID (an SNMPv3 message to an SNMPv3
-// request), else nil.
+// as far as it read it when it read the ID that names the request's attempts
+// (rankOf), else nil.
 func (e *exchange) decode(resp []byte) (_ *SnmpPacket, verified bool, _ error) {
 	x := e.x
 	reply := &SnmpPacket{Logger: x.Logger}
@@ -582,17 +585,26 @@ func (e *exchange) decode(resp []byte) (_ *SnmpPacket, verified bool, _ error) {
 	if err == nil && reply.Version == Version3 && sp != nil {
 		err = receiveReply(reply.MsgFlags, &w, sp)
 	}
-	// read is reply, as far as it was read, when an error ends the decode;
-	// only an SNMPv3 header has a msgID.
-	read := func() *SnmpPacket {
-		if e.packet.Version == Version3 && w.has&hasMsgID != 0 {
+	// read is reply, as far as it was read, when an error ends the decode: for
+	// an SNMPv3 request when the SNMPv3 header's msgID decoded, for another
+	// when an SNMPv1 or SNMPv2c PDU's request ID did (atPDU: the decode reached
+	// the PDU).
+	read := func(atPDU bool) *SnmpPacket {
+		switch {
+		case e.packet.Version == Version3:
+			if w.has&hasMsgID != 0 {
+				return reply
+			}
+		case atPDU && reply.Version != Version3 && requestIDRead(resp, cursor):
 			return reply
 		}
 		return nil
 	}
 	if err != nil {
-		x.Logger.Printf("ERROR on unmarshall header: %s", err)
-		return read(), false, err
+		if x.Logger.enabled() {
+			x.Logger.Printf("ERROR on unmarshall header: %s", err)
+		}
+		return read(false), false, err
 	}
 	if e.packet.Version == Version3 {
 		in := inbound{msg: resp, wire: w, sp: sp}
@@ -600,17 +612,23 @@ func (e *exchange) decode(resp []byte) (_ *SnmpPacket, verified bool, _ error) {
 			if e.unauthenticatedReport(resp, cursor, reply) {
 				return reply, false, nil
 			}
-			x.Logger.Printf("ERROR on Test Authentication on v3: %s", err)
-			return read(), false, err
+			if x.Logger.enabled() {
+				x.Logger.Printf("ERROR on Test Authentication on v3: %s", err)
+			}
+			return read(false), false, err
 		}
 		if resp, cursor, err = unmarshalScopedPDU(resp, cursor, reply, reply.MsgFlags.privFlag()); err != nil {
-			x.Logger.Printf("ERROR on the scoped PDU on v3: %s", err)
-			return read(), verified, err
+			if x.Logger.enabled() {
+				x.Logger.Printf("ERROR on the scoped PDU on v3: %s", err)
+			}
+			return read(false), verified, err
 		}
 	}
 	if err = unmarshalPayload(resp, cursor, reply); err != nil {
-		x.Logger.Printf("ERROR on UnmarshalPayload: %s", err)
-		return read(), verified, err
+		if x.Logger.enabled() {
+			x.Logger.Printf("ERROR on UnmarshalPayload: %s", err)
+		}
+		return read(true), verified, err
 	}
 	return reply, verified, nil
 }

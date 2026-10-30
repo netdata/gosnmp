@@ -1806,25 +1806,31 @@ func TestExchangeDiscard(t *testing.T) {
 	}
 }
 
-// TestExchangeRankOf checks the rank of a message decode failed on, by the
-// msgID it read, if any, and whether its digest checked.
+// TestExchangeRankOf checks the rank of a message decode failed on, by the ID
+// it read that names the request's attempts, if any (the msgID of an SNMPv3
+// request, the request ID of an SNMPv2c one), and whether its digest checked.
 func TestExchangeRankOf(t *testing.T) {
-	e := exchange{packet: &SnmpPacket{MsgID: 7}}
 	earlier := []sentIDs{{requestID: 1, msgID: 5}}
 	tests := map[string]struct {
+		version  SnmpVersion
 		read     *SnmpPacket
 		verified bool
 		want     discardRank
 	}{
-		"msgID not read":                    {want: rankUnread},
-		"another request's msgID":           {read: &SnmpPacket{MsgID: 6}},
-		"another request's msgID, verified": {read: &SnmpPacket{MsgID: 6}, verified: true},
-		"the attempt's msgID":               {read: &SnmpPacket{MsgID: 7}, want: rankNamed},
-		"an earlier attempt's msgID":        {read: &SnmpPacket{MsgID: 5}, want: rankNamed},
-		"the attempt's msgID, verified":     {read: &SnmpPacket{MsgID: 7}, verified: true, want: rankAuthentic},
+		"v3/msgID not read":                    {version: Version3, want: rankUnread},
+		"v3/another request's msgID":           {version: Version3, read: &SnmpPacket{MsgID: 6, RequestID: 2}},
+		"v3/another request's msgID, verified": {version: Version3, read: &SnmpPacket{MsgID: 6, RequestID: 2}, verified: true},
+		"v3/the attempt's msgID":               {version: Version3, read: &SnmpPacket{MsgID: 7}, want: rankNamed},
+		"v3/an earlier attempt's msgID":        {version: Version3, read: &SnmpPacket{MsgID: 5}, want: rankNamed},
+		"v3/the attempt's msgID, verified":     {version: Version3, read: &SnmpPacket{MsgID: 7}, verified: true, want: rankAuthentic},
+		"v2c/request ID not read":              {version: Version2c, want: rankUnread},
+		"v2c/another request's ID":             {version: Version2c, read: &SnmpPacket{RequestID: 3, MsgID: 7}},
+		"v2c/the attempt's request ID":         {version: Version2c, read: &SnmpPacket{RequestID: 2}, want: rankNamed},
+		"v2c/an earlier attempt's request ID":  {version: Version2c, read: &SnmpPacket{RequestID: 1}, want: rankNamed},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
+			e := exchange{packet: &SnmpPacket{Version: tc.version, RequestID: 2, MsgID: 7}}
 			assert.Equal(t, tc.want, e.rankOf(tc.read, tc.verified, earlier))
 		})
 	}
@@ -1877,6 +1883,14 @@ func TestExchangeEndErrors(t *testing.T) {
 			discarded: reason,
 			end:       func(e *exchange) error { return e.unanswered(context.Canceled) },
 			wantText:  "context canceled", same: context.Canceled, wantNotIs: []error{ErrNotInTimeWindow},
+		},
+		"timeout at the Context's deadline after a discard": {
+			discarded: reason,
+			end: func(e *exchange) error {
+				return e.unanswered(e.attemptsError("request timeout (after 1 retries)", context.DeadlineExceeded))
+			},
+			wantText: "request timeout (after 1 retries): last discarded reply: out of window",
+			wantIs:   []error{context.DeadlineExceeded, ErrNotInTimeWindow},
 		},
 		"closed after a discard": {
 			discarded: reason,
