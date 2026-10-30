@@ -18,12 +18,13 @@ import (
 	"time"
 )
 
-// send runs a request: for SNMPv3 it first discovers the agent's engine or
-// derives the keys, then sends the request, stores the engine parameters the
-// answer carries, and sends the request once more when the answer is a Report
-// that resynchronizes the client with the agent's engine. Every result it
-// returns passes through its named results, which the recover below returns
-// when a panic, user code's included, ends the request.
+// send runs a request: for SNMPv3 it first takes the caller's changes into the
+// engine state and discovers the agent's engine when it has none, then sends
+// the request, whose answer commits the engine parameters it carries, and
+// sends the request once more when the answer is a Report that
+// resynchronizes the client with the agent's engine. Every result it returns
+// passes through its named results, which the recover below returns when a
+// panic, user code's included, ends the request.
 func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 	// Known bug: a panic becomes the request's error, with the stacks of all
 	// goroutines in its text (8 KB, NUL-padded), and the result the request had
@@ -41,6 +42,12 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 	if _, _, err = x.clientConnection(&cfg); err != nil {
 		return nil, err
 	}
+	if packetOut.Version == Version3 {
+		// The engine state is configuration the request reads at its start.
+		if err = x.reconcileEngine(); err != nil {
+			return &SnmpPacket{}, err
+		}
+	}
 	if x.Logger.enabled() {
 		x.Logger.Print("SEND INIT")
 	}
@@ -56,58 +63,62 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 		}
 	}
 
-	var verified bool
-	result, verified, err = x.sendOneRequest(&cfg, packetOut)
+	var stored bool
+	result, stored, err = x.sendOneRequest(&cfg, packetOut, false)
 	if err != nil {
 		x.Logger.Printf("SEND Error on the first Request Error: %s", err)
 	}
-	kind, stored, storeErr := x.settleReply(packetOut, result, verified)
-	if storeErr != nil {
-		return result, storeErr
-	}
+	kind := resyncKindOf(result)
 	if !kind.resync {
 		return result, err
 	}
 
 	// Resynchronize: send the request again, with the engine parameters the
-	// client stored from an authenticated Report, or with those of an
+	// client committed from an authenticated Report, or with those of an
 	// unauthenticated one in the request only, when mayLend allows it: the
-	// answer brings the agent's, which the client stores. A Report that cannot
-	// resynchronize the request ends it with its error. The retransmission's
-	// result goes into the named result, which a recovered panic returns; a
-	// resync Report answering it ends the request with its error.
+	// answer brings the agent's, which the client commits. A Report that
+	// cannot resynchronize the request ends it with its error. The
+	// retransmission's result goes into the named result, which a recovered
+	// panic returns; a resync Report answering it ends the request with its
+	// error.
 	if x.Logger.enabled() {
 		x.Logger.Print("WARNING detected " + kind.name + " ERROR")
 	}
 	if stored {
-		if err = x.updatePktSecurityParameters(packetOut); err != nil {
-			x.Logger.Printf("ERROR updatePktSecurityParameters error: %s", err)
-			return nil, err
-		}
+		x.engine.stamp(packetOut)
 	} else if !mayLend(packetOut, result, kind) {
 		return result, kind.err
 	} else if err = x.lendEngineParameters(packetOut, result, kind); err != nil {
 		x.Logger.Printf("ERROR lendEngineParameters error: %s", err)
-		return nil, err
+		return result, err
 	}
-	result, verified, err = x.sendOneRequest(&cfg, packetOut)
+	result, _, err = x.sendOneRequest(&cfg, packetOut, false)
 	if err != nil && x.Logger.enabled() {
 		x.Logger.Printf("ERROR "+kind.name+" retransmit error: %s", err)
 	}
-	if kind, _, storeErr = x.settleReply(packetOut, result, verified); storeErr != nil {
-		return result, storeErr
-	}
-	if kind.resync {
+	if kind = resyncKindOf(result); kind.resync {
 		return result, kind.err
 	}
 	return result, err
 }
 
+// resyncKindOf returns the kind of result, an answer, when it is a Report;
+// its resync field marks one that resynchronizes the client with the agent's
+// engine.
+func resyncKindOf(result *SnmpPacket) reportKind {
+	if result == nil {
+		return reportKind{}
+	}
+	kind, _ := reportKindOf(result)
+	return kind
+}
+
 // requestConfig is the client's configuration as a request reads it, once, at
 // its start: a change a hook or the Logger makes to the client applies from
 // the next request. The packet carries the rest (version, security level and
-// model, context). Not part of it: the Logger, the learned SNMPv3 engine
-// state, and the connection, which each attempt takes from the client
+// model, context), and the SNMPv3 engine state takes the caller's changes to
+// its fields at the same time (reconcileEngine). Not part of it: the Logger,
+// and the connection, which each attempt takes from the client
 // (connectionFor).
 type requestConfig struct {
 	ctx                context.Context
@@ -162,6 +173,9 @@ type exchange struct {
 	// context.DeadlineExceeded whether or not the Context reports its
 	// deadline yet.
 	contextDeadline bool
+	// discovery marks the engine discovery's exchange, whose answer gives the
+	// engine state its engine ID (settle).
+	discovery bool
 }
 
 // attemptKind is how an attempt ended.
@@ -210,6 +224,9 @@ type attemptOutcome struct {
 	// verified reports that packet's digest checked against the request
 	// (exchange.authenticate).
 	verified bool
+	// committed reports that packet's engine parameters were committed into
+	// the engine state (exchange.settle).
+	committed bool
 }
 
 // ioFailure is the outcome of an attempt whose write or read on c failed with
@@ -254,13 +271,14 @@ type sentIDs struct {
 	requestID, msgID uint32
 }
 
-// sendOneRequest sends packetOut and returns the reply that answers it, and
-// whether the reply's digest checked against the request, retrying up to
-// cfg.retries times. OnFinish runs when it succeeds. Once Close closed the
+// sendOneRequest sends packetOut, the engine discovery's request when
+// discovery is set, and returns the reply that answers it, and whether the
+// reply's engine parameters were committed into the engine state, retrying up
+// to cfg.retries times. OnFinish runs when it succeeds. Once Close closed the
 // client, an attempt that ends without a reply ends the request with
 // net.ErrClosed, whatever else ended it.
-func (x *GoSNMP) sendOneRequest(cfg *requestConfig, packetOut *SnmpPacket) (*SnmpPacket, bool, error) {
-	e := exchange{x: x, packet: packetOut, cfg: *cfg, timeout: cfg.timeout}
+func (x *GoSNMP) sendOneRequest(cfg *requestConfig, packetOut *SnmpPacket, discovery bool) (*SnmpPacket, bool, error) {
+	e := exchange{x: x, packet: packetOut, cfg: *cfg, timeout: cfg.timeout, discovery: discovery}
 	// The IDs of the attempts before the current one, in a local array, not a
 	// field of exchange, so that eight of them stay on the stack: a field
 	// would always escape to the heap, and a slice made for cfg.retries+1 of
@@ -276,7 +294,7 @@ func (x *GoSNMP) sendOneRequest(cfg *requestConfig, packetOut *SnmpPacket) (*Snm
 			if out.err == nil && cfg.onFinish != nil {
 				cfg.onFinish(x)
 			}
-			return out.packet, out.verified, out.err
+			return out.packet, out.committed, out.err
 		}
 		// A retryable attempt has stamped the packet with its IDs.
 		earlier = append(earlier, sentIDs{packetOut.RequestID, packetOut.MsgID})
@@ -430,7 +448,7 @@ func (e *exchange) await(c *connection, earlier []sentIDs) attemptOutcome {
 			return attemptOutcome{kind: attemptInvalidReply, err: err}
 		}
 		if answered, err := e.answers(reply, earlier); answered {
-			return attemptOutcome{kind: attemptReply, packet: reply, err: err, verified: verified}
+			return e.settle(attemptOutcome{kind: attemptReply, packet: reply, err: err, verified: verified})
 		}
 		x.Logger.Print("ERROR out of order")
 	}

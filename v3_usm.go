@@ -116,13 +116,14 @@ func (privProtocol SnmpV3PrivProtocol) spec() usm.Priv {
 // client learns. A client keeps them in GoSNMP.SecurityParameters, and each
 // message carries a copy.
 type UsmSecurityParameters struct {
-	// mu serializes key initialization, the engine and logger updates, Copy
-	// and Log.
+	// mu serializes key initialization, the client's writes of its engine
+	// state and the logger, Copy and Log.
 	mu sync.Mutex
 
-	// The authoritative engine's ID, boots and time (RFC 3414 section 2.2),
-	// which discovery and answers set; an AuthoritativeEngineID set by the
-	// caller skips the discovery.
+	// The authoritative engine's ID, boots and time (RFC 3414 section 2.2).
+	// A client's parameters show the engine state it learns; an
+	// AuthoritativeEngineID set by the caller skips the discovery (see the
+	// package documentation, SNMPv3).
 	AuthoritativeEngineID    string
 	AuthoritativeEngineBoots uint32
 	AuthoritativeEngineTime  uint32
@@ -147,12 +148,13 @@ type UsmSecurityParameters struct {
 	// SecretKey and PrivacyKey are the authentication and privacy keys,
 	// localized to AuthoritativeEngineID: an authentication key of the size of
 	// its protocol's hash, a privacy key of its cipher's key length (DES: 16
-	// octets). InitSecurityKeys derives the missing ones from the passphrases.
-	// A new engine ID replaces both with keys derived for it from the
-	// passphrases, so parameters with a protocol whose passphrase is empty, a
-	// key given without one among them, cannot take another engine ID: as a
-	// trap receiver's or SnmpDecodePacket's they decode no message naming
-	// another one, and discovery cannot give them one.
+	// octets). InitSecurityKeys derives the missing ones from the passphrases,
+	// and a client its own, which its parameters then show. A new engine ID
+	// replaces both with keys derived for it from the passphrases, so
+	// parameters with a protocol whose passphrase is empty, a key given
+	// without one among them, cannot take another engine ID: as a trap
+	// receiver's or SnmpDecodePacket's they decode no message naming another
+	// one, and a client cannot take one.
 	SecretKey  []byte
 	PrivacyKey []byte
 
@@ -304,25 +306,31 @@ func (sp *UsmSecurityParameters) derivePrivKey() error {
 	return nil
 }
 
-// adoptEngineID takes engineID as the authoritative engine ID and, when it
-// differs from the current one, replaces both keys with keys derived for it
-// from the passphrases. A key localizes to one engine ID (RFC 3414 section
-// 2.6), so parameters with a protocol whose passphrase is empty, as when a key
-// was given without one, cannot adopt another engine ID: the error leaves
-// them unchanged. The caller holds sp.mu or owns sp (a private copy). Known
-// bug: the engine ID is adopted before the keys are derived, so a failed
-// derivation leaves it adopted with keys missing.
-func (sp *UsmSecurityParameters) adoptEngineID(engineID string) error {
+// keysFor returns the keys of sp's protocols localized to engineID, without
+// changing sp: its own keys for its engine ID, else keys derived for engineID
+// from the passphrases and checked against the protocols. A key localizes to
+// one engine ID (RFC 3414 section 2.6), so parameters with a protocol whose
+// passphrase is empty, as when a key was given without one, have no keys for
+// another engine ID: that protocol's error. The caller holds sp.mu or owns sp
+// (a private copy).
+func (sp *UsmSecurityParameters) keysFor(engineID string) (authKey, privKey []byte, err error) {
 	if sp.AuthoritativeEngineID == engineID {
-		return nil
+		return sp.SecretKey, sp.PrivacyKey, nil
 	}
 	if err := sp.checkRelocalizable(); err != nil {
-		return err
+		return nil, nil, err
 	}
-	sp.AuthoritativeEngineID = engineID
-	sp.SecretKey = nil
-	sp.PrivacyKey = nil
-	return sp.deriveKeys()
+	other := UsmSecurityParameters{
+		AuthoritativeEngineID:    engineID,
+		AuthenticationProtocol:   sp.AuthenticationProtocol,
+		PrivacyProtocol:          sp.PrivacyProtocol,
+		AuthenticationPassphrase: sp.AuthenticationPassphrase,
+		PrivacyPassphrase:        sp.PrivacyPassphrase,
+	}
+	if err := other.InitSecurityKeys(); err != nil {
+		return nil, nil, err
+	}
+	return other.SecretKey, other.PrivacyKey, nil
 }
 
 // checkRelocalizable returns the error of localizing the keys to another
@@ -336,38 +344,6 @@ func (sp *UsmSecurityParameters) checkRelocalizable() error {
 		return errPrivKeyBoundToEngine
 	}
 	return nil
-}
-
-// setSecurityParameters adopts the engine ID, boots and time of in, deriving
-// new keys when the engine ID changes. Known bugs: a failed key derivation
-// (adoptEngineID) also leaves boots and time untaken, and the next request
-// skips the discovery; boots and time are adopted from any message the client
-// accepts, older or outside the time window ones included (RFC 3414 section
-// 3.2 step 7 b keeps the latest); the time is kept without the moment it was
-// received, so a request sends the engine time of the last message, not the
-// current one (RFC 3414 section 3.1 step 6 a), and one after 150 s of silence
-// is first answered with notInTimeWindow.
-func (sp *UsmSecurityParameters) setSecurityParameters(in *UsmSecurityParameters) error {
-	sp.mu.Lock()
-	defer sp.mu.Unlock()
-
-	if err := sp.adoptEngineID(in.AuthoritativeEngineID); err != nil {
-		return err
-	}
-	sp.AuthoritativeEngineBoots = in.AuthoritativeEngineBoots
-	sp.AuthoritativeEngineTime = in.AuthoritativeEngineTime
-
-	return nil
-}
-
-// setEngineTime takes the engine boots and time of in; the engine ID and the
-// keys stay.
-func (sp *UsmSecurityParameters) setEngineTime(in *UsmSecurityParameters) {
-	sp.mu.Lock()
-	defer sp.mu.Unlock()
-
-	sp.AuthoritativeEngineBoots = in.AuthoritativeEngineBoots
-	sp.AuthoritativeEngineTime = in.AuthoritativeEngineTime
 }
 
 // errAuthKeyBoundToEngine and errPrivKeyBoundToEngine are the errors of
@@ -504,22 +480,18 @@ func (sp *UsmSecurityParameters) InitPacket(*SnmpPacket) error {
 	return nil
 }
 
-// discoveryPacket returns the request that discovers the authoritative
-// engine's ID, boots and time (RFC 3414 section 4) while sp has no engine ID:
-// an unauthenticated Get without variable bindings and with empty security
-// parameters, which the encoder sends reportable as every request. It returns
-// nil once the engine ID is known.
-func (sp *UsmSecurityParameters) discoveryPacket() *SnmpPacket {
-	if sp.AuthoritativeEngineID != "" {
-		return nil
-	}
+// newDiscoveryPacket returns the request that discovers the authoritative
+// engine's ID, boots and time (RFC 3414 section 4): an unauthenticated Get
+// without variable bindings and with empty security parameters, which the
+// encoder sends reportable as every request.
+func newDiscoveryPacket(logger Logger) *SnmpPacket {
 	return &SnmpPacket{
 		Version:            Version3,
 		MsgFlags:           NoAuthNoPriv,
 		SecurityModel:      UserSecurityModel,
-		SecurityParameters: &UsmSecurityParameters{Logger: sp.Logger},
+		SecurityParameters: &UsmSecurityParameters{Logger: logger},
 		PDUType:            GetRequest,
-		Logger:             sp.Logger,
+		Logger:             logger,
 	}
 }
 
@@ -572,7 +544,7 @@ func (sp *UsmSecurityParameters) marshal(dst []byte, flags SnmpV3MsgFlags, salt 
 // parameters of a message with flags whose USM fields are w: it takes the
 // fields that decoded, after the checks of RFC 3414 section 3.2 made before
 // the digest: valid protocols, and with bind a key or a passphrase for each
-// (local failures); with bind, the engine ID rule of adoptEngineID, keys given
+// (local failures); with bind, the engine ID rule of keysFor, keys given
 // without a passphrase take no other engine ID (step 4: the user is looked up
 // by name and engine ID, ErrUnknownUsername); the protocols the flags ask for
 // (step 5, ErrUnknownSecurityLevel), after taking the fields, so that a
