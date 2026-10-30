@@ -410,6 +410,10 @@ func v3Scenarios() map[string]v3Scenario {
 		})},
 		// Discovery answered by a GetResponse, in the agent's engine and
 		// context engine, and without them.
+		"discovery/report-without-varbinds": {user: "codec-md5", script: onRequest(1, agentAnswer{
+			report: usmStatsUnknownEngineIDs, why: "answers discovery with a Report without varbinds",
+			edit: func(p *SnmpPacket) { p.Variables = nil },
+		})},
 		"discovery/get-response": {user: "codec-md5", script: onRequest(1, agentAnswer{
 			why: "answers discovery with a GetResponse",
 		})},
@@ -1132,15 +1136,18 @@ func v3Scenarios() map[string]v3Scenario {
 		// The parameters of a request without authentication have an
 		// authentication protocol: an authenticated answer from the engine an
 		// unauthenticated Report named checks with the user's key localized to
-		// it, and answers nothing, at another level than the request's.
+		// it, and answers nothing, at another level than the request's: the
+		// resend times out with that reason.
 		"noauth/lent-engine-authenticated-answer": {
 			user: "codec-md5", setup: func(x *GoSNMP, _ *UsmSecurityParameters) { x.MsgFlags = NoAuthNoPriv },
 			script: func(n int, _ agentRequest) (agentAnswer, bool) {
-				switch n {
-				case 2:
+				switch {
+				case n == 2:
 					return agentAnswer{report: usmStatsUnknownEngineIDs, why: "unknown engine ID, from the other engine", edit: fromOtherEngine}, true
-				case 3:
+				case n == 3:
 					return agentAnswer{level: AuthNoPriv, why: "authNoPriv from the other engine", edit: signedByOtherEngine}, true
+				case n > 3:
+					return agentAnswer{drop: true, why: "silent"}, true
 				}
 				return agentAnswer{}, false
 			},
@@ -1630,6 +1637,16 @@ func v3Scenarios() map[string]v3Scenario {
 			}
 			return agentAnswer{}, false
 		}},
+		// Every attempt answered with lower boots, then the request sent back
+		// unchanged: the request's error is the time window's.
+		"discard/not-in-time-window-then-reflected": {
+			user: "codec-md5", run: getTwice(nil), script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				return agentAnswer{
+					level: AuthNoPriv, why: "GetResponse with lower engine boots", edit: olderBoots,
+					also: &agentAnswer{reflect: true, why: "the request sent back"},
+				}, n > 2
+			},
+		},
 		// A Context deadline ends the second Get, whose answers come from an
 		// agent that restarted without raising its boots and does not check
 		// the time window.

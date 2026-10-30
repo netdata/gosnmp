@@ -2820,6 +2820,70 @@
 13s   result: packet nil, error "request timeout (after 2 retries): last discarded reply: the reply is not in the time window" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, ErrNotInTimeWindow, net.Error timeout)
 13s   client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=0 time=0 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
 
+== v3/discard/not-in-time-window-then-reflected
+0s    client: user="codec-md5" authNoPriv timeout=1s retries=2
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 3 msgID=2001 noAuthNoPriv+reportable user="" engine="" boots=0 time=0 context=""/"" GetRequest id=1001 []
+0s    agent: answers #1 with Report id=1001 msgID=2001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1] at noAuthNoPriv (unknown engine ID)
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2001 noAuthNoPriv user="" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 3 msgID=2002 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent: answers #2 with GetResponse id=1002 msgID=2002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"] at authNoPriv (request accepted)
+0s    agent answers #2 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2002 authNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+10s   deadline +1s
+10s   hook PreSend
+10s   write #3: 3 msgID=2003 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1010 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+10s   agent: answers #3 with GetResponse id=1003 msgID=2003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"] at authNoPriv (GetResponse with lower engine boots)
+10s   agent: reflects #3 unchanged (the request sent back)
+10s   agent answers #3 after 0s
+10s   agent answers #3 after 0s
+10s   hook OnSent
+10s   read from 127.0.0.2:161: 3 msgID=2003 authNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=6 time=1010 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetResponse id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+10s   hook OnRecv
+10s   read from 127.0.0.2:161: 3 msgID=2003 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1010 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+10s   hook OnRecv
+11s   read from 127.0.0.2:161: deadline
+11s   hook OnRetry
+11s   deadline +1s
+11s   hook PreSend
+11s   write #4: 3 msgID=2004 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1011 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1004 [.1.3.6.1.2.1.1.1.0]
+11s   agent: answers #4 with GetResponse id=1004 msgID=2004 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"] at authNoPriv (GetResponse with lower engine boots)
+11s   agent: reflects #4 unchanged (the request sent back)
+11s   agent answers #4 after 0s
+11s   agent answers #4 after 0s
+11s   hook OnSent
+11s   read from 127.0.0.2:161: 3 msgID=2004 authNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=6 time=1011 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetResponse id=1004 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+11s   hook OnRecv
+11s   read from 127.0.0.2:161: 3 msgID=2004 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1011 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1004 [.1.3.6.1.2.1.1.1.0]
+11s   hook OnRecv
+12s   read from 127.0.0.2:161: deadline
+12s   hook OnRetry
+12s   deadline +1s
+12s   hook PreSend
+12s   write #5: 3 msgID=2005 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1012 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1005 [.1.3.6.1.2.1.1.1.0]
+12s   agent: answers #5 with GetResponse id=1005 msgID=2005 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"] at authNoPriv (GetResponse with lower engine boots)
+12s   agent: reflects #5 unchanged (the request sent back)
+12s   agent answers #5 after 0s
+12s   agent answers #5 after 0s
+12s   hook OnSent
+12s   read from 127.0.0.2:161: 3 msgID=2005 authNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=6 time=1012 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetResponse id=1005 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+12s   hook OnRecv
+12s   read from 127.0.0.2:161: 3 msgID=2005 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1012 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1005 [.1.3.6.1.2.1.1.1.0]
+12s   hook OnRecv
+13s   read from 127.0.0.2:161: deadline
+13s   result: packet nil, error "request timeout (after 2 retries): last discarded reply: the reply is neither a Response nor an SNMPv3 Report" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
+13s   client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=0 time=0 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
+
 == v3/discard/not-in-time-window-then-wrong-digest
 0s    client: user="codec-md5" authNoPriv timeout=1s retries=2
 0s    deadline +1s
@@ -3542,6 +3606,19 @@
 0s    read from 127.0.0.2:161: 3 msgID=2001 noAuthNoPriv user="" engine="" boots=7 time=1000 context=""/"" Report id=1001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:1]
 0s    hook OnRecv
 0s    result: packet empty, error "the answer names no engine ID" *gosnmp.categorized (is ErrUnknownEngineID)
+0s    client after: engine="" boots=0 time=0 keys=none context engine=""
+
+== v3/discovery/report-without-varbinds
+0s    client: user="codec-md5" authNoPriv timeout=1s retries=2
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 3 msgID=2001 noAuthNoPriv+reportable user="" engine="" boots=0 time=0 context=""/"" GetRequest id=1001 []
+0s    agent: answers #1 with Report id=1001 msgID=2001 [] at noAuthNoPriv (answers discovery with a Report without varbinds)
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 3 msgID=2001 noAuthNoPriv user="" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1001 []
+0s    hook OnRecv
+0s    result: packet empty, error "unknown report pdu" *errors.errorString (equals ErrUnknownReportPDU)
 0s    client after: engine="" boots=0 time=0 keys=none context engine=""
 
 == v3/discovery/request-unanswered
@@ -4543,14 +4620,18 @@
 1s    deadline +1s
 1s    hook PreSend
 1s    write #4: 3 msgID=2004 noAuthNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-other" boots=7 time=1001 context="\x80\x00\x1f\x88\x04codec-other"/"" GetRequest id=1004 [.1.3.6.1.2.1.1.1.0]
-1s    agent: answers #4 with Report id=1004 msgID=2004 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:3] at noAuthNoPriv (unknown engine ID)
-1s    agent answers #4 after 0s
+1s    agent: drops #4 (silent)
 1s    hook OnSent
-1s    read from 127.0.0.2:161: 3 msgID=2004 noAuthNoPriv user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1001 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1004 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:3]
-1s    hook OnRecv
-1s    hook OnFinish
-1s    result: packet 3 msgID=2004 noAuthNoPriv Report id=1004 context="\x80\x00\x1f\x88\x04codec-agent"/"" usm="codec-md5"/"\x80\x00\x1f\x88\x04codec-agent"/7/1001 [.1.3.6.1.6.3.15.1.1.4.0=Counter32:3], error "unknown engine id" *errors.errorString (equals ErrUnknownEngineID)
-1s    client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
+2s    read from 127.0.0.2:161: deadline
+2s    hook OnRetry
+2s    deadline +1s
+2s    hook PreSend
+2s    write #5: 3 msgID=2005 noAuthNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-other" boots=7 time=1002 context="\x80\x00\x1f\x88\x04codec-other"/"" GetRequest id=1005 [.1.3.6.1.2.1.1.1.0]
+2s    agent: drops #5 (silent)
+2s    hook OnSent
+3s    read from 127.0.0.2:161: deadline
+3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: the reply's security level is not the request's" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
+3s    client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
 
 == v3/noauth/unknown-engine-report-without-engine-id
 0s    client: user="codec-noauth" noAuthNoPriv timeout=1s retries=2
