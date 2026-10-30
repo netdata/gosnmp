@@ -152,6 +152,7 @@ func TestTrapTimeliness(t *testing.T) {
 		"an older one updates nothing":        {ok(3, 1000), ok(3, 900), after(100*time.Second, rejected(3, 949))},
 		"a reboot, then the old boots":        {ok(3, 1000), ok(4, 5), rejected(3, 2000)},
 		"boots 2147483647, twice":             {rejected(maxBoots, 10), rejected(maxBoots, 20)},
+		"boots 2147483647 after an update":    {ok(3, 1000), rejected(maxBoots, 10), rejected(3, 1001), rejected(4, 1)},
 		"boots above 2147483647, then low":    {invalid(maxBoots+1, 10), ok(1, 1)},
 		"time above 2147483647, then low":     {invalid(1, maxBoots+1), ok(1, 1)},
 		"informs, then a trap":                {inform(ok(3, 1000)), inform(ok(2, 1)), ok(1, 1)},
