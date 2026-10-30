@@ -265,6 +265,11 @@ func walkScenarios() map[string]walkScenario {
 			root:   ".1.3.6.1.2.1.1.5.0",
 			script: onWalkRequest(2, varbinds(walkMIB[0], walkMIB[2])),
 		},
+		// The leaf's Get answered without varbinds: nothing passed on.
+		"leaf/get-empty": {
+			root:   ".1.3.6.1.2.1.1.5.0",
+			script: onWalkRequest(2, varbinds()),
+		},
 
 		// Answers a walk does not expect.
 		"empty-response": {

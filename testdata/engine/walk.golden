@@ -560,6 +560,18 @@
 0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.5.0.1=OctetString:"inside"]
 0s    result: no error
 
+== walk/leaf/get-empty
+0s    client: 2c root=".1.3.6.1.2.1.1.5.0" bulk=false max-repetitions=0
+0s    deadline +1s
+0s    write #1: 2c "public" GetNextRequest id=1001 [.1.3.6.1.2.1.1.5.0]
+0s    agent answers #1 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo"]
+0s    deadline +1s
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.5.0]
+0s    agent answers #2 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 []
+0s    result: no error
+
 == walk/leaf/get-error
 0s    client: 2c root=".1.3.6.1.2.1.1.5.0" bulk=false max-repetitions=0
 0s    deadline +1s
