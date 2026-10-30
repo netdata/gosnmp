@@ -146,6 +146,19 @@ func answerRaw(edit func(reply []byte) []byte) engineAgent {
 
 var sysDescr = SnmpPDU{Name: engineOID, Type: OctetString, Value: []byte("codec agent")}
 
+// errorStatusOutOfRange is the sysDescr reply to req, its request ID raised by
+// idDelta, with the error status -1: the request ID decodes, then the PDU
+// fails.
+func errorStatusOutOfRange(req []byte, idDelta uint32) []byte {
+	r := replyTo(req, func(p *SnmpPacket) { p.RequestID += idDelta }, sysDescr)
+	i := bytes.Index(r, []byte{byte(Integer), 1, 0, byte(Integer), 1, 0}) // error status and index
+	if i < 0 {
+		panic("no error status")
+	}
+	r[i+2] = 0xff
+	return r
+}
+
 // errEngineWrite is the error of a failing write in the engine scenarios.
 var errEngineWrite = errors.New("codec write failure")
 
@@ -453,10 +466,18 @@ func engineScenarios() map[string]engineScenario {
 		"answer/other-community": {agent: answerWith(func(p *SnmpPacket) { p.Community = "private" }, sysDescr)},
 		"answer/garbage-then-valid": {
 			agent: func(_ int, req []byte) []agentReply {
-				return []agentReply{{data: []byte{0x30, 0x03, 0x02, 0x01}}, {data: replyTo(req, nil, sysDescr)}}
+				return []agentReply{{data: garbage}, {data: replyTo(req, nil, sysDescr)}}
 			},
 		},
-		"answer/garbage": {agent: func(int, []byte) []agentReply { return []agentReply{{data: []byte{0x30, 0x03, 0x02, 0x01}}} }},
+		"answer/garbage": {agent: func(int, []byte) []agentReply { return []agentReply{{data: garbage}} }},
+		// A reply with the request's ID whose PDU does not decode, then a
+		// datagram another sender sent.
+		"answer/undecodable-then-garbage": {agent: func(_ int, req []byte) []agentReply {
+			return []agentReply{{data: errorStatusOutOfRange(req, 0)}, {data: garbage}}
+		}},
+		"answer/undecodable-other-request": {agent: func(_ int, req []byte) []agentReply {
+			return []agentReply{{data: errorStatusOutOfRange(req, 100)}}
+		}},
 		"answer/split-tcp": {
 			shape: shapeStream,
 			setup: func(x *GoSNMP, _ *fakeTransport) { x.Transport, x.Retries = "tcp", 0 },

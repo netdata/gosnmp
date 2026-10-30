@@ -591,6 +591,77 @@
 0s    result: packet nil, error "response buffer too small" *errors.errorString
 0s    client after: retries=2 next request id=1004
 
+== requests/answer/undecodable-other-request
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 52 octets, not decodable (error in unmarshalResponse: error parsing SNMP packet error: -1 is outside 0..255)
+0s    hook OnRecv
+1s    read from 127.0.0.2:161: deadline
+1s    hook OnRetry
+1s    deadline +1s
+1s    hook PreSend
+1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+1s    agent answers #2 after 0s
+1s    hook OnSent
+1s    read from 127.0.0.2:161: 52 octets, not decodable (error in unmarshalResponse: error parsing SNMP packet error: -1 is outside 0..255)
+1s    hook OnRecv
+2s    read from 127.0.0.2:161: deadline
+2s    hook OnRetry
+2s    deadline +1s
+2s    hook PreSend
+2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+2s    agent answers #3 after 0s
+2s    hook OnSent
+2s    read from 127.0.0.2:161: 52 octets, not decodable (error in unmarshalResponse: error parsing SNMP packet error: -1 is outside 0..255)
+2s    hook OnRecv
+3s    read from 127.0.0.2:161: deadline
+3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: error in unmarshalResponse: error parsing SNMP packet error: -1 is outside 0..255" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
+3s    client after: retries=2 next request id=1004
+
+== requests/answer/undecodable-then-garbage
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #1 after 0s
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 52 octets, not decodable (error in unmarshalResponse: error parsing SNMP packet error: -1 is outside 0..255)
+0s    hook OnRecv
+0s    read from 127.0.0.2:161: 4 octets, not decodable (error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input)
+0s    hook OnRecv
+1s    read from 127.0.0.2:161: deadline
+1s    hook OnRetry
+1s    deadline +1s
+1s    hook PreSend
+1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+1s    agent answers #2 after 0s
+1s    agent answers #2 after 0s
+1s    hook OnSent
+1s    read from 127.0.0.2:161: 52 octets, not decodable (error in unmarshalResponse: error parsing SNMP packet error: -1 is outside 0..255)
+1s    hook OnRecv
+1s    read from 127.0.0.2:161: 4 octets, not decodable (error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input)
+1s    hook OnRecv
+2s    read from 127.0.0.2:161: deadline
+2s    hook OnRetry
+2s    deadline +1s
+2s    hook PreSend
+2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+2s    agent answers #3 after 0s
+2s    agent answers #3 after 0s
+2s    hook OnSent
+2s    read from 127.0.0.2:161: 52 octets, not decodable (error in unmarshalResponse: error parsing SNMP packet error: -1 is outside 0..255)
+2s    hook OnRecv
+2s    read from 127.0.0.2:161: 4 octets, not decodable (error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input)
+2s    hook OnRecv
+3s    read from 127.0.0.2:161: deadline
+3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
+3s    client after: retries=2 next request id=1004
+
 == requests/answer/unknown-pdu-type
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
