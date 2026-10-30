@@ -50,15 +50,67 @@ type engineTimes struct {
 // cannot change it.
 type engineTimeKey [sha256.Size]byte
 
-// engineTimeRecord is the receiver's notion of an engine's time: the boots
-// and the latest engine time received (latestReceivedEngineTime), and when it
-// was received, by the monotonic clock. The engine time then advances with the
-// local clock (RFC 3414 section 2.3).
+// engineTimeRecord is the receiver's notion of the time of an engine, for one
+// credential.
 type engineTimeRecord struct {
-	key          engineTimeKey
-	boots        uint32
-	latest       uint32
-	receivedTime time.Time
+	key   engineTimeKey
+	clock engineClock
+}
+
+// engineClock is a non-authoritative engine's notion of an authoritative
+// engine's time (RFC 3414 section 2.3): the boots and the latest engine time
+// received (latestReceivedEngineTime), and when it was received, by the
+// monotonic clock. The engine time then advances with the local clock. The
+// zero clock is no notion.
+type engineClock struct {
+	boots, latest uint32
+	received      time.Time
+}
+
+// known reports whether c is a notion of an engine's time.
+func (c engineClock) known() bool { return !c.received.IsZero() }
+
+// local returns c's notion of the engine time at now: the latest received
+// time advanced by the whole seconds since, not wrapped.
+func (c engineClock) local(now time.Time) int64 {
+	return int64(c.latest) + int64(now.Sub(c.received)/time.Second)
+}
+
+// at returns c's notion of the engine boots and time at now, as a message
+// carries them: past maxEngineValue the time wraps and the boots go up by one,
+// unless they are at maxEngineValue (RFC 3414 section 2.2.2; net-snmp's
+// get_enginetime).
+func (c engineClock) at(now time.Time) (boots, engineTime uint32) {
+	t := c.local(now)
+	if t <= maxEngineValue {
+		return c.boots, uint32(t) //nolint:gosec // within the range checked above
+	}
+	boots = c.boots
+	if boots < maxEngineValue {
+		boots++
+	}
+	return boots, uint32(t - maxEngineValue) //nolint:gosec // elapsed time below 68 years
+}
+
+// update applies RFC 3414 section 3.2 step 7 b(1) to c for an authenticated
+// message with engine boots and time received at now: a message newer than
+// the latest (greater boots, or equal boots and a greater time, with equal
+// also an equal time) or the first one, without a notion, becomes the clock.
+// It returns the clock after the step and whether it is the message's.
+func (c engineClock) update(boots, engineTime uint32, now time.Time, equal bool) (engineClock, bool) {
+	if !c.known() || boots > c.boots || boots == c.boots && (engineTime > c.latest || equal && engineTime == c.latest) {
+		return engineClock{boots: boots, latest: engineTime, received: now}, true
+	}
+	return c, false
+}
+
+// inWindow applies RFC 3414 section 3.2 step 7 b(2) for a message with engine
+// boots and time received at now to c, the clock after b(1): the message is
+// outside the time window when c's boots are maxEngineValue, its boots are
+// lower, or its time is more than timeWindow seconds behind c's notion of the
+// engine time. The parse takes boots and time of at most maxEngineValue only.
+func (c engineClock) inWindow(boots, engineTime uint32, now time.Time) bool {
+	return c.boots != maxEngineValue && boots >= c.boots && int64(engineTime)+timeWindow >= c.local(now)
 }
 
 func newEngineTimes(limit int, now func() time.Time) *engineTimes {
@@ -76,13 +128,11 @@ func keyOf(sp *UsmSecurityParameters) engineTimeKey {
 }
 
 // admit applies RFC 3414 section 3.2 step 7 b to an authenticated message
-// with engine boots and time, as one update under the lock: a newer message
-// than the latest (greater boots, or equal boots and a greater time) updates
-// the record (b(1)), the first one of an engine creates it; then the message is
-// outside the time window when the boots of the record are maxEngineValue,
-// its boots are lower, or, with equal boots, its time is more than timeWindow
-// seconds behind the latest received time advanced by the time since (b(2)).
-// The parse takes boots and time of at most maxEngineValue only.
+// with engine boots and time, as one update under the lock: b(1) updates the
+// record with a strictly newer message (an exact replay of the latest is no
+// update) or creates it with an engine's first one, then b(2) decides on the
+// updated record, which keeps the update whatever it decides: a message at
+// boots maxEngineValue leaves the record there.
 func (s *engineTimes) admit(key engineTimeKey, boots, engineTime uint32) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -93,12 +143,11 @@ func (s *engineTimes) admit(key engineTimeKey, boots, engineTime uint32) error {
 		e = s.insert(key)
 	}
 	r := e.Value.(*engineTimeRecord) //nolint:forcetypeassert // the list holds only records
-	if !ok || boots > r.boots || boots == r.boots && engineTime > r.latest {
-		r.boots, r.latest, r.receivedTime = boots, engineTime, now
+	var updated bool
+	if r.clock, updated = r.clock.update(boots, engineTime, now, false); updated {
 		s.updated.MoveToFront(e)
 	}
-	local := int64(r.latest) + int64(now.Sub(r.receivedTime)/time.Second)
-	if r.boots == maxEngineValue || boots < r.boots || int64(engineTime)+timeWindow < local {
+	if !r.clock.inWindow(boots, engineTime, now) {
 		return errNotInTime
 	}
 	return nil

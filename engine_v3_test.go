@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -664,10 +665,10 @@ func v3Scenarios() map[string]v3Scenario {
 			}),
 		},
 
-		"time-window/silence-over-150s": {
-			user: "codec-md5", run: getAfter(200*time.Second, nil),
-			knownBug: "the client sends the engine time of the last message, not the current one (RFC 3414 section 3.1 step 6 a), so a request after 150 s of silence is first answered with notInTimeWindow",
-		},
+		// The client's notion of the engine time advances with its clock
+		// (RFC 3414 section 2.3): a request after 150 s of silence is in the
+		// time window.
+		"time-window/silence-over-150s": {user: "codec-md5", run: getAfter(200*time.Second, nil)},
 		"time-window/always-not-in-time-window": {
 			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
 				return agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "always not in time window"}, n > 1
@@ -1097,6 +1098,173 @@ func v3Scenarios() map[string]v3Scenario {
 			},
 		},
 
+		// The engine boots and time requests carry and take from answers.
+		// An agent that restarts without raising its boots, answering
+		// notInTimeWindow with and without authentication.
+		"clock/restart-same-boots/authenticated-report": {
+			user: "codec-md5", run: getThrice(func(a *fakeV3Agent) { a.restartWithoutBoots() }),
+		},
+		"clock/restart-same-boots/unauthenticated-report": {
+			user: "codec-md5", run: getThrice(func(a *fakeV3Agent) {
+				a.restartWithoutBoots()
+				unauthenticatedTimeWindow(a, nil)
+			}),
+		},
+		// Devices that do not check the time of requests and never report
+		// notInTimeWindow, whose answers fall outside the time window: one that
+		// restarts without raising its boots, and a failover pair sharing an
+		// engine ID that fails back to the unit with lower boots. The failed
+		// request drops the clock, and the next one's answer sets it.
+		"clock/no-time-check/restart-same-boots": {user: "codec-md5", run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+			a.noTimeCheck = true
+			return getThrice(func(a *fakeV3Agent) { a.restartWithoutBoots() })(x, a)
+		}},
+		"clock/no-time-check/boots-down": {user: "codec-md5", run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+			a.noTimeCheck = true
+			return getThrice(func(a *fakeV3Agent) { a.boots-- })(x, a)
+		}},
+		// The resend an unauthenticated notInTimeWindow Report lent its clock
+		// to is answered outside the time window on every attempt, with other
+		// boots than the Report's: the clock is dropped, and the next request's
+		// boots and time zero get the agent's authenticated Report.
+		"clock/resend-answers-outside-window": {
+			user: "codec-md5", run: getThrice(nil), script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				switch {
+				case n == 3:
+					return agentAnswer{report: usmStatsNotInTimeWindows, why: "not in time window, unauthenticated"}, true
+				case n >= 4 && n <= 6:
+					return agentAnswer{level: AuthNoPriv, why: "GetResponse with lower engine boots", edit: func(p *SnmpPacket) {
+						p.SecurityParameters.usm().AuthoritativeEngineBoots = agentBoots - 1
+					}}, true
+				}
+				return agentAnswer{}, false
+			},
+		},
+		// A device whose engine time stands still and that checks the time of
+		// requests: after 150 s of silence the client's advancing time is
+		// outside its window, and its authenticated notInTimeWindow Report
+		// sets the clock (one more round trip, as with net-snmp).
+		"clock/frozen-time/silence-over-150s": {user: "codec-md5", run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+			a.frozen = true
+			return getAfter(200*time.Second, nil)(x, a)
+		}},
+		// An engine at boots 2147483647 checks the time of authenticated
+		// messages only (RFC 3414 section 3.2 step 7): discovery and a
+		// request without authentication still work.
+		"clock/noauth/engine-boots-max": {user: "codec-noauth", run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+			a.boots = maxEngineValue
+			return getTwice(nil)(x, a)
+		}},
+		"clock/boots-max-after-update": {
+			user: "codec-md5", run: getThrice(nil), script: onRequest(3, agentAnswer{
+				level: AuthNoPriv, why: "GetResponse with engine boots 2147483647",
+				edit: func(p *SnmpPacket) { p.SecurityParameters.usm().AuthoritativeEngineBoots = maxEngineValue },
+			}),
+		},
+		// A client without authentication whose parameters have an
+		// authentication protocol: the agent answers some requests at
+		// authNoPriv, whose digest the client checks.
+		"clock/noauth/verified-old-time": {
+			user: "codec-md5", setup: func(x *GoSNMP, _ *UsmSecurityParameters) { x.MsgFlags = NoAuthNoPriv },
+			run: getTwice(nil), script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				switch n {
+				case 2:
+					return agentAnswer{level: AuthNoPriv, why: "authNoPriv answer"}, true
+				case 3:
+					return agentAnswer{level: AuthNoPriv, why: "authNoPriv answer with an engine time 200 s old", edit: func(p *SnmpPacket) {
+						p.SecurityParameters.usm().AuthoritativeEngineTime -= 200
+					}}, true
+				}
+				return agentAnswer{}, false
+			},
+		},
+		"clock/noauth/authenticated-then-unauthenticated": {
+			user: "codec-md5", setup: func(x *GoSNMP, _ *UsmSecurityParameters) { x.MsgFlags = NoAuthNoPriv },
+			run: getThrice(nil), script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				switch n {
+				case 2:
+					return agentAnswer{level: AuthNoPriv, why: "authNoPriv answer"}, true
+				case 3:
+					return agentAnswer{why: "noAuthNoPriv answer with an engine time 500 s ahead", edit: func(p *SnmpPacket) {
+						p.SecurityParameters.usm().AuthoritativeEngineTime += 500
+					}}, true
+				}
+				return agentAnswer{}, false
+			},
+		},
+		// Discovery's unauthenticated time is no notion step 7 checks the
+		// first authenticated answer against.
+		"clock/noauth/verified-after-discovery-time-ahead": {
+			user: "codec-md5", setup: func(x *GoSNMP, _ *UsmSecurityParameters) { x.MsgFlags = NoAuthNoPriv },
+			script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				switch n {
+				case 1:
+					return agentAnswer{report: usmStatsUnknownEngineIDs, why: "unknown engine ID, an engine time 1000 s ahead", edit: func(p *SnmpPacket) {
+						p.SecurityParameters.usm().AuthoritativeEngineTime += 1000
+					}}, true
+				case 2:
+					return agentAnswer{level: AuthNoPriv, why: "authNoPriv answer"}, true
+				}
+				return agentAnswer{}, false
+			},
+		},
+		"clock/set-after-authenticated-answer": {
+			user: "codec-md5", run: getThen(func(*fakeV3Agent) {}, setEngineOID),
+		},
+		"clock/set-after-discovery": {
+			user: "codec-md5", run: func(x *GoSNMP, _ *fakeV3Agent) (*SnmpPacket, error) { return setEngineOID(x) },
+		},
+		// The resend an unauthenticated notInTimeWindow Report lends its boots
+		// and time to is lost twice, then answered.
+		"clock/lent-clock-retries": {
+			user: "codec-md5", run: getTwice(func(a *fakeV3Agent) {
+				timeJump(a)
+				lost := 0
+				a.script = func(_ int, req agentRequest) (agentAnswer, bool) {
+					switch {
+					case req.boots != a.boots || absDiff(req.engineTime, a.engineTime()) > agentTimeWindow:
+						return agentAnswer{report: usmStatsNotInTimeWindows, why: "not in time window, unauthenticated"}, true
+					case lost < 2:
+						lost++
+						return agentAnswer{drop: true, why: "lost"}, true
+					}
+					return agentAnswer{}, false
+				}
+			}),
+		},
+		// The caller sets the engine boots and time, with and without the
+		// engine ID.
+		"clock/caller-clock/known-engine": {
+			user: "codec-md5", setup: func(_ *GoSNMP, sp *UsmSecurityParameters) {
+				sp.AuthoritativeEngineID, sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = agentEngineID, agentBoots, agentTimeBase
+			},
+			run: getThen(func(*fakeV3Agent) {}, setEngineOID),
+		},
+		"clock/caller-clock/known-engine/set-first": {
+			user: "codec-md5", setup: func(_ *GoSNMP, sp *UsmSecurityParameters) {
+				sp.AuthoritativeEngineID, sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = agentEngineID, agentBoots, agentTimeBase
+			},
+			run: func(x *GoSNMP, _ *fakeV3Agent) (*SnmpPacket, error) { return setEngineOID(x) },
+		},
+		"clock/caller-clock/no-engine-id": {
+			user: "codec-md5", setup: func(_ *GoSNMP, sp *UsmSecurityParameters) {
+				sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = agentBoots, agentTimeBase-500
+			},
+		},
+		// Two authenticated notInTimeWindow Reports with other engine times,
+		// to the request and to its resend.
+		"clock/second-resync-report-other-time": {
+			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				if n < 2 {
+					return agentAnswer{}, false
+				}
+				ahead := uint32(50 * (n - 1)) //nolint:gosec // a small request count
+				return agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "not in time window", edit: func(p *SnmpPacket) {
+					p.SecurityParameters.usm().AuthoritativeEngineTime += ahead
+				}}, true
+			},
+		},
+
 		// Requests the agent rejects.
 		"wrong-priv-passphrase/aes": {user: "codec-sha-aes", creds: &agentUser{
 			auth: SHA, authPass: "codec-sha-pass", priv: AES, privPass: "codec-wrong-pass",
@@ -1276,20 +1444,31 @@ func v3Scenarios() map[string]v3Scenario {
 			edit: fromOtherEngine,
 		})},
 
-		// Authentic replies with older engine values, and forged Reports.
+		// Authentic replies with older engine values (RFC 3414 section 3.2
+		// step 7 b: an older time within the time window is accepted, the
+		// latest kept; lower boots are outside it, and the request is sent
+		// again), and forged Reports.
 		"time-window/older-time": {
 			user: "codec-md5", run: getTwice(nil), script: onRequest(3, agentAnswer{
 				level: AuthNoPriv, why: "GetResponse with an older engine time",
 				edit: func(p *SnmpPacket) { p.SecurityParameters.usm().AuthoritativeEngineTime = agentTimeBase - 100 },
 			}),
-			knownBug: "an authentic reply with an older engine time is adopted (RFC 3414 section 3.2 step 7 b keeps the latest)",
 		},
 		"time-window/older-boots": {
 			user: "codec-md5", run: getTwice(nil), script: onRequest(3, agentAnswer{
 				level: AuthNoPriv, why: "GetResponse with lower engine boots",
 				edit: func(p *SnmpPacket) { p.SecurityParameters.usm().AuthoritativeEngineBoots = agentBoots - 1 },
 			}),
-			knownBug: "an authentic reply with lower engine boots is accepted and adopted (RFC 3414 section 3.2 step 7 b: outside the time window)",
+		},
+		// Every attempt answered outside the time window: the request ends
+		// with an error that matches ErrNotInTimeWindow, without OnFinish,
+		// and the client drops its engine time.
+		"time-window/older-boots-every-attempt": {
+			user: "codec-md5", run: getTwice(nil), script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				return agentAnswer{level: AuthNoPriv, why: "GetResponse with lower engine boots", edit: func(p *SnmpPacket) {
+					p.SecurityParameters.usm().AuthoritativeEngineBoots = agentBoots - 1
+				}}, n > 2
+			},
 		},
 		"answer/forged-report/not-in-time-windows": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "Report signed with another key", edit: forgeReport,
@@ -1343,6 +1522,96 @@ func TestEngineV3Characterization(t *testing.T) {
 		results = append(results, goldenCase{name: "v3/" + name, dump: dump})
 	}
 	engineGolden.check(t, "v3", results)
+}
+
+// TestEngineV3Polls pins the engine boots and time of an authNoPriv client
+// that polls an agent every 10 s for 10 minutes, one line per request and its
+// answers: an agent that checks the time window, and one whose engine time
+// stands still and that does not check it. testdata/engine/v3-polls.golden
+// holds them.
+func TestEngineV3Polls(t *testing.T) {
+	agents := map[string]func(a *fakeV3Agent){
+		"window-checking-agent":     nil,
+		"frozen-time-no-time-check": func(a *fakeV3Agent) { a.frozen, a.noTimeCheck = true, true },
+	}
+	var results []goldenCase
+	for _, name := range slices.Sorted(maps.Keys(agents)) {
+		var dump string
+		synctest.Test(t, func(t *testing.T) {
+			dump = runV3Polls(t, agents[name])
+		})
+		results = append(results, goldenCase{name: "v3-polls/" + name, dump: dump})
+	}
+	engineGolden.check(t, "v3-polls", results)
+}
+
+// runV3Polls runs a Get every 10 s for 10 minutes against the fake agent that
+// setup changes, in the calling synctest bubble, and returns one line per
+// request: its PDU, security level, engine boots and time, and those of the
+// agent's answers.
+func runV3Polls(t *testing.T, setup func(a *fakeV3Agent)) string {
+	tr := newEngineTranscript(t)
+	var agent *fakeV3Agent
+	fips140.WithoutEnforcement(func() { agent = newFakeV3Agent(nil, agentCreds, sysDescr) })
+	if setup != nil {
+		setup(agent)
+	}
+	c := newFakeTransport(nil, func(n int, data []byte) (replies []agentReply) {
+		fips140.WithoutEnforcement(func() { replies = agent.handle(n, data) })
+		answers := make([]string, 0, len(replies))
+		for _, r := range replies {
+			answers = append(answers, describePollMessage(r.data))
+		}
+		if len(answers) == 0 {
+			answers = append(answers, "no answer")
+		}
+		tr.addf("#%d %s -> %s", n, describePollMessage(data), strings.Join(answers, ", "))
+		return replies
+	})
+	creds := agentCreds["codec-md5"]
+	x := newEngineClientFrom(t, nil, fakePacketTransport{c}, &GoSNMP{
+		Version:       Version3,
+		MsgFlags:      AuthNoPriv,
+		SecurityModel: UserSecurityModel,
+		SecurityParameters: &UsmSecurityParameters{
+			UserName:                 "codec-md5",
+			AuthenticationProtocol:   creds.auth,
+			AuthenticationPassphrase: creds.authPass,
+		},
+		Timeout: time.Second,
+		Retries: 2,
+	})
+	for range 60 {
+		if _, err := x.Get([]string{engineOID}); err != nil {
+			tr.addf("Get: %v", err)
+		}
+		time.Sleep(10 * time.Second)
+	}
+	usp := x.SecurityParameters.usm()
+	tr.addf("client after: boots=%d time=%d", usp.AuthoritativeEngineBoots, usp.AuthoritativeEngineTime)
+	return tr.text()
+}
+
+// describePollMessage describes an SNMPv3 message for runV3Polls: its PDU type
+// (encrypted when it cannot be read) and a Report's counter, its security
+// level, and its engine boots and time.
+func describePollMessage(data []byte) string {
+	m, err := parseV3Message(data)
+	if err != nil {
+		return "unreadable: " + err.Error()
+	}
+	msg, err := readAgentRequest(m)
+	if err != nil {
+		return "unreadable: " + err.Error()
+	}
+	pdu := "encrypted"
+	if msg.pdu != nil {
+		pdu = msg.pdu.PDUType.String()
+		if msg.pdu.PDUType == Report && len(msg.pdu.Variables) == 1 {
+			pdu += " " + msg.pdu.Variables[0].Name
+		}
+	}
+	return fmt.Sprintf("%s %s boots=%d time=%d", pdu, describeFlags(msg.flags), msg.boots, msg.engineTime)
 }
 
 // runV3Scenario runs sc in the calling synctest bubble and returns its

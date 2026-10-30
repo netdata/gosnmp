@@ -7,6 +7,7 @@ package gosnmp
 import (
 	"bytes"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,6 +20,10 @@ type engineView struct {
 	authKey, privKey     []byte
 	authGiven, privGiven bool
 	context              string
+	// The clock, but when it was received.
+	clocked                 bool
+	clockBoots, clockLatest uint32
+	clockSource             clockSource
 	// The exported fields.
 	fieldEngineID         string
 	fieldAuthKey          []byte
@@ -36,6 +41,10 @@ func viewEngine(x *GoSNMP) engineView {
 		authGiven:            x.engine.authGiven,
 		privGiven:            x.engine.privGiven,
 		context:              x.engine.context,
+		clocked:              x.engine.clock.known(),
+		clockBoots:           x.engine.clock.boots,
+		clockLatest:          x.engine.clock.latest,
+		clockSource:          x.engine.clock.source,
 		fieldEngineID:        sp.AuthoritativeEngineID,
 		fieldAuthKey:         sp.SecretKey,
 		fieldPrivKey:         sp.PrivacyKey,
@@ -79,9 +88,23 @@ func TestEngineReconcile(t *testing.T) {
 	_, privOther := stateKeys(t, authPass, otherPass, usmCharEngineID)
 	_, privThird := stateKeys(t, authPass, thirdPass, usmCharEngineID)
 
+	// noClock is a view without a clock, as for an engine ID the caller
+	// changed (RFC 3414 section 2.3).
+	noClock := func(v engineView) engineView {
+		v.clocked, v.clockBoots, v.clockLatest, v.clockSource, v.fieldBoots, v.fieldTime = false, 0, 0, 0, 0, 0
+		return v
+	}
+	// authenticatedClock commits the clock of an authenticated message with
+	// boots 7 and time 1010.
+	authenticatedClock := func(x *GoSNMP, _ *UsmSecurityParameters) {
+		next := x.engine
+		next.clock = clockOf(7, 1010, time.Now(), fromAuthenticated)
+		x.commitEngine(next)
+	}
+
 	// Each case starts from a client whose state followed its parameters
-	// (SHA/AES passphrases, engine usmCharEngineID, boots 7, time 1000) once;
-	// each step changes the client and reconciles again.
+	// (SHA/AES passphrases, engine usmCharEngineID, boots 7, time 1000: the
+	// caller's clock) once; each step changes the client and reconciles again.
 	tests := map[string]struct {
 		setup   func(x *GoSNMP, sp *UsmSecurityParameters)
 		steps   []func(x *GoSNMP, sp *UsmSecurityParameters)
@@ -142,7 +165,7 @@ func TestEngineReconcile(t *testing.T) {
 			want: func(v engineView) engineView {
 				v.engineID, v.fieldEngineID, v.fieldContextEngineID = usmOtherEngineID, usmOtherEngineID, usmOtherEngineID
 				v.authKey, v.fieldAuthKey, v.privKey, v.fieldPrivKey = authE2, authE2, privE2, privE2
-				return v
+				return noClock(v)
 			},
 		},
 		"an emptied key derives, and again for other credentials": {
@@ -200,7 +223,7 @@ func TestEngineReconcile(t *testing.T) {
 				authKey, privKey := stateKeys(t, otherPass, privPass, usmOtherEngineID)
 				v.engineID, v.fieldEngineID = usmOtherEngineID, usmOtherEngineID
 				v.authKey, v.fieldAuthKey, v.privKey, v.fieldPrivKey = authKey, authKey, privKey, privKey
-				return v
+				return noClock(v)
 			},
 		},
 		"a configured context engine ID equal to the engine ID stays": {
@@ -213,7 +236,7 @@ func TestEngineReconcile(t *testing.T) {
 				v.engineID, v.fieldEngineID = usmOtherEngineID, usmOtherEngineID
 				v.authKey, v.fieldAuthKey, v.privKey, v.fieldPrivKey = authE2, authE2, privE2, privE2
 				v.context, v.fieldContextEngineID = usmCharEngineID, usmCharEngineID
-				return v
+				return noClock(v)
 			},
 		},
 		"an emptied context engine ID follows the engine ID": {
@@ -236,7 +259,7 @@ func TestEngineReconcile(t *testing.T) {
 			}},
 			want: func(v engineView) engineView {
 				v.engineID, v.fieldEngineID, v.fieldContextEngineID = usmCharEngineID, usmCharEngineID, usmCharEngineID
-				return v
+				return noClock(v)
 			},
 		},
 		"keys derived without an engine ID derive again for the first one set": {
@@ -251,6 +274,77 @@ func TestEngineReconcile(t *testing.T) {
 				v.engineID, v.fieldEngineID, v.fieldContextEngineID = usmCharEngineID, usmCharEngineID, usmCharEngineID
 				v.authKey, v.fieldAuthKey, v.privKey, v.fieldPrivKey = authE1, authE1, privE1, privE1
 				v.authGiven, v.privGiven = false, false
+				return noClock(v)
+			},
+		},
+		// Boots and time are one pair, the caller's an unauthenticated clock.
+		"the caller's boots and time": {
+			steps: []func(*GoSNMP, *UsmSecurityParameters){
+				authenticatedClock,
+				func(_ *GoSNMP, sp *UsmSecurityParameters) { sp.AuthoritativeEngineTime = 5 },
+			},
+			want: func(v engineView) engineView {
+				v.clockLatest, v.fieldTime = 5, 5
+				return v
+			},
+		},
+		"the caller's boots": {
+			steps: []func(*GoSNMP, *UsmSecurityParameters){
+				authenticatedClock,
+				func(_ *GoSNMP, sp *UsmSecurityParameters) { sp.AuthoritativeEngineBoots = 8 },
+			},
+			want: func(v engineView) engineView {
+				v.clockBoots, v.clockLatest, v.fieldBoots, v.fieldTime = 8, 1010, 8, 1010
+				return v
+			},
+		},
+		"the caller's zero boots and a time": {
+			steps: []func(*GoSNMP, *UsmSecurityParameters){func(_ *GoSNMP, sp *UsmSecurityParameters) {
+				sp.AuthoritativeEngineBoots = 0
+			}},
+			want: func(v engineView) engineView {
+				v.clockBoots, v.fieldBoots = 0, 0
+				return v
+			},
+		},
+		"the caller's zero boots and time are no clock": {
+			steps: []func(*GoSNMP, *UsmSecurityParameters){func(_ *GoSNMP, sp *UsmSecurityParameters) {
+				sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = 0, 0
+			}},
+			want: noClock,
+		},
+		"an authenticated clock stays for other credentials": {
+			steps: []func(*GoSNMP, *UsmSecurityParameters){
+				authenticatedClock,
+				func(_ *GoSNMP, sp *UsmSecurityParameters) { sp.AuthenticationPassphrase = otherPass },
+			},
+			want: func(v engineView) engineView {
+				v.authKey, v.fieldAuthKey = authOther, authOther
+				v.clockLatest, v.clockSource, v.fieldTime = 1010, fromAuthenticated, 1010
+				return v
+			},
+		},
+		"another engine ID with the caller's boots and time": {
+			steps: []func(*GoSNMP, *UsmSecurityParameters){
+				authenticatedClock,
+				func(_ *GoSNMP, sp *UsmSecurityParameters) {
+					sp.AuthoritativeEngineID, sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = usmOtherEngineID, 9, 99
+				},
+			},
+			want: func(v engineView) engineView {
+				v.engineID, v.fieldEngineID, v.fieldContextEngineID = usmOtherEngineID, usmOtherEngineID, usmOtherEngineID
+				v.authKey, v.fieldAuthKey, v.privKey, v.fieldPrivKey = authE2, authE2, privE2, privE2
+				v.clockBoots, v.clockLatest, v.fieldBoots, v.fieldTime = 9, 99, 9, 99
+				return v
+			},
+		},
+		"another value's boots and time": {
+			steps: []func(*GoSNMP, *UsmSecurityParameters){
+				authenticatedClock,
+				func(x *GoSNMP, sp *UsmSecurityParameters) { x.SecurityParameters = sp.Copy() },
+			},
+			want: func(v engineView) engineView {
+				v.clockLatest, v.fieldTime = 1010, 1010
 				return v
 			},
 		},
@@ -292,6 +386,7 @@ func TestEngineReconcile(t *testing.T) {
 			if tc.setup == nil {
 				require.Equal(t, engineView{
 					engineID: usmCharEngineID, authKey: authE1, privKey: privE1, fieldEngineID: usmCharEngineID,
+					clocked: true, clockBoots: 7, clockLatest: 1000, clockSource: fromUnauthenticated,
 					fieldAuthKey: authE1, fieldPrivKey: privE1, fieldContextEngineID: usmCharEngineID,
 					fieldBoots: 7, fieldTime: 1000,
 				}, after, "the state after the first reconciliation")
@@ -339,7 +434,7 @@ func TestEngineMirror(t *testing.T) {
 	commitOtherEngine := func(t *testing.T, x *GoSNMP) {
 		next, err := x.engine.withEngine(usmOtherEngineID)
 		require.NoError(t, err)
-		next.boots, next.engineTime = 8, 5
+		next.clock = clockOf(8, 5, time.Now(), fromAuthenticated)
 		x.commitEngine(next)
 	}
 
@@ -374,7 +469,8 @@ func TestEngineMirror(t *testing.T) {
 // TestEngineWithEngine pins the state for another engine ID (withEngine): the
 // same state for its own engine ID, an error for an empty one, keys derived
 // for another one from the passphrases (the caller's keys, too, as keys the
-// client derived), and none without a passphrase (H24).
+// client derived) and no clock, and an error without a passphrase (the keys
+// are bound to their engine ID).
 func TestEngineWithEngine(t *testing.T) {
 	authE1, privE1 := stateKeys(t, "codec-auth-pass", "codec-priv-pass", usmCharEngineID)
 	authE2, privE2 := stateKeys(t, "codec-auth-pass", "codec-priv-pass", usmOtherEngineID)
@@ -384,6 +480,7 @@ func TestEngineWithEngine(t *testing.T) {
 		privKey:   privE1,
 		authGiven: true,
 		privGiven: true,
+		clock:     clockOf(7, 1000, time.Unix(1_000_000_000, 0), fromAuthenticated),
 		cred: credentials{
 			authProtocol:   SHA,
 			authPassphrase: "codec-auth-pass",
@@ -395,6 +492,7 @@ func TestEngineWithEngine(t *testing.T) {
 	keysOnly.cred.authPassphrase, keysOnly.cred.privPassphrase = "", ""
 	other := given
 	other.engineID, other.authKey, other.privKey, other.authGiven, other.privGiven = usmOtherEngineID, authE2, privE2, false, false
+	other.clock = sourcedClock{}
 
 	tests := map[string]struct {
 		state    engineState
@@ -419,6 +517,219 @@ func TestEngineWithEngine(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestEngineClockAt pins the engine boots and time a clock gives after an
+// elapsed time (RFC 3414 section 2.3): past 2147483647 the time wraps and the
+// boots go up by one, unless they are at 2147483647 (net-snmp's
+// get_enginetime).
+func TestEngineClockAt(t *testing.T) {
+	received := time.Unix(1_000_000_000, 0)
+	tests := map[string]struct {
+		boots, latest       uint32
+		elapsed             time.Duration
+		wantBoots, wantTime uint32
+	}{
+		"just received":                 {boots: 7, latest: 1000, wantBoots: 7, wantTime: 1000},
+		"whole seconds":                 {boots: 7, latest: 1000, elapsed: 10999 * time.Millisecond, wantBoots: 7, wantTime: 1010},
+		"at the maximum":                {boots: 7, latest: maxEngineValue - 10, elapsed: 10 * time.Second, wantBoots: 7, wantTime: maxEngineValue},
+		"past the maximum":              {boots: 7, latest: maxEngineValue - 10, elapsed: 15 * time.Second, wantBoots: 8, wantTime: 5},
+		"from the maximum":              {boots: 7, latest: maxEngineValue, elapsed: time.Second, wantBoots: 8, wantTime: 1},
+		"boots at the maximum stay":     {boots: maxEngineValue, latest: maxEngineValue, elapsed: 3 * time.Second, wantBoots: maxEngineValue, wantTime: 3},
+		"boots below the maximum go up": {boots: maxEngineValue - 1, latest: maxEngineValue, elapsed: 3 * time.Second, wantBoots: maxEngineValue, wantTime: 3},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			c := engineClock{boots: tc.boots, latest: tc.latest, received: received}
+			boots, engineTime := c.at(received.Add(tc.elapsed))
+			assert.Equal(t, [2]uint32{tc.wantBoots, tc.wantTime}, [2]uint32{boots, engineTime})
+		})
+	}
+}
+
+// TestEngineClockStep7 pins RFC 3414 section 3.2 step 7 b on the engine path,
+// against a clock of boots 7 and time 1000: b(1) with an equal time as an
+// update (equal set, net-snmp), b(2) on the clock after b(1).
+func TestEngineClockStep7(t *testing.T) {
+	received := time.Unix(1_000_000_000, 0)
+	known := engineClock{boots: 7, latest: 1000, received: received}
+	tests := map[string]struct {
+		clock             engineClock
+		boots, engineTime uint32
+		elapsed           time.Duration
+		want              engineClock // after b(1)
+		wantUpdated       bool
+		wantInWindow      bool
+	}{
+		"first contact": {
+			boots: 3, engineTime: 5, elapsed: time.Hour,
+			want: engineClock{boots: 3, latest: 5, received: received.Add(time.Hour)}, wantUpdated: true, wantInWindow: true,
+		},
+		"first contact at the maximum boots": {
+			boots: maxEngineValue, engineTime: 5,
+			want: engineClock{boots: maxEngineValue, latest: 5, received: received}, wantUpdated: true,
+		},
+		"newer time": {
+			clock: known, boots: 7, engineTime: 1001, elapsed: 200 * time.Second,
+			want: engineClock{boots: 7, latest: 1001, received: received.Add(200 * time.Second)}, wantUpdated: true, wantInWindow: true,
+		},
+		"equal time, 200 s later": {
+			clock: known, boots: 7, engineTime: 1000, elapsed: 200 * time.Second,
+			want: engineClock{boots: 7, latest: 1000, received: received.Add(200 * time.Second)}, wantUpdated: true, wantInWindow: true,
+		},
+		"higher boots, lower time": {
+			clock: known, boots: 8, engineTime: 1,
+			want: engineClock{boots: 8, latest: 1, received: received}, wantUpdated: true, wantInWindow: true,
+		},
+		"older time within the window": {
+			clock: known, boots: 7, engineTime: 900, elapsed: 50 * time.Second,
+			want: known, wantInWindow: true,
+		},
+		"older time at the window's edge": {
+			clock: known, boots: 7, engineTime: 900, elapsed: 50*time.Second + 999*time.Millisecond,
+			want: known, wantInWindow: true,
+		},
+		"older time past the window": {
+			clock: known, boots: 7, engineTime: 900, elapsed: 51 * time.Second,
+			want: known,
+		},
+		"lower boots": {
+			clock: known, boots: 6, engineTime: 5000,
+			want: known,
+		},
+		"maximum boots": {
+			clock: known, boots: maxEngineValue, engineTime: 1,
+			want: engineClock{boots: maxEngineValue, latest: 1, received: received}, wantUpdated: true,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			now := received.Add(tc.elapsed)
+			got, updated := tc.clock.update(tc.boots, tc.engineTime, now, true)
+			assert.Equal(t, tc.want, got)
+			assert.Equal(t, tc.wantUpdated, updated, "updated")
+			assert.Equal(t, tc.wantInWindow, got.inWindow(tc.boots, tc.engineTime, now), "in the time window")
+		})
+	}
+	t.Run("an equal time is no update on the trap path", func(t *testing.T) {
+		got, updated := known.update(7, 1000, received.Add(time.Second), false)
+		assert.Equal(t, known, got)
+		assert.False(t, updated)
+	})
+}
+
+// TestEngineTimeFor pins the engine boots and time an attempt carries
+// (sourcedClock.timeFor): an authenticated clock's for every request, another
+// clock's for read requests and requests without authentication, else zeros.
+func TestEngineTimeFor(t *testing.T) {
+	received := time.Unix(1_000_000_000, 0)
+	now := received.Add(10 * time.Second)
+	clock := func(source clockSource) sourcedClock { return clockOf(7, 1000, received, source) }
+	tests := map[string]struct {
+		clock sourcedClock
+		flags SnmpV3MsgFlags
+		pdu   PDUType
+		want  [2]uint32
+	}{
+		"authenticated, Set":                      {clock: clock(fromAuthenticated), flags: AuthNoPriv, pdu: SetRequest, want: [2]uint32{7, 1010}},
+		"authenticated, Get":                      {clock: clock(fromAuthenticated), flags: AuthPriv, pdu: GetRequest, want: [2]uint32{7, 1010}},
+		"unauthenticated, Get":                    {clock: clock(fromUnauthenticated), flags: AuthNoPriv, pdu: GetRequest, want: [2]uint32{7, 1010}},
+		"unauthenticated, GetNext":                {clock: clock(fromUnauthenticated), flags: AuthNoPriv, pdu: GetNextRequest, want: [2]uint32{7, 1010}},
+		"unauthenticated, GetBulk":                {clock: clock(fromUnauthenticated), flags: AuthPriv, pdu: GetBulkRequest, want: [2]uint32{7, 1010}},
+		"unauthenticated, Set":                    {clock: clock(fromUnauthenticated), flags: AuthNoPriv, pdu: SetRequest},
+		"unauthenticated, Set, no authentication": {clock: clock(fromUnauthenticated), flags: NoAuthNoPriv, pdu: SetRequest, want: [2]uint32{7, 1010}},
+		"lent by a Report, Set":                   {clock: clock(fromTimeWindowReport), flags: AuthNoPriv, pdu: SetRequest},
+		"lent by a Report, Get":                   {clock: clock(fromTimeWindowReport), flags: AuthNoPriv, pdu: GetRequest, want: [2]uint32{7, 1010}},
+		"no clock":                                {flags: NoAuthNoPriv, pdu: GetRequest},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			boots, engineTime := tc.clock.timeFor(&SnmpPacket{MsgFlags: tc.flags, PDUType: tc.pdu}, now)
+			assert.Equal(t, tc.want, [2]uint32{boots, engineTime})
+		})
+	}
+}
+
+// TestEngineResetsClock pins when a verified answer outside the time window
+// sets the clock (exchange.resetsClock): when it answers a resend an
+// unauthenticated notInTimeWindow Report lent its clock (boots 7, time 3, 10 s
+// ago) to, with the lent boots and a time within 150 s of the lent time now.
+func TestEngineResetsClock(t *testing.T) {
+	lentAt := time.Unix(1_000_000_000, 0)
+	now := lentAt.Add(10 * time.Second)
+	lent := clockOf(7, 3, lentAt, fromTimeWindowReport)
+	tests := map[string]struct {
+		clock             sourcedClock
+		boots, engineTime uint32
+		want              bool
+	}{
+		"the lent time":            {clock: lent, boots: 7, engineTime: 13, want: true},
+		"150 s ahead":              {clock: lent, boots: 7, engineTime: 163, want: true},
+		"151 s ahead":              {clock: lent, boots: 7, engineTime: 164},
+		"150 s behind":             {clock: clockOf(7, 300, lentAt, fromTimeWindowReport), boots: 7, engineTime: 160, want: true},
+		"151 s behind":             {clock: clockOf(7, 300, lentAt, fromTimeWindowReport), boots: 7, engineTime: 159},
+		"other boots":              {clock: lent, boots: 8, engineTime: 13},
+		"lent by another Report":   {clock: clockOf(7, 3, lentAt, fromUnauthenticated), boots: 7, engineTime: 13},
+		"the engine state's clock": {clock: clockOf(7, 3, lentAt, fromAuthenticated), boots: 7, engineTime: 13},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			e := exchange{clock: tc.clock}
+			assert.Equal(t, tc.want, e.resetsClock(tc.boots, tc.engineTime, now))
+		})
+	}
+}
+
+// TestEngineLendClock pins the clock a resync Report lends to a resend
+// (lendEngineParameters): its boots and time, unauthenticated, marked for
+// resetsClock only when it is a notInTimeWindow Report; an unknownEngineIDs
+// Report also lends its engine ID, with keys localized to it.
+func TestEngineLendClock(t *testing.T) {
+	authE2, privE2 := stateKeys(t, "codec-auth-pass", "codec-priv-pass", usmOtherEngineID)
+	tests := map[string]struct {
+		counter    string
+		wantSource clockSource
+		wantEngine string
+		wantKeys   [][]byte
+	}{
+		"notInTimeWindow": {counter: usmStatsNotInTimeWindows, wantSource: fromTimeWindowReport, wantEngine: usmCharEngineID},
+		"unknownEngineIDs": {
+			counter: usmStatsUnknownEngineIDs, wantSource: fromUnauthenticated, wantEngine: usmOtherEngineID,
+			wantKeys: [][]byte{authE2, privE2},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			x := &GoSNMP{Version: Version3, SecurityParameters: &UsmSecurityParameters{
+				UserName:                 "codec-user",
+				AuthenticationProtocol:   SHA,
+				AuthenticationPassphrase: "codec-auth-pass",
+				PrivacyProtocol:          AES,
+				PrivacyPassphrase:        "codec-priv-pass",
+				AuthoritativeEngineID:    usmCharEngineID,
+			}}
+			require.NoError(t, x.reconcileEngine())
+			packet := x.MkSnmpPacket(GetRequest, nil, 0, 0)
+			x.engine.stamp(packet)
+			report := &SnmpPacket{
+				Version: Version3, PDUType: Report, Variables: []SnmpPDU{{Name: tc.counter}},
+				SecurityParameters: &UsmSecurityParameters{
+					AuthoritativeEngineID: usmOtherEngineID, AuthoritativeEngineBoots: 9, AuthoritativeEngineTime: 99,
+				},
+			}
+			kind, _ := reportKindOf(report)
+			before := time.Now()
+			clock, err := x.lendEngineParameters(packet, report, kind)
+			require.NoError(t, err)
+			assert.Equal(t, [3]any{uint32(9), uint32(99), tc.wantSource}, [3]any{clock.boots, clock.latest, clock.source})
+			assert.False(t, clock.received.Before(before), "received at the lend")
+			sp := packet.SecurityParameters.usm()
+			assert.Equal(t, tc.wantEngine, sp.AuthoritativeEngineID)
+			if tc.wantKeys != nil {
+				assert.Equal(t, tc.wantKeys, [][]byte{sp.SecretKey, sp.PrivacyKey})
+			}
 		})
 	}
 }

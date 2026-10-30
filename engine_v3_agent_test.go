@@ -39,6 +39,10 @@ type fakeV3Agent struct {
 	users    map[string]*UsmSecurityParameters // keys localized to engineID
 	vbs      []SnmpPDU
 	counters map[string]uint32
+	// frozen stops the engine time at timeBase, as on devices whose engine
+	// time stalls; noTimeCheck skips the time window check of requests, as
+	// devices that do not check it do.
+	frozen, noTimeCheck bool
 
 	// script, when set, answers the n-th request (counted from 1) instead of
 	// the RFC 3414 checks; ok false leaves the request to them.
@@ -136,7 +140,18 @@ func (a *fakeV3Agent) reboot() {
 	a.start = time.Now()
 }
 
+// restartWithoutBoots restarts the agent with its boots unchanged, as devices
+// that do not keep their boots across restarts do: its time restarts from
+// zero.
+func (a *fakeV3Agent) restartWithoutBoots() {
+	a.timeBase = 0
+	a.start = time.Now()
+}
+
 func (a *fakeV3Agent) engineTime() uint32 {
+	if a.frozen {
+		return a.timeBase
+	}
 	return a.timeBase + uint32(time.Since(a.start)/time.Second) //nolint:gosec // a test clock
 }
 
@@ -224,7 +239,7 @@ func (a *fakeV3Agent) check(data []byte, m v3Message, req *agentRequest) agentAn
 		if !agentDigestOK(data, m, user) {
 			return agentAnswer{report: usmStatsWrongDigests, why: "wrong digest"}
 		}
-		if req.boots != a.boots || absDiff(req.engineTime, a.engineTime()) > agentTimeWindow {
+		if !a.noTimeCheck && (req.boots != a.boots || absDiff(req.engineTime, a.engineTime()) > agentTimeWindow) {
 			return agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "not in time window"}
 		}
 	}
