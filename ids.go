@@ -12,8 +12,9 @@ import (
 
 // randomID returns a random start for the request ID or msgID counter (RFC
 // 3412 section 6: msgID INTEGER (0..2147483647); request-id is an Integer32,
-// RFC 3416), below 2147483647 so that the first ID is not 0, which a Response
-// may carry for any request. crypto/rand never fails (Go 1.24 and later).
+// RFC 3416), below 2147483647 so that the first ID is not 0, the request ID of
+// a Report whose agent could not read the request's. crypto/rand never fails
+// (Go 1.24 and later).
 func randomID() uint32 {
 	var b [4]byte
 	_, _ = crand.Read(b[:])

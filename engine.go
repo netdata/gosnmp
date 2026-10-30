@@ -251,7 +251,7 @@ type attemptOutcome struct {
 	err    error
 	kind   attemptKind
 	// verified reports that packet's digest checked against the request
-	// (exchange.authenticate).
+	// (exchange.decode).
 	verified bool
 	// committed reports that packet's engine parameters were committed into
 	// the engine state (exchange.settle).
@@ -552,7 +552,9 @@ func (e *exchange) discard(err error, rank discardRank) {
 // verified reports that its digest checked. A message that names none of the
 // exchange's attempts (attemptOf) answers another request: rank zero; so does
 // an SNMPv1 or SNMPv2c message other than a GetResponse, whose request ID
-// names no request.
+// names no request. A verified request or inform (the Confirmed Class), such
+// as the request sent back unchanged, proves the client's key, not the
+// agent's: it ranks as a named message, below an authentic reply.
 func (e *exchange) rankOf(read *SnmpPacket, verified bool, earlier []sentIDs) discardRank {
 	if read == nil {
 		return rankUnread
@@ -560,7 +562,7 @@ func (e *exchange) rankOf(read *SnmpPacket, verified bool, earlier []sentIDs) di
 	if !e.named(read, earlier) || e.packet.Version != Version3 && read.PDUType != GetResponse {
 		return 0
 	}
-	if verified {
+	if verified && !read.PDUType.confirmed() {
 		return rankAuthentic
 	}
 	return rankNamed
@@ -702,7 +704,8 @@ var (
 // answers it, with the error of a Report that does, or else the reason it does
 // not (RFC 3412 section 7.2 steps 11 and 12; net-snmp's snmpv3_verify_msg). An
 // SNMPv3 Report answers, whatever its request ID, level and context (security
-// processing bound its user and engine ID), with its counter's error
+// processing bound its user, and with authentication its engine ID), with its
+// counter's error
 // (reportKindOf), none for a resync Report. A GetResponse answers with the
 // request ID of the attempt it names (attemptOf: an SNMPv3 one by its msgID,
 // so with that attempt's pair of IDs) and, for SNMPv3, the request's security
