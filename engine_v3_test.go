@@ -71,6 +71,54 @@ func getThen(between func(a *fakeV3Agent), second func(x *GoSNMP) (*SnmpPacket, 
 	}
 }
 
+// changeThenGet runs a Get, then change, which the transcript names as what,
+// on the client 10 s later, then a second Get, whose result it returns.
+func changeThenGet(what string, change func(x *GoSNMP, sp *UsmSecurityParameters)) func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+	return func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+		if _, err := x.Get([]string{engineOID}); err != nil {
+			return nil, fmt.Errorf("first Get: %w", err)
+		}
+		time.Sleep(10 * time.Second)
+		a.tr.addf("caller %s", what)
+		change(x, x.SecurityParameters.usm())
+		return x.Get([]string{engineOID})
+	}
+}
+
+// onFinishThenGet runs a Get whose call n of OnFinish also runs change, which
+// the transcript names as what, then a second Get 10 s later, whose result it
+// returns.
+func onFinishThenGet(n int, what string, change func(x *GoSNMP)) func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+	return func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+		onFinish, calls := x.OnFinish, 0
+		x.OnFinish = func(x *GoSNMP) {
+			onFinish(x)
+			if calls++; calls == n {
+				a.tr.addf("hook OnFinish %s", what)
+				change(x)
+			}
+		}
+		if _, err := x.Get([]string{engineOID}); err != nil {
+			return nil, fmt.Errorf("first Get: %w", err)
+		}
+		time.Sleep(10 * time.Second)
+		return x.Get([]string{engineOID})
+	}
+}
+
+// userParameters returns new security parameters with the user's agentCreds
+// credentials.
+func userParameters(user string) *UsmSecurityParameters {
+	creds := agentCreds[user]
+	return &UsmSecurityParameters{
+		UserName:                 user,
+		AuthenticationProtocol:   creds.auth,
+		AuthenticationPassphrase: creds.authPass,
+		PrivacyProtocol:          creds.priv,
+		PrivacyPassphrase:        creds.privPass,
+	}
+}
+
 // setEngineOID sets engineOID: a request that changes the agent.
 func setEngineOID(x *GoSNMP) (*SnmpPacket, error) {
 	return x.Set([]SnmpPDU{{Name: engineOID, Type: OctetString, Value: "codec"}})
@@ -989,6 +1037,100 @@ func v3Scenarios() map[string]v3Scenario {
 					return agentAnswer{level: AuthNoPriv, why: "answers the old engine ID from the new one"}, n == 3
 				}
 			}),
+		},
+
+		// The caller changes the engine fields between two requests: a change
+		// applies from the next request.
+		"caller/engine-id-reset": {user: "codec-md5", run: changeThenGet(
+			"clears the engine ID and the context engine ID", func(x *GoSNMP, sp *UsmSecurityParameters) {
+				sp.AuthoritativeEngineID, x.ContextEngineID = "", ""
+			})},
+		"caller/engine-id-reset/context-kept": {user: "codec-md5", run: changeThenGet(
+			"clears the engine ID", func(_ *GoSNMP, sp *UsmSecurityParameters) { sp.AuthoritativeEngineID = "" })},
+		"caller/other-engine-id": {user: "codec-md5", run: changeThenGet(
+			"sets the other engine ID", func(_ *GoSNMP, sp *UsmSecurityParameters) {
+				sp.AuthoritativeEngineID = agentOtherEngineID
+			})},
+		"caller/other-engine-id/keys-only": {
+			user: "codec-sha-aes", setup: configuredKeys(agentEngineID), run: changeThenGet(
+				"sets the other engine ID", func(_ *GoSNMP, sp *UsmSecurityParameters) {
+					sp.AuthoritativeEngineID = agentOtherEngineID
+				}),
+		},
+		"caller/new-security-parameters": {user: "codec-md5", run: changeThenGet(
+			"sets new security parameters", func(x *GoSNMP, _ *UsmSecurityParameters) {
+				x.SecurityParameters = userParameters("codec-md5")
+			})},
+		"caller/changed-passphrase": {
+			user: "codec-md5", run: changeThenGet(
+				"changes the authentication passphrase", func(_ *GoSNMP, sp *UsmSecurityParameters) {
+					sp.AuthenticationPassphrase = "codec-other-pass"
+				}),
+			knownBug: "a changed passphrase does not apply: the keys derived from the old one stay",
+		},
+		"caller/context-engine-id/engine-change/noauth": {
+			user: "codec-noauth", setup: func(x *GoSNMP, _ *UsmSecurityParameters) { x.ContextEngineID = "codec-context" },
+			run: getThrice(func(a *fakeV3Agent) { a.setEngineID(agentOtherEngineID) }),
+		},
+		// A decode of a trap derives keys into the client's own parameters,
+		// for their engine ID, here none.
+		"caller/trap-decode-then-get": {user: "codec-md5", run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+			_, err := x.UnmarshalTrap([]byte{0x30, 0x05, 0x02, 0x01, 0x03, 0x30, 0x00}, false)
+			a.tr.addf("UnmarshalTrap: %v; client keys=%s", err, describeKeys(x.SecurityParameters.usm()))
+			return x.Get([]string{engineOID})
+		}},
+		"caller/encode-after-get/known-engine": {
+			user: "codec-md5", setup: func(_ *GoSNMP, sp *UsmSecurityParameters) { sp.AuthoritativeEngineID = agentEngineID },
+			run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+				res, err := x.Get([]string{engineOID})
+				out, encErr := x.SnmpEncodePacket(GetRequest, []SnmpPDU{{Name: engineOID, Type: Null}}, 0, 0)
+				a.tr.addf("SnmpEncodePacket: %d octets, error %v", len(out), encErr)
+				return res, err
+			},
+		},
+
+		// A hook changes the engine fields during a request: the change applies
+		// from the next request.
+		"hooks/discovery-onfinish-clears-engine-id": {
+			user: "codec-md5", run: onFinishThenGet(1, "clears the engine ID", func(x *GoSNMP) {
+				x.SecurityParameters.usm().AuthoritativeEngineID = ""
+			}),
+			knownBug: "the engine parameters stored after the discovery exchange overwrite the hook's change",
+		},
+		"hooks/request-onfinish-replaces-security-parameters": {
+			user: "codec-md5", run: onFinishThenGet(2, "sets new security parameters", func(x *GoSNMP) {
+				x.SecurityParameters = userParameters("codec-md5")
+			}),
+			knownBug: "the answer's engine parameters are stored into the new security parameters",
+		},
+		"hooks/logger-sets-context-engine-id": {user: "codec-md5", run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+			if _, err := onLogging("SEND INIT", func(x *GoSNMP) { x.ContextEngineID = "codec-context" })(x, a); err != nil {
+				return nil, fmt.Errorf("first Get: %w", err)
+			}
+			time.Sleep(10 * time.Second)
+			return x.Get([]string{engineOID})
+		}},
+
+		// A request without authentication follows the agent's engine.
+		"noauth/answer-without-engine-id": {
+			user: "codec-noauth", run: getTwice(nil),
+			script: onRequest(2, agentAnswer{why: "GetResponse without an engine ID", edit: withoutEngineID}),
+		},
+		// The parameters of a request without authentication have an
+		// authentication protocol: an authenticated answer from the engine an
+		// unauthenticated Report named checks with the user's key localized to
+		// it.
+		"noauth/lent-engine-authenticated-answer": {
+			user: "codec-md5", setup: func(x *GoSNMP, _ *UsmSecurityParameters) { x.MsgFlags = NoAuthNoPriv },
+			script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				switch n {
+				case 2:
+					return agentAnswer{report: usmStatsUnknownEngineIDs, why: "unknown engine ID, from the other engine", edit: fromOtherEngine}, true
+				case 3:
+					return agentAnswer{level: AuthNoPriv, why: "authNoPriv from the other engine", edit: signedByOtherEngine}, true
+				}
+				return agentAnswer{}, false
+			},
 		},
 
 		// Requests the agent rejects.
