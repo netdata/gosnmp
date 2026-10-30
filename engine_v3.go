@@ -59,17 +59,18 @@ var errReplyNotInTime = inCategory(ErrNotInTimeWindow, errors.New("the reply is 
 // when it names no engine ID or the keys do not derive. A reply whose digest
 // checked against the request (verified) gives its engine ID (another one takes
 // keys derived for it, and no clock) and, by RFC 3414 section 3.2 step 7 b
-// against the authenticated clock (none: the first authenticated message),
-// its boots and time; an equal time updates the clock as a newer one does
+// against the authenticated clock (none: the first authenticated message), its
+// boots and time; an equal time updates the clock as a newer one does
 // (net-snmp; a reply answers an outstanding request, so it replays nothing),
 // and a reply outside the time window is rejected (resetsClock names the
-// exception; forgetEngineTime the request's end). An authenticated notInTimeWindow Report gives its boots and time
-// whatever their order: the agent's own, matched to the request (a deviation
-// from section 3.2 step 7 b, for devices whose boots do not go up when they
-// restart). Unverified, a reply to a request without authentication that is
-// not a Report gives its engine ID and an unauthenticated clock, which does not
-// replace an authenticated one (net-snmp's set_enginetime). A reply whose
-// engine ID gives no valid state answers without a commit.
+// exception; a request that ends so drops the clock, forgetEngineTime). An
+// authenticated notInTimeWindow Report gives its boots and time whatever their
+// order: the agent's own, matched to the request (a deviation from section 3.2
+// step 7 b, for devices whose boots do not go up when they restart).
+// Unverified, a reply to a request without authentication that is not a Report
+// gives its engine ID and an unauthenticated clock, which does not replace an
+// authenticated one (net-snmp's set_enginetime). A reply whose engine ID gives
+// no valid state answers without a commit.
 func (e *exchange) settle(out attemptOutcome) attemptOutcome {
 	x, reply := e.x, out.packet
 	if reply.Version != Version3 {

@@ -123,10 +123,12 @@ type UsmSecurityParameters struct {
 	// The authoritative engine's ID, boots and time (RFC 3414 section 2.2).
 	// A client's parameters show the engine state it learns, the boots and
 	// time as the latest values it accepted (latestReceivedEngineTime, not
-	// advanced); an AuthoritativeEngineID set by the caller skips the
-	// discovery, and boots and time set by the caller are a clock that signs
-	// read requests and requests without authentication until an answer
-	// replaces it (see the package documentation, SNMPv3).
+	// advanced), zero while it has none: before an answer, for another engine
+	// ID, after a request answered outside the time window. An
+	// AuthoritativeEngineID set by the caller skips the discovery, and boots
+	// and time set by the caller are a clock that signs read requests and
+	// requests without authentication until an answer replaces it (see the
+	// package documentation, SNMPv3).
 	AuthoritativeEngineID    string
 	AuthoritativeEngineBoots uint32
 	AuthoritativeEngineTime  uint32
