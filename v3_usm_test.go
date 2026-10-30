@@ -809,7 +809,7 @@ func TestUSMFIPS140OnlyDecrypt(t *testing.T) {
 				"raw": func() error { _, err := client().SnmpDecodePacket(bytes.Clone(trap)); return err },
 				"reply": func() error {
 					req := &SnmpPacket{Version: Version3, MsgFlags: AuthPriv | Reportable, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy(), MsgID: 7}
-					_, _, err := (&exchange{x: client(), packet: req}).decode(reply)
+					_, _, err := (&exchange{x: client(), packet: req}).decode(reply, nil)
 					return err
 				},
 			}

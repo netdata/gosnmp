@@ -85,7 +85,8 @@ type agentAnswer struct {
 	then bool
 	// noise, when set, follows this answer: a datagram another sender sent.
 	noise []byte
-	// also, when set, is another answer the agent sends right after this one.
+	// also, when set, is another answer the agent sends right after this one
+	// (with reflect, the request sent back).
 	also *agentAnswer
 	why  string
 }
@@ -207,8 +208,13 @@ func (a *fakeV3Agent) handle(n int, data []byte) []agentReply {
 	default:
 		replies = append(replies, agentReply{data: a.encodeAnswer(n, req, ans)})
 	}
-	if ans.also != nil {
-		replies = append(replies, agentReply{data: a.encodeAnswer(n, req, *ans.also)})
+	switch also := ans.also; {
+	case also == nil:
+	case also.reflect:
+		a.tr.addf("agent: reflects #%d unchanged (%s)", n, also.why)
+		replies = append(replies, agentReply{data: bytes.Clone(data)})
+	default:
+		replies = append(replies, agentReply{data: a.encodeAnswer(n, req, *also)})
 	}
 	if ans.noise != nil {
 		a.tr.addf("agent: another sender sends %d octets after #%d", len(ans.noise), n)

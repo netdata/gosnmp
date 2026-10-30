@@ -423,13 +423,15 @@ func TestV3DecodeKeyDerivation(t *testing.T) {
 			craftedUSM(octets(engineID), intTLV(1), intTLV(2), octets("codec-user"), octets(""), octets("")),
 			tlv(0x30, octets(engineID), octets(""), craftedPDU(Report, craftedVBL(craftedVB(intTLV(5))))))
 		before := passwordCache.Len()
-		_, _, _ = (&exchange{x: x, packet: req}).decode(report)
+		_, _, _ = (&exchange{x: x, packet: req}).decode(report, nil)
 		assert.Zero(t, passwordCache.Len()-before)
 	})
 }
 
 // TestV3ReplyDecode pins how a client decodes replies to an SNMPv3 request:
-// the reply's own msgFlags and the engine boots and time it carries.
+// the reply's own msgFlags and the engine boots and time it carries. The
+// request's msgID is 7; signedAuthField and signedReply carry 42, the msgID of
+// an earlier attempt.
 func TestV3ReplyDecode(t *testing.T) {
 	request := func(flags SnmpV3MsgFlags, priv SnmpV3PrivProtocol) (*exchange, *UsmSecurityParameters) {
 		sp := signedTestUSM(t, SHA, priv, usmCharEngineID, "codec-user")
@@ -437,13 +439,14 @@ func TestV3ReplyDecode(t *testing.T) {
 		req := &SnmpPacket{Version: Version3, MsgFlags: flags, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy(), MsgID: 7, PDUType: GetRequest}
 		return &exchange{x: x, packet: req}, sp
 	}
+	earlier := []sentIDs{{msgID: 42}}
 
 	t.Run("empty msgFlags, Report to an authNoPriv request", func(t *testing.T) {
 		e, _ := request(AuthNoPriv|Reportable, NoPriv)
 		report := craftedV3(intTLV(7), intTLV(65507), octets(""), intTLV(3),
 			craftedUSM(octets(usmCharEngineID), intTLV(3), intTLV(77), octets("codec-user"), octets(string(make([]byte, 12))), octets("")),
 			tlv(0x30, octets(usmCharEngineID), octets(""), craftedPDU(Report, craftedVBL(craftedVB(intTLV(5))))))
-		reply, verified, err := e.decode(report)
+		reply, verified, err := e.decode(report, nil)
 		require.NotNil(t, reply, "the message as far as decode read it")
 		assert.Equal(t, uint32(7), reply.MsgID)
 		assert.False(t, verified)
@@ -455,15 +458,33 @@ func TestV3ReplyDecode(t *testing.T) {
 		report := craftedV3(intTLV(-1), intTLV(65507), octets("\x00"), intTLV(3),
 			craftedUSM(octets(usmCharEngineID), intTLV(3), intTLV(77), octets("codec-user"), octets(""), octets("")),
 			tlv(0x30, octets(usmCharEngineID), octets(""), craftedPDU(Report, craftedVBL(craftedVB(intTLV(5))))))
-		reply, verified, err := e.decode(report)
+		reply, verified, err := e.decode(report, nil)
 		assert.Nil(t, reply, "no msgID was read")
 		assert.False(t, verified)
 		require.ErrorIs(t, err, ErrInvalidMsgs)
 	})
 
+	// A message naming no attempt, or of another version, is discarded before
+	// security processing: no digest is checked.
+	t.Run("authentic reply naming no attempt", func(t *testing.T) {
+		e, _ := request(AuthNoPriv|Reportable, NoPriv)
+		reply, verified, err := e.decode(signedAuthField([]byte{0x04, 0x0c}, 12), nil)
+		require.ErrorIs(t, err, errOtherMessage)
+		assert.False(t, verified)
+		require.NotNil(t, reply, "the message as far as decode read it")
+		assert.Equal(t, uint32(42), reply.MsgID)
+	})
+	t.Run("SNMPv2c message to an SNMPv3 request", func(t *testing.T) {
+		e, _ := request(NoAuthNoPriv|Reportable, NoPriv)
+		reply, verified, err := e.decode(craftedMsg(1, craftedPDU(GetResponse, craftedVBL(craftedVB(intTLV(5))))), earlier)
+		require.ErrorIs(t, err, errOtherVersion)
+		assert.False(t, verified)
+		assert.Nil(t, reply, "no msgID was read")
+	})
+
 	t.Run("authNoPriv reply, long-form digest field length", func(t *testing.T) {
 		e, _ := request(AuthNoPriv|Reportable, NoPriv)
-		reply, verified, err := e.decode(signedAuthField([]byte{0x04, 0x81, 0x0c}, 12))
+		reply, verified, err := e.decode(signedAuthField([]byte{0x04, 0x81, 0x0c}, 12), earlier)
 		require.NoError(t, err)
 		assert.True(t, verified)
 		assert.NotNil(t, reply)
@@ -473,7 +494,7 @@ func TestV3ReplyDecode(t *testing.T) {
 	// checked: the discard ranks it above an unauthenticated one.
 	t.Run("authentic reply whose scoped PDU does not decode", func(t *testing.T) {
 		e, _ := request(AuthNoPriv|Reportable, NoPriv)
-		reply, verified, err := e.decode(signedReply(tlv(0x30, craftedEngineID)))
+		reply, verified, err := e.decode(signedReply(tlv(0x30, craftedEngineID)), earlier)
 		require.ErrorIs(t, err, ErrInvalidMsgs)
 		assert.True(t, verified)
 		require.NotNil(t, reply, "the message as far as decode read it")
@@ -481,7 +502,7 @@ func TestV3ReplyDecode(t *testing.T) {
 	})
 	t.Run("authentic reply whose PDU does not decode", func(t *testing.T) {
 		e, _ := request(AuthNoPriv|Reportable, NoPriv)
-		reply, verified, err := e.decode(signedReply(tlv(0x30, craftedEngineID, octets("ctx"), tlv(0xaf, intTLV(1)))))
+		reply, verified, err := e.decode(signedReply(tlv(0x30, craftedEngineID, octets("ctx"), tlv(0xaf, intTLV(1)))), earlier)
 		require.Error(t, err)
 		assert.True(t, verified)
 		require.NotNil(t, reply, "the message as far as decode read it")
@@ -494,7 +515,7 @@ func TestV3ReplyDecode(t *testing.T) {
 		msg := craftedV3(intTLV(7), intTLV(65507), octets("\x00"), intTLV(3),
 			craftedUSM(octets(usmCharEngineID), intTLV(3), intTLV(77), octets("codec-user"), octets(""), octets("")),
 			tlv(0x30, octets(usmCharEngineID), octets(""), craftedPDU(GetResponse, craftedVBL(craftedVB(intTLV(5))))))
-		reply, _, err := e.decode(msg)
+		reply, _, err := e.decode(msg, nil)
 		require.Error(t, err)
 		assert.Nil(t, reply)
 	})
@@ -509,7 +530,7 @@ func TestV3ReplyDecode(t *testing.T) {
 			MsgID: 7, PDUType: Report, Variables: []SnmpPDU{{Name: ".1.3.6.1.6.3.15.1.1.4.0", Type: Counter32, Value: uint32(1)}},
 		}).MarshalMsg()
 		require.NoError(t, err)
-		reply, verified, err := e.decode(data)
+		reply, verified, err := e.decode(data, nil)
 		require.NoError(t, err)
 		assert.False(t, verified)
 		usp := reply.SecurityParameters.usm()
@@ -526,7 +547,7 @@ func TestV3ReplyDecode(t *testing.T) {
 			MsgID:              7, PDUType: GetResponse, RequestID: 1, Variables: usmPlainVars,
 		}).MarshalMsg()
 		require.NoError(t, err)
-		reply, _, err := e.decode(data)
+		reply, _, err := e.decode(data, nil)
 		require.NotNil(t, reply, "the message as far as decode read it")
 		assert.Equal(t, uint32(7), reply.MsgID)
 		require.ErrorIs(t, err, ErrUnknownUsername)
@@ -542,13 +563,13 @@ func TestV3ReplyDecode(t *testing.T) {
 			MsgID: 7, PDUType: GetResponse, RequestID: 1, Variables: usmPlainVars,
 		}).MarshalMsg()
 		require.NoError(t, err)
-		reply, verified, err := e.decode(withWrongDigest(t, data))
+		reply, verified, err := e.decode(withWrongDigest(t, data), nil)
 		require.NotNil(t, reply, "the message as far as decode read it")
 		assert.Equal(t, uint32(7), reply.MsgID)
 		assert.False(t, verified)
 		require.ErrorIs(t, err, ErrWrongDigest)
 
-		reply, verified, err = e.decode(data)
+		reply, verified, err = e.decode(data, nil)
 		require.NoError(t, err)
 		assert.True(t, verified)
 		assert.Equal(t, usmPlainVars, reply.Variables)
@@ -564,7 +585,7 @@ func TestV3ReplyDecode(t *testing.T) {
 			MsgID:              7, PDUType: GetResponse, RequestID: 1, Variables: usmPlainVars,
 		}).MarshalMsg()
 		require.NoError(t, err)
-		reply, _, err := (&exchange{x: x, packet: req}).decode(data)
+		reply, _, err := (&exchange{x: x, packet: req}).decode(data, nil)
 		require.NotNil(t, reply, "the message as far as decode read it")
 		assert.Equal(t, uint32(7), reply.MsgID)
 		require.ErrorIs(t, err, ErrUnknownSecurityLevel)
@@ -580,7 +601,7 @@ func TestV3ReplyDecode(t *testing.T) {
 			MsgID:              7, PDUType: GetResponse, RequestID: 1, Variables: usmPlainVars,
 		}).MarshalMsg()
 		require.NoError(t, err)
-		reply, _, err := e.decode(data)
+		reply, _, err := e.decode(data, nil)
 		require.NotNil(t, reply, "the message as far as decode read it")
 		assert.Equal(t, uint32(7), reply.MsgID)
 		require.ErrorIs(t, err, ErrUnknownSecurityLevel)
@@ -595,7 +616,7 @@ func TestV3ReplyDecode(t *testing.T) {
 			MsgID: 7, PDUType: GetResponse, RequestID: 1, Variables: usmPlainVars,
 		}).MarshalMsg()
 		require.NoError(t, err)
-		reply, verified, err := e.decode(data)
+		reply, verified, err := e.decode(data, nil)
 		require.NoError(t, err)
 		assert.True(t, verified)
 		usp := reply.SecurityParameters.usm()

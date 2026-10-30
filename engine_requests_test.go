@@ -394,8 +394,7 @@ func engineScenarios() map[string]engineScenario {
 		},
 		"answer/wrong-id": {agent: answerWith(func(p *SnmpPacket) { p.RequestID += 100 }, sysDescr)},
 		"answer/zero-id": {
-			agent:    answerWith(func(p *SnmpPacket) { p.RequestID = 0 }, sysDescr),
-			knownBug: "a reply with request ID 0 is accepted for any request",
+			agent: answerWith(func(p *SnmpPacket) { p.RequestID = 0 }, sysDescr),
 		},
 		"answer/v1-trap": {
 			agent: func(int, []byte) []agentReply {
@@ -412,8 +411,7 @@ func engineScenarios() map[string]engineScenario {
 		},
 		"answer/empty": {agent: answerWith(nil)},
 		"answer/empty-wrong-id": {
-			agent:    answerWith(func(p *SnmpPacket) { p.RequestID += 100 }),
-			knownBug: "a reply without varbinds is accepted before its request ID is checked",
+			agent: answerWith(func(p *SnmpPacket) { p.RequestID += 100 }),
 		},
 		"answer/empty-with-error-status-wrong-id": {agent: answerWith(func(p *SnmpPacket) { p.RequestID += 100; p.Error = GenErr })},
 		"answer/error-status":                     {agent: answerWith(func(p *SnmpPacket) { p.Error, p.ErrorIndex = NoSuchName, 1 }, SnmpPDU{Name: engineOID, Type: Null})},
@@ -434,9 +432,18 @@ func engineScenarios() map[string]engineScenario {
 			knownBug: "the error text formats the PDU type's String() as hexadecimal",
 		},
 		"answer/other-version": {
-			agent:    answerWith(func(p *SnmpPacket) { p.Version = Version1 }, sysDescr),
-			knownBug: "a reply of another SNMP version is accepted, though RFC 3412 hands each message to the model of its own version",
+			agent: answerWith(func(p *SnmpPacket) { p.Version = Version1 }, sysDescr),
 		},
+		// Replies that answer nothing, each followed by the answer.
+		"answer/other-version-then-valid": {agent: func(_ int, req []byte) []agentReply {
+			return []agentReply{{data: replyTo(req, func(p *SnmpPacket) { p.Version = Version1 }, sysDescr)}, {data: replyTo(req, nil, sysDescr)}}
+		}},
+		"answer/zero-id-then-valid": {agent: func(_ int, req []byte) []agentReply {
+			return []agentReply{{data: replyTo(req, func(p *SnmpPacket) { p.RequestID = 0 }, sysDescr)}, {data: replyTo(req, nil, sysDescr)}}
+		}},
+		"answer/empty-wrong-id-then-valid": {agent: func(_ int, req []byte) []agentReply {
+			return []agentReply{{data: replyTo(req, func(p *SnmpPacket) { p.RequestID += 100 })}, {data: replyTo(req, nil, sysDescr)}}
+		}},
 		"answer/other-version-v3": {
 			agent: answerWith(func(p *SnmpPacket) {
 				p.Version, p.MsgFlags, p.SecurityModel = Version3, NoAuthNoPriv, UserSecurityModel
@@ -1816,9 +1823,9 @@ func TestExchangeDiscard(t *testing.T) {
 	}
 }
 
-// TestExchangeRankOf checks the rank of a message decode failed on, by the ID
-// it read that names the request's attempts, if any (the msgID of an SNMPv3
-// request, the request ID of an SNMPv2c one), and whether its digest checked.
+// TestExchangeRankOf checks the rank of a discarded message, by the ID it read
+// that names the request's attempts, if any (the msgID of an SNMPv3 request,
+// the request ID of an SNMPv2c GetResponse), and whether its digest checked.
 func TestExchangeRankOf(t *testing.T) {
 	earlier := []sentIDs{{requestID: 1, msgID: 5}}
 	tests := map[string]struct {
@@ -1833,10 +1840,16 @@ func TestExchangeRankOf(t *testing.T) {
 		"v3/the attempt's msgID":               {version: Version3, read: &SnmpPacket{MsgID: 7}, want: rankNamed},
 		"v3/an earlier attempt's msgID":        {version: Version3, read: &SnmpPacket{MsgID: 5}, want: rankNamed},
 		"v3/the attempt's msgID, verified":     {version: Version3, read: &SnmpPacket{MsgID: 7}, verified: true, want: rankAuthentic},
+		"v3/the attempt's msgID, a GetRequest": {version: Version3, read: &SnmpPacket{MsgID: 7, PDUType: GetRequest}, want: rankNamed},
+		"v3/a verified GetRequest":             {version: Version3, read: &SnmpPacket{MsgID: 7, PDUType: GetRequest}, verified: true, want: rankNamed},
+		"v3/a verified InformRequest":          {version: Version3, read: &SnmpPacket{MsgID: 7, PDUType: InformRequest}, verified: true, want: rankNamed},
+		"v3/a verified Report":                 {version: Version3, read: &SnmpPacket{MsgID: 7, PDUType: Report}, verified: true, want: rankAuthentic},
+		"v3/a verified GetResponse":            {version: Version3, read: &SnmpPacket{MsgID: 7, PDUType: GetResponse}, verified: true, want: rankAuthentic},
 		"v2c/request ID not read":              {version: Version2c, want: rankUnread},
-		"v2c/another request's ID":             {version: Version2c, read: &SnmpPacket{RequestID: 3, MsgID: 7}},
-		"v2c/the attempt's request ID":         {version: Version2c, read: &SnmpPacket{RequestID: 2}, want: rankNamed},
-		"v2c/an earlier attempt's request ID":  {version: Version2c, read: &SnmpPacket{RequestID: 1}, want: rankNamed},
+		"v2c/another request's ID":             {version: Version2c, read: &SnmpPacket{RequestID: 3, MsgID: 7, PDUType: GetResponse}},
+		"v2c/the attempt's request ID":         {version: Version2c, read: &SnmpPacket{RequestID: 2, PDUType: GetResponse}, want: rankNamed},
+		"v2c/an earlier attempt's request ID":  {version: Version2c, read: &SnmpPacket{RequestID: 1, PDUType: GetResponse}, want: rankNamed},
+		"v2c/the attempt's request ID, Report": {version: Version2c, read: &SnmpPacket{RequestID: 2, PDUType: Report}},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -1860,8 +1873,10 @@ func TestExchangeDecodeRequestID(t *testing.T) {
 		},
 		"request ID that does not decode": {msg: craftedMsg(1, tlv(byte(GetResponse), octets("x"), intTLV(0), intTLV(0), vbl))},
 		"unknown PDU type":                {msg: craftedMsg(1, tlv(0xaf, intTLV(9), intTLV(0), intTLV(0), vbl))},
-		"SNMPv1 trap tag":                 {msg: craftedMsg(0, tlv(byte(Trap), intTLV(9), intTLV(0)))},
+		"SNMPv1 trap tag":                 {msg: craftedMsg(1, tlv(byte(Trap), intTLV(9), intTLV(0)))},
 		"a PDU without its message":       {msg: tlv(byte(GetResponse), intTLV(9), intTLV(-1), intTLV(0), vbl)},
+		// Another version is discarded before its request ID is read.
+		"SNMPv1 message": {msg: craftedMsg(0, tlv(byte(GetResponse), intTLV(9), intTLV(-1), intTLV(0), vbl))},
 		// An SNMPv3 message names its request by its msgID.
 		"SNMPv3 message whose msgData is a PDU": {
 			msg: craftedV3(intTLV(7), intTLV(65507), octets("\x00"), intTLV(3),
@@ -1872,7 +1887,7 @@ func TestExchangeDecodeRequestID(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			e := &exchange{x: &GoSNMP{Version: Version2c}, packet: &SnmpPacket{Version: Version2c, PDUType: GetRequest}}
-			reply, _, err := e.decode(tc.msg)
+			reply, _, err := e.decode(tc.msg, nil)
 			require.Error(t, err)
 			if tc.want == nil {
 				assert.Nil(t, reply)
@@ -1880,6 +1895,136 @@ func TestExchangeDecodeRequestID(t *testing.T) {
 			}
 			require.NotNil(t, reply)
 			assert.Equal(t, *tc.want, reply.RequestID)
+		})
+	}
+}
+
+// TestExchangeAnswers checks which decoded messages answer a request whose
+// current attempt sent request ID 2 and msgID 7 after an attempt that sent 1
+// and 5: each field the answer rule compares, both ways.
+func TestExchangeAnswers(t *testing.T) {
+	earlier := []sentIDs{{requestID: 1, msgID: 5}}
+	request := func(version SnmpVersion) *SnmpPacket {
+		p := &SnmpPacket{Version: version, PDUType: GetRequest, RequestID: 2, Community: "public"}
+		if version == Version3 {
+			p.MsgID, p.MsgFlags, p.ContextEngineID, p.ContextName = 7, AuthNoPriv|Reportable, "ctx-engine", "ctx"
+			p.SecurityParameters = &UsmSecurityParameters{UserName: "user", AuthoritativeEngineID: "engine"}
+		}
+		return p
+	}
+	// reply is the answer to the current attempt, a copy of its request.
+	reply := func(req *SnmpPacket) *SnmpPacket {
+		p := *req
+		p.PDUType, p.MsgFlags, p.Variables = GetResponse, req.MsgFlags&AuthPriv, []SnmpPDU{sysDescr}
+		if req.SecurityParameters != nil {
+			p.SecurityParameters = req.SecurityParameters.Copy()
+		}
+		return &p
+	}
+	usm := func(p *SnmpPacket) *UsmSecurityParameters { return p.SecurityParameters.usm() }
+	report := func(counter string) func(p *SnmpPacket) {
+		return func(p *SnmpPacket) {
+			p.PDUType, p.RequestID, p.MsgFlags, p.Variables = Report, 0, NoAuthNoPriv, []SnmpPDU{{Name: counter, Type: Counter32, Value: uint32(1)}}
+			p.ContextEngineID, p.ContextName = "engine", ""
+		}
+	}
+	tests := map[string]struct {
+		version SnmpVersion
+		request func(p *SnmpPacket)
+		reply   func(p *SnmpPacket)
+		answers bool
+		err     error
+	}{
+		"v3/the answer":                    {version: Version3, answers: true},
+		"v3/an earlier attempt's answer":   {version: Version3, reply: func(p *SnmpPacket) { p.MsgID, p.RequestID = 5, 1 }, answers: true},
+		"v3/an earlier attempt's ID":       {version: Version3, reply: func(p *SnmpPacket) { p.RequestID = 1 }, err: errOtherRequestID},
+		"v3/the attempt's ID, earlier msg": {version: Version3, reply: func(p *SnmpPacket) { p.MsgID = 5 }, err: errOtherRequestID},
+		"v3/request ID 0":                  {version: Version3, reply: func(p *SnmpPacket) { p.RequestID = 0 }, err: errOtherRequestID},
+		"v3/empty, another request ID": {
+			version: Version3, reply: func(p *SnmpPacket) { p.Variables, p.RequestID = nil, 9 }, err: errOtherRequestID,
+		},
+		"v3/reportable":           {version: Version3, reply: func(p *SnmpPacket) { p.MsgFlags |= Reportable }, answers: true},
+		"v3/not reportable":       {version: Version3, request: func(p *SnmpPacket) { p.MsgFlags = AuthNoPriv }, reply: func(p *SnmpPacket) { p.MsgFlags |= Reportable }, answers: true},
+		"v3/noAuthNoPriv":         {version: Version3, reply: func(p *SnmpPacket) { p.MsgFlags = NoAuthNoPriv }, err: errOtherLevel},
+		"v3/authPriv":             {version: Version3, reply: func(p *SnmpPacket) { p.MsgFlags = AuthPriv }, err: errOtherLevel},
+		"v3/to noAuthNoPriv":      {version: Version3, request: func(p *SnmpPacket) { p.MsgFlags = NoAuthNoPriv | Reportable }, err: errOtherLevel},
+		"v3/to authPriv":          {version: Version3, request: func(p *SnmpPacket) { p.MsgFlags = AuthPriv | Reportable }, err: errOtherLevel},
+		"v3/another user":         {version: Version3, reply: func(p *SnmpPacket) { usm(p).UserName = "other" }, err: errOtherUser},
+		"v3/the empty user":       {version: Version3, reply: func(p *SnmpPacket) { usm(p).UserName = "" }, err: errOtherUser},
+		"v3/to the empty user":    {version: Version3, request: func(p *SnmpPacket) { usm(p).UserName = "" }, err: errOtherUser},
+		"v3/another engine ID":    {version: Version3, reply: func(p *SnmpPacket) { usm(p).AuthoritativeEngineID = "other" }, err: errOtherEngine},
+		"v3/no engine ID":         {version: Version3, reply: func(p *SnmpPacket) { usm(p).AuthoritativeEngineID = "" }, err: errOtherEngine},
+		"v3/to no engine ID":      {version: Version3, request: func(p *SnmpPacket) { usm(p).AuthoritativeEngineID = "" }, err: errOtherEngine},
+		"v3/another context ID":   {version: Version3, reply: func(p *SnmpPacket) { p.ContextEngineID = "engine" }, err: errOtherContext},
+		"v3/to no context ID":     {version: Version3, request: func(p *SnmpPacket) { p.ContextEngineID = "" }, err: errOtherContext},
+		"v3/another context name": {version: Version3, reply: func(p *SnmpPacket) { p.ContextName = "" }, err: errOtherContext},
+		"v3/to another context":   {version: Version3, request: func(p *SnmpPacket) { p.ContextName = "other" }, err: errOtherContext},
+		"v3/a GetRequest":         {version: Version3, reply: func(p *SnmpPacket) { p.PDUType = GetRequest }, err: errNotAnswer},
+		"v3/a Report":             {version: Version3, reply: report(usmStatsUnknownUserNames), answers: true, err: ErrUnknownUsername},
+		"v3/a resync Report":      {version: Version3, reply: report(usmStatsNotInTimeWindows), answers: true},
+		"v2c/the answer":          {version: Version2c, answers: true},
+		"v2c/an earlier attempt's answer": {
+			version: Version2c, reply: func(p *SnmpPacket) { p.RequestID = 1 }, answers: true,
+		},
+		"v2c/another community": {version: Version2c, reply: func(p *SnmpPacket) { p.Community = "private" }, answers: true},
+		"v2c/request ID 0":      {version: Version2c, reply: func(p *SnmpPacket) { p.RequestID = 0 }, err: errOtherRequestID},
+		"v2c/empty, another request ID": {
+			version: Version2c, reply: func(p *SnmpPacket) { p.Variables, p.RequestID = nil, 9 }, err: errOtherRequestID,
+		},
+		"v2c/a Report": {version: Version2c, reply: func(p *SnmpPacket) { p.PDUType = Report }, err: errNotAnswer},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			req := request(tc.version)
+			rsp := reply(req)
+			if tc.request != nil {
+				tc.request(req)
+			}
+			if tc.reply != nil {
+				tc.reply(rsp)
+			}
+			e := exchange{packet: req}
+			answers, err := e.answers(rsp, earlier)
+			assert.Equal(t, tc.answers, answers)
+			assert.Equal(t, tc.err, err)
+		})
+	}
+}
+
+// TestReportKindOf checks how a Report's first varbind names its counter: by
+// the counter's OID and one instance sub-identifier of any value, as net-snmp
+// does; anything else is ErrUnknownReportPDU.
+func TestReportKindOf(t *testing.T) {
+	counter := func(name string) SnmpPDU { return SnmpPDU{Name: name, Type: Counter32, Value: uint32(1)} }
+	tests := map[string]struct {
+		version SnmpVersion
+		pduType PDUType
+		vbs     []SnmpPDU
+		report  bool
+		err     error
+	}{
+		"instance 0":                   {vbs: []SnmpPDU{counter(usmStatsNotInTimeWindows)}, report: true, err: ErrNotInTimeWindow},
+		"instance 1":                   {vbs: []SnmpPDU{counter(".1.3.6.1.6.3.15.1.1.2.1")}, report: true, err: ErrNotInTimeWindow},
+		"a large instance":             {vbs: []SnmpPDU{counter(".1.3.6.1.6.3.15.1.1.4.4294967295")}, report: true, err: ErrUnknownEngineID},
+		"message processing's counter": {vbs: []SnmpPDU{counter(".1.3.6.1.6.3.11.2.1.2.3")}, report: true, err: ErrInvalidMsgs},
+		"without an instance":          {vbs: []SnmpPDU{counter(".1.3.6.1.6.3.15.1.1.5")}, report: true, err: ErrUnknownReportPDU},
+		"two instance sub-identifiers": {vbs: []SnmpPDU{counter(".1.3.6.1.6.3.15.1.1.5.0.0")}, report: true, err: ErrUnknownReportPDU},
+		"the prefix":                   {vbs: []SnmpPDU{counter(".1.3.6.1.6.3.15.1.1")}, report: true, err: ErrUnknownReportPDU},
+		"an unknown counter":           {vbs: []SnmpPDU{counter(".1.3.6.1.6.3.15.1.1.9.0")}, report: true, err: ErrUnknownReportPDU},
+		"SNMP-TARGET-MIB's counter":    {vbs: []SnmpPDU{counter(".1.3.6.1.6.3.12.1.5.0")}, report: true, err: ErrUnknownReportPDU},
+		"a name without a dot":         {vbs: []SnmpPDU{counter("0")}, report: true, err: ErrUnknownReportPDU},
+		"no varbinds":                  {report: true, err: ErrUnknownReportPDU},
+		"a counter after another name": {vbs: []SnmpPDU{sysDescr, counter(usmStatsWrongDigests)}, report: true, err: ErrUnknownReportPDU},
+		"a counter, then another name": {vbs: []SnmpPDU{counter(usmStatsWrongDigests), sysDescr}, report: true, err: ErrWrongDigest},
+		"a GetResponse":                {pduType: GetResponse, vbs: []SnmpPDU{counter(usmStatsWrongDigests)}},
+		"an SNMPv2c Report":            {version: Version2c, vbs: []SnmpPDU{counter(usmStatsWrongDigests)}},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			p := &SnmpPacket{Version: cmp.Or(tc.version, Version3), PDUType: cmp.Or(tc.pduType, Report), Variables: tc.vbs}
+			kind, report := reportKindOf(p)
+			assert.Equal(t, tc.report, report)
+			assert.Equal(t, tc.err, kind.err)
 		})
 	}
 }

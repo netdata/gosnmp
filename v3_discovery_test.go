@@ -203,14 +203,16 @@ func (m *mockAgentUnknownUserNames) marshalUnknownUserNamesReport(req *SnmpPacke
 	return pkt.MarshalMsg()
 }
 
-// marshalGetResponse builds a GetResponse that echoes the client's MsgID and
-// RequestID and returns a single OID value.
+// marshalGetResponse builds a GetResponse that echoes the client's MsgID,
+// RequestID and user name, as an agent does, and returns a single OID value.
 func (m *mockAgentUnknownUserNames) marshalGetResponse(req *SnmpPacket) ([]byte, error) {
+	secParams := m.secParams()
+	secParams.UserName = req.SecurityParameters.usm().UserName
 	pkt := &SnmpPacket{
 		Version:            Version3,
 		MsgFlags:           NoAuthNoPriv,
 		SecurityModel:      UserSecurityModel,
-		SecurityParameters: m.secParams(),
+		SecurityParameters: secParams,
 		PDUType:            GetResponse,
 		MsgID:              req.MsgID,
 		RequestID:          req.RequestID,

@@ -69,10 +69,12 @@ var errReplyNotInTime = inCategory(ErrNotInTimeWindow, errors.New("the reply is 
 // authenticated notInTimeWindow Report gives its boots and time whatever their
 // order: the agent's own, matched to the request (a deviation from section 3.2
 // step 7 b, for devices whose boots do not go up when they restart).
-// Unverified, a reply to a request without authentication that is not a Report
-// gives its engine ID and an unauthenticated clock, which does not replace an
-// authenticated one (net-snmp's set_enginetime). A reply whose engine ID gives
-// no valid state answers without a commit.
+// Unverified, a GetResponse, which answers only a request without
+// authentication and names its engine ID (exchange.answers: the engine state's,
+// a lent one, or none for discovery), gives that engine ID and an
+// unauthenticated clock, which does not replace an authenticated one
+// (net-snmp's set_enginetime). A reply whose engine ID gives no valid state
+// answers without a commit.
 func (e *exchange) settle(out attemptOutcome) (attemptOutcome, error) {
 	x, reply := e.x, out.packet
 	if reply.Version != Version3 {
@@ -84,7 +86,7 @@ func (e *exchange) settle(out attemptOutcome) (attemptOutcome, error) {
 		if out.err != nil && !engineFoundDespiteUnknownUser(reply, out.err) {
 			return out, nil
 		}
-	case !out.verified && (isReport || e.packet.MsgFlags.authFlag()):
+	case !out.verified && isReport:
 		return out, nil
 	}
 	from := reply.SecurityParameters.usm()

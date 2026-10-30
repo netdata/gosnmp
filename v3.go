@@ -103,8 +103,8 @@ func (packet *SnmpPacket) sign(msg []byte, auth int) ([]byte, error) {
 	return msg, nil
 }
 
-// errNotAuthentic is the error of a message without the authentication it
-// needs.
+// errNotAuthentic is the error the rejections of an unknown user and a wrong
+// digest wrap: the message is not authentic.
 var errNotAuthentic = errors.New("incoming packet is not authentic, discarding")
 
 // categorized is an error of SNMPv3 message processing: it has the text of

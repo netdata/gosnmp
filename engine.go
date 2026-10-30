@@ -13,7 +13,6 @@ import (
 	"net"
 	"os"
 	"runtime"
-	"slices"
 	"strings"
 	"time"
 )
@@ -252,7 +251,7 @@ type attemptOutcome struct {
 	err    error
 	kind   attemptKind
 	// verified reports that packet's digest checked against the request
-	// (exchange.authenticate).
+	// (exchange.decode).
 	verified bool
 	// committed reports that packet's engine parameters were committed into
 	// the engine state (exchange.settle).
@@ -491,10 +490,10 @@ func (e *exchange) encode() ([]byte, error) {
 }
 
 // await reads replies on c until one answers the request. A message that does
-// not decode, does not authenticate or that the commit rejects is discarded,
-// its reason recorded (discard), and the read goes on until the attempt's
-// deadline (RFC 3412 section 7.2 steps 2, 6 and 7); a message that decodes but
-// answers another request is read past, its reason not recorded.
+// not decode or authenticate (decode), does not answer the request (answers)
+// or that the commit rejects is discarded and logged, its reason recorded
+// (discard), and the read goes on until the attempt's deadline (RFC 3412
+// section 7.2).
 func (e *exchange) await(c *connection, earlier []sentIDs) attemptOutcome {
 	x := e.x
 	for {
@@ -517,25 +516,25 @@ func (e *exchange) await(c *connection, earlier []sentIDs) attemptOutcome {
 			x.Logger.Printf("GET RESPONSE OK: %+v", resp)
 		}
 
-		reply, verified, err := e.decode(resp)
-		if err != nil {
+		reply, verified, err := e.decode(resp, earlier)
+		answered := false
+		if err == nil {
+			answered, err = e.answers(reply, earlier)
+		}
+		if !answered {
+			if x.Logger.enabled() {
+				x.Logger.Printf("ERROR the reply is discarded: %v", err)
+			}
 			e.discard(err, e.rankOf(reply, verified, earlier))
 			continue
 		}
-		if answered, err := e.answers(reply, earlier); answered {
-			out, rejected := e.settle(attemptOutcome{kind: attemptReply, packet: reply, err: err, verified: verified})
-			if rejected == nil {
-				return out
-			}
-			// The commit rejects only an authentic answer outside the time
-			// window.
-			e.outOfWindow = true
-			e.discard(rejected, rankAuthentic)
-			continue
+		out, rejected := e.settle(attemptOutcome{kind: attemptReply, packet: reply, err: err, verified: verified})
+		if rejected == nil {
+			return out
 		}
-		if x.Logger.enabled() {
-			x.Logger.Print("ERROR out of order")
-		}
+		// The commit rejects only an authentic answer outside the time window.
+		e.outOfWindow = true
+		e.discard(rejected, rankAuthentic)
 	}
 }
 
@@ -548,87 +547,117 @@ func (e *exchange) discard(err error, rank discardRank) {
 	}
 }
 
-// rankOf returns the rank of a message decode failed on: read is the message
-// as far as decode read it when it read the ID that names the request's
-// attempts, and verified reports that its digest checked. A message with the
-// ID of none of the exchange's attempts answers another request: rank zero.
+// rankOf returns the rank of a discarded message: read is the message as far
+// as decode read it when it read the ID that names the request's attempts, and
+// verified reports that its digest checked. A message that names none of the
+// exchange's attempts (attemptOf) answers another request: rank zero; so does
+// an SNMPv1 or SNMPv2c message other than a GetResponse, whose request ID
+// names no request. A verified request or inform (the Confirmed Class), such
+// as the request sent back unchanged, proves the client's key, not the
+// agent's: it ranks as a named message, below an authentic reply.
 func (e *exchange) rankOf(read *SnmpPacket, verified bool, earlier []sentIDs) discardRank {
-	switch {
-	case read == nil:
+	if read == nil {
 		return rankUnread
-	case e.packet.Version == Version3 && !e.sentWithMsgID(read.MsgID, earlier),
-		e.packet.Version != Version3 && !e.sentWithRequestID(read.RequestID, earlier):
+	}
+	if !e.named(read, earlier) || e.packet.Version != Version3 && read.PDUType != GetResponse {
 		return 0
-	case verified:
+	}
+	if verified && !read.PDUType.confirmed() {
 		return rankAuthentic
 	}
 	return rankNamed
 }
 
-// decode decodes a reply to the request: the header, for an SNMPv3 request
-// the security processing and the scoped PDU, then the PDU. It reports
-// whether the reply's digest checked against the request. The reply's
-// security parameters are the request's with the USM fields the reply
-// carries, keeping the request's keys only for the request's engine ID: no key
-// derives for an engine a reply names. With an error it returns the message
-// as far as it read it when it read the ID that names the request's attempts
-// (rankOf), else nil.
-func (e *exchange) decode(resp []byte) (_ *SnmpPacket, verified bool, _ error) {
-	x := e.x
-	reply := &SnmpPacket{Logger: x.Logger}
+// attemptOf returns the IDs the exchange's attempt that reply names sent the
+// request with, the current attempt's or one of earlier: by the msgID for an
+// SNMPv3 request (RFC 3412 section 7.2 step 10 a), else by the request ID;
+// false when reply names none.
+func (e *exchange) attemptOf(reply *SnmpPacket, earlier []sentIDs) (sentIDs, bool) {
+	if current := (sentIDs{e.packet.RequestID, e.packet.MsgID}); e.names(reply, current) {
+		return current, true
+	}
+	for _, ids := range earlier {
+		if e.names(reply, ids) {
+			return ids, true
+		}
+	}
+	return sentIDs{}, false
+}
+
+// names reports whether reply names the attempt that sent the request with
+// ids: by the msgID for an SNMPv3 request, else by the request ID.
+func (e *exchange) names(reply *SnmpPacket, ids sentIDs) bool {
+	if e.packet.Version == Version3 {
+		return reply.MsgID == ids.msgID
+	}
+	return reply.RequestID == ids.requestID
+}
+
+// named reports whether reply names one of the exchange's attempts
+// (attemptOf).
+func (e *exchange) named(reply *SnmpPacket, earlier []sentIDs) bool {
+	_, ok := e.attemptOf(reply, earlier)
+	return ok
+}
+
+// decode decodes a message read for the request: the header, which fails a
+// message of another SNMP version than the request's and, for an SNMPv3
+// request, one whose msgID names none of the exchange's attempts (attemptOf),
+// before security processing; for an SNMPv3 request, the security processing
+// by the message's own flags (RFC 3414 section 3.2: receiveReply, the digest
+// exactly when it asks for authentication, decryption exactly when it asks for
+// privacy) and the scoped PDU; then the PDU. It reports whether the message's
+// digest checked with the request's key. The reply's security parameters are
+// the request's with the USM fields the reply carries, keeping the request's
+// keys only for the request's engine ID: no key derives for an engine a reply
+// names. With an error it returns the message as far as it read it when it
+// read the ID that names the request's attempts (rankOf), else nil.
+func (e *exchange) decode(resp []byte, earlier []sentIDs) (_ *SnmpPacket, verified bool, _ error) {
+	reply := &SnmpPacket{Logger: e.x.Logger}
 	var sp *UsmSecurityParameters
 	if e.packet.SecurityParameters != nil {
 		sp = e.packet.SecurityParameters.Copy().usm()
 		reply.SecurityParameters = sp
 	}
 
+	v3 := e.packet.Version == Version3
 	cursor, w, err := unmarshalHeader(resp, reply)
-	if err == nil && reply.Version == Version3 && sp != nil {
+	switch {
+	case err != nil:
+	case reply.Version != e.packet.Version:
+		err = errOtherVersion
+	case !v3:
+	case !e.named(reply, earlier):
+		err = errOtherMessage
+	case sp != nil:
 		err = receiveReply(reply.MsgFlags, &w, sp)
 	}
 	// read is reply, as far as it was read, when an error ends the decode: for
 	// an SNMPv3 request when the SNMPv3 header's msgID decoded, for another
-	// when an SNMPv1 or SNMPv2c PDU's request ID did (atPDU: the decode reached
-	// the PDU).
+	// when the PDU's request ID did (atPDU: the decode reached the PDU, which
+	// for an SNMPv3 request is after its msgID).
 	read := func(atPDU bool) *SnmpPacket {
-		switch {
-		case e.packet.Version == Version3:
-			if w.has&hasMsgID != 0 {
-				return reply
-			}
-		case atPDU && reply.Version != Version3 && requestIDRead(resp, cursor):
+		if v3 && w.has&hasMsgID != 0 || atPDU && requestIDRead(resp, cursor) {
 			return reply
 		}
 		return nil
 	}
 	if err != nil {
-		if x.Logger.enabled() {
-			x.Logger.Printf("ERROR on unmarshall header: %s", err)
-		}
 		return read(false), false, err
 	}
-	if e.packet.Version == Version3 {
-		in := inbound{msg: resp, wire: w, sp: sp}
-		if verified, err = e.authenticate(&in, reply); err != nil {
-			if e.unauthenticatedReport(resp, cursor, reply) {
-				return reply, false, nil
+	if v3 {
+		if reply.MsgFlags.authFlag() {
+			in := inbound{msg: resp, wire: w, sp: sp}
+			if err = in.verify(); err != nil {
+				return read(false), false, err
 			}
-			if x.Logger.enabled() {
-				x.Logger.Printf("ERROR on Test Authentication on v3: %s", err)
-			}
-			return read(false), false, err
+			verified = true
 		}
 		if resp, cursor, err = unmarshalScopedPDU(resp, cursor, reply, reply.MsgFlags.privFlag()); err != nil {
-			if x.Logger.enabled() {
-				x.Logger.Printf("ERROR on the scoped PDU on v3: %s", err)
-			}
 			return read(false), verified, err
 		}
 	}
 	if err = unmarshalPayload(resp, cursor, reply); err != nil {
-		if x.Logger.enabled() {
-			x.Logger.Printf("ERROR on UnmarshalPayload: %s", err)
-		}
 		return read(true), verified, err
 	}
 	return reply, verified, nil
@@ -658,66 +687,34 @@ func receiveReply(flags SnmpV3MsgFlags, w *v3Wire, sp *UsmSecurityParameters) er
 	return err
 }
 
-// authenticate checks in, a reply to an SNMPv3 request in security
-// processing, by its own flags (RFC 3414 section 3.2 step 6): a reply that
-// asks for authentication must carry a digest that checks with the request's
-// key, whatever the request's level; to a request that asks for
-// authentication, a reply must ask for it too. It reports whether it checked
-// the digest.
-func (e *exchange) authenticate(in *inbound, reply *SnmpPacket) (bool, error) {
-	if !reply.MsgFlags.authFlag() {
-		if e.packet.MsgFlags.authFlag() {
-			return false, errNotAuthentic
-		}
-		return false, nil
-	}
-	if err := in.verify(); err != nil {
-		return false, err
-	}
-	return true, nil
-}
+// The reasons a message is discarded for after the header decoded, besides
+// security processing's (RFC 3412 section 7.2 steps 3, 10 and 12 b).
+var (
+	errOtherVersion   = errors.New("the reply is of another SNMP version than the request")
+	errOtherMessage   = errors.New("the reply's msgID names no attempt of the request")
+	errNotAnswer      = errors.New("the reply is neither a Response nor an SNMPv3 Report")
+	errOtherRequestID = errors.New("the reply's request ID does not match the request")
+	errOtherLevel     = errors.New("the reply's security level is not the request's")
+	errOtherUser      = errors.New("the reply's user name is not the request's")
+	errOtherEngine    = errors.New("the reply's engine ID is not the request's")
+	errOtherContext   = errors.New("the reply's context is not the request's")
+)
 
-// unauthenticatedReport reports whether resp, a reply that failed the
-// authentication its request asked for, is a Report the agent sent without
-// authentication, and decodes it into reply. An agent sends most Reports so
-// (RFC 3414 section 3.2: it cannot authenticate to an unknown engine ID or
-// user), and some agents even notInTimeWindow, which step 7 a sends at
-// authNoPriv. Only a plaintext scoped PDU is read, so nothing unauthenticated
-// is decrypted, and only a Report at noAuthNoPriv (privacy without
-// authentication is invalid, RFC 3412 section 7.2) of the request's security
-// model that reportKindOf maps is kept.
-func (e *exchange) unauthenticatedReport(resp []byte, cursor int, reply *SnmpPacket) bool {
-	if reply.MsgFlags.authFlag() || reply.MsgFlags.privFlag() || reply.SecurityModel != e.packet.SecurityModel ||
-		cursor >= len(resp) || PDUType(resp[cursor]) != Sequence {
-		return false
-	}
-	resp, cursor, err := unmarshalScopedPDU(resp, cursor, reply, false)
-	if err != nil || unmarshalPayload(resp, cursor, reply) != nil {
-		return false
-	}
-	_, ok := reportKindOf(reply)
-	return ok
-}
-
-// answers reports whether reply answers the request, and with which error. An
-// SNMPv3 request is answered only by an SNMPv3 reply with the msgID of its
-// current or an earlier attempt, and an SNMPv3 reply answers no other request
-// (RFC 3412 section 7.2 step 10). A Report that reportKindOf maps then answers
-// with its kind's error, none for a resync Report; any other reply only as a
-// Response (GetResponse), with the request ID of the current or an earlier
-// attempt: a request sent back unchanged carries the client's own IDs and
-// digest, and other PDUs answer no request. Known bugs: nothing else of the
-// reply is compared with the request (the SNMPv1 and SNMPv2c versions, the
-// security model, level and context of RFC 3412 section 7.2 step 12 b, nor the
-// engine ID of a reply without authentication; decode compares the user); an
-// empty Response without an error status answers before its request ID is
-// checked; a Response with request ID 0 answers any request.
+// answers reports whether reply, a message decode read for the request,
+// answers it, with the error of a Report that does, or else the reason it does
+// not (RFC 3412 section 7.2 steps 11 and 12; net-snmp's snmpv3_verify_msg). An
+// SNMPv3 Report answers, whatever its request ID, level and context (security
+// processing bound its user, and with authentication its engine ID), with its
+// counter's error
+// (reportKindOf), none for a resync Report. A GetResponse answers with the
+// request ID of the attempt it names (attemptOf: an SNMPv3 one by its msgID,
+// so with that attempt's pair of IDs) and, for SNMPv3, the request's security
+// level (the auth and priv flags), user name, engine ID, context engine ID and
+// context name (step 12 b). Nothing else answers: a request sent back
+// unchanged, SNMPv1 and SNMPv2c Reports. A message that does not answer leaves
+// the request outstanding, as net-snmp does (step 12 b discards the request
+// unless the model or level differs): a forged one cannot end it.
 func (e *exchange) answers(reply *SnmpPacket, earlier []sentIDs) (bool, error) {
-	if reply.Version == Version3 || e.packet.Version == Version3 {
-		if reply.Version != e.packet.Version || !e.sentWithMsgID(reply.MsgID, earlier) {
-			return false, nil
-		}
-	}
 	if kind, ok := reportKindOf(reply); ok {
 		if kind.resync {
 			return true, nil
@@ -725,29 +722,31 @@ func (e *exchange) answers(reply *SnmpPacket, earlier []sentIDs) (bool, error) {
 		return true, kind.err
 	}
 	if reply.PDUType != GetResponse {
-		return false, nil
+		return false, errNotAnswer
 	}
-	if reply.Error == NoError && len(reply.Variables) < 1 {
-		e.x.Logger.Print("Empty result: the reply answers the request")
+	if ids, ok := e.attemptOf(reply, earlier); !ok || ids.requestID != reply.RequestID {
+		return false, errOtherRequestID
+	}
+	if e.packet.Version != Version3 {
 		return true, nil
 	}
-	return e.sentWithRequestID(reply.RequestID, earlier) || reply.RequestID == 0, nil
+	p := e.packet
+	got, want := reply.SecurityParameters.usm(), p.SecurityParameters.usm()
+	switch {
+	case reply.MsgFlags&AuthPriv != p.MsgFlags&AuthPriv:
+		return false, errOtherLevel
+	case got.UserName != want.UserName:
+		return false, errOtherUser
+	case got.AuthoritativeEngineID != want.AuthoritativeEngineID:
+		return false, errOtherEngine
+	case reply.ContextEngineID != p.ContextEngineID || reply.ContextName != p.ContextName:
+		return false, errOtherContext
+	}
+	return true, nil
 }
 
-// sentWithRequestID reports whether the current or an earlier attempt sent
-// the request with id.
-func (e *exchange) sentWithRequestID(id uint32, earlier []sentIDs) bool {
-	return id == e.packet.RequestID || slices.ContainsFunc(earlier, func(s sentIDs) bool { return s.requestID == id })
-}
-
-// sentWithMsgID reports whether the current or an earlier attempt sent the
-// request with msgID.
-func (e *exchange) sentWithMsgID(msgID uint32, earlier []sentIDs) bool {
-	return msgID == e.packet.MsgID || slices.ContainsFunc(earlier, func(s sentIDs) bool { return s.msgID == msgID })
-}
-
-// The OIDs of the counters an SNMPv3 Report can carry: the User-based Security
-// Model's (RFC 3414) and message processing's (RFC 3412).
+// The names of the counters an SNMPv3 Report can carry, with instance 0: the
+// User-based Security Model's (RFC 3414) and message processing's (RFC 3412).
 const (
 	usmStatsUnsupportedSecLevels = ".1.3.6.1.6.3.15.1.1.1.0"
 	usmStatsNotInTimeWindows     = ".1.3.6.1.6.3.15.1.1.2.0"
@@ -798,31 +797,39 @@ type reportKind struct {
 }
 
 // reportKinds are the counters of the USM (RFC 3414) and of message processing
-// (RFC 3412) a Report can carry.
+// (RFC 3412) a Report can carry, by the counter's OID (reportCounter).
 var reportKinds = map[string]reportKind{ //nolint:gochecknoglobals // a read-only table
-	usmStatsUnsupportedSecLevels: {err: ErrUnknownSecurityLevel},
-	usmStatsNotInTimeWindows:     {err: ErrNotInTimeWindow, resync: true, timeWindow: true, name: "out-of-time-window"},
-	usmStatsUnknownUserNames:     {err: ErrUnknownUsername},
-	usmStatsUnknownEngineIDs:     {err: ErrUnknownEngineID, resync: true, namesEngine: true, name: "unknown engine id"},
-	usmStatsWrongDigests:         {err: ErrWrongDigest},
-	usmStatsDecryptionErrors:     {err: ErrDecryption},
-	snmpUnknownSecurityModels:    {err: ErrUnknownSecurityModels},
-	snmpInvalidMsgs:              {err: ErrInvalidMsgs},
-	snmpUnknownPDUHandlers:       {err: ErrUnknownPDUHandlers},
+	reportCounter(usmStatsUnsupportedSecLevels): {err: ErrUnknownSecurityLevel},
+	reportCounter(usmStatsNotInTimeWindows):     {err: ErrNotInTimeWindow, resync: true, timeWindow: true, name: "out-of-time-window"},
+	reportCounter(usmStatsUnknownUserNames):     {err: ErrUnknownUsername},
+	reportCounter(usmStatsUnknownEngineIDs):     {err: ErrUnknownEngineID, resync: true, namesEngine: true, name: "unknown engine id"},
+	reportCounter(usmStatsWrongDigests):         {err: ErrWrongDigest},
+	reportCounter(usmStatsDecryptionErrors):     {err: ErrDecryption},
+	reportCounter(snmpUnknownSecurityModels):    {err: ErrUnknownSecurityModels},
+	reportCounter(snmpInvalidMsgs):              {err: ErrInvalidMsgs},
+	reportCounter(snmpUnknownPDUHandlers):       {err: ErrUnknownPDUHandlers},
 }
 
-// reportKindOf returns the kind of p as a Report, and false when p is not one.
-// The agent puts the counter of the error it detected in a Report's varbinds;
-// the Report's request ID is the request's, or 0 when the agent could not read
-// it. An unknown counter gives ErrUnknownReportPDU. Known bug: a Report counts
-// only with exactly one varbind, so one with more is treated as a reply and
-// matched by its request ID.
+// reportKindOf returns the kind of p as a Report, and false when p is not an
+// SNMPv3 Report. The agent puts the counter of the error it detected in the
+// Report's varbinds; the Report's request ID is the request's, or 0 when the
+// agent could not read it. As in net-snmp's snmpv3_get_report_type, the first
+// varbind names the counter, with one instance sub-identifier of any value;
+// none, or another name, gives ErrUnknownReportPDU.
 func reportKindOf(p *SnmpPacket) (reportKind, bool) {
-	if p.Version != Version3 || p.PDUType != Report || len(p.Variables) != 1 {
+	if p.Version != Version3 || p.PDUType != Report {
 		return reportKind{}, false
 	}
-	if kind, ok := reportKinds[p.Variables[0].Name]; ok {
-		return kind, true
+	if len(p.Variables) > 0 {
+		if kind, ok := reportKinds[reportCounter(p.Variables[0].Name)]; ok {
+			return kind, true
+		}
 	}
 	return reportKind{err: ErrUnknownReportPDU}, true
+}
+
+// reportCounter returns name, an OID, without its last sub-identifier: the
+// counter of a Report's varbind name, without the instance.
+func reportCounter(name string) string {
+	return name[:max(strings.LastIndexByte(name, '.'), 0)]
 }
