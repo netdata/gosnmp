@@ -137,6 +137,25 @@ func getThrice(between func(a *fakeV3Agent)) func(x *GoSNMP, a *fakeV3Agent) (*S
 	}
 }
 
+// getsAt runs one Get per level, 10 s apart, the client's MsgFlags set to the
+// level before each: a client whose requests change level. It records each
+// Get's result but the last, which it returns.
+func getsAt(levels ...SnmpV3MsgFlags) func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+	return func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+		var res *SnmpPacket
+		var err error
+		for i, level := range levels {
+			if i > 0 {
+				a.tr.addf("Get %d: %s", i, describeEngineResult(res, err))
+				time.Sleep(10 * time.Second)
+			}
+			x.MsgFlags = level
+			res, err = x.Get([]string{engineOID})
+		}
+		return res, err
+	}
+}
+
 // otherKey encrypts an answer with a key the client does not have.
 func otherKey(p *SnmpPacket) {
 	usp := p.SecurityParameters.usm()
@@ -388,6 +407,14 @@ func v3Scenarios() map[string]v3Scenario {
 		}},
 		"discovery/other-report": {user: "codec-md5", script: onRequest(1, agentAnswer{
 			report: usmStatsUnsupportedSecLevels, why: "answers discovery with another Report",
+		})},
+		// Discovery answered by a GetResponse, in the agent's engine and
+		// context engine, and without them.
+		"discovery/get-response": {user: "codec-md5", script: onRequest(1, agentAnswer{
+			why: "answers discovery with a GetResponse",
+		})},
+		"discovery/get-response-without-engine-id": {user: "codec-md5", script: onRequest(1, agentAnswer{
+			why: "answers discovery with a GetResponse without an engine ID", edit: withoutEngineID,
 		})},
 		"answer/unauthenticated-empty-identity": {
 			user: "codec-md5", script: onRequest(2, agentAnswer{
@@ -1180,41 +1207,25 @@ func v3Scenarios() map[string]v3Scenario {
 				edit: func(p *SnmpPacket) { p.SecurityParameters.usm().AuthoritativeEngineBoots = maxEngineValue },
 			}),
 		},
-		// A client without authentication whose parameters have an
-		// authentication protocol: the agent answers some requests at
-		// authNoPriv, whose digest the client checks.
+		// A client whose parameters have an authentication protocol and whose
+		// requests change level: authenticated answers set the clock its
+		// requests without authentication carry.
 		"clock/noauth/verified-old-time": {
-			user: "codec-md5", setup: func(x *GoSNMP, _ *UsmSecurityParameters) { x.MsgFlags = NoAuthNoPriv },
-			run: getTwice(nil), script: func(n int, _ agentRequest) (agentAnswer, bool) {
-				switch n {
-				case 2:
-					return agentAnswer{level: AuthNoPriv, why: "authNoPriv answer"}, true
-				case 3:
-					return agentAnswer{level: AuthNoPriv, why: "authNoPriv answer with an engine time 200 s old", edit: func(p *SnmpPacket) {
-						p.SecurityParameters.usm().AuthoritativeEngineTime -= 200
-					}}, true
-				}
-				return agentAnswer{}, false
-			},
+			user: "codec-md5", run: getsAt(AuthNoPriv, AuthNoPriv, NoAuthNoPriv), script: onRequest(3, agentAnswer{
+				level: AuthNoPriv, why: "authNoPriv answer with an engine time 200 s old",
+				edit: func(p *SnmpPacket) { p.SecurityParameters.usm().AuthoritativeEngineTime -= 200 },
+			}),
 		},
 		"clock/noauth/authenticated-then-unauthenticated": {
-			user: "codec-md5", setup: func(x *GoSNMP, _ *UsmSecurityParameters) { x.MsgFlags = NoAuthNoPriv },
-			run: getThrice(nil), script: func(n int, _ agentRequest) (agentAnswer, bool) {
-				switch n {
-				case 2:
-					return agentAnswer{level: AuthNoPriv, why: "authNoPriv answer"}, true
-				case 3:
-					return agentAnswer{why: "noAuthNoPriv answer with an engine time 500 s ahead", edit: func(p *SnmpPacket) {
-						p.SecurityParameters.usm().AuthoritativeEngineTime += 500
-					}}, true
-				}
-				return agentAnswer{}, false
-			},
+			user: "codec-md5", run: getsAt(AuthNoPriv, NoAuthNoPriv, NoAuthNoPriv), script: onRequest(3, agentAnswer{
+				why:  "noAuthNoPriv answer with an engine time 500 s ahead",
+				edit: func(p *SnmpPacket) { p.SecurityParameters.usm().AuthoritativeEngineTime += 500 },
+			}),
 		},
 		// Discovery's unauthenticated time is no notion step 7 checks the
 		// first authenticated answer against.
 		"clock/noauth/verified-after-discovery-time-ahead": {
-			user: "codec-md5", setup: func(x *GoSNMP, _ *UsmSecurityParameters) { x.MsgFlags = NoAuthNoPriv },
+			user: "codec-md5", run: getsAt(AuthNoPriv, NoAuthNoPriv),
 			script: func(n int, _ agentRequest) (agentAnswer, bool) {
 				switch n {
 				case 1:
@@ -1443,6 +1454,35 @@ func v3Scenarios() map[string]v3Scenario {
 				edit: func(p *SnmpPacket) { p.Variables = append(p.Variables, sysDescr) },
 			}),
 		},
+		"answer/report-unknown-first-varbind": {
+			user: "codec-noauth", script: onRequest(2, agentAnswer{
+				report: usmStatsNotInTimeWindows, why: "Report whose first varbind is not a counter",
+				edit: func(p *SnmpPacket) { p.Variables = append([]SnmpPDU{sysDescr}, p.Variables...) },
+			}),
+		},
+		"answer/report-without-varbinds": {
+			user: "codec-noauth", script: onRequest(2, agentAnswer{
+				report: usmStatsUnknownUserNames, why: "Report without varbinds",
+				edit: func(p *SnmpPacket) { p.Variables = nil },
+			}),
+		},
+		// Report counters named with another instance than 0, or without
+		// exactly one instance sub-identifier.
+		"report-instance/not-in-time-windows": {user: "codec-noauth", script: onRequest(2, agentAnswer{
+			report: strings.TrimSuffix(usmStatsNotInTimeWindows, "0") + "1", why: "notInTimeWindows Report, instance 1",
+		})},
+		"report-instance/unknown-engine-ids-discovery": {user: "codec-md5", script: onRequest(1, agentAnswer{
+			report: strings.TrimSuffix(usmStatsUnknownEngineIDs, "0") + "1", why: "unknownEngineIDs Report, instance 1",
+		})},
+		"report-instance/wrong-digests": {user: "codec-md5", script: onRequest(2, agentAnswer{
+			report: strings.TrimSuffix(usmStatsWrongDigests, "0") + "5", why: "wrongDigests Report, instance 5",
+		})},
+		"report-instance/counter-without-instance": {user: "codec-noauth", script: onRequest(2, agentAnswer{
+			report: strings.TrimSuffix(usmStatsWrongDigests, ".0"), why: "wrongDigests Report without an instance",
+		})},
+		"report-instance/two-instance-sub-identifiers": {user: "codec-noauth", script: onRequest(2, agentAnswer{
+			report: usmStatsWrongDigests + ".0", why: "wrongDigests Report, instance 0.0",
+		})},
 
 		// Reports after the engine is known: whether their engine
 		// parameters are stored.
@@ -1548,6 +1588,49 @@ func v3Scenarios() map[string]v3Scenario {
 				level: AuthNoPriv, why: "GetResponse for another message, signed with another key",
 				edit: func(p *SnmpPacket) { otherAuthKey(p); p.MsgID += 100 },
 			}, n > 1
+		}},
+		// GetResponses with the request's msgID that differ from the request
+		// in one field RFC 3412 section 7.2 step 12 b compares, each followed
+		// by the agent's answer.
+		"discard/not-encrypted-then-answer": {user: "codec-sha-aes", script: onRequest(2, agentAnswer{
+			level: AuthNoPriv, why: "GetResponse without encryption", then: true,
+		})},
+		"discard/authenticated-to-noauth-then-answer": {
+			user: "codec-md5", setup: func(x *GoSNMP, _ *UsmSecurityParameters) { x.MsgFlags = NoAuthNoPriv },
+			script: onRequest(2, agentAnswer{level: AuthNoPriv, why: "authNoPriv GetResponse", then: true}),
+		},
+		"discard/other-engine-then-answer": {user: "codec-noauth", script: onRequest(2, agentAnswer{
+			why: "GetResponse naming the other engine ID", then: true,
+			edit: func(p *SnmpPacket) { p.SecurityParameters.usm().AuthoritativeEngineID = agentOtherEngineID },
+		})},
+		"discard/other-context-engine-then-answer": {user: "codec-md5", script: onRequest(2, agentAnswer{
+			level: AuthNoPriv, why: "GetResponse with another context engine ID", then: true,
+			edit: func(p *SnmpPacket) { p.ContextEngineID = "codec-other-context" },
+		})},
+		"discard/other-context-name-then-answer": {user: "codec-md5", script: onRequest(2, agentAnswer{
+			level: AuthNoPriv, why: "GetResponse with another context name", then: true,
+			edit: func(p *SnmpPacket) { p.ContextName = "codec-other-name" },
+		})},
+		"discard/empty-user-then-answer": {user: "codec-noauth", script: onRequest(2, agentAnswer{
+			why: "GetResponse without a user name", then: true,
+			edit: func(p *SnmpPacket) { p.SecurityParameters.usm().UserName = "" },
+		})},
+		"discard/other-version-then-answer": {user: "codec-noauth", script: onRequest(2, agentAnswer{
+			why: "SNMPv2c GetResponse", edit: asV2c, then: true,
+		})},
+		// The first attempt is lost; the second is answered with its msgID and
+		// the first attempt's request ID, then by the agent.
+		"discard/other-attempt-request-id-then-answer": {user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+			switch n {
+			case 2:
+				return agentAnswer{drop: true, why: "lost"}, true
+			case 3:
+				return agentAnswer{
+					level: AuthNoPriv, why: "GetResponse with the first attempt's request ID", then: true,
+					edit: func(p *SnmpPacket) { p.RequestID-- },
+				}, true
+			}
+			return agentAnswer{}, false
 		}},
 		// A Context deadline ends the second Get, whose answers come from an
 		// agent that restarted without raising its boots and does not check

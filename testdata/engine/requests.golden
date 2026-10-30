@@ -83,6 +83,20 @@
 0s    client after: retries=2 next request id=1002
 0s    known bug: a reply without varbinds is accepted before its request ID is checked
 
+== requests/answer/empty-wrong-id-then-valid
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #1 after 0s
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1101 []
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1101 [], no error
+0s    client after: retries=2 next request id=1002
+
 == requests/answer/error-status
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s
@@ -321,6 +335,20 @@
 0s    result: packet 1 "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1002
 0s    known bug: a reply of another SNMP version is accepted, though RFC 3412 hands each message to the model of its own version
+
+== requests/answer/other-version-then-valid
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #1 after 0s
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 1 "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 1 "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    client after: retries=2 next request id=1002
 
 == requests/answer/other-version-v3
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -782,6 +810,20 @@
 0s    result: packet 2c "public" GetResponse id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1002
 0s    known bug: a reply with request ID 0 is accepted for any request
+
+== requests/answer/zero-id-then-valid
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #1 after 0s
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    client after: retries=2 next request id=1002
 
 == requests/close/after-a-request-conn-replaced-by-hook
 0s    client: 2c timeout=1s retries=2 exponential=false

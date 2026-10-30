@@ -437,6 +437,16 @@ func engineScenarios() map[string]engineScenario {
 			agent:    answerWith(func(p *SnmpPacket) { p.Version = Version1 }, sysDescr),
 			knownBug: "a reply of another SNMP version is accepted, though RFC 3412 hands each message to the model of its own version",
 		},
+		// Replies that answer nothing, each followed by the answer.
+		"answer/other-version-then-valid": {agent: func(_ int, req []byte) []agentReply {
+			return []agentReply{{data: replyTo(req, func(p *SnmpPacket) { p.Version = Version1 }, sysDescr)}, {data: replyTo(req, nil, sysDescr)}}
+		}},
+		"answer/zero-id-then-valid": {agent: func(_ int, req []byte) []agentReply {
+			return []agentReply{{data: replyTo(req, func(p *SnmpPacket) { p.RequestID = 0 }, sysDescr)}, {data: replyTo(req, nil, sysDescr)}}
+		}},
+		"answer/empty-wrong-id-then-valid": {agent: func(_ int, req []byte) []agentReply {
+			return []agentReply{{data: replyTo(req, func(p *SnmpPacket) { p.RequestID += 100 })}, {data: replyTo(req, nil, sysDescr)}}
+		}},
 		"answer/other-version-v3": {
 			agent: answerWith(func(p *SnmpPacket) {
 				p.Version, p.MsgFlags, p.SecurityModel = Version3, NoAuthNoPriv, UserSecurityModel
