@@ -156,8 +156,9 @@
 // the clock when they are newer than the latest or equal to them (net-snmp; an
 // answer matches a request, so it replays nothing), and one with lower boots,
 // or a time more than 150 s behind the clock's, is outside the time window, as
-// every answer is once the boots reach 2147483647 (RFC 3414 section 3.2 step 7
-// b); the first authenticated answer sets the clock. An unauthenticated answer
+// is every answer carrying boots 2147483647, whose engine must be reconfigured
+// (RFC 3414 section 3.2 step 7 b; net-snmp accepts one such answer, then
+// none); the first authenticated answer sets the clock. An unauthenticated answer
 // sets the clock only while no authenticated one did. A Report that says the
 // request's engine ID or time is out of date (usmStatsUnknownEngineIDs,
 // usmStatsNotInTimeWindows) makes the client send the request once more, with

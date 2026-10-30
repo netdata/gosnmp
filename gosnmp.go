@@ -374,8 +374,8 @@ func (x *GoSNMP) prepare() error {
 // derives no keys: an authenticated or private SNMPv3 message needs the keys
 // in SecurityParameters (InitSecurityKeys derives them), and fails without
 // them. It carries the engine boots and time of SecurityParameters as they
-// are: after a request, the latest the agent sent, not advanced as a request
-// advances them. On an error it returns an empty message.
+// are: after a request, the latest values the client accepted, not advanced
+// as a request advances them. On an error it returns an empty message.
 func (x *GoSNMP) SnmpEncodePacket(pdutype PDUType, pdus []SnmpPDU, nonRepeaters uint8, maxRepetitions uint32) ([]byte, error) {
 	if err := x.prepare(); err != nil {
 		return []byte{}, err

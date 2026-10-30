@@ -1415,6 +1415,16 @@ func v3Scenarios() map[string]v3Scenario {
 				edit: func(p *SnmpPacket) { p.SecurityParameters.usm().AuthoritativeEngineBoots = agentBoots - 1 },
 			}),
 		},
+		// Every attempt answered outside the time window: the request ends
+		// with an error that matches ErrNotInTimeWindow, without OnFinish
+		// and without a commit.
+		"time-window/older-boots-every-attempt": {
+			user: "codec-md5", run: getTwice(nil), script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				return agentAnswer{level: AuthNoPriv, why: "GetResponse with lower engine boots", edit: func(p *SnmpPacket) {
+					p.SecurityParameters.usm().AuthoritativeEngineBoots = agentBoots - 1
+				}}, n > 2
+			},
+		},
 		"answer/forged-report/not-in-time-windows": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "Report signed with another key", edit: forgeReport,
 		})},
