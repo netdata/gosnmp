@@ -252,13 +252,18 @@ func walkScenarios() map[string]walkScenario {
 			root:   ".1.3.6.1.2.1.1.5.0",
 			script: func(n int, _, _ *SnmpPacket) bool { return n >= 2 },
 		},
-		// The leaf's Get answered with a status no RFC names: the status is
-		// ignored and the root's value passed on.
+		// The leaf's Get answered with an error status: nothing passed on.
+		"leaf/get-error-status": {
+			root:   ".1.3.6.1.2.1.1.5.0",
+			script: onWalkRequest(2, errorStatus(GenErr)),
+		},
+		// The leaf's Get answered with a status no RFC names.
 		"leaf/get-unknown-status": {
 			root: ".1.3.6.1.2.1.1.5.0",
 			script: onWalkRequest(2, func(_, out *SnmpPacket) {
 				out.Error = InconsistentName + 1
 			}),
+			knownBug: "an error status the walk does not name is ignored and the root's value passed on",
 		},
 		// The leaf's Get answered with another name before the root's value.
 		"leaf/get-other-name-first": {
