@@ -63,7 +63,8 @@ var errReplyNotInTime = inCategory(ErrNotInTimeWindow, errors.New("the reply is 
 // boots and time; an equal time updates the clock as a newer one does
 // (net-snmp; a reply answers an outstanding request, so it replays nothing),
 // and a reply outside the time window is rejected (resetsClock names the
-// exception; a request that ends so drops the clock, forgetEngineTime). An
+// exception; a request that ends so drops the clock, forgetEngineTime).
+// Maximum boots are rejected before either recovery exception. An
 // authenticated notInTimeWindow Report gives its boots and time whatever their
 // order: the agent's own, matched to the request (a deviation from section 3.2
 // step 7 b, for devices whose boots do not go up when they restart).
@@ -86,6 +87,14 @@ func (e *exchange) settle(out attemptOutcome) attemptOutcome {
 		return out
 	}
 	from := reply.SecurityParameters.usm()
+	boots, engineTime := from.AuthoritativeEngineBoots, from.AuthoritativeEngineTime
+	// Recovery relaxes clock ordering, never the terminal maximum-boots rule.
+	if out.verified && boots == maxEngineValue {
+		if x.Logger.enabled() {
+			x.Logger.Print("ERROR the reply carries exhausted engine boots")
+		}
+		return attemptOutcome{kind: attemptInvalidReply, err: errReplyNotInTime}
+	}
 	next, err := x.engine.withEngine(from.AuthoritativeEngineID)
 	if err != nil {
 		if e.discovery {
@@ -94,7 +103,6 @@ func (e *exchange) settle(out attemptOutcome) attemptOutcome {
 		return out
 	}
 	now := time.Now()
-	boots, engineTime := from.AuthoritativeEngineBoots, from.AuthoritativeEngineTime
 	switch {
 	case !out.verified:
 		if next.clock.source != fromAuthenticated {
@@ -155,6 +163,7 @@ func (x *GoSNMP) forgetEngineTime() {
 // boots and time become the clock. Devices that do not raise their boots when
 // they restart, and report notInTimeWindow without authentication, so recover;
 // a forged Report gets no such answer (net-snmp locks such devices out).
+// settle has already rejected maximum engine boots.
 func (e *exchange) resetsClock(boots, engineTime uint32, now time.Time) bool {
 	lent := e.clock
 	if lent.source != fromTimeWindowReport || boots != lent.boots {
