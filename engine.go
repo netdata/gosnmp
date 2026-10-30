@@ -69,7 +69,7 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 		x.Logger.Printf("SEND Error on the first Request Error: %s", err)
 	}
 	kind := resyncKindOf(result)
-	if err != nil || !kind.resync {
+	if !kind.resync {
 		return result, err
 	}
 
@@ -96,7 +96,7 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 	if err != nil && x.Logger.enabled() {
 		x.Logger.Printf("ERROR "+kind.name+" retransmit error: %s", err)
 	}
-	if kind = resyncKindOf(result); err == nil && kind.resync {
+	if kind = resyncKindOf(result); kind.resync {
 		return result, kind.err
 	}
 	return result, err

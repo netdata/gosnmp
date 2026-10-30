@@ -45,42 +45,29 @@ func engineFoundDespiteUnknownUser(result *SnmpPacket, err error) bool {
 	return usp != nil && usp.AuthoritativeEngineID != ""
 }
 
-// errOtherSecurityModel is the error of a reply whose security model is not
-// its request's.
-var errOtherSecurityModel = errors.New("connection security model does not match security model extracted from packet")
-
 // settle commits the engine state an SNMPv3 reply that answers the exchange's
 // request carries, after the match, and returns out, the attempt's outcome,
 // with the commit or its error. A discovery answer (an unknownEngineIDs Report,
 // or the unknownUserNames Report some devices send, carrying an engine ID)
 // gives the engine ID, its keys, boots and time, or ends the request when it
 // names no engine ID or the keys do not derive. Another reply gives its engine
-// boots and time when its digest checked against the request (verified), and
-// an unverified one only to a request without authentication and when it is
-// not a Report: then also its engine ID, which takes keys derived for it, and
-// a reply whose engine ID gives no valid state answers without a commit (RFC
-// 3414 section 3.2 step 7 takes the engine boots and time from authenticated
-// messages only). A reply of another security model than the request's ends
-// the request, unless it is an error Report. Known bug: a reply with another
-// security model is not discarded (RFC 3412 section 7.2 step 4).
+// ID (another one takes keys derived for it), boots and time when its digest
+// checked against the request (verified), or, unverified, to a request without
+// authentication when it is not a Report (RFC 3414 section 3.2 step 7 takes the
+// engine boots and time from authenticated messages only); a reply whose
+// engine ID gives no valid state answers without a commit.
 func (e *exchange) settle(out attemptOutcome) attemptOutcome {
 	x, reply := e.x, out.packet
 	if reply.Version != Version3 {
 		return out
 	}
-	kind, isReport := reportKindOf(reply)
+	_, isReport := reportKindOf(reply)
 	switch {
 	case e.discovery:
 		if out.err != nil && !engineFoundDespiteUnknownUser(reply, out.err) {
 			return out
 		}
 	case !out.verified && (isReport || e.packet.MsgFlags.authFlag()):
-		return out
-	}
-	if e.packet.SecurityModel != reply.SecurityModel {
-		if e.discovery || !isReport || kind.resync {
-			out.err = errOtherSecurityModel
-		}
 		return out
 	}
 	if x.Logger.enabled() {
