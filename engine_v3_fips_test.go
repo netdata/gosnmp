@@ -6,10 +6,15 @@ package gosnmp
 
 import (
 	"crypto/fips140"
+	"io"
 	"maps"
 	"slices"
 	"testing"
 	"testing/synctest"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // getFirstOf2 runs two Gets, records the first one's result and returns the
@@ -59,4 +64,89 @@ func TestEngineV3FIPS140Only(t *testing.T) {
 		results = append(results, goldenCase{name: "v3-fips/" + name, dump: dump})
 	}
 	engineGolden.check(t, "v3-fips", results)
+}
+
+// TestEngineV3FIPS140OnlyDiscoveryPreflight checks that passphrase-backed
+// keys must derive before discovery, even when the caller supplied keys.
+// A refusal sends nothing and leaves the configuration and state unchanged.
+func TestEngineV3FIPS140OnlyDiscoveryPreflight(t *testing.T) {
+	if !fips140.Enforced() {
+		t.Skip("run with GODEBUG=fips140=only")
+	}
+	tests := []struct {
+		name        string
+		auth        SnmpV3AuthProtocol
+		priv        SnmpV3PrivProtocol
+		authKeyOnly bool
+		wantErr     string
+	}{
+		{name: "MD5", auth: MD5, priv: NoPriv,
+			wantErr: "crypto/md5: use of MD5 is not allowed in FIPS 140-only mode"},
+		{name: "SHA", auth: SHA, priv: NoPriv,
+			wantErr: "crypto/sha1: use of SHA-1 is not allowed in FIPS 140-only mode"},
+		{name: "SHA-AES", auth: SHA, priv: AES,
+			wantErr: "crypto/sha1: use of SHA-1 is not allowed in FIPS 140-only mode"},
+		{name: "SHA-AES/privacy-only-passphrase", auth: SHA, priv: AES, authKeyOnly: true,
+			wantErr: "crypto/sha1: use of SHA-1 is not allowed in FIPS 140-only mode"},
+	}
+	keySets := []struct {
+		name       string
+		auth, priv bool
+	}{
+		{name: "missing"},
+		{name: "authentication", auth: true},
+		{name: "privacy", priv: true},
+		{name: "both", auth: true, priv: true},
+	}
+	for _, tc := range tests {
+		for _, keys := range keySets {
+			if tc.priv == NoPriv && keys.priv || tc.authKeyOnly && !keys.auth {
+				continue
+			}
+			t.Run(tc.name+"/"+keys.name, func(t *testing.T) {
+				sp := &UsmSecurityParameters{
+					UserName:                 "codec-user",
+					AuthenticationProtocol:   tc.auth,
+					AuthenticationPassphrase: "codec-auth-pass",
+					PrivacyProtocol:          tc.priv,
+				}
+				if tc.priv > NoPriv {
+					sp.PrivacyPassphrase = "codec-priv-pass"
+				}
+				fips140.WithoutEnforcement(func() { require.NoError(t, sp.InitSecurityKeys()) })
+				if !keys.auth {
+					sp.SecretKey = nil
+				}
+				if !keys.priv {
+					sp.PrivacyKey = nil
+				}
+				if tc.authKeyOnly {
+					sp.AuthenticationPassphrase = ""
+				}
+
+				tr := newEngineTranscript(t)
+				c := newFakeTransport(tr, nil)
+				c.failRead = func(int) error { return io.EOF }
+				flags := AuthNoPriv
+				if tc.priv > NoPriv {
+					flags = AuthPriv
+				}
+				x := newEngineClientFrom(t, tr, fakePacketTransport{c}, &GoSNMP{
+					Version: Version3, MsgFlags: flags, SecurityModel: UserSecurityModel,
+					SecurityParameters: sp, ContextEngineID: "codec-context", Timeout: time.Second, Retries: 2,
+				})
+				before := sp.Copy().usm()
+				before.SecretKey, before.PrivacyKey = slices.Clone(sp.SecretKey), slices.Clone(sp.PrivacyKey)
+				for range 2 {
+					_, err := x.Get([]string{engineOID})
+					assert.EqualError(t, err, tc.wantErr)
+					assert.Zero(t, c.writes, "discovery must not be sent")
+					assert.Zero(t, c.reads)
+					assert.Equal(t, before, sp.Copy(), "the configured keys must be preserved")
+					assert.Equal(t, engineState{}, x.engine)
+					assert.Equal(t, "codec-context", x.ContextEngineID)
+				}
+			})
+		}
+	}
 }

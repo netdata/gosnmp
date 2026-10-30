@@ -186,18 +186,25 @@ func (x *GoSNMP) reconcileEngine() error {
 		fromNone, cred.privProtocol > NoPriv && cred.privPassphrase == ""); err != nil {
 		return errPrivKeyBoundToEngine
 	}
+	keys := next.sp()
+	if err := keys.InitSecurityKeys(); err != nil {
+		return err
+	}
 	if next.engineID == "" {
-		// Keys derive for any engine ID alike: a refusal (FIPS 140-only mode)
-		// ends the request before discovery. With PasswordCaching off, the
-		// passphrases are hashed again for the discovered engine ID.
-		if err := next.sp().InitSecurityKeys(); err != nil {
+		// Supplied keys passing validation do not prove their passphrases can
+		// derive keys for discovery. Check that too, keeping keys just derived
+		// above and keys supplied without passphrases. With PasswordCaching
+		// off, discovery hashes the passphrases again for its engine ID.
+		if len(next.authKey) != 0 && cred.authPassphrase != "" {
+			keys.SecretKey = nil
+		}
+		if len(next.privKey) != 0 && cred.privPassphrase != "" {
+			keys.PrivacyKey = nil
+		}
+		if err := keys.deriveKeys(); err != nil {
 			return err
 		}
 	} else {
-		keys := next.sp()
-		if err := keys.InitSecurityKeys(); err != nil {
-			return err
-		}
 		next.authKey, next.privKey = keys.SecretKey, keys.PrivacyKey
 		if next.authGiven || next.privGiven {
 			derived := next.sp()
