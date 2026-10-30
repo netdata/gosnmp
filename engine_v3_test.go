@@ -166,9 +166,6 @@ func olderBoots(p *SnmpPacket) {
 // garbage is a datagram that does not decode.
 var garbage = []byte{0x30, 0x03, 0x02, 0x01}
 
-// rejectedReplyBug is the known bug of a reply the client rejects.
-const rejectedReplyBug = "a rejected reply ends the attempt and the request is sent again at once, instead of reading on"
-
 // headerField gives an encoded message field i of msgGlobalData (0 msgID,
 // 1 msgMaxSize, 2 msgFlags, 3 msgSecurityModel), the TLV field: a value the
 // encoder does not write.
@@ -415,13 +412,11 @@ func v3Scenarios() map[string]v3Scenario {
 				report: usmStatsUnknownEngineIDs, why: "discovery Report with security model 2",
 				raw: securityModel2,
 			}),
-			knownBug: "an undecodable reply ends the attempt and the request is sent again at once, instead of reading on",
 		},
 		"discovery/empty-msg-flags": {
 			user: "codec-md5", script: onRequest(1, agentAnswer{
 				report: usmStatsUnknownEngineIDs, why: "discovery Report with an empty msgFlags", raw: msgFlagsOctets(),
 			}),
-			knownBug: "an undecodable reply ends the attempt and the request is sent again at once, instead of reading on",
 		},
 		"discovery/report-without-context-engine-id": {user: "codec-md5", script: onRequest(1, agentAnswer{
 			report: usmStatsUnknownEngineIDs, why: "discovery Report without a context engine ID",
@@ -920,7 +915,6 @@ func v3Scenarios() map[string]v3Scenario {
 				}
 				return agentAnswer{}, false
 			},
-			knownBug: "an undecodable reply ends the attempt and the request is sent again at once, instead of reading on",
 		},
 		"resync/retransmission-answer-time": {
 			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
@@ -1377,7 +1371,6 @@ func v3Scenarios() map[string]v3Scenario {
 			user: "codec-noauth", script: onRequest(2, agentAnswer{
 				why: "GetResponse with an empty msgFlags", raw: msgFlagsOctets(),
 			}),
-			knownBug: "an undecodable reply ends the attempt and the request is sent again at once, instead of reading on",
 		},
 		"answer/other-version/noauth": {
 			user: "codec-noauth", script: onRequest(2, agentAnswer{why: "SNMPv2c GetResponse", edit: asV2c}),
@@ -1435,7 +1428,6 @@ func v3Scenarios() map[string]v3Scenario {
 			user: "codec-noauth", script: onRequest(2, agentAnswer{
 				why: "GetResponse with security model 2", raw: securityModel2,
 			}),
-			knownBug: "an undecodable reply ends the attempt and the request is sent again at once, instead of reading on",
 		},
 		// A Report carries one varbind (RFC 3412 section 7.1 step 3 d): one with
 		// two is read past.
@@ -1498,39 +1490,37 @@ func v3Scenarios() map[string]v3Scenario {
 				report: usmStatsUnknownUserNames, level: AuthNoPriv, why: "authenticated Report with security model 2",
 				raw: securityModel2,
 			}),
-			knownBug: "an undecodable reply ends the attempt and the request is sent again at once, instead of reading on",
 		},
 		"answer/report-other-security-model": {
 			user: "codec-md5", script: onRequest(2, agentAnswer{
 				report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "Report with security model 2",
 				raw: securityModel2,
 			}),
-			knownBug: "an undecodable reply ends the attempt and the request is sent again at once, instead of reading on",
 		},
 
 		// A message the client rejects, then the answer, both to the same
 		// attempt.
-		"discard/undecodable-then-answer": {user: "codec-md5", knownBug: rejectedReplyBug, script: onRequest(2, agentAnswer{
+		"discard/undecodable-then-answer": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			level: AuthNoPriv, why: "GetResponse with an empty msgFlags", raw: msgFlagsOctets(), then: true,
 		})},
-		"discard/other-user-then-answer": {user: "codec-md5", knownBug: rejectedReplyBug, script: onRequest(2, agentAnswer{
+		"discard/other-user-then-answer": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			level: AuthNoPriv, why: "GetResponse for another user", then: true,
 			edit: func(p *SnmpPacket) { p.SecurityParameters.usm().UserName = "codec-other-user" },
 		})},
-		"discard/wrong-digest-then-answer": {user: "codec-md5", knownBug: rejectedReplyBug, script: onRequest(2, agentAnswer{
+		"discard/wrong-digest-then-answer": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			level: AuthNoPriv, why: "GetResponse signed with another key", edit: otherAuthKey, then: true,
 		})},
-		"discard/unsupported-level-then-answer": {user: "codec-md5", knownBug: rejectedReplyBug, script: onRequest(2, agentAnswer{
+		"discard/unsupported-level-then-answer": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			level: AuthNoPriv, why: "GetResponse encrypted for an authNoPriv request", edit: encryptedForAuthNoPriv, then: true,
 		})},
-		"discard/decryption-then-answer": {user: "codec-sha-aes", knownBug: rejectedReplyBug, script: onRequest(2, agentAnswer{
+		"discard/decryption-then-answer": {user: "codec-sha-aes", script: onRequest(2, agentAnswer{
 			level: AuthPriv, why: "GetResponse encrypted with another key", edit: otherKey, then: true,
 		})},
-		"discard/unauthenticated-then-answer": {user: "codec-md5", knownBug: rejectedReplyBug, script: onRequest(2, agentAnswer{
+		"discard/unauthenticated-then-answer": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			why: "GetResponse without authentication", then: true,
 		})},
 		"discard/not-in-time-window-then-answer": {
-			user: "codec-md5", run: getTwice(nil), knownBug: rejectedReplyBug, script: onRequest(3, agentAnswer{
+			user: "codec-md5", run: getTwice(nil), script: onRequest(3, agentAnswer{
 				level: AuthNoPriv, why: "GetResponse with lower engine boots", edit: olderBoots, then: true,
 			}),
 		},

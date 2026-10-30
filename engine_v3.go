@@ -52,18 +52,19 @@ var errReplyNotInTime = inCategory(ErrNotInTimeWindow, errors.New("the reply is 
 
 // settle commits the engine state an SNMPv3 reply that answers the exchange's
 // request carries, after the match, and returns out, the attempt's outcome,
-// with the commit or its error, or a failed attempt for an authenticated reply
-// outside the time window. A discovery answer (an unknownEngineIDs Report, or
-// the unknownUserNames Report some devices send, carrying an engine ID) gives
-// the engine ID, its keys and an unauthenticated clock, or ends the request
-// when it names no engine ID or the keys do not derive. A reply whose digest
-// checked against the request (verified) gives its engine ID (another one takes
-// keys derived for it, and no clock) and, by RFC 3414 section 3.2 step 7 b
-// against the authenticated clock (none: the first authenticated message), its
-// boots and time; an equal time updates the clock as a newer one does
-// (net-snmp; a reply answers an outstanding request, so it replays nothing),
-// and a reply outside the time window is rejected (resetsClock names the
-// exception; a request that ends so drops the clock, forgetEngineTime).
+// with the commit or its error, or, for an authenticated reply outside the
+// time window, the error that discards it. A discovery answer (an
+// unknownEngineIDs Report, or the unknownUserNames Report some devices send,
+// carrying an engine ID) gives the engine ID, its keys and an unauthenticated
+// clock, or ends the request when it names no engine ID or the keys do not
+// derive. A reply whose digest checked against the request (verified) gives
+// its engine ID (another one takes keys derived for it, and no clock) and, by
+// RFC 3414 section 3.2 step 7 b against the authenticated clock (none: the
+// first authenticated message), its boots and time; an equal time updates the
+// clock as a newer one does (net-snmp; a reply answers an outstanding request,
+// so it replays nothing), and a reply outside the time window is discarded
+// (resetsClock names the exception; an exchange that ends without an answer
+// after one drops the clock, forgetEngineTime).
 // Maximum boots are rejected before either recovery exception. An
 // authenticated notInTimeWindow Report gives its boots and time whatever their
 // order: the agent's own, matched to the request (a deviation from section 3.2
@@ -72,19 +73,19 @@ var errReplyNotInTime = inCategory(ErrNotInTimeWindow, errors.New("the reply is 
 // gives its engine ID and an unauthenticated clock, which does not replace an
 // authenticated one (net-snmp's set_enginetime). A reply whose engine ID gives
 // no valid state answers without a commit.
-func (e *exchange) settle(out attemptOutcome) attemptOutcome {
+func (e *exchange) settle(out attemptOutcome) (attemptOutcome, error) {
 	x, reply := e.x, out.packet
 	if reply.Version != Version3 {
-		return out
+		return out, nil
 	}
 	kind, isReport := reportKindOf(reply)
 	switch {
 	case e.discovery:
 		if out.err != nil && !engineFoundDespiteUnknownUser(reply, out.err) {
-			return out
+			return out, nil
 		}
 	case !out.verified && (isReport || e.packet.MsgFlags.authFlag()):
-		return out
+		return out, nil
 	}
 	from := reply.SecurityParameters.usm()
 	boots, engineTime := from.AuthoritativeEngineBoots, from.AuthoritativeEngineTime
@@ -93,14 +94,14 @@ func (e *exchange) settle(out attemptOutcome) attemptOutcome {
 		if x.Logger.enabled() {
 			x.Logger.Print("ERROR the reply carries exhausted engine boots")
 		}
-		return attemptOutcome{kind: attemptInvalidReply, err: errReplyNotInTime}
+		return attemptOutcome{}, errReplyNotInTime
 	}
 	next, err := x.engine.withEngine(from.AuthoritativeEngineID)
 	if err != nil {
 		if e.discovery {
 			out.err = err
 		}
-		return out
+		return out, nil
 	}
 	now := time.Now()
 	switch {
@@ -121,7 +122,7 @@ func (e *exchange) settle(out attemptOutcome) attemptOutcome {
 				if x.Logger.enabled() {
 					x.Logger.Printf("ERROR the reply is not in the time window: boots %d, time %d", boots, engineTime)
 				}
-				return attemptOutcome{kind: attemptInvalidReply, err: errReplyNotInTime}
+				return attemptOutcome{}, errReplyNotInTime
 			}
 			clock = engineClock{boots: boots, latest: engineTime, received: now}
 		}
@@ -132,20 +133,20 @@ func (e *exchange) settle(out attemptOutcome) attemptOutcome {
 	if x.Logger.enabled() {
 		x.Logger.Printf("SEND STORE SECURITY PARAMS from result: %s", reply.SecurityParameters.SafeString())
 	}
-	return out
+	return out, nil
 }
 
-// forgetEngineTime drops the engine state's clock after a request whose last
-// attempt was answered, authentically, outside the time window (settle): the
-// agent's answers contradict the clock and no Report corrects it, as from a
-// device that does not check the time of requests and whose engine time went
-// back without its boots going up, or whose boots went down (a failover pair
-// sharing an engine ID). The next request carries boots and time zero, which a
-// device that checks the time window answers with an authenticated
-// notInTimeWindow Report carrying its own, and the next authentic answer of
-// one that does not is its first (the reset of RFC 3414 section 2.3). A
-// deviation from section 3.2 step 7 b and net-snmp, which reject such a device
-// until the client forgets its time by other means.
+// forgetEngineTime drops the engine state's clock after an exchange that
+// discarded an authentic answer outside the time window (settle) ended without
+// an answer: the agent's answers contradict the clock and no Report corrects
+// it, as from a device that does not check the time of requests and whose
+// engine time went back without its boots going up, or whose boots went down
+// (a failover pair sharing an engine ID). The next request carries boots and
+// time zero, which a device that checks the time window answers with an
+// authenticated notInTimeWindow Report carrying its own, and the next
+// authentic answer of one that does not is its first (the reset of RFC 3414
+// section 2.3). A deviation from section 3.2 step 7 b and net-snmp, which
+// reject such a device until the client forgets its time by other means.
 func (x *GoSNMP) forgetEngineTime() {
 	next := x.engine
 	next.clock = sourcedClock{}

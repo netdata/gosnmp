@@ -133,6 +133,14 @@ func signedAuthField(fieldHeader []byte, n int) []byte {
 	return signedAt(data, marker)
 }
 
+// signedReply returns an authNoPriv message of codec-user with msgID 42 and
+// msgData scoped, signed.
+func signedReply(scoped []byte) []byte {
+	marker := bytes.Repeat([]byte{0xa5}, 12)
+	usmParams := craftedUSM(craftedEngineID, intTLV(7), intTLV(1234), octets("codec-user"), octets(string(marker)), octets(""))
+	return signedAt(craftedV3(intTLV(42), intTLV(65507), octets("\x01"), intTLV(3), usmParams, scoped), marker)
+}
+
 // signedAt returns data with the HMAC-SHA-96 digest of codec-user written over
 // marker, the content of its msgAuthenticationParameters, computed with those
 // octets zeroed and cut or zero-padded to the marker's length.
@@ -436,9 +444,21 @@ func TestV3ReplyDecode(t *testing.T) {
 			craftedUSM(octets(usmCharEngineID), intTLV(3), intTLV(77), octets("codec-user"), octets(string(make([]byte, 12))), octets("")),
 			tlv(0x30, octets(usmCharEngineID), octets(""), craftedPDU(Report, craftedVBL(craftedVB(intTLV(5))))))
 		reply, verified, err := e.decode(report)
-		assert.Nil(t, reply)
+		require.NotNil(t, reply, "the message as far as decode read it")
+		assert.Equal(t, uint32(7), reply.MsgID)
 		assert.False(t, verified)
 		require.ErrorIs(t, err, errMsgFlags)
+	})
+
+	t.Run("header that fails before its msgID", func(t *testing.T) {
+		e, _ := request(AuthNoPriv|Reportable, NoPriv)
+		report := craftedV3(intTLV(-1), intTLV(65507), octets("\x00"), intTLV(3),
+			craftedUSM(octets(usmCharEngineID), intTLV(3), intTLV(77), octets("codec-user"), octets(""), octets("")),
+			tlv(0x30, octets(usmCharEngineID), octets(""), craftedPDU(Report, craftedVBL(craftedVB(intTLV(5))))))
+		reply, verified, err := e.decode(report)
+		assert.Nil(t, reply, "no msgID was read")
+		assert.False(t, verified)
+		require.ErrorIs(t, err, ErrInvalidMsgs)
 	})
 
 	t.Run("authNoPriv reply, long-form digest field length", func(t *testing.T) {
@@ -447,6 +467,36 @@ func TestV3ReplyDecode(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, verified)
 		assert.NotNil(t, reply)
+	})
+
+	// An authentic reply that does not decode further reports its digest
+	// checked: the discard ranks it above an unauthenticated one.
+	t.Run("authentic reply whose scoped PDU does not decode", func(t *testing.T) {
+		e, _ := request(AuthNoPriv|Reportable, NoPriv)
+		reply, verified, err := e.decode(signedReply(tlv(0x30, craftedEngineID)))
+		require.ErrorIs(t, err, ErrInvalidMsgs)
+		assert.True(t, verified)
+		require.NotNil(t, reply, "the message as far as decode read it")
+		assert.Equal(t, uint32(42), reply.MsgID)
+	})
+	t.Run("authentic reply whose PDU does not decode", func(t *testing.T) {
+		e, _ := request(AuthNoPriv|Reportable, NoPriv)
+		reply, verified, err := e.decode(signedReply(tlv(0x30, craftedEngineID, octets("ctx"), tlv(0xaf, intTLV(1)))))
+		require.Error(t, err)
+		assert.True(t, verified)
+		require.NotNil(t, reply, "the message as far as decode read it")
+		assert.Equal(t, uint32(42), reply.MsgID)
+	})
+
+	// A msgID means nothing to an SNMPv2c request.
+	t.Run("SNMPv3 message to an SNMPv2c request", func(t *testing.T) {
+		e := &exchange{x: &GoSNMP{Version: Version2c}, packet: &SnmpPacket{Version: Version2c, PDUType: GetRequest}}
+		msg := craftedV3(intTLV(7), intTLV(65507), octets("\x00"), intTLV(3),
+			craftedUSM(octets(usmCharEngineID), intTLV(3), intTLV(77), octets("codec-user"), octets(""), octets("")),
+			tlv(0x30, octets(usmCharEngineID), octets(""), craftedPDU(GetResponse, craftedVBL(craftedVB(intTLV(5))))))
+		reply, _, err := e.decode(msg)
+		require.Error(t, err)
+		assert.Nil(t, reply)
 	})
 
 	// A reply naming another engine ID carries none of the request's keys
@@ -477,7 +527,8 @@ func TestV3ReplyDecode(t *testing.T) {
 		}).MarshalMsg()
 		require.NoError(t, err)
 		reply, _, err := e.decode(data)
-		assert.Nil(t, reply)
+		require.NotNil(t, reply, "the message as far as decode read it")
+		assert.Equal(t, uint32(7), reply.MsgID)
 		require.ErrorIs(t, err, ErrUnknownUsername)
 	})
 
@@ -492,7 +543,8 @@ func TestV3ReplyDecode(t *testing.T) {
 		}).MarshalMsg()
 		require.NoError(t, err)
 		reply, verified, err := e.decode(withWrongDigest(t, data))
-		assert.Nil(t, reply)
+		require.NotNil(t, reply, "the message as far as decode read it")
+		assert.Equal(t, uint32(7), reply.MsgID)
 		assert.False(t, verified)
 		require.ErrorIs(t, err, ErrWrongDigest)
 
@@ -513,7 +565,8 @@ func TestV3ReplyDecode(t *testing.T) {
 		}).MarshalMsg()
 		require.NoError(t, err)
 		reply, _, err := (&exchange{x: x, packet: req}).decode(data)
-		assert.Nil(t, reply)
+		require.NotNil(t, reply, "the message as far as decode read it")
+		assert.Equal(t, uint32(7), reply.MsgID)
 		require.ErrorIs(t, err, ErrUnknownSecurityLevel)
 	})
 
@@ -528,7 +581,8 @@ func TestV3ReplyDecode(t *testing.T) {
 		}).MarshalMsg()
 		require.NoError(t, err)
 		reply, _, err := e.decode(data)
-		assert.Nil(t, reply)
+		require.NotNil(t, reply, "the message as far as decode read it")
+		assert.Equal(t, uint32(7), reply.MsgID)
 		require.ErrorIs(t, err, ErrUnknownSecurityLevel)
 	})
 

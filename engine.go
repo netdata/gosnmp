@@ -183,7 +183,32 @@ type exchange struct {
 	// clock is the engine clock the attempts of an SNMPv3 request carry
 	// (encode): the engine state's, or the one a Report lent to a resend.
 	clock sourcedClock
+
+	// discarded is the reason of the discarded message that came closest to
+	// answering the request, of rank discardedRank (discard).
+	discarded     error
+	discardedRank discardRank
+	// outOfWindow marks an exchange that discarded an authentic answer
+	// outside the time window (settle).
+	outOfWindow bool
 }
+
+// discardRank orders the messages an exchange discards by how close they came
+// to answering it; zero is a message that answers another request, whose
+// reason is not recorded.
+type discardRank uint8
+
+const (
+	// rankUnread: a message whose msgID could not be read, or any message to
+	// an SNMPv1 or SNMPv2c request.
+	rankUnread discardRank = iota + 1
+	// rankNamed: a message with the msgID of one of the exchange's attempts
+	// that did not authenticate.
+	rankNamed
+	// rankAuthentic: an authentic message with the msgID of one of the
+	// exchange's attempts.
+	rankAuthentic
+)
 
 // attemptKind is how an attempt ended.
 type attemptKind uint8
@@ -197,8 +222,6 @@ const (
 	attemptTimeout
 	// attemptTransportError: the write or the read failed otherwise.
 	attemptTransportError
-	// attemptInvalidReply: a reply did not decode or authenticate.
-	attemptInvalidReply
 	// attemptAgentClosed: the agent closed the TCP connection (io.EOF), which
 	// the next attempt opens again.
 	attemptAgentClosed
@@ -216,7 +239,7 @@ const (
 // so.
 func (k attemptKind) retryable() bool {
 	switch k {
-	case attemptTimeout, attemptTransportError, attemptInvalidReply, attemptAgentClosed:
+	case attemptTimeout, attemptTransportError, attemptAgentClosed:
 		return true
 	}
 	return false
@@ -261,17 +284,25 @@ func (x *GoSNMP) ioFailure(c *connection, err error) attemptOutcome {
 }
 
 // attemptsError is the error of a request whose attempts ran out after a
-// timeout or with the agent closing the TCP connection: a text callers know,
-// unwrapping to the last attempt's reason (the write's or the read's deadline
-// error, a timeout net.Error; io.EOF).
+// timeout or with the agent closing the TCP connection, or that the Context's
+// deadline ended after a discard: a text callers know, unwrapping to the last
+// attempt's reason (the write's or the read's deadline error, a timeout
+// net.Error; io.EOF; context.DeadlineExceeded) and to the reason of the
+// discard the exchange recorded, if any, whose text it ends with.
 type attemptsError struct {
-	text   string
-	reason error
+	text string
+	// errs holds the reason and the recorded discard, or nil.
+	errs [2]error
 }
 
 func (e *attemptsError) Error() string { return e.text }
 
-func (e *attemptsError) Unwrap() error { return e.reason }
+func (e *attemptsError) Unwrap() []error {
+	if e.errs[1] == nil {
+		return e.errs[:1]
+	}
+	return e.errs[:]
+}
 
 // sentIDs are the request ID and the msgID an attempt sent the request with.
 type sentIDs struct {
@@ -284,8 +315,7 @@ type sentIDs struct {
 // were committed into the engine state, retrying up to cfg.retries times.
 // OnFinish runs when it succeeds. Once Close closed the client, an attempt
 // that ends without a reply ends the request with net.ErrClosed, whatever else
-// ended it. A last attempt answered outside the time window drops the engine
-// clock (forgetEngineTime).
+// ended it. An exchange that ends without an answer goes through unanswered.
 func (x *GoSNMP) sendOneRequest(cfg *requestConfig, packetOut *SnmpPacket, discovery bool, clock sourcedClock) (*SnmpPacket, bool, error) {
 	e := exchange{x: x, packet: packetOut, cfg: *cfg, timeout: cfg.timeout, discovery: discovery, clock: clock}
 	// The IDs of the attempts before the current one, in a local array, not a
@@ -300,6 +330,9 @@ func (x *GoSNMP) sendOneRequest(cfg *requestConfig, packetOut *SnmpPacket, disco
 			out = attemptOutcome{kind: attemptClosed, err: errClosed}
 		}
 		if !out.kind.retryable() {
+			if out.kind != attemptReply {
+				out.err = e.unanswered(out.err)
+			}
 			if out.err == nil && cfg.onFinish != nil {
 				cfg.onFinish(x)
 			}
@@ -308,10 +341,7 @@ func (x *GoSNMP) sendOneRequest(cfg *requestConfig, packetOut *SnmpPacket, disco
 		// A retryable attempt has stamped the packet with its IDs.
 		earlier = append(earlier, sentIDs{packetOut.RequestID, packetOut.MsgID})
 		if err := e.endErr(n, out); err != nil {
-			if errors.Is(err, errReplyNotInTime) {
-				x.forgetEngineTime()
-			}
-			return nil, false, err
+			return nil, false, e.unanswered(err)
 		}
 		e.beforeRetry(n+1, out.err)
 	}
@@ -335,11 +365,35 @@ func (e *exchange) endErr(n int, out attemptOutcome) error {
 	}
 	switch out.kind {
 	case attemptTimeout:
-		return &attemptsError{text: fmt.Sprintf("request timeout (after %d retries)", n), reason: out.err}
+		return e.attemptsError(fmt.Sprintf("request timeout (after %d retries)", n), out.err)
 	case attemptAgentClosed:
-		return &attemptsError{text: fmt.Sprintf("max retries (%d) exceeded", e.cfg.retries), reason: out.err}
+		return e.attemptsError(fmt.Sprintf("max retries (%d) exceeded", e.cfg.retries), out.err)
 	}
 	return out.err
+}
+
+// attemptsError returns the attemptsError with text and the attempt's reason,
+// and the discard the exchange recorded, whose text text ends with.
+func (e *exchange) attemptsError(text string, reason error) *attemptsError {
+	if e.discarded == nil {
+		return &attemptsError{text: text, errs: [2]error{reason}}
+	}
+	return &attemptsError{text: text + ": last discarded reply: " + e.discarded.Error(), errs: [2]error{reason, e.discarded}}
+}
+
+// unanswered returns err, the error of an exchange that ends without an
+// answer: an error at the Context's deadline that also unwraps to the discard
+// the exchange recorded, if any (attemptsError); any other error unchanged.
+// After a discarded authentic answer outside the time window it drops the
+// engine clock, however the exchange ended (forgetEngineTime).
+func (e *exchange) unanswered(err error) error {
+	if e.outOfWindow {
+		e.x.forgetEngineTime()
+	}
+	if e.discarded != nil && errors.Is(err, context.DeadlineExceeded) {
+		return e.attemptsError(err.Error(), err)
+	}
+	return err
 }
 
 // beforeRetry readies retry n, which follows an attempt that failed with
@@ -435,7 +489,11 @@ func (e *exchange) encode() ([]byte, error) {
 	return out, nil
 }
 
-// await reads replies on c until one answers the request.
+// await reads replies on c until one answers the request. A message that does
+// not decode, does not authenticate or that the commit rejects is discarded,
+// its reason recorded (discard), and the read goes on until the attempt's
+// deadline (RFC 3412 section 7.2 steps 2, 6 and 7); so is one that answers
+// another request.
 func (e *exchange) await(c *connection, earlier []sentIDs) attemptOutcome {
 	x := e.x
 	for {
@@ -460,15 +518,47 @@ func (e *exchange) await(c *connection, earlier []sentIDs) attemptOutcome {
 
 		reply, verified, err := e.decode(resp)
 		if err != nil {
-			// Known bug: an undecodable reply ends the attempt, and the request
-			// is sent again at once, instead of reading on.
-			return attemptOutcome{kind: attemptInvalidReply, err: err}
+			e.discard(err, e.rankOf(reply, verified, earlier))
+			continue
 		}
 		if answered, err := e.answers(reply, earlier); answered {
-			return e.settle(attemptOutcome{kind: attemptReply, packet: reply, err: err, verified: verified})
+			out, rejected := e.settle(attemptOutcome{kind: attemptReply, packet: reply, err: err, verified: verified})
+			if rejected == nil {
+				return out
+			}
+			// The commit rejects only an authentic answer outside the time
+			// window.
+			e.outOfWindow = true
+			e.discard(rejected, rankAuthentic)
+			continue
 		}
 		x.Logger.Print("ERROR out of order")
 	}
+}
+
+// discard records err, the reason a message of rank was discarded, when it
+// came closer to answering the request than the discards before it, or as
+// close and later.
+func (e *exchange) discard(err error, rank discardRank) {
+	if rank != 0 && rank >= e.discardedRank {
+		e.discarded, e.discardedRank = err, rank
+	}
+}
+
+// rankOf returns the rank of a message decode failed on: read is the message
+// as far as decode read it when its msgID was, and verified reports that its
+// digest checked. A message with the msgID of none of the exchange's attempts
+// answers another request: rank zero.
+func (e *exchange) rankOf(read *SnmpPacket, verified bool, earlier []sentIDs) discardRank {
+	switch {
+	case read == nil:
+		return rankUnread
+	case !e.sentWithMsgID(read.MsgID, earlier):
+		return 0
+	case verified:
+		return rankAuthentic
+	}
+	return rankNamed
 }
 
 // decode decodes a reply to the request: the header, for an SNMPv3 request
@@ -476,7 +566,9 @@ func (e *exchange) await(c *connection, earlier []sentIDs) attemptOutcome {
 // whether the reply's digest checked against the request. The reply's
 // security parameters are the request's with the USM fields the reply
 // carries, keeping the request's keys only for the request's engine ID: no key
-// derives for an engine a reply names.
+// derives for an engine a reply names. With an error it returns the message
+// as far as it read it when it read its msgID (an SNMPv3 message to an SNMPv3
+// request), else nil.
 func (e *exchange) decode(resp []byte) (_ *SnmpPacket, verified bool, _ error) {
 	x := e.x
 	reply := &SnmpPacket{Logger: x.Logger}
@@ -490,9 +582,17 @@ func (e *exchange) decode(resp []byte) (_ *SnmpPacket, verified bool, _ error) {
 	if err == nil && reply.Version == Version3 && sp != nil {
 		err = receiveReply(reply.MsgFlags, &w, sp)
 	}
+	// read is reply, as far as it was read, when an error ends the decode;
+	// only an SNMPv3 header has a msgID.
+	read := func() *SnmpPacket {
+		if e.packet.Version == Version3 && w.has&hasMsgID != 0 {
+			return reply
+		}
+		return nil
+	}
 	if err != nil {
 		x.Logger.Printf("ERROR on unmarshall header: %s", err)
-		return nil, false, err
+		return read(), false, err
 	}
 	if e.packet.Version == Version3 {
 		in := inbound{msg: resp, wire: w, sp: sp}
@@ -501,16 +601,16 @@ func (e *exchange) decode(resp []byte) (_ *SnmpPacket, verified bool, _ error) {
 				return reply, false, nil
 			}
 			x.Logger.Printf("ERROR on Test Authentication on v3: %s", err)
-			return nil, false, err
+			return read(), false, err
 		}
 		if resp, cursor, err = unmarshalScopedPDU(resp, cursor, reply, reply.MsgFlags.privFlag()); err != nil {
 			x.Logger.Printf("ERROR on the scoped PDU on v3: %s", err)
-			return nil, false, err
+			return read(), verified, err
 		}
 	}
 	if err = unmarshalPayload(resp, cursor, reply); err != nil {
 		x.Logger.Printf("ERROR on UnmarshalPayload: %s", err)
-		return nil, false, err
+		return read(), verified, err
 	}
 	return reply, verified, nil
 }

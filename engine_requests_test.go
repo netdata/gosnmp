@@ -455,7 +455,6 @@ func engineScenarios() map[string]engineScenario {
 			agent: func(_ int, req []byte) []agentReply {
 				return []agentReply{{data: []byte{0x30, 0x03, 0x02, 0x01}}, {data: replyTo(req, nil, sysDescr)}}
 			},
-			knownBug: "an undecodable reply ends the attempt and the request is sent again at once, instead of reading on",
 		},
 		"answer/garbage": {agent: func(int, []byte) []agentReply { return []agentReply{{data: []byte{0x30, 0x03, 0x02, 0x01}}} }},
 		"answer/split-tcp": {
@@ -1750,6 +1749,138 @@ func BenchmarkSendOneRequest(b *testing.B) {
 		if _, _, err := x.sendOneRequest(&cfg, pkt, false, sourcedClock{}); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+// TestExchangeDiscard checks which discarded message's reason an exchange
+// records: the one that came closest to answering it, the later of two as
+// close, and none for a message that answers another request.
+func TestExchangeDiscard(t *testing.T) {
+	unread, named, authentic := errors.New("unread"), errors.New("named"), errors.New("authentic")
+	type discarded struct {
+		err  error
+		rank discardRank
+	}
+	tests := map[string]struct {
+		discards []discarded
+		want     error
+	}{
+		"none":                              {},
+		"another request's message":         {discards: []discarded{{named, 0}}},
+		"unread":                            {discards: []discarded{{unread, rankUnread}}, want: unread},
+		"named after unread":                {discards: []discarded{{unread, rankUnread}, {named, rankNamed}}, want: named},
+		"unread after named":                {discards: []discarded{{named, rankNamed}, {unread, rankUnread}}, want: named},
+		"authentic, then noise":             {discards: []discarded{{authentic, rankAuthentic}, {named, rankNamed}, {unread, rankUnread}}, want: authentic},
+		"the later of two as close":         {discards: []discarded{{unread, rankUnread}, {named, rankUnread}}, want: named},
+		"another request's after a discard": {discards: []discarded{{unread, rankUnread}, {named, 0}}, want: unread},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			var e exchange
+			for _, d := range tc.discards {
+				e.discard(d.err, d.rank)
+			}
+			assert.Equal(t, tc.want, e.discarded)
+		})
+	}
+}
+
+// TestExchangeRankOf checks the rank of a message decode failed on, by the
+// msgID it read, if any, and whether its digest checked.
+func TestExchangeRankOf(t *testing.T) {
+	e := exchange{packet: &SnmpPacket{MsgID: 7}}
+	earlier := []sentIDs{{requestID: 1, msgID: 5}}
+	tests := map[string]struct {
+		read     *SnmpPacket
+		verified bool
+		want     discardRank
+	}{
+		"msgID not read":                    {want: rankUnread},
+		"another request's msgID":           {read: &SnmpPacket{MsgID: 6}},
+		"another request's msgID, verified": {read: &SnmpPacket{MsgID: 6}, verified: true},
+		"the attempt's msgID":               {read: &SnmpPacket{MsgID: 7}, want: rankNamed},
+		"an earlier attempt's msgID":        {read: &SnmpPacket{MsgID: 5}, want: rankNamed},
+		"the attempt's msgID, verified":     {read: &SnmpPacket{MsgID: 7}, verified: true, want: rankAuthentic},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tc.want, e.rankOf(tc.read, tc.verified, earlier))
+		})
+	}
+}
+
+// TestExchangeEndErrors checks the error of an exchange that ends without an
+// answer, with and without a recorded discard: an attemptsError and an error
+// at the Context's deadline add the discard; others stay as they are.
+func TestExchangeEndErrors(t *testing.T) {
+	reason := inCategory(ErrNotInTimeWindow, errors.New("out of window"))
+	tests := map[string]struct {
+		discarded error
+		end       func(e *exchange) error
+		wantText  string
+		wantIs    []error
+		wantNotIs []error
+		same      error // the error returned unchanged, if any
+	}{
+		"timeout": {
+			end: func(e *exchange) error {
+				return e.attemptsError("request timeout (after 1 retries)", os.ErrDeadlineExceeded)
+			},
+			wantText: "request timeout (after 1 retries)", wantIs: []error{os.ErrDeadlineExceeded}, wantNotIs: []error{ErrNotInTimeWindow},
+		},
+		"timeout after a discard": {
+			discarded: reason,
+			end: func(e *exchange) error {
+				return e.attemptsError("request timeout (after 1 retries)", os.ErrDeadlineExceeded)
+			},
+			wantText: "request timeout (after 1 retries): last discarded reply: out of window",
+			wantIs:   []error{os.ErrDeadlineExceeded, ErrNotInTimeWindow},
+		},
+		"agent closed after a discard": {
+			discarded: reason,
+			end:       func(e *exchange) error { return e.attemptsError("max retries (1) exceeded", io.EOF) },
+			wantText:  "max retries (1) exceeded: last discarded reply: out of window",
+			wantIs:    []error{io.EOF, ErrNotInTimeWindow},
+		},
+		"deadline": {
+			end:      func(e *exchange) error { return e.unanswered(context.DeadlineExceeded) },
+			wantText: "context deadline exceeded", same: context.DeadlineExceeded,
+		},
+		"deadline after a discard": {
+			discarded: reason,
+			end:       func(e *exchange) error { return e.unanswered(context.DeadlineExceeded) },
+			wantText:  "context deadline exceeded: last discarded reply: out of window",
+			wantIs:    []error{context.DeadlineExceeded, ErrNotInTimeWindow},
+		},
+		"canceled after a discard": {
+			discarded: reason,
+			end:       func(e *exchange) error { return e.unanswered(context.Canceled) },
+			wantText:  "context canceled", same: context.Canceled, wantNotIs: []error{ErrNotInTimeWindow},
+		},
+		"closed after a discard": {
+			discarded: reason,
+			end:       func(e *exchange) error { return e.unanswered(errClosed) },
+			wantText:  errClosed.Error(), same: errClosed, wantNotIs: []error{ErrNotInTimeWindow},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			e := exchange{x: &GoSNMP{}}
+			if tc.discarded != nil {
+				e.discard(tc.discarded, rankAuthentic)
+			}
+			err := tc.end(&e)
+			require.EqualError(t, err, tc.wantText)
+			if tc.same != nil {
+				assert.Equal(t, tc.same, err)
+			}
+			for _, target := range tc.wantIs {
+				assert.ErrorIs(t, err, target)
+			}
+			for _, target := range tc.wantNotIs {
+				assert.NotErrorIs(t, err, target)
+			}
+		})
 	}
 }
 

@@ -126,24 +126,27 @@
 0s    hook OnSent
 0s    read from 127.0.0.2:161: 4 octets, not decodable (error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input)
 0s    hook OnRecv
-0s    hook OnRetry
-0s    deadline +1s
-0s    hook PreSend
-0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
-0s    agent answers #2 after 0s
-0s    hook OnSent
-0s    read from 127.0.0.2:161: 4 octets, not decodable (error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input)
-0s    hook OnRecv
-0s    hook OnRetry
-0s    deadline +1s
-0s    hook PreSend
-0s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
-0s    agent answers #3 after 0s
-0s    hook OnSent
-0s    read from 127.0.0.2:161: 4 octets, not decodable (error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input)
-0s    hook OnRecv
-0s    result: packet nil, error "error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input" *fmt.wrapError
-0s    client after: retries=2 next request id=1004
+1s    read from 127.0.0.2:161: deadline
+1s    hook OnRetry
+1s    deadline +1s
+1s    hook PreSend
+1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+1s    agent answers #2 after 0s
+1s    hook OnSent
+1s    read from 127.0.0.2:161: 4 octets, not decodable (error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input)
+1s    hook OnRecv
+2s    read from 127.0.0.2:161: deadline
+2s    hook OnRetry
+2s    deadline +1s
+2s    hook PreSend
+2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+2s    agent answers #3 after 0s
+2s    hook OnSent
+2s    read from 127.0.0.2:161: 4 octets, not decodable (error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input)
+2s    hook OnRecv
+3s    read from 127.0.0.2:161: deadline
+3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
+3s    client after: retries=2 next request id=1004
 
 == requests/answer/garbage-then-valid
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -155,19 +158,11 @@
 0s    hook OnSent
 0s    read from 127.0.0.2:161: 4 octets, not decodable (error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input)
 0s    hook OnRecv
-0s    hook OnRetry
-0s    deadline +1s
-0s    hook PreSend
-0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
-0s    agent answers #2 after 0s
-0s    agent answers #2 after 0s
-0s    hook OnSent
 0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
 0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
-0s    client after: retries=2 next request id=1003
-0s    known bug: an undecodable reply ends the attempt and the request is sent again at once, instead of reading on
+0s    client after: retries=2 next request id=1002
 
 == requests/answer/largest-tcp
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -323,24 +318,27 @@
 0s    hook OnSent
 0s    read from 127.0.0.2:161: 3 msgID=0 noAuthNoPriv user="public" engine="" boots=0 time=0 context=""/"" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
-0s    hook OnRetry
-0s    deadline +1s
-0s    hook PreSend
-0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
-0s    agent answers #2 after 0s
-0s    hook OnSent
-0s    read from 127.0.0.2:161: 3 msgID=0 noAuthNoPriv user="public" engine="" boots=0 time=0 context=""/"" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
-0s    hook OnRecv
-0s    hook OnRetry
-0s    deadline +1s
-0s    hook PreSend
-0s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
-0s    agent answers #3 after 0s
-0s    hook OnSent
-0s    read from 127.0.0.2:161: 3 msgID=0 noAuthNoPriv user="public" engine="" boots=0 time=0 context=""/"" GetResponse id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
-0s    hook OnRecv
-0s    result: packet nil, error "unknown PDUType 0x53657175656e6365" *errors.errorString
-0s    client after: retries=2 next request id=1004
+1s    read from 127.0.0.2:161: deadline
+1s    hook OnRetry
+1s    deadline +1s
+1s    hook PreSend
+1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+1s    agent answers #2 after 0s
+1s    hook OnSent
+1s    read from 127.0.0.2:161: 3 msgID=0 noAuthNoPriv user="public" engine="" boots=0 time=0 context=""/"" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+1s    hook OnRecv
+2s    read from 127.0.0.2:161: deadline
+2s    hook OnRetry
+2s    deadline +1s
+2s    hook PreSend
+2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+2s    agent answers #3 after 0s
+2s    hook OnSent
+2s    read from 127.0.0.2:161: 3 msgID=0 noAuthNoPriv user="public" engine="" boots=0 time=0 context=""/"" GetResponse id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+2s    hook OnRecv
+3s    read from 127.0.0.2:161: deadline
+3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: unknown PDUType 0x53657175656e6365" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
+3s    client after: retries=2 next request id=1004
 
 == requests/answer/other-version-v3-get-response
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -557,9 +555,12 @@
 0s    hook OnSent
 0s    read: 10 octets, not decodable (error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input)
 0s    hook OnRecv
-0s    result: packet nil, error "error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input" *fmt.wrapError
-0s    client after: retries=0 next request id=1002
-0s    known bug: a TCP reply must arrive in one read
+10ms  read: 42 octets, not decodable (invalid packet header)
+10ms  hook OnRecv
+1s    read: deadline
+1s    result: packet nil, error "request timeout (after 0 retries): last discarded reply: invalid packet header" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
+1s    client after: retries=0 next request id=1002
+1s    known bug: a TCP reply must arrive in one read
 
 == requests/answer/too-big-tcp
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -577,12 +578,15 @@
 0s    hook OnSent
 0s    read: 10 octets, not decodable (invalid packet header)
 0s    hook OnRecv
+0s    read: 65535 octets, not decodable (invalid packet header)
 0s    hook OnRetry
 0s    deadline +1s
 0s    hook PreSend
 0s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #3 after 0s
 0s    hook OnSent
+0s    read: 10 octets, not decodable (invalid packet header)
+0s    hook OnRecv
 0s    read: 65535 octets, not decodable (invalid packet header)
 0s    result: packet nil, error "response buffer too small" *errors.errorString
 0s    client after: retries=2 next request id=1004
@@ -596,25 +600,28 @@
 0s    hook OnSent
 0s    read from 127.0.0.2:161: 52 octets, not decodable (unknown PDUType 0x504455547970652831373529)
 0s    hook OnRecv
-0s    hook OnRetry
-0s    deadline +1s
-0s    hook PreSend
-0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
-0s    agent answers #2 after 0s
-0s    hook OnSent
-0s    read from 127.0.0.2:161: 52 octets, not decodable (unknown PDUType 0x504455547970652831373529)
-0s    hook OnRecv
-0s    hook OnRetry
-0s    deadline +1s
-0s    hook PreSend
-0s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
-0s    agent answers #3 after 0s
-0s    hook OnSent
-0s    read from 127.0.0.2:161: 52 octets, not decodable (unknown PDUType 0x504455547970652831373529)
-0s    hook OnRecv
-0s    result: packet nil, error "unknown PDUType 0x504455547970652831373529" *errors.errorString
-0s    client after: retries=2 next request id=1004
-0s    known bug: the error text formats the PDU type's String() as hexadecimal
+1s    read from 127.0.0.2:161: deadline
+1s    hook OnRetry
+1s    deadline +1s
+1s    hook PreSend
+1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+1s    agent answers #2 after 0s
+1s    hook OnSent
+1s    read from 127.0.0.2:161: 52 octets, not decodable (unknown PDUType 0x504455547970652831373529)
+1s    hook OnRecv
+2s    read from 127.0.0.2:161: deadline
+2s    hook OnRetry
+2s    deadline +1s
+2s    hook PreSend
+2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+2s    agent answers #3 after 0s
+2s    hook OnSent
+2s    read from 127.0.0.2:161: 52 octets, not decodable (unknown PDUType 0x504455547970652831373529)
+2s    hook OnRecv
+3s    read from 127.0.0.2:161: deadline
+3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: unknown PDUType 0x504455547970652831373529" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
+3s    client after: retries=2 next request id=1004
+3s    known bug: the error text formats the PDU type's String() as hexadecimal
 
 == requests/answer/v1-trap
 0s    client: 2c timeout=1s retries=2 exponential=false
