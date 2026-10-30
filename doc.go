@@ -182,14 +182,19 @@
 // matches [ErrUnknownEngineID]; a request, unlike the discovery, returns the
 // Report with the error.
 //
+// A request whose last attempt is answered, authentically, outside the time
+// window drops the clock: the next request carries boots and time zero, which
+// an agent that checks the time window answers with an authenticated
+// usmStatsNotInTimeWindows Report carrying its own, and the next authenticated
+// answer of one that does not sets the clock. So a device that does not check
+// the time of requests and whose engine time went back without its boots going
+// up (a restart, a stepped wall clock), or whose boots went down (a failover
+// pair sharing an engine ID), costs one request that fails with
+// [ErrNotInTimeWindow] (a deviation from RFC 3414 section 3.2 step 7 b and
+// net-snmp, which reject it until their cached time is cleared).
+//
 // An application that expects a replaced device clears the engine ID to
-// discover again. Requests that keep failing with [ErrNotInTimeWindow] can
-// come from a device whose authenticated answers stay outside the time window
-// and that does not report it: one that does not check the time of requests and
-// whose engine time went back without its boots going up (a restart, a
-// stepped wall clock), or whose boots went down (a failover pair sharing an
-// engine ID); net-snmp rejects them too. Setting the engine boots and time to
-// zero drops the clock, and the next authenticated answer sets it.
+// discover again.
 //
 // # Walks
 //

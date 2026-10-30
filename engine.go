@@ -284,7 +284,8 @@ type sentIDs struct {
 // were committed into the engine state, retrying up to cfg.retries times.
 // OnFinish runs when it succeeds. Once Close closed the client, an attempt
 // that ends without a reply ends the request with net.ErrClosed, whatever else
-// ended it.
+// ended it. A last attempt answered outside the time window drops the engine
+// clock (forgetEngineTime).
 func (x *GoSNMP) sendOneRequest(cfg *requestConfig, packetOut *SnmpPacket, discovery bool, clock sourcedClock) (*SnmpPacket, bool, error) {
 	e := exchange{x: x, packet: packetOut, cfg: *cfg, timeout: cfg.timeout, discovery: discovery, clock: clock}
 	// The IDs of the attempts before the current one, in a local array, not a
@@ -307,6 +308,9 @@ func (x *GoSNMP) sendOneRequest(cfg *requestConfig, packetOut *SnmpPacket, disco
 		// A retryable attempt has stamped the packet with its IDs.
 		earlier = append(earlier, sentIDs{packetOut.RequestID, packetOut.MsgID})
 		if err := e.endErr(n, out); err != nil {
+			if errors.Is(err, errReplyNotInTime) {
+				x.forgetEngineTime()
+			}
 			return nil, false, err
 		}
 		e.beforeRetry(n+1, out.err)

@@ -63,7 +63,7 @@ var errReplyNotInTime = inCategory(ErrNotInTimeWindow, errors.New("the reply is 
 // its boots and time; an equal time updates the clock as a newer one does
 // (net-snmp; a reply answers an outstanding request, so it replays nothing),
 // and a reply outside the time window is rejected (resetsClock names the
-// exception). An authenticated notInTimeWindow Report gives its boots and time
+// exception; forgetEngineTime the request's end). An authenticated notInTimeWindow Report gives its boots and time
 // whatever their order: the agent's own, matched to the request (a deviation
 // from section 3.2 step 7 b, for devices whose boots do not go up when they
 // restart). Unverified, a reply to a request without authentication that is
@@ -124,6 +124,26 @@ func (e *exchange) settle(out attemptOutcome) attemptOutcome {
 		x.Logger.Printf("SEND STORE SECURITY PARAMS from result: %s", reply.SecurityParameters.SafeString())
 	}
 	return out
+}
+
+// forgetEngineTime drops the engine state's clock after a request whose last
+// attempt was answered, authentically, outside the time window (settle): the
+// agent's answers contradict the clock and no Report corrects it, as from a
+// device that does not check the time of requests and whose engine time went
+// back without its boots going up, or whose boots went down (a failover pair
+// sharing an engine ID). The next request carries boots and time zero, which a
+// device that checks the time window answers with an authenticated
+// notInTimeWindow Report carrying its own, and the next authentic answer of
+// one that does not is its first (the reset of RFC 3414 section 2.3). A
+// deviation from section 3.2 step 7 b and net-snmp, which reject such a device
+// until the client forgets its time by other means.
+func (x *GoSNMP) forgetEngineTime() {
+	next := x.engine
+	next.clock = sourcedClock{}
+	x.commitEngine(next)
+	if x.Logger.enabled() {
+		x.Logger.Print("WARNING the agent's answers are outside the time window: the engine time is dropped")
+	}
 }
 
 // resetsClock reports whether a verified reply with engine boots and time

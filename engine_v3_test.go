@@ -1110,29 +1110,11 @@ func v3Scenarios() map[string]v3Scenario {
 				unauthenticatedTimeWindow(a, nil)
 			}),
 		},
-		// A device that does not check the time of requests restarts without
-		// raising its boots: its answers are outside the time window until the
-		// caller zeroes the engine boots and time, and the next authenticated
-		// answer sets the clock.
-		"clock/restart-same-boots/no-time-check": {user: "codec-md5", run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
-			a.noTimeCheck = true
-			if _, err := x.Get([]string{engineOID}); err != nil {
-				return nil, fmt.Errorf("first Get: %w", err)
-			}
-			time.Sleep(10 * time.Second)
-			a.restartWithoutBoots()
-			res, err := x.Get([]string{engineOID})
-			a.tr.addf("second Get: %s", describeEngineResult(res, err))
-			a.tr.addf("caller sets the engine boots and time to zero")
-			sp := x.SecurityParameters.usm()
-			sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = 0, 0
-			return x.Get([]string{engineOID})
-		}},
 		// Devices that do not check the time of requests and never report
 		// notInTimeWindow, whose answers fall outside the time window: one that
 		// restarts without raising its boots, and a failover pair sharing an
-		// engine ID that fails back to the unit with lower boots; the request
-		// after the failed one.
+		// engine ID that fails back to the unit with lower boots. The failed
+		// request drops the clock, and the next one's answer sets it.
 		"clock/no-time-check/restart-same-boots": {user: "codec-md5", run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
 			a.noTimeCheck = true
 			return getThrice(func(a *fakeV3Agent) { a.restartWithoutBoots() })(x, a)
@@ -1143,7 +1125,8 @@ func v3Scenarios() map[string]v3Scenario {
 		}},
 		// The resend an unauthenticated notInTimeWindow Report lent its clock
 		// to is answered outside the time window on every attempt, with other
-		// boots than the Report's; the request after it.
+		// boots than the Report's: the clock is dropped, and the next request's
+		// boots and time zero get the agent's authenticated Report.
 		"clock/resend-answers-outside-window": {
 			user: "codec-md5", run: getThrice(nil), script: func(n int, _ agentRequest) (agentAnswer, bool) {
 				switch {
@@ -1471,8 +1454,8 @@ func v3Scenarios() map[string]v3Scenario {
 			}),
 		},
 		// Every attempt answered outside the time window: the request ends
-		// with an error that matches ErrNotInTimeWindow, without OnFinish
-		// and without a commit.
+		// with an error that matches ErrNotInTimeWindow, without OnFinish,
+		// and the client drops its engine time.
 		"time-window/older-boots-every-attempt": {
 			user: "codec-md5", run: getTwice(nil), script: func(n int, _ agentRequest) (agentAnswer, bool) {
 				return agentAnswer{level: AuthNoPriv, why: "GetResponse with lower engine boots", edit: func(p *SnmpPacket) {
