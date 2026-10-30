@@ -6,6 +6,7 @@ package gosnmp
 
 import (
 	"bytes"
+	"context"
 	"crypto/fips140"
 	"fmt"
 	"maps"
@@ -141,6 +142,32 @@ func otherKey(p *SnmpPacket) {
 	usp := p.SecurityParameters.usm()
 	usp.PrivacyKey = bytes.Repeat([]byte{0x5a}, len(usp.PrivacyKey))
 }
+
+// otherAuthKey signs an answer with a key the client does not have.
+func otherAuthKey(p *SnmpPacket) {
+	usp := p.SecurityParameters.usm()
+	usp.SecretKey = bytes.Repeat([]byte{0x5a}, len(usp.SecretKey))
+}
+
+// encryptedForAuthNoPriv encrypts an authNoPriv answer, with a privacy
+// protocol the user does not have.
+func encryptedForAuthNoPriv(p *SnmpPacket) {
+	usp := p.SecurityParameters.usm()
+	p.MsgFlags = AuthPriv
+	usp.PrivacyProtocol, usp.PrivacyKey = AES, bytes.Repeat([]byte{0x5a}, 16)
+}
+
+// olderBoots gives an answer engine boots lower than the agent's: an
+// authentic answer outside the client's time window.
+func olderBoots(p *SnmpPacket) {
+	p.SecurityParameters.usm().AuthoritativeEngineBoots = agentBoots - 1
+}
+
+// garbage is a datagram that does not decode.
+var garbage = []byte{0x30, 0x03, 0x02, 0x01}
+
+// rejectedReplyBug is the known bug of a reply the client rejects.
+const rejectedReplyBug = "a rejected reply ends the attempt and the request is sent again at once, instead of reading on"
 
 // headerField gives an encoded message field i of msgGlobalData (0 msgID,
 // 1 msgMaxSize, 2 msgFlags, 3 msgSecurityModel), the TLV field: a value the
@@ -1133,9 +1160,7 @@ func v3Scenarios() map[string]v3Scenario {
 				case n == 3:
 					return agentAnswer{report: usmStatsNotInTimeWindows, why: "not in time window, unauthenticated"}, true
 				case n >= 4 && n <= 6:
-					return agentAnswer{level: AuthNoPriv, why: "GetResponse with lower engine boots", edit: func(p *SnmpPacket) {
-						p.SecurityParameters.usm().AuthoritativeEngineBoots = agentBoots - 1
-					}}, true
+					return agentAnswer{level: AuthNoPriv, why: "GetResponse with lower engine boots", edit: olderBoots}, true
 				}
 				return agentAnswer{}, false
 			},
@@ -1321,12 +1346,7 @@ func v3Scenarios() map[string]v3Scenario {
 		},
 		"answer/encrypted-to-authnopriv": {user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
 			return agentAnswer{
-				level: AuthNoPriv, why: "GetResponse encrypted for an authNoPriv request",
-				edit: func(p *SnmpPacket) {
-					usp := p.SecurityParameters.usm()
-					p.MsgFlags = AuthPriv
-					usp.PrivacyProtocol, usp.PrivacyKey = AES, bytes.Repeat([]byte{0x5a}, 16)
-				},
+				level: AuthNoPriv, why: "GetResponse encrypted for an authNoPriv request", edit: encryptedForAuthNoPriv,
 			}, n > 1
 		}},
 		"answer/encrypted-with-other-key": {user: "codec-sha-aes", script: onRequest(2, agentAnswer{
@@ -1456,8 +1476,7 @@ func v3Scenarios() map[string]v3Scenario {
 		},
 		"time-window/older-boots": {
 			user: "codec-md5", run: getTwice(nil), script: onRequest(3, agentAnswer{
-				level: AuthNoPriv, why: "GetResponse with lower engine boots",
-				edit: func(p *SnmpPacket) { p.SecurityParameters.usm().AuthoritativeEngineBoots = agentBoots - 1 },
+				level: AuthNoPriv, why: "GetResponse with lower engine boots", edit: olderBoots,
 			}),
 		},
 		// Every attempt answered outside the time window: the request ends
@@ -1465,9 +1484,7 @@ func v3Scenarios() map[string]v3Scenario {
 		// and the client drops its engine time.
 		"time-window/older-boots-every-attempt": {
 			user: "codec-md5", run: getTwice(nil), script: func(n int, _ agentRequest) (agentAnswer, bool) {
-				return agentAnswer{level: AuthNoPriv, why: "GetResponse with lower engine boots", edit: func(p *SnmpPacket) {
-					p.SecurityParameters.usm().AuthoritativeEngineBoots = agentBoots - 1
-				}}, n > 2
+				return agentAnswer{level: AuthNoPriv, why: "GetResponse with lower engine boots", edit: olderBoots}, n > 2
 			},
 		},
 		"answer/forged-report/not-in-time-windows": {user: "codec-md5", script: onRequest(2, agentAnswer{
@@ -1490,6 +1507,67 @@ func v3Scenarios() map[string]v3Scenario {
 			}),
 			knownBug: "an undecodable reply ends the attempt and the request is sent again at once, instead of reading on",
 		},
+
+		// A message the client rejects, then the answer, both to the same
+		// attempt.
+		"discard/undecodable-then-answer": {user: "codec-md5", knownBug: rejectedReplyBug, script: onRequest(2, agentAnswer{
+			level: AuthNoPriv, why: "GetResponse with an empty msgFlags", raw: msgFlagsOctets(), then: true,
+		})},
+		"discard/other-user-then-answer": {user: "codec-md5", knownBug: rejectedReplyBug, script: onRequest(2, agentAnswer{
+			level: AuthNoPriv, why: "GetResponse for another user", then: true,
+			edit: func(p *SnmpPacket) { p.SecurityParameters.usm().UserName = "codec-other-user" },
+		})},
+		"discard/wrong-digest-then-answer": {user: "codec-md5", knownBug: rejectedReplyBug, script: onRequest(2, agentAnswer{
+			level: AuthNoPriv, why: "GetResponse signed with another key", edit: otherAuthKey, then: true,
+		})},
+		"discard/unsupported-level-then-answer": {user: "codec-md5", knownBug: rejectedReplyBug, script: onRequest(2, agentAnswer{
+			level: AuthNoPriv, why: "GetResponse encrypted for an authNoPriv request", edit: encryptedForAuthNoPriv, then: true,
+		})},
+		"discard/decryption-then-answer": {user: "codec-sha-aes", knownBug: rejectedReplyBug, script: onRequest(2, agentAnswer{
+			level: AuthPriv, why: "GetResponse encrypted with another key", edit: otherKey, then: true,
+		})},
+		"discard/unauthenticated-then-answer": {user: "codec-md5", knownBug: rejectedReplyBug, script: onRequest(2, agentAnswer{
+			why: "GetResponse without authentication", then: true,
+		})},
+		"discard/not-in-time-window-then-answer": {
+			user: "codec-md5", run: getTwice(nil), knownBug: rejectedReplyBug, script: onRequest(3, agentAnswer{
+				level: AuthNoPriv, why: "GetResponse with lower engine boots", edit: olderBoots, then: true,
+			}),
+		},
+		// Every attempt answered with lower boots, then a datagram that does
+		// not decode: the request's error is the time window's.
+		"discard/not-in-time-window-then-noise": {
+			user: "codec-md5", run: getTwice(nil), script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				return agentAnswer{level: AuthNoPriv, why: "GetResponse with lower engine boots", edit: olderBoots, noise: garbage}, n > 2
+			},
+		},
+		// Every attempt answered for another message, signed with another key:
+		// nothing answers the request.
+		"discard/other-message-wrong-digest": {user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+			return agentAnswer{
+				level: AuthNoPriv, why: "GetResponse for another message, signed with another key",
+				edit: func(p *SnmpPacket) { otherAuthKey(p); p.MsgID += 100 },
+			}, n > 1
+		}},
+		// A Context deadline ends the second Get, whose answers come from an
+		// agent that restarted without raising its boots and does not check
+		// the time window.
+		"clock/no-time-check/restart-same-boots/context-deadline": {user: "codec-md5", run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+			a.noTimeCheck = true
+			if _, err := x.Get([]string{engineOID}); err != nil {
+				return nil, fmt.Errorf("first Get: %w", err)
+			}
+			time.Sleep(10 * time.Second)
+			a.restartWithoutBoots()
+			ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+			defer cancel()
+			x.Context = ctx
+			res, err := x.Get([]string{engineOID})
+			a.tr.addf("second Get, with a Context deadline after 1.5 s: %s", describeEngineResult(res, err))
+			time.Sleep(10 * time.Second)
+			x.Context = context.Background()
+			return x.Get([]string{engineOID})
+		}},
 	}
 
 	// Every Report counter after discovery, unauthenticated to a
