@@ -1541,6 +1541,16 @@ func v3Scenarios() map[string]v3Scenario {
 				return agentAnswer{level: AuthNoPriv, why: "GetResponse with lower engine boots", edit: olderBoots, noise: garbage}, n > 2
 			},
 		},
+		// Every attempt answered with lower boots, then for the same message
+		// signed with another key: the request's error is the time window's.
+		"discard/not-in-time-window-then-wrong-digest": {
+			user: "codec-md5", run: getTwice(nil), script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				return agentAnswer{
+					level: AuthNoPriv, why: "GetResponse with lower engine boots", edit: olderBoots,
+					also: &agentAnswer{level: AuthNoPriv, why: "GetResponse signed with another key", edit: otherAuthKey},
+				}, n > 2
+			},
+		},
 		// Every attempt answered for another message, signed with another key:
 		// nothing answers the request.
 		"discard/other-message-wrong-digest": {user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
