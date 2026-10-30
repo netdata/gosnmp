@@ -53,8 +53,10 @@ func TestEngineV3MaximumBoots(t *testing.T) {
 							// An exhausted authoritative engine always reports a
 							// time-window error (RFC 3414 section 3.2 step 7 a).
 							a.script = func(int, agentRequest) (agentAnswer, bool) {
-								return agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv,
-									why: "engine boots exhausted"}, true
+								return agentAnswer{
+									report: usmStatsNotInTimeWindows, level: AuthNoPriv,
+									why: "engine boots exhausted",
+								}, true
 							}
 						}
 					case "lent-clock-response":
