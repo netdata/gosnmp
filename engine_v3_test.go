@@ -1147,6 +1147,22 @@ func v3Scenarios() map[string]v3Scenario {
 				return agentAnswer{}, false
 			},
 		},
+		// Discovery's unauthenticated time is no notion step 7 checks the
+		// first authenticated answer against.
+		"clock/noauth/verified-after-discovery-time-ahead": {
+			user: "codec-md5", setup: func(x *GoSNMP, _ *UsmSecurityParameters) { x.MsgFlags = NoAuthNoPriv },
+			script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				switch n {
+				case 1:
+					return agentAnswer{report: usmStatsUnknownEngineIDs, why: "unknown engine ID, an engine time 1000 s ahead", edit: func(p *SnmpPacket) {
+						p.SecurityParameters.usm().AuthoritativeEngineTime += 1000
+					}}, true
+				case 2:
+					return agentAnswer{level: AuthNoPriv, why: "authNoPriv answer"}, true
+				}
+				return agentAnswer{}, false
+			},
+		},
 		"clock/set-after-authenticated-answer": {
 			user: "codec-md5", run: getThen(func(*fakeV3Agent) {}, setEngineOID),
 		},

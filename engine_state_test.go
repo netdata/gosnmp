@@ -288,6 +288,25 @@ func TestEngineReconcile(t *testing.T) {
 				return v
 			},
 		},
+		"the caller's boots": {
+			steps: []func(*GoSNMP, *UsmSecurityParameters){
+				authenticatedClock,
+				func(_ *GoSNMP, sp *UsmSecurityParameters) { sp.AuthoritativeEngineBoots = 8 },
+			},
+			want: func(v engineView) engineView {
+				v.clockBoots, v.clockLatest, v.fieldBoots, v.fieldTime = 8, 1010, 8, 1010
+				return v
+			},
+		},
+		"the caller's zero boots and a time": {
+			steps: []func(*GoSNMP, *UsmSecurityParameters){func(_ *GoSNMP, sp *UsmSecurityParameters) {
+				sp.AuthoritativeEngineBoots = 0
+			}},
+			want: func(v engineView) engineView {
+				v.clockBoots, v.fieldBoots = 0, 0
+				return v
+			},
+		},
 		"the caller's zero boots and time are no clock": {
 			steps: []func(*GoSNMP, *UsmSecurityParameters){func(_ *GoSNMP, sp *UsmSecurityParameters) {
 				sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = 0, 0
@@ -659,6 +678,58 @@ func TestEngineResetsClock(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			e := exchange{clock: tc.clock}
 			assert.Equal(t, tc.want, e.resetsClock(tc.boots, tc.engineTime, now))
+		})
+	}
+}
+
+// TestEngineLendClock pins the clock a resync Report lends to a resend
+// (lendEngineParameters): its boots and time, unauthenticated, marked for
+// resetsClock only when it is a notInTimeWindow Report; an unknownEngineIDs
+// Report also lends its engine ID, with keys localized to it.
+func TestEngineLendClock(t *testing.T) {
+	authE2, privE2 := stateKeys(t, "codec-auth-pass", "codec-priv-pass", usmOtherEngineID)
+	tests := map[string]struct {
+		counter    string
+		wantSource clockSource
+		wantEngine string
+		wantKeys   [][]byte
+	}{
+		"notInTimeWindow": {counter: usmStatsNotInTimeWindows, wantSource: fromTimeWindowReport, wantEngine: usmCharEngineID},
+		"unknownEngineIDs": {
+			counter: usmStatsUnknownEngineIDs, wantSource: fromUnauthenticated, wantEngine: usmOtherEngineID,
+			wantKeys: [][]byte{authE2, privE2},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			x := &GoSNMP{Version: Version3, SecurityParameters: &UsmSecurityParameters{
+				UserName:                 "codec-user",
+				AuthenticationProtocol:   SHA,
+				AuthenticationPassphrase: "codec-auth-pass",
+				PrivacyProtocol:          AES,
+				PrivacyPassphrase:        "codec-priv-pass",
+				AuthoritativeEngineID:    usmCharEngineID,
+			}}
+			require.NoError(t, x.reconcileEngine())
+			packet := x.MkSnmpPacket(GetRequest, nil, 0, 0)
+			x.engine.stamp(packet)
+			report := &SnmpPacket{
+				Version: Version3, PDUType: Report, Variables: []SnmpPDU{{Name: tc.counter}},
+				SecurityParameters: &UsmSecurityParameters{
+					AuthoritativeEngineID: usmOtherEngineID, AuthoritativeEngineBoots: 9, AuthoritativeEngineTime: 99,
+				},
+			}
+			kind, _ := reportKindOf(report)
+			before := time.Now()
+			clock, err := x.lendEngineParameters(packet, report, kind)
+			require.NoError(t, err)
+			assert.Equal(t, [3]any{uint32(9), uint32(99), tc.wantSource}, [3]any{clock.boots, clock.latest, clock.source})
+			assert.False(t, clock.received.Before(before), "received at the lend")
+			sp := packet.SecurityParameters.usm()
+			assert.Equal(t, tc.wantEngine, sp.AuthoritativeEngineID)
+			if tc.wantKeys != nil {
+				assert.Equal(t, tc.wantKeys, [][]byte{sp.SecretKey, sp.PrivacyKey})
+			}
 		})
 	}
 }
