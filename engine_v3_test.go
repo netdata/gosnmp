@@ -1108,14 +1108,14 @@ func v3Scenarios() map[string]v3Scenario {
 			return x.Get([]string{engineOID})
 		}},
 
-		// A request without authentication follows the agent's engine.
+		// A GetResponse to a request without authentication naming another
+		// engine ID than the request's answers nothing (RFC 3412 section 7.2
+		// step 12 b): without one, and from another engine to a client given
+		// keys without passphrases.
 		"noauth/answer-without-engine-id": {
 			user: "codec-noauth", run: getTwice(nil),
 			script: onRequest(2, agentAnswer{why: "GetResponse without an engine ID", edit: withoutEngineID}),
 		},
-		// Keys given without passphrases, at noAuthNoPriv: an unauthenticated
-		// answer from another engine, whose keys do not derive, answers without
-		// changing the engine state.
 		"noauth/keys-only-answer-from-other-engine": {
 			user: "codec-md5", setup: func(x *GoSNMP, sp *UsmSecurityParameters) {
 				configuredKeys(agentEngineID)(x, sp)
@@ -1132,7 +1132,7 @@ func v3Scenarios() map[string]v3Scenario {
 		// The parameters of a request without authentication have an
 		// authentication protocol: an authenticated answer from the engine an
 		// unauthenticated Report named checks with the user's key localized to
-		// it.
+		// it, and answers nothing, at another level than the request's.
 		"noauth/lent-engine-authenticated-answer": {
 			user: "codec-md5", setup: func(x *GoSNMP, _ *UsmSecurityParameters) { x.MsgFlags = NoAuthNoPriv },
 			script: func(n int, _ agentRequest) (agentAnswer, bool) {
@@ -1347,7 +1347,6 @@ func v3Scenarios() map[string]v3Scenario {
 			user: "codec-sha-aes", script: onRequest(2, agentAnswer{
 				level: AuthNoPriv, why: "GetResponse without encryption",
 			}),
-			knownBug: "an authNoPriv reply to an authPriv request is accepted (RFC 3412 section 7.2 step 12 b)",
 		},
 		"answer/encrypted-to-authnopriv": {user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
 			return agentAnswer{
@@ -1367,7 +1366,6 @@ func v3Scenarios() map[string]v3Scenario {
 				level: AuthNoPriv, why: "GetResponse in another context",
 				edit: func(p *SnmpPacket) { p.ContextEngineID, p.ContextName = "codec-other-context", "codec-other-name" },
 			}),
-			knownBug: "a GetResponse in another context than the request's is accepted (RFC 3412 section 7.2 step 12 b)",
 		},
 		"answer/other-user/noauth": {
 			user: "codec-noauth", script: onRequest(2, agentAnswer{
@@ -1441,7 +1439,7 @@ func v3Scenarios() map[string]v3Scenario {
 			}),
 		},
 		// A Report carries one varbind (RFC 3412 section 7.1 step 3 d): one with
-		// two is read past.
+		// two, or none, is classified by its first, as net-snmp does.
 		"answer/report-two-varbinds": {
 			user: "codec-noauth", script: onRequest(2, agentAnswer{
 				report: usmStatsNotInTimeWindows, why: "Report with two varbinds",
