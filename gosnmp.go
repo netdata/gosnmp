@@ -466,10 +466,11 @@ func Partition(currentPosition, partitionSize, sliceLength int) bool {
 	return partitionSize > 0 && currentPosition%partitionSize == partitionSize-1
 }
 
-// ToBigInt converts an integer varbind value, of any Go integer type, or a
-// string holding a decimal integer of any size, to a big.Int, and anything
-// else to zero. It saves a type switch over the integer types values decode
-// to.
+// ToBigInt converts an integer varbind value (an int, int8, int16, int32,
+// int64, uint, uint8, uint16, uint32 or uint64, not a uintptr or a named
+// type), or a string holding a decimal integer of any size, to a new big.Int,
+// and anything else to zero. It saves a type switch over the integer types
+// values decode to.
 func ToBigInt(value any) *big.Int {
 	switch value := value.(type) { // shadow
 	case int:

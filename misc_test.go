@@ -140,6 +140,16 @@ func TestToBigInt(t *testing.T) {
 	}
 }
 
+// TestToBigIntFreshValue checks that each call returns a new big.Int, which the
+// caller may change.
+func TestToBigIntFreshValue(t *testing.T) {
+	for _, in := range []any{nil, "foo", "42", 42, uint(42), uint32(42), uint64(42)} {
+		want := new(big.Int).Set(ToBigInt(in))
+		ToBigInt(in).SetInt64(-7)
+		assert.Zero(t, want.Cmp(ToBigInt(in)), "%T %v", in, in)
+	}
+}
+
 // ---------------------------------------------------------------------
 
 var testsSnmpVersionString = []struct {
