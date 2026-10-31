@@ -248,3 +248,35 @@ func TestDecodeUSMFields(t *testing.T) {
 		})
 	}
 }
+
+// TestUnknownPDUTypeError checks the error for a PDU type the package does not
+// know, from SnmpDecodePacket (SNMPv2c and SNMPv3) and UnmarshalTrap.
+func TestUnknownPDUTypeError(t *testing.T) {
+	nullVB := craftedVB(tlv(byte(Null)))
+	pdu := func(tag byte) []byte { return tlv(tag, intTLV(1), intTLV(0), intTLV(0), craftedVBL(nullVB)) }
+	tests := map[string]struct {
+		tag  byte
+		want string
+	}{
+		"undefined context tag": {tag: 0xaf, want: "unknown PDUType 0xaf"},
+		"Sequence":              {tag: 0x30, want: "unknown PDUType 0x30"},
+		"universal tag":         {tag: 0x04, want: "unknown PDUType 0x4"},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := (&GoSNMP{Version: Version2c}).SnmpDecodePacket(craftedMsg(1, pdu(tc.tag)))
+			assert.EqualError(t, err, "unable to decode packet body: "+tc.want, "SNMPv2c")
+
+			v3 := &GoSNMP{
+				Version:            Version3,
+				SecurityModel:      UserSecurityModel,
+				SecurityParameters: &UsmSecurityParameters{UserName: "codec-user"},
+			}
+			_, err = v3.SnmpDecodePacket(craftedV3NoAuth(tlv(0x30, craftedEngineID, octets("ctx"), pdu(tc.tag))))
+			assert.EqualError(t, err, "unable to decode packet body: "+tc.want, "SNMPv3")
+
+			_, err = (&GoSNMP{Version: Version2c}).UnmarshalTrap(craftedMsg(1, pdu(tc.tag)), false)
+			assert.EqualError(t, err, tc.want, "UnmarshalTrap")
+		})
+	}
+}

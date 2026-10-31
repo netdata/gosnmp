@@ -9,30 +9,18 @@ import (
 	"fmt"
 )
 
-// SnmpVersion is the SNMP version of a message, as it is encoded.
+// SnmpVersion is the SNMP version of a message, as it is encoded. Its String
+// is "1", "2c" or "3", and "SnmpVersion(N)" for another value.
 type SnmpVersion uint8
 
 // The SNMP versions.
 const (
-	Version1  SnmpVersion = 0x0
-	Version2c SnmpVersion = 0x1
-	Version3  SnmpVersion = 0x3
+	Version1  SnmpVersion = 0x0 // 1
+	Version2c SnmpVersion = 0x1 // 2c
+	Version3  SnmpVersion = 0x3 // 3
 )
 
-// String returns "1", "2c" or "3". Known bug: it returns "3" for an unknown
-// version too.
-func (s SnmpVersion) String() string {
-	switch s {
-	case Version1:
-		return "1"
-	case Version2c:
-		return "2c"
-	case Version3:
-		return "3"
-	default:
-		return "3"
-	}
-}
+//go:generate go tool -modfile=tools/go.mod stringer -type=SnmpVersion -linecomment
 
 // SnmpPacket is an SNMP message: a request, an answer or a trap. A decoded
 // packet holds the fields the message carried; its SecurityParameters are a

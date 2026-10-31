@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"math/big"
 	"net"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -450,8 +449,8 @@ func (x *GoSNMP) SnmpDecodePacket(resp []byte) (*SnmpPacket, error) {
 // Partition reports whether currentPosition ends a partition when a slice of
 // sliceLength items is cut into partitions of partitionSize, the last one
 // possibly shorter: a loop over many OIDs can send a Get each time it reports
-// true. A position outside the slice reports false. Known bug: a
-// partitionSize of 0 panics for a position inside the slice.
+// true. A position outside the slice reports false. A partitionSize below 1
+// makes the whole slice one partition: only its last position reports true.
 //
 // For a slice of 8 items in partitions of 3, it reports true at 2, 5 and 7:
 //
@@ -461,55 +460,45 @@ func Partition(currentPosition, partitionSize, sliceLength int) bool {
 	if currentPosition < 0 || currentPosition >= sliceLength {
 		return false
 	}
-	if partitionSize == 1 { // redundant, but an obvious optimisation
-		return true
-	}
-	if currentPosition%partitionSize == partitionSize-1 {
-		return true
-	}
 	if currentPosition == sliceLength-1 {
 		return true
 	}
-	return false
+	return partitionSize > 0 && currentPosition%partitionSize == partitionSize-1
 }
 
-// ToBigInt converts an integer varbind value, of any Go integer type, or a
-// string holding a decimal integer, to a big.Int, and anything else to zero.
-// It saves a type switch over the integer types values decode to. Known bug:
-// a uint above math.MaxInt64 converts through int64 and comes out negative.
+// ToBigInt converts an integer varbind value (an int, int8, int16, int32,
+// int64, uint, uint8, uint16, uint32 or uint64, not a uintptr or a named
+// type), or a string holding a decimal integer of any size, to a new big.Int,
+// and anything else to zero. It saves a type switch over the integer types
+// values decode to.
 func ToBigInt(value any) *big.Int {
-	var val int64
-
 	switch value := value.(type) { // shadow
 	case int:
-		val = int64(value)
+		return big.NewInt(int64(value))
 	case int8:
-		val = int64(value)
+		return big.NewInt(int64(value))
 	case int16:
-		val = int64(value)
+		return big.NewInt(int64(value))
 	case int32:
-		val = int64(value)
+		return big.NewInt(int64(value))
 	case int64:
-		val = value
-	case uint:
-		val = int64(value) //nolint:gosec
+		return big.NewInt(value)
 	case uint8:
-		val = int64(value)
+		return big.NewInt(int64(value))
 	case uint16:
-		val = int64(value)
+		return big.NewInt(int64(value))
 	case uint32:
-		val = int64(value)
-	case uint64: // beware: int64(MaxUint64) overflow, handle different
+		return big.NewInt(int64(value))
+	case uint: // may not fit an int64
+		return new(big.Int).SetUint64(uint64(value))
+	case uint64:
 		return new(big.Int).SetUint64(value)
 	case string:
-		// for testing and other apps - numbers may appear as strings
-		var err error
-		if val, err = strconv.ParseInt(value, 10, 64); err != nil {
-			val = 0
+		// The syntax strconv.ParseInt accepts in base 10: an optional sign
+		// and digits.
+		if v, ok := new(big.Int).SetString(value, 10); ok {
+			return v
 		}
-	default:
-		val = 0
 	}
-
-	return big.NewInt(val)
+	return new(big.Int)
 }
