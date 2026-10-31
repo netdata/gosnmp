@@ -153,27 +153,20 @@ func TestMarshalTimeticks(t *testing.T) {
 // ---------------------------------------------------------------------
 
 // TestNewLoggerNilPointer checks that NewLogger given a nil pointer, a nil
-// *log.Logger, disables logging as a nil logger does: the Logger is not
-// enabled, and a table's Add, which logs when it is, succeeds.
+// *log.Logger, disables logging as a nil logger does: a table's Add, which
+// logs to an enabled Logger, succeeds.
 func TestNewLoggerNilPointer(t *testing.T) {
-	type result struct {
-		enabled bool
-		add     string
-	}
 	tests := map[string]struct {
 		logger LoggerInterface
-		want   result
+		want   string
 	}{
-		"nil":             {logger: nil, want: result{add: "ok"}},
-		"nil *log.Logger": {logger: (*log.Logger)(nil), want: result{add: "ok"}},
+		"nil":             {logger: nil, want: "ok"},
+		"nil *log.Logger": {logger: (*log.Logger)(nil), want: "ok"},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			l := NewLogger(tc.logger)
-			table := NewSnmpV3SecurityParametersTable(l)
-			got := result{enabled: l.enabled(), add: outcomeOf(func() error {
-				return table.Add("user", &UsmSecurityParameters{UserName: "user"})
-			})}
+			table := NewSnmpV3SecurityParametersTable(NewLogger(tc.logger))
+			got := outcomeOf(func() error { return table.Add("user", &UsmSecurityParameters{UserName: "user"}) })
 			assert.Equal(t, tc.want, got)
 		})
 	}

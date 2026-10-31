@@ -106,7 +106,8 @@ type GoSNMP struct {
 	ExponentialTimeout bool
 
 	// Logger receives the client's debug output; the zero Logger disables it.
-	// For verbose logging to stdout:
+	// A Logger that panics during a request ends the request (see the package
+	// documentation, Hooks). For verbose logging to stdout:
 	//
 	//	x.Logger = NewLogger(log.New(os.Stdout, "", 0))
 	Logger Logger
