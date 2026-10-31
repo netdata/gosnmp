@@ -524,6 +524,10 @@ var errReplyTooBig = errors.New("response buffer too small")
 // message: no later message can be found on the stream.
 var errLostFraming = errors.New("lost the message framing of the TCP stream")
 
+// errReadCount is the error of a read whose count is outside the buffer it
+// read into: a Conn that breaks the io.Reader contract.
+var errReadCount = errors.New("the connection's read returned a count outside the buffer")
+
 // receiveBuffer is the buffer a client reads replies into. On a TCP stream it
 // also keeps the octets read past the last message receive returned,
 // buf[start:end], the start of the next messages on conn.
@@ -542,7 +546,8 @@ func (c *connection) stream() bool {
 
 // receive reads one reply from the connection into rx and returns a copy: on a
 // TCP stream the next message (readMessage), otherwise a datagram, whose
-// source address is not checked.
+// source address is not checked; a read whose count is outside the buffer
+// fails with errReadCount.
 func (c *connection) receive(rx *receiveBuffer) ([]byte, error) {
 	if c.stream() {
 		return rx.readMessage(c.conn)
@@ -554,6 +559,9 @@ func (c *connection) receive(rx *receiveBuffer) ([]byte, error) {
 		n, _, err = uconn.ReadFrom(rx.buf[:])
 	} else {
 		n, err = c.conn.Read(rx.buf[:])
+	}
+	if n < 0 || n > rxBufSize {
+		return nil, fmt.Errorf("%w: %d", errReadCount, n)
 	}
 	if err != nil {
 		return nil, readError(err)
@@ -573,8 +581,9 @@ func (c *connection) receive(rx *receiveBuffer) ([]byte, error) {
 // buffered for the next call on conn, and so does a message that a read error
 // cuts short: a timeout keeps the stream's framing. A call on another
 // connection than the last call's starts with an empty buffer. Octets that
-// cannot start a message fail with errLostFraming, and a message longer than
-// the buffer with errReplyTooBig: the stream cannot be read on.
+// cannot start a message fail with errLostFraming, a message longer than the
+// buffer with errReplyTooBig, and a read whose count is outside the buffer
+// with errReadCount: the stream cannot be read on.
 func (rx *receiveBuffer) readMessage(conn net.Conn) ([]byte, error) {
 	if !sameConn(rx.conn, conn) {
 		rx.conn, rx.start, rx.end = conn, 0, 0
@@ -602,6 +611,9 @@ func (rx *receiveBuffer) readMessage(conn net.Conn) ([]byte, error) {
 		}
 		var n int
 		n, readErr = conn.Read(rx.buf[rx.end:])
+		if n < 0 || n > rxBufSize-rx.end {
+			return nil, fmt.Errorf("%w: %d", errReadCount, n)
+		}
 		rx.end += n
 	}
 }

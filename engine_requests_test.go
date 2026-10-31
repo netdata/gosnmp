@@ -15,6 +15,7 @@ import (
 	"maps"
 	"net"
 	"os"
+	"os/exec"
 	"regexp"
 	"runtime"
 	"slices"
@@ -1990,6 +1991,112 @@ func dialTCPAgent(t *testing.T, port uint16) net.Conn {
 	conn, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(int(port))))
 	require.NoError(t, err)
 	return conn
+}
+
+// TestRequestPanicNil checks that a hook's panic(nil) ends the request with no
+// packet and an error, by default (a *runtime.PanicNilError) and under
+// GODEBUG=panicnil=1, where recover returns nil: for that setting the test
+// runs itself again in a child process.
+func TestRequestPanicNil(t *testing.T) {
+	child := os.Getenv("GOSNMP_TEST_PANICNIL") != ""
+	if !child {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestRequestPanicNil$", "-test.count=1", "-test.v") //nolint:gosec // the test binary itself
+		cmd.Env = append(os.Environ(), "GOSNMP_TEST_PANICNIL=1", "GODEBUG=panicnil=1")
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "%s", out)
+		require.Contains(t, string(out), "--- PASS: TestRequestPanicNil", "the child ran the test")
+	}
+	x := newEngineClient(t, nil, Version2c, fakePacketTransport{newFakeTransport(nil, answer(sysDescr))})
+	x.PreSend = func(*GoSNMP) { panic(nil) } //nolint:govet // the nil panic is the point
+	res, err := x.Get([]string{engineOID})
+	assert.Nil(t, res)
+	want := "request panicked: runtime error: panic called with nil argument"
+	if child {
+		want = "request panicked: <nil>"
+	}
+	assert.EqualError(t, err, want)
+}
+
+// TestEngineReadCountOutsideBuffer checks, on loopback sockets, a Conn the
+// caller set whose Read breaks the io.Reader contract once, returning a count
+// outside the buffer: the attempt fails as a transport error, which the retry
+// cures (over TCP the connection is lost and opened again), and the client
+// answers the next request.
+func TestEngineReadCountOutsideBuffer(t *testing.T) {
+	type outcome struct {
+		failed  []bool // per request
+		retries int
+		dials   int32 // Connect's and the reopens'
+	}
+	answer := func(req []byte) []byte { return replyTo(req, nil, sysDescr) }
+	tests := map[string]struct {
+		transport string
+		count     func(p []byte) int
+		want      outcome
+	}{
+		"TCP, more than the buffer": {
+			transport: "tcp", count: func(p []byte) int { return len(p) + 1 },
+			want: outcome{failed: []bool{false, false}, retries: 1, dials: 2},
+		},
+		"TCP, negative": {
+			transport: "tcp", count: func([]byte) int { return -1 },
+			want: outcome{failed: []bool{false, false}, retries: 1, dials: 2},
+		},
+		"UDP, more than the buffer": {
+			transport: "udp", count: func(p []byte) int { return len(p) + 1 },
+			want: outcome{failed: []bool{false, false}, retries: 1, dials: 1},
+		},
+		"UDP, negative": {
+			transport: "udp", count: func([]byte) int { return -1 },
+			want: outcome{failed: []bool{false, false}, retries: 1, dials: 1},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			var port uint16
+			if tc.transport == "tcp" {
+				port = tcpAgent(t, false, func(req []byte) ([]byte, bool) { return answer(req), true })
+			} else {
+				port, _ = udpAgent(t, func(_ int, req []byte) []byte { return answer(req) })
+			}
+			var dials atomic.Int32
+			var got outcome
+			x := &GoSNMP{
+				Target: "127.0.0.1", Port: port, Transport: tc.transport, Community: "public", Version: Version2c,
+				Timeout: 300 * time.Millisecond, Retries: 1,
+				Control: func(string, string, syscall.RawConn) error {
+					dials.Add(1)
+					return nil
+				},
+				OnRetry: func(*GoSNMP) { got.retries++ },
+			}
+			require.NoError(t, x.Connect())
+			defer x.Close()
+			x.Conn = &badCountConn{Conn: x.Conn, count: tc.count}
+			for range 2 {
+				_, err := x.Get([]string{engineOID})
+				got.failed = append(got.failed, err != nil)
+			}
+			got.dials = dials.Load()
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// badCountConn is a Conn whose first Read returns count's count without
+// reading, breaking the io.Reader contract; its other calls go to Conn.
+type badCountConn struct {
+	net.Conn
+	count func(p []byte) int
+	done  bool
+}
+
+func (c *badCountConn) Read(p []byte) (int, error) {
+	if !c.done {
+		c.done = true
+		return c.count(p), nil
+	}
+	return c.Conn.Read(p)
 }
 
 // tcpAgent listens on a loopback TCP port and serves each connection with

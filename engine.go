@@ -16,23 +16,32 @@ import (
 	"time"
 )
 
-// send runs a request: for SNMPv3 it first takes the caller's changes into the
-// engine state and discovers the agent's engine when it has none, then sends
-// the request, whose answer commits the engine parameters it carries, and
-// sends the request once more when the answer is a Report that
-// resynchronizes the client with the agent's engine. A panic during the
-// request ends it with no result and requestPanicked's error. The library
-// prevents panics of its own: the recover is for the caller's code (a hook,
-// the Logger, a Conn, Context or dial Control) and for bugs, which would
-// otherwise end the process of a caller that runs requests on a goroutine
-// without a recover.
+// send runs the request packetOut (request) and ends one that panics with no
+// result and requestPanicked's error. The library prevents panics of its own:
+// the recover is for the caller's code the request runs on its goroutine (a
+// hook, the Logger, the methods of a Conn or Context it calls) and for bugs,
+// which would otherwise end the process of a caller that runs requests on a
+// goroutine without a recover. A flag, not recover's value, tells that the
+// request panicked: under GODEBUG=panicnil=1, recover returns nil for
+// panic(nil).
 func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
+	completed := false
 	defer func() {
-		if v := recover(); v != nil {
-			result, err = nil, requestPanicked(v)
+		if !completed {
+			err = requestPanicked(recover())
 		}
 	}()
+	result, err = x.request(packetOut)
+	completed = true
+	return result, err
+}
 
+// request runs a request: for SNMPv3 it first takes the caller's changes into
+// the engine state and discovers the agent's engine when it has none, then
+// sends the request, whose answer commits the engine parameters it carries,
+// and sends the request once more when the answer is a Report that
+// resynchronizes the client with the agent's engine.
+func (x *GoSNMP) request(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 	cfg := x.prepareRequest()
 	if _, _, err = x.clientConnection(&cfg); err != nil {
 		return nil, err
@@ -99,8 +108,9 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 	return result, err
 }
 
-// requestPanicked returns the error of a request that panicked with v: its
-// text names v, and it wraps v when v is an error, a runtime.Error included.
+// requestPanicked returns the error of a request that panicked with v (nil
+// for panic(nil) under GODEBUG=panicnil=1): its text names v, and it wraps v
+// when v is an error, a runtime.Error included.
 func requestPanicked(v any) error {
 	if err, ok := v.(error); ok {
 		return fmt.Errorf("request panicked: %w", err)
