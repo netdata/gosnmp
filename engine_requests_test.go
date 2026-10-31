@@ -979,7 +979,13 @@ func runEngineScenario(t *testing.T, sc engineScenario) string {
 		tr.addf("result: %s", describeEngineResult(res, err))
 	}
 	tr.addConfigChanges(before, x)
-	tr.addf("client after: retries=%d next request id=%d", x.Retries, (x.requestID.Load()+1)&0x7FFFFFFF)
+	after := fmt.Sprintf("client after: retries=%d next request id=%d", x.Retries, (x.requestID.Load()+1)&0x7FFFFFFF)
+	x.mu.Lock()
+	if x.lost != nil {
+		after += ", connection lost"
+	}
+	x.mu.Unlock()
+	tr.addf("%s", after)
 	if sc.knownBug != "" {
 		tr.addf("known bug: %s", sc.knownBug)
 	}
@@ -1938,10 +1944,11 @@ func tcpAgent(t *testing.T, refuseAgain bool, handle func(req []byte) (reply []b
 	return uint16(ln.Addr().(*net.TCPAddr).Port) //nolint:gosec // a TCP port
 }
 
-// serveTCPRequests reads requests from conn, one per read, and hands each to
-// handle, which returns the reply to write, if any, and whether to keep the
-// connection open; conn closes when it is not kept open or the client closes
-// it.
+// serveTCPRequests reads requests from conn, whole ones in each read (the
+// client writes each in one write), and hands each to handle, which returns the
+// reply to write, if any, and whether to keep the connection open; conn closes
+// when it is not kept open, when a read ends inside a request, or when the
+// client closes it.
 func serveTCPRequests(conn net.Conn, handle func(req []byte) (reply []byte, keepOpen bool)) {
 	defer conn.Close()
 	buf := make([]byte, 2048)
@@ -1950,14 +1957,22 @@ func serveTCPRequests(conn net.Conn, handle func(req []byte) (reply []byte, keep
 		if n == 0 || err != nil {
 			return
 		}
-		reply, keepOpen := handle(bytes.Clone(buf[:n]))
-		if reply != nil {
-			if _, err := conn.Write(reply); err != nil {
+		// Requests the client wrote back to back can arrive in one read.
+		r := ber.NewReader(bytes.Clone(buf[:n]))
+		for r.Len() > 0 {
+			rest := r.Rest()
+			if _, _, err := r.Next(); err != nil {
 				return
 			}
-		}
-		if !keepOpen {
-			return
+			reply, keepOpen := handle(rest[:len(rest)-r.Len()])
+			if reply != nil {
+				if _, err := conn.Write(reply); err != nil {
+					return
+				}
+			}
+			if !keepOpen {
+				return
+			}
 		}
 	}
 }

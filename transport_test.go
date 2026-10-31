@@ -1179,6 +1179,10 @@ func TestReadMessage(t *testing.T) {
 			reads: []streamRead{{data: []byte{byte(OctetString), 1, 0}}},
 			calls: 1, want: []string{"error: lost the message framing of the TCP stream: a message starts with 0x04, not a SEQUENCE"},
 		},
+		"not a SEQUENCE, before a length octet arrives": {
+			reads: []streamRead{{data: []byte{byte(OctetString)}}, {err: os.ErrDeadlineExceeded}},
+			calls: 1, want: []string{"error: lost the message framing of the TCP stream: a message starts with 0x04, not a SEQUENCE"},
+		},
 		"a message, then octets that do not start one": {
 			reads: []streamRead{{data: slices.Concat(msg, []byte{byte(Integer), 1, 0})}},
 			calls: 2, want: []string{"30 03 00 01 02", "error: lost the message framing of the TCP stream: a message starts with 0x02, not a SEQUENCE"},

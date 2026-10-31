@@ -205,7 +205,7 @@
 0s    hook OnRecv
 0s    read: EOF
 0s    result: packet nil, error "max retries (0) exceeded: last discarded reply: error parsing SNMP packet version: not an INTEGER" *gosnmp.attemptsError (is io.EOF)
-0s    client after: retries=0 next request id=1002
+0s    client after: retries=0 next request id=1002, connection lost
 
 == requests/answer/garbage-then-valid
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -232,7 +232,7 @@
 0s    hook OnSent
 0s    read: 54 octets, not decodable (error verifying packet sanity: invalid packet length: indefinite length encoding (0x80) is not permitted in SNMP)
 0s    result: packet nil, error "lost the message framing of the TCP stream: invalid packet length: indefinite length encoding (0x80) is not permitted in SNMP" *fmt.wrapErrors
-0s    client after: retries=0 next request id=1002
+0s    client after: retries=0 next request id=1002, connection lost
 
 == requests/answer/joined-tcp
 0s    client: 2c timeout=1s retries=0 exponential=false
@@ -365,7 +365,7 @@
 0s    hook OnSent
 0s    read: 61 octets, not decodable (error verifying packet sanity: invalid packet length: more than 8 length octets)
 0s    result: packet nil, error "lost the message framing of the TCP stream: invalid packet length: more than 8 length octets" *fmt.wrapErrors
-0s    client after: retries=0 next request id=1002
+0s    client after: retries=0 next request id=1002, connection lost
 
 == requests/answer/not-a-response
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -408,7 +408,7 @@
 0s    hook OnSent
 0s    read: 3 octets, not decodable (invalid packet header)
 0s    result: packet nil, error "lost the message framing of the TCP stream: a message starts with 0x04, not a SEQUENCE" *fmt.wrapError
-0s    client after: retries=0 next request id=1002
+0s    client after: retries=0 next request id=1002, connection lost
 
 == requests/answer/other-community
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -635,7 +635,7 @@
 0s    read: 4 octets, not decodable (error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input)
 0s    read: EOF
 0s    result: packet nil, error "max retries (0) exceeded" *gosnmp.attemptsError (is io.EOF)
-0s    client after: retries=0 next request id=1002
+0s    client after: retries=0 next request id=1002, connection lost
 
 == requests/answer/reflected-request
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -782,7 +782,7 @@
 0s    hook OnSent
 0s    read: 65535 octets, not decodable (error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input)
 0s    result: packet nil, error "response buffer too small" *errors.errorString
-0s    client after: retries=0 next request id=1002
+0s    client after: retries=0 next request id=1002, connection lost
 
 == requests/answer/too-big-udp
 0s    client: 2c timeout=1s retries=1 exponential=false

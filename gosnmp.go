@@ -57,7 +57,11 @@ type GoSNMP struct {
 	// Close and a later Connect close it; a connection the caller or a hook
 	// replaces in Conn is the caller's again. Each attempt of a request uses
 	// the connection Conn holds when it starts, which Close interrupts even
-	// after a hook replaced it. Set Conn only while no Close runs.
+	// after a hook replaced it. Set Conn only while no Close runs. Two values
+	// of a type == cannot compare count as one connection: what the client
+	// keeps for one (the lost mark, the octets of a TCP stream read past a
+	// message) holds for the other, so replace such a Conn by a value of
+	// another type, or by Close and Connect.
 	Conn net.Conn
 
 	// Target is the agent's host name or IP address.
