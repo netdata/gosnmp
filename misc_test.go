@@ -182,15 +182,8 @@ func TestBitStringValueAt(t *testing.T) {
 		"last bit of Bytes, BitLength beyond": {
 			value: BitStringValue{Bytes: []byte{0x01}, BitLength: 16}, i: 7, want: "1",
 		},
-		// Known bug: At checks BitLength, not the length of Bytes.
-		"past Bytes": {
-			value: BitStringValue{Bytes: []byte{0xff}, BitLength: 16}, i: 8,
-			want: "panic: runtime error: index out of range [1] with length 1",
-		},
-		"no Bytes": {
-			value: BitStringValue{BitLength: 8}, i: 0,
-			want: "panic: runtime error: index out of range [0] with length 0",
-		},
+		"past Bytes": {value: BitStringValue{Bytes: []byte{0xff}, BitLength: 16}, i: 8, want: "0"},
+		"no Bytes":   {value: BitStringValue{BitLength: 8}, i: 0, want: "0"},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {

@@ -72,12 +72,13 @@ type BitStringValue struct {
 	BitLength int    // length in bits.
 }
 
-// At returns the bit at index i, or 0 when i is out of range.
+// At returns the bit at index i, or 0 when i is out of range: below 0, at or
+// above BitLength, or past Bytes.
 func (b BitStringValue) At(i int) int {
-	if i < 0 || i >= b.BitLength {
+	x := i / 8
+	if i < 0 || i >= b.BitLength || x >= len(b.Bytes) {
 		return 0
 	}
-	x := i / 8
 	y := 7 - uint(i%8)
 	return int(b.Bytes[x]>>y) & 1
 }
