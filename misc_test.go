@@ -178,6 +178,7 @@ func TestBitStringValueAt(t *testing.T) {
 		"last bit of the first byte": {value: bits, i: 7, want: "1"},
 		"last bit":                   {value: bits, i: 8, want: "1"},
 		"below 0":                    {value: bits, i: -1, want: "0"},
+		"a byte below 0":             {value: bits, i: -8, want: "0"},
 		"at BitLength":               {value: bits, i: 9, want: "0"},
 		"last bit of Bytes, BitLength beyond": {
 			value: BitStringValue{Bytes: []byte{0x01}, BitLength: 16}, i: 7, want: "1",
