@@ -152,9 +152,9 @@ func TestMarshalTimeticks(t *testing.T) {
 
 // ---------------------------------------------------------------------
 
-// TestNewLoggerNilPointer pins what NewLogger given a nil pointer, a nil
-// *log.Logger, does: whether the Logger is enabled, and a table's Add, which
-// logs when it is.
+// TestNewLoggerNilPointer checks that NewLogger given a nil pointer, a nil
+// *log.Logger, disables logging as a nil logger does: the Logger is not
+// enabled, and a table's Add, which logs when it is, succeeds.
 func TestNewLoggerNilPointer(t *testing.T) {
 	type result struct {
 		enabled bool
@@ -165,7 +165,7 @@ func TestNewLoggerNilPointer(t *testing.T) {
 		want   result
 	}{
 		"nil":             {logger: nil, want: result{add: "ok"}},
-		"nil *log.Logger": {logger: (*log.Logger)(nil), want: result{enabled: true, add: "panic: runtime error: invalid memory address or nil pointer dereference"}},
+		"nil *log.Logger": {logger: (*log.Logger)(nil), want: result{add: "ok"}},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {

@@ -114,7 +114,8 @@ type GoSNMP struct {
 	// The message hooks are called at points of a request, each with the
 	// client, for example to time requests, count them or trace them. The
 	// package documentation gives their order. A request calls the hooks set
-	// when it starts.
+	// when it starts; a hook that panics ends the request (see the package
+	// documentation, Hooks).
 	//
 	// PreSend is called in each attempt after the request is encoded, before
 	// it is written.
@@ -414,8 +415,8 @@ func (x *GoSNMP) SnmpDecodePacket(resp []byte) (*SnmpPacket, error) {
 		return result, err
 	}
 	result.Logger = x.Logger
-	if x.SecurityParameters != nil {
-		result.SecurityParameters = x.SecurityParameters.Copy()
+	if sp := usmOf(x.SecurityParameters); sp != nil {
+		result.SecurityParameters = sp.Copy()
 	}
 
 	cursor, w, err := unmarshalHeader(resp, result)

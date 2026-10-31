@@ -83,11 +83,12 @@ func (x *GoSNMP) validateParametersV3() error {
 	if x.SecurityModel != UserSecurityModel {
 		return errors.New("the SNMPV3 User Security Model is the only SNMPV3 security model currently implemented")
 	}
-	if x.SecurityParameters == nil {
+	sp := usmOf(x.SecurityParameters)
+	if sp == nil {
 		return errors.New("SNMPV3 SecurityParameters must be set")
 	}
 
-	return x.SecurityParameters.usm().validate(x.MsgFlags)
+	return sp.validate(x.MsgFlags)
 }
 
 // sign writes the digest of the marshalled SNMPv3 message msg into the

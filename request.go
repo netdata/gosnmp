@@ -12,12 +12,13 @@ import (
 
 // MkSnmpPacket builds a request or trap packet of pdutype with the variable
 // bindings pdus from the client's version, community, SNMPv3 flags, security
-// model, a copy of its security parameters and its context; maxRepetitions is
-// kept with its top bit cleared.
+// model, a copy of its security parameters (none for a nil
+// *UsmSecurityParameters) and its context; maxRepetitions is kept with its top
+// bit cleared.
 func (x *GoSNMP) MkSnmpPacket(pdutype PDUType, pdus []SnmpPDU, nonRepeaters uint8, maxRepetitions uint32) *SnmpPacket {
 	var newSecParams SnmpV3SecurityParameters
-	if x.SecurityParameters != nil {
-		newSecParams = x.SecurityParameters.Copy()
+	if sp := usmOf(x.SecurityParameters); sp != nil {
+		newSecParams = sp.Copy()
 	}
 	return &SnmpPacket{
 		Version:            x.Version,

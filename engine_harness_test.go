@@ -544,14 +544,11 @@ var engineSentinels = []struct {
 	{"ErrWrongDigest", ErrWrongDigest},
 }
 
-// describeEngineError gives the text of err, cut before a recovered panic's
-// stack, and what it is: the sentinels it matches and whether it is a timeout
-// net.Error, as callers that classify errors see it.
+// describeEngineError gives the text of err and what it is: the sentinels it
+// matches and whether it is a timeout net.Error, as callers that classify
+// errors see it.
 func describeEngineError(err error) string {
-	text, _, stack := strings.Cut(err.Error(), " Stack:")
-	if stack {
-		text += " Stack: ..."
-	}
+	text := err.Error()
 	var equals, is []string
 	for _, s := range engineSentinels {
 		switch {

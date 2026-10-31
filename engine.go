@@ -12,7 +12,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"runtime"
 	"strings"
 	"time"
 )
@@ -21,19 +20,16 @@ import (
 // engine state and discovers the agent's engine when it has none, then sends
 // the request, whose answer commits the engine parameters it carries, and
 // sends the request once more when the answer is a Report that
-// resynchronizes the client with the agent's engine. Every result it returns
-// passes through its named results, which the recover below returns when a
-// panic, user code's included, ends the request.
+// resynchronizes the client with the agent's engine. A panic during the
+// request ends it with no result and requestPanicked's error. The library
+// prevents panics of its own: the recover is for the caller's code (a hook,
+// the Logger, a Conn, Context or dial Control) and for bugs, which would
+// otherwise end the process of a caller that runs requests on a goroutine
+// without a recover.
 func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
-	// Known bug: a panic becomes the request's error, with the stacks of all
-	// goroutines in its text (8 KB, NUL-padded), and the result the request had
-	// when it panicked.
 	defer func() {
-		if e := recover(); e != nil {
-			buf := make([]byte, 8192)
-			runtime.Stack(buf, true)
-
-			err = fmt.Errorf("recover: %v Stack:%v", e, string(buf))
+		if v := recover(); v != nil {
+			result, err = nil, requestPanicked(v)
 		}
 	}()
 
@@ -79,10 +75,8 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 	// client committed from an authenticated Report, or with those of an
 	// unauthenticated one in the request only, when mayLend allows it: the
 	// answer brings the agent's, which the client commits. A Report that
-	// cannot resynchronize the request ends it with its error. The
-	// retransmission's result goes into the named result, which a recovered
-	// panic returns; a resync Report answering it ends the request with its
-	// error.
+	// cannot resynchronize the request ends it with its error, and so does a
+	// resync Report answering the retransmission.
 	if x.Logger.enabled() {
 		x.Logger.Print("WARNING detected " + kind.name + " ERROR")
 	}
@@ -103,6 +97,15 @@ func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 		return result, kind.err
 	}
 	return result, err
+}
+
+// requestPanicked returns the error of a request that panicked with v: its
+// text names v, and it wraps v when v is an error, a runtime.Error included.
+func requestPanicked(v any) error {
+	if err, ok := v.(error); ok {
+		return fmt.Errorf("request panicked: %w", err)
+	}
+	return fmt.Errorf("request panicked: %v", v)
 }
 
 // resyncKindOf returns the kind of result, an answer, when it is a Report;

@@ -108,6 +108,13 @@
 // the request, and one resend (see below). A request calls the hooks set when
 // it starts.
 //
+// A panic during a request, in a hook, in the Logger, or in a Conn, Context or
+// Control the caller gave, ends the request: it returns no packet and an error
+// whose text starts with "request panicked: " and that wraps the panic's
+// value when it is an error, so that [errors.Is] and [errors.As] reach it (a
+// [runtime.Error] included). The client stays usable. A panic in a [WalkFunc]
+// is not recovered: it reaches the walk's caller.
+//
 // # SNMPv3
 //
 // The client keeps what it knows of the agent's engine, its engine state (RFC

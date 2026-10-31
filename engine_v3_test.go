@@ -838,7 +838,6 @@ func v3Scenarios() map[string]v3Scenario {
 			run: onLogging("ERROR out-of-time-window retransmit error: unknown username", func(*GoSNMP) {
 				panic("logger failure")
 			}),
-			knownBug: "send recovers a panic into an error, with the result the request had when it panicked",
 		},
 		"hooks/onrecv-lowers-msg-flags": {
 			user: "codec-md5", script: onRequest(2, agentAnswer{
@@ -906,7 +905,6 @@ func v3Scenarios() map[string]v3Scenario {
 				}
 				return x.Get([]string{engineOID})
 			},
-			knownBug: "send recovers a panic into an error, with the result the request had when it panicked",
 		},
 		"resync/security-model-changed-by-hook": {
 			user:   "codec-md5",

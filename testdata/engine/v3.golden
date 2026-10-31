@@ -4227,9 +4227,8 @@
 0s    read from 127.0.0.2:161: 3 msgID=2003 noAuthNoPriv user="codec-noauth" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 context="\x80\x00\x1f\x88\x04codec-agent"/"" Report id=1003 [.1.3.6.1.6.3.15.1.1.3.0=Counter32:1]
 0s    hook OnRecv
 0s    Logger is given "ERROR out-of-time-window retransmit error: unknown username"
-0s    result: packet 3 msgID=2003 noAuthNoPriv Report id=1003 context="\x80\x00\x1f\x88\x04codec-agent"/"" usm="codec-noauth"/"\x80\x00\x1f\x88\x04codec-agent"/7/1000 [.1.3.6.1.6.3.15.1.1.3.0=Counter32:1], error "recover: logger failure Stack: ..." *errors.errorString
+0s    result: packet nil, error "request panicked: logger failure" *errors.errorString
 0s    client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 keys=none context engine="\x80\x00\x1f\x88\x04codec-agent"
-0s    known bug: send recovers a panic into an error, with the result the request had when it panicked
 
 == v3/hooks/logger-sets-context-engine-id
 0s    client: user="codec-md5" authNoPriv timeout=1s retries=2
@@ -4301,7 +4300,7 @@
 0s    hook OnRecv
 0s    hook OnFinish
 0s    hook OnFinish panics after the discovery
-0s    first request: packet nil, error "recover: the caller's code failed Stack: ..." *errors.errorString
+0s    first request: packet nil, error "request panicked: the caller's code failed" *fmt.wrapError
 10s   deadline +1s
 10s   hook PreSend
 10s   write #2: 3 msgID=2002 authNoPriv+reportable user="codec-md5" engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1010 context="\x80\x00\x1f\x88\x04codec-agent"/"" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
@@ -5817,9 +5816,8 @@
 0s    deadline +1s
 0s    hook PreSend
 0s    hook PreSend panics in the retransmission
-0s    result: packet 3 msgID=2002 authNoPriv Report id=1002 context="\x80\x00\x1f\x88\x04codec-agent"/"" usm="codec-md5"/"\x80\x00\x1f\x88\x04codec-agent"/7/1000 [.1.3.6.1.6.3.15.1.1.2.0=Counter32:1], error "recover: hook failure Stack: ..." *errors.errorString
+0s    result: packet nil, error "request panicked: hook failure" *errors.errorString
 0s    client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
-0s    known bug: send recovers a panic into an error, with the result the request had when it panicked
 
 == v3/resync/report-for-other-request-id
 0s    client: user="codec-md5" authNoPriv timeout=1s retries=2

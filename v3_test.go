@@ -36,9 +36,9 @@ func TestMsgFlagsPredicates(t *testing.T) {
 	}
 }
 
-// TestNilSecurityParameters pins what a nil *UsmSecurityParameters in
-// SecurityParameters, an interface that holds it and so is not nil, does where
-// the field is read.
+// TestNilSecurityParameters checks that a nil *UsmSecurityParameters in
+// SecurityParameters, an interface that holds it and so is not nil, counts as
+// no parameters wherever the field is read, as a nil interface does.
 func TestNilSecurityParameters(t *testing.T) {
 	encode := func(version SnmpVersion, pduType PDUType) []byte {
 		msg, err := (&GoSNMP{Version: version, Community: "public"}).SnmpEncodePacket(pduType,
@@ -51,49 +51,44 @@ func TestNilSecurityParameters(t *testing.T) {
 		_, err := x.Get([]string{engineOID})
 		return err
 	}
+	const (
+		errMustBeSet = "error: SNMPV3 SecurityParameters must be set"
+		errNoneToAdd = "error: no security parameters to add for the key user"
+	)
 	tests := map[string]struct {
 		version SnmpVersion
 		run     func(x *GoSNMP) error
 		want    string
 	}{
-		"SNMPv2c Get": {
-			version: Version2c, run: get,
-			want: "panic: runtime error: invalid memory address or nil pointer dereference",
-		},
-		"SNMPv3 Get": {
-			version: Version3, run: get,
-			want: "panic: runtime error: invalid memory address or nil pointer dereference",
-		},
-		"SNMPv3 Connect": {
-			version: Version3, run: func(x *GoSNMP) error { return x.Connect() },
-			want: "panic: runtime error: invalid memory address or nil pointer dereference",
-		},
+		"SNMPv2c Get":    {version: Version2c, run: get, want: "error: request timeout (after 0 retries)"},
+		"SNMPv3 Get":     {version: Version3, run: get, want: errMustBeSet},
+		"SNMPv3 Connect": {version: Version3, run: func(x *GoSNMP) error { return x.Connect() }, want: errMustBeSet},
 		"SNMPv3 SnmpEncodePacket": {version: Version3, run: func(x *GoSNMP) error {
 			_, err := x.SnmpEncodePacket(GetRequest, []SnmpPDU{{Name: engineOID, Type: Null}}, 0, 0)
 			return err
-		}, want: "panic: runtime error: invalid memory address or nil pointer dereference"},
+		}, want: errMustBeSet},
 		"SNMPv2c SnmpDecodePacket": {version: Version2c, run: func(x *GoSNMP) error {
 			_, err := x.SnmpDecodePacket(request)
 			return err
-		}, want: "panic: runtime error: invalid memory address or nil pointer dereference"},
+		}, want: "ok"},
 		"SNMPv3 SnmpDecodePacket": {version: Version3, run: func(x *GoSNMP) error {
 			_, err := x.SnmpDecodePacket(request)
 			return err
-		}, want: "panic: runtime error: invalid memory address or nil pointer dereference"},
+		}, want: errMustBeSet},
 		"SNMPv2c UnmarshalTrap": {version: Version2c, run: func(x *GoSNMP) error {
 			_, err := x.UnmarshalTrap(trap, false)
 			return err
-		}, want: "panic: runtime error: invalid memory address or nil pointer dereference"},
+		}, want: "ok"},
 		"table Add": {run: func(*GoSNMP) error {
 			return NewSnmpV3SecurityParametersTable(Logger{}).Add("user", (*UsmSecurityParameters)(nil))
-		}, want: "panic: runtime error: invalid memory address or nil pointer dereference"},
+		}, want: errNoneToAdd},
 		"table Add of a nil interface": {run: func(*GoSNMP) error {
 			return NewSnmpV3SecurityParametersTable(Logger{}).Add("user", nil)
-		}, want: "panic: runtime error: invalid memory address or nil pointer dereference"},
+		}, want: errNoneToAdd},
 		"packet SafeString": {run: func(*GoSNMP) error {
 			_ = (&SnmpPacket{SecurityParameters: (*UsmSecurityParameters)(nil)}).SafeString()
 			return nil
-		}, want: "panic: runtime error: invalid memory address or nil pointer dereference"},
+		}, want: "ok"},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
