@@ -1507,6 +1507,162 @@
 0s    result: packet nil, error "recover: codec hook failure Stack: ..." *errors.errorString
 0s    client after: retries=2 next request id=1002
 
+== requests/hook-panics/conn-read
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    the Conn's read #1 panics
+0s    first request: packet nil, error "recover: the caller's code failed Stack: ..." *errors.errorString
+0s    first request's error: matches the caller's error false, a runtime.Error false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #2 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    client after: retries=2 next request id=1003
+
+== requests/hook-panics/logger
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    Logger panics at "GET RESPONSE OK"
+0s    first request: packet nil, error "recover: the caller's code failed Stack: ..." *errors.errorString
+0s    first request's error: matches the caller's error false, a runtime.Error false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #2 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    client after: retries=2 next request id=1003
+
+== requests/hook-panics/onfinish
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    hook OnFinish panics
+0s    first request: packet nil, error "recover: the caller's code failed Stack: ..." *errors.errorString
+0s    first request's error: matches the caller's error false, a runtime.Error false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #2 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    client after: retries=2 next request id=1003
+
+== requests/hook-panics/onrecv
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnRecv panics
+0s    first request: packet nil, error "recover: the caller's code failed Stack: ..." *errors.errorString
+0s    first request's error: matches the caller's error false, a runtime.Error false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #2 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    client after: retries=2 next request id=1003
+
+== requests/hook-panics/onretry
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    hook OnSent
+1s    read from 127.0.0.2:161: deadline
+1s    hook OnRetry
+1s    hook OnRetry panics
+1s    first request: packet nil, error "recover: the caller's code failed Stack: ..." *errors.errorString
+1s    first request's error: matches the caller's error false, a runtime.Error false
+1s    deadline +1s
+1s    hook PreSend
+1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+1s    agent answers #2 after 0s
+1s    hook OnSent
+1s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+1s    hook OnRecv
+1s    hook OnFinish
+1s    result: packet 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+1s    client after: retries=2 next request id=1003
+
+== requests/hook-panics/onsent-runtime-error
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    hook OnSent panics
+0s    first request: packet nil, error "recover: assignment to entry in nil map Stack: ..." *errors.errorString
+0s    first request's error: matches the caller's error false, a runtime.Error false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #2 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    client after: retries=2 next request id=1003
+
+== requests/hook-panics/presend-error
+0s    client: 2c timeout=1s retries=2 exponential=false
+0s    deadline +1s
+0s    hook PreSend
+0s    hook PreSend panics
+0s    first request: packet nil, error "recover: the caller's code failed Stack: ..." *errors.errorString
+0s    first request's error: matches the caller's error false, a runtime.Error false
+0s    deadline +1s
+0s    hook PreSend
+0s    write #1: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent answers #1 after 0s
+0s    hook OnSent
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    client after: retries=2 next request id=1003
+
 == requests/hooks/retry-cancels-context
 0s    client: 2c timeout=1s retries=2 exponential=false
 0s    deadline +1s

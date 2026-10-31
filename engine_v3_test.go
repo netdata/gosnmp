@@ -871,6 +871,26 @@ func v3Scenarios() map[string]v3Scenario {
 			},
 		},
 
+		// A panic after the discovery's commit ends the request; the next
+		// request uses the engine state the discovery committed.
+		"hooks/onfinish-panics-after-discovery": {
+			user: "codec-md5",
+			run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+				onFinish, calls := x.OnFinish, 0
+				x.OnFinish = func(x *GoSNMP) {
+					onFinish(x)
+					if calls++; calls == 1 {
+						a.tr.addf("hook OnFinish panics after the discovery")
+						panicWithError()
+					}
+				}
+				res, err := x.Get([]string{engineOID})
+				a.tr.addf("first request: %s", describeEngineResult(res, err))
+				time.Sleep(10 * time.Second)
+				return x.Get([]string{engineOID})
+			},
+		},
+
 		// send's resynchronization after a notInTimeWindow Report.
 		"resync/panic-in-retransmission": {
 			user:   "codec-md5",

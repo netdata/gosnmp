@@ -136,6 +136,46 @@ func answerFrom(first int, vbs ...SnmpPDU) engineAgent {
 	}
 }
 
+// errCallerFailure is what the caller's code panics with in the panic
+// scenarios.
+var errCallerFailure = errors.New("the caller's code failed")
+
+// panicWithError panics with errCallerFailure.
+func panicWithError() { panic(errCallerFailure) }
+
+// panicOnNilMap panics with a runtime error: an assignment to a nil map.
+func panicOnNilMap() {
+	var m map[string]int
+	m["hook"]++ //nolint:staticcheck // the runtime error is the point
+}
+
+// panicOnce makes the hook *h, which the transcript names name, panic through
+// fail the first time it runs, after doing what it did before.
+func panicOnce(c *fakeTransport, name string, h *func(*GoSNMP), fail func()) {
+	next, armed := *h, true
+	*h = func(x *GoSNMP) {
+		next(x)
+		if armed {
+			armed = false
+			c.tr.addf("hook %s panics", name)
+			fail()
+		}
+	}
+}
+
+// getAfterPanic runs a Get in which the caller's code panics (the scenario's
+// setup arms it), records its result and what its error matches, then runs a
+// second Get on the same client, whose result it returns.
+func getAfterPanic(x *GoSNMP) (*SnmpPacket, error) {
+	tr := x.Conn.(fakePacketTransport).tr
+	res, err := x.Get([]string{engineOID})
+	tr.addf("first request: %s", describeEngineResult(res, err))
+	var re runtime.Error
+	tr.addf("first request's error: matches the caller's error %t, a runtime.Error %t", errors.Is(err, errCallerFailure),
+		errors.As(err, &re))
+	return x.Get([]string{engineOID})
+}
+
 // answerRaw is an agent that answers every request with its sysDescr reply
 // changed by edit as encoded octets.
 func answerRaw(edit func(reply []byte) []byte) engineAgent {
@@ -897,6 +937,43 @@ func engineScenarios() map[string]engineScenario {
 		// Hooks.
 		"hook-panics": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) {
 			x.PreSend = func(*GoSNMP) { panic("codec hook failure") }
+		}},
+
+		// The caller's code panics in a request, which ends; the next request
+		// on the client is answered.
+		"hook-panics/presend-error": {agent: answer(sysDescr), run: getAfterPanic, setup: func(x *GoSNMP, c *fakeTransport) {
+			panicOnce(c, "PreSend", &x.PreSend, panicWithError)
+		}},
+		"hook-panics/onsent-runtime-error": {agent: answer(sysDescr), run: getAfterPanic, setup: func(x *GoSNMP, c *fakeTransport) {
+			panicOnce(c, "OnSent", &x.OnSent, panicOnNilMap)
+		}},
+		"hook-panics/onrecv": {agent: answer(sysDescr), run: getAfterPanic, setup: func(x *GoSNMP, c *fakeTransport) {
+			panicOnce(c, "OnRecv", &x.OnRecv, panicWithError)
+		}},
+		"hook-panics/onretry": {agent: answerFromSecond(sysDescr), run: getAfterPanic, setup: func(x *GoSNMP, c *fakeTransport) {
+			panicOnce(c, "OnRetry", &x.OnRetry, panicWithError)
+		}},
+		"hook-panics/onfinish": {agent: answer(sysDescr), run: getAfterPanic, setup: func(x *GoSNMP, c *fakeTransport) {
+			panicOnce(c, "OnFinish", &x.OnFinish, panicWithError)
+		}},
+		"hook-panics/logger": {agent: answer(sysDescr), run: getAfterPanic, setup: func(x *GoSNMP, c *fakeTransport) {
+			armed := true
+			x.Logger = NewLogger(funcLogger(func(s string) {
+				if armed && strings.HasPrefix(s, "GET RESPONSE OK") {
+					armed = false
+					c.tr.addf("Logger panics at %q", "GET RESPONSE OK")
+					panicWithError()
+				}
+			}))
+		}},
+		"hook-panics/conn-read": {agent: answer(sysDescr), run: getAfterPanic, setup: func(_ *GoSNMP, c *fakeTransport) {
+			c.failRead = func(n int) error {
+				if n == 1 {
+					c.tr.addf("the Conn's read #1 panics")
+					panicWithError()
+				}
+				return nil
+			}
 		}},
 	}
 

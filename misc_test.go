@@ -5,6 +5,7 @@
 package gosnmp
 
 import (
+	"log"
 	"math"
 	"math/big"
 	"strconv"
@@ -150,3 +151,30 @@ func TestMarshalTimeticks(t *testing.T) {
 */
 
 // ---------------------------------------------------------------------
+
+// TestNewLoggerNilPointer pins what NewLogger given a nil pointer, a nil
+// *log.Logger, does: whether the Logger is enabled, and a table's Add, which
+// logs when it is.
+func TestNewLoggerNilPointer(t *testing.T) {
+	type result struct {
+		enabled bool
+		add     string
+	}
+	tests := map[string]struct {
+		logger LoggerInterface
+		want   result
+	}{
+		"nil":             {logger: nil, want: result{add: "ok"}},
+		"nil *log.Logger": {logger: (*log.Logger)(nil), want: result{enabled: true, add: "panic: runtime error: invalid memory address or nil pointer dereference"}},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			l := NewLogger(tc.logger)
+			table := NewSnmpV3SecurityParametersTable(l)
+			got := result{enabled: l.enabled(), add: outcomeOf(func() error {
+				return table.Add("user", &UsmSecurityParameters{UserName: "user"})
+			})}
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
