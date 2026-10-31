@@ -614,6 +614,14 @@ func engineScenarios() map[string]engineScenario {
 				return []agentReply{{data: replySized(req, rxBufSize)}}
 			},
 		},
+		// A datagram that fills the receive buffer, which may have been cut
+		// short: the attempt fails, and the retry uses the same socket.
+		"answer/too-big-udp": {
+			setup: func(x *GoSNMP, _ *fakeTransport) { x.Retries = 1 },
+			agent: func(_ int, req []byte) []agentReply {
+				return []agentReply{{data: replySized(req, rxBufSize)}}
+			},
+		},
 		// A message declaring 65536 content octets.
 		"answer/too-big-tcp": {
 			shape: shapeStream,
