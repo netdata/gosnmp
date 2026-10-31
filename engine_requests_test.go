@@ -146,6 +146,42 @@ func answerRaw(edit func(reply []byte) []byte) engineAgent {
 
 var sysDescr = SnmpPDU{Name: engineOID, Type: OctetString, Value: []byte("codec agent")}
 
+// framedGarbage is a whole message that does not decode: a SEQUENCE holding a
+// NULL.
+var framedGarbage = []byte{byte(Sequence), 2, byte(Null), 0}
+
+// answerSplit is an agent that answers every request with its reply with vb,
+// cut at the offsets cuts, its parts 10ms apart: on a stream, a read each.
+func answerSplit(vb SnmpPDU, cuts ...int) engineAgent {
+	return func(_ int, req []byte) []agentReply {
+		r := replyTo(req, nil, vb)
+		parts := make([]agentReply, 0, len(cuts)+1)
+		from := 0
+		for _, cut := range cuts {
+			parts = append(parts, agentReply{data: r[from:cut], after: time.Duration(len(parts)) * 10 * time.Millisecond})
+			from = cut
+		}
+		return append(parts, agentReply{data: r[from:], after: time.Duration(len(parts)) * 10 * time.Millisecond})
+	}
+}
+
+// replySized is the reply to req of size octets, with one OctetString value.
+func replySized(req []byte, size int) []byte {
+	n := size - 100
+	for {
+		r := replyTo(req, nil, SnmpPDU{Name: engineOID, Type: OctetString, Value: bytes.Repeat([]byte{'x'}, n)})
+		if len(r) == size {
+			return r
+		}
+		n += size - len(r)
+	}
+}
+
+// overTCP readies a stream scenario's client for TCP with retries.
+func overTCP(retries int) func(*GoSNMP, *fakeTransport) {
+	return func(x *GoSNMP, _ *fakeTransport) { x.Transport, x.Retries = "tcp", retries }
+}
+
 // errorStatusOutOfRange is the sysDescr reply to req, its request ID raised by
 // idDelta, with the error status -1: the request ID decodes, then the PDU
 // fails.
@@ -485,9 +521,18 @@ func engineScenarios() map[string]engineScenario {
 		"answer/undecodable-other-request": {agent: func(_ int, req []byte) []agentReply {
 			return []agentReply{{data: errorStatusOutOfRange(req, 100)}}
 		}},
-		// A datagram that does not decode, then the agent closes the TCP
+		// A whole message that does not decode, then the agent closes the TCP
 		// connection: the request's error names the discard.
 		"answer/garbage-then-eof-tcp": {
+			shape: shapeStream,
+			setup: func(x *GoSNMP, c *fakeTransport) {
+				x.Transport, x.Retries = "tcp", 0
+				c.failRead = func(n int) error { return map[int]error{2: io.EOF}[n] }
+			},
+			agent: func(int, []byte) []agentReply { return []agentReply{{data: framedGarbage}} },
+		},
+		// The start of a message, then the agent closes the TCP connection.
+		"answer/partial-then-eof-tcp": {
 			shape: shapeStream,
 			setup: func(x *GoSNMP, c *fakeTransport) {
 				x.Transport, x.Retries = "tcp", 0
@@ -496,33 +541,119 @@ func engineScenarios() map[string]engineScenario {
 			agent: func(int, []byte) []agentReply { return []agentReply{{data: garbage}} },
 		},
 		"answer/split-tcp": {
-			shape: shapeStream,
-			setup: func(x *GoSNMP, _ *fakeTransport) { x.Transport, x.Retries = "tcp", 0 },
-			agent: func(_ int, req []byte) []agentReply {
-				r := replyTo(req, nil, sysDescr)
-				return []agentReply{{data: r[:10]}, {data: r[10:], after: 10 * time.Millisecond}}
-			},
+			shape:    shapeStream,
+			setup:    overTCP(0),
+			agent:    answerSplit(sysDescr, 10),
 			knownBug: "a TCP reply must arrive in one read",
 		},
+		// A reply whose length takes a long form, split after its tag and
+		// inside its length octets.
+		"answer/split-header-tcp": {
+			shape: shapeStream,
+			setup: overTCP(0),
+			agent: answerSplit(SnmpPDU{Name: engineOID, Type: OctetString, Value: bytes.Repeat([]byte{'x'}, 200)}, 1, 2, 3),
+		},
+		// The reply to the first attempt arrives in two parts, the second
+		// after the first attempt's deadline.
+		"answer/split-across-attempts-tcp": {
+			shape: shapeStream,
+			setup: overTCP(1),
+			agent: func(n int, req []byte) []agentReply {
+				if n > 1 {
+					return nil
+				}
+				r := replyTo(req, nil, sysDescr)
+				return []agentReply{{data: r[:10]}, {data: r[10:], after: 1500 * time.Millisecond}}
+			},
+		},
+		// A reply to another request and the reply in one read.
+		"answer/joined-tcp": {
+			shape: shapeStream,
+			setup: overTCP(0),
+			agent: func(_ int, req []byte) []agentReply {
+				stale := replyTo(req, func(p *SnmpPacket) { p.RequestID += 100 }, sysDescr)
+				return []agentReply{{data: slices.Concat(stale, replyTo(req, nil, sysDescr))}}
+			},
+		},
+		// Two requests: the first times out with the start of its reply, the
+		// second reads the rest of it and its own reply in one read.
+		"answer/leftover-next-request-tcp": func() engineScenario {
+			var first []byte
+			return engineScenario{
+				shape: shapeStream,
+				setup: overTCP(0),
+				agent: func(n int, req []byte) []agentReply {
+					r := replyTo(req, nil, sysDescr)
+					if n == 1 {
+						first = r
+						return []agentReply{{data: r[:10]}}
+					}
+					return []agentReply{{data: slices.Concat(first[10:], r)}}
+				},
+				run: func(x *GoSNMP) (*SnmpPacket, error) {
+					if _, err := x.Get([]string{engineOID}); err == nil {
+						return nil, errors.New("the first Get was answered")
+					}
+					return x.Get([]string{engineOID})
+				},
+			}
+		}(),
 		"answer/largest-tcp": {
 			shape: shapeStream,
 			setup: func(x *GoSNMP, _ *fakeTransport) { x.Transport = "tcp" },
 			agent: func(_ int, req []byte) []agentReply {
 				// The largest reply the receive buffer accepts.
-				size := rxBufSize - 100
-				for {
-					r := replyTo(req, nil, SnmpPDU{Name: engineOID, Type: OctetString, Value: bytes.Repeat([]byte{'x'}, size)})
-					if len(r) == rxBufSize-1 {
-						return []agentReply{{data: r}}
-					}
-					size += rxBufSize - 1 - len(r)
-				}
+				return []agentReply{{data: replySized(req, rxBufSize-1)}}
 			},
 		},
+		// A reply as large as the receive buffer.
+		"answer/buffer-size-tcp": {
+			shape: shapeStream,
+			setup: overTCP(0),
+			agent: func(_ int, req []byte) []agentReply {
+				return []agentReply{{data: replySized(req, rxBufSize)}}
+			},
+		},
+		// A message declaring 65536 content octets.
 		"answer/too-big-tcp": {
 			shape: shapeStream,
-			setup: func(x *GoSNMP, _ *fakeTransport) { x.Transport = "tcp" },
-			agent: func(int, []byte) []agentReply { return []agentReply{{data: make([]byte, rxBufSize+10)}} },
+			setup: overTCP(0),
+			agent: func(int, []byte) []agentReply {
+				return []agentReply{{data: slices.Concat([]byte{byte(Sequence), 0x83, 0x01, 0x00, 0x00}, make([]byte, 0x10000))}}
+			},
+		},
+		// Octets that do not start a message, then the reply.
+		"answer/not-sequence-tcp": {
+			shape: shapeStream,
+			setup: overTCP(0),
+			agent: func(_ int, req []byte) []agentReply {
+				return []agentReply{{data: []byte{byte(OctetString), 1, 0}}, {data: replyTo(req, nil, sysDescr), after: 10 * time.Millisecond}}
+			},
+		},
+		// The reply with its length in the indefinite form, then with nine
+		// length octets.
+		"answer/indefinite-tcp": {
+			shape: shapeStream,
+			setup: overTCP(0),
+			agent: func(_ int, req []byte) []agentReply {
+				r := replyTo(req, nil, sysDescr)
+				return []agentReply{{data: slices.Concat([]byte{byte(Sequence), 0x80}, r[2:], []byte{0, 0})}}
+			},
+		},
+		"answer/length-octets-tcp": {
+			shape: shapeStream,
+			setup: overTCP(0),
+			agent: func(_ int, req []byte) []agentReply {
+				r := replyTo(req, nil, sysDescr)
+				return []agentReply{{data: slices.Concat([]byte{byte(Sequence), 0x89, 0, 0, 0, 0, 0, 0, 0, 0, r[1]}, r[2:])}}
+			},
+		},
+		// A custom net.Conn under the UDP Transport, whose reply comes in two
+		// reads.
+		"custom-conn/split": {
+			shape: shapeStream,
+			setup: func(x *GoSNMP, _ *fakeTransport) { x.Retries = 0 },
+			agent: answerSplit(sysDescr, 10),
 		},
 
 		// Transport errors.
@@ -1253,6 +1384,96 @@ func TestEngineTCPLostConnection(t *testing.T) {
 			}
 			var got outcome
 			for range 4 {
+				_, err := x.Get([]string{engineOID})
+				got.failed = append(got.failed, err != nil)
+			}
+			got.dials = dials.Load()
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestEngineTCPStreamFraming checks, on loopback sockets, how a client reads
+// what a TCP agent writes in answer to the first request on its first
+// connection: a reply in two writes, a reply to another request and the reply
+// in one write, or octets that do not start a message; the agent serves the
+// connection on, and every later one.
+func TestEngineTCPStreamFraming(t *testing.T) {
+	type outcome struct {
+		failed  []bool // per request
+		retries int
+		dials   int32 // Connect's and the reopens'
+	}
+	tests := map[string]struct {
+		first func(conn net.Conn, req []byte)
+		want  outcome
+	}{
+		"a reply in two writes": {
+			first: func(conn net.Conn, req []byte) {
+				r := replyTo(req, nil, sysDescr)
+				_, _ = conn.Write(r[:10])
+				time.Sleep(50 * time.Millisecond)
+				_, _ = conn.Write(r[10:])
+			},
+			want: outcome{failed: []bool{false, false}, retries: 1, dials: 1},
+		},
+		"two replies in one write": {
+			first: func(conn net.Conn, req []byte) {
+				stale := replyTo(req, func(p *SnmpPacket) { p.RequestID += 100 }, sysDescr)
+				_, _ = conn.Write(slices.Concat(stale, replyTo(req, nil, sysDescr)))
+			},
+			want: outcome{failed: []bool{false, false}, retries: 1, dials: 1},
+		},
+		"octets that do not start a message": {
+			first: func(conn net.Conn, _ []byte) { _, _ = conn.Write([]byte{byte(OctetString), 1, 0}) },
+			want:  outcome{failed: []bool{false, false}, retries: 1, dials: 1},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ln, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			var served sync.WaitGroup
+			t.Cleanup(func() {
+				ln.Close()
+				served.Wait()
+			})
+			answer := func(req []byte) ([]byte, bool) { return replyTo(req, nil, sysDescr), true }
+			served.Go(func() {
+				for first := true; ; first = false {
+					conn, acceptErr := ln.Accept()
+					if acceptErr != nil {
+						return
+					}
+					served.Go(func() {
+						if first {
+							buf := make([]byte, 2048)
+							n, readErr := conn.Read(buf)
+							if readErr != nil {
+								_ = conn.Close()
+								return
+							}
+							tc.first(conn, buf[:n])
+						}
+						serveTCPRequests(conn, answer)
+					})
+				}
+			})
+
+			var dials atomic.Int32
+			var got outcome
+			x := &GoSNMP{
+				Target: "127.0.0.1", Port: uint16(ln.Addr().(*net.TCPAddr).Port), Transport: "tcp", //nolint:gosec // a TCP port
+				Community: "public", Version: Version2c, Timeout: 300 * time.Millisecond, Retries: 1,
+				Control: func(string, string, syscall.RawConn) error {
+					dials.Add(1)
+					return nil
+				},
+				OnRetry: func(*GoSNMP) { got.retries++ },
+			}
+			require.NoError(t, x.Connect())
+			defer x.Close()
+			for range 2 {
 				_, err := x.Get([]string{engineOID})
 				got.failed = append(got.failed, err != nil)
 			}
