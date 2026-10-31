@@ -254,14 +254,13 @@ func TestDecodeUSMFields(t *testing.T) {
 func TestUnknownPDUTypeError(t *testing.T) {
 	nullVB := craftedVB(tlv(byte(Null)))
 	pdu := func(tag byte) []byte { return tlv(tag, intTLV(1), intTLV(0), intTLV(0), craftedVBL(nullVB)) }
-	// Known bug: the text formats the hexadecimal of the type's name.
 	tests := map[string]struct {
 		tag  byte
 		want string
 	}{
-		"undefined context tag": {tag: 0xaf, want: "unknown PDUType 0x504455547970652831373529"},
-		"Sequence":              {tag: 0x30, want: "unknown PDUType 0x53657175656e6365"},
-		"universal tag":         {tag: 0x04, want: "unknown PDUType 0x50445554797065283429"},
+		"undefined context tag": {tag: 0xaf, want: "unknown PDUType 0xaf"},
+		"Sequence":              {tag: 0x30, want: "unknown PDUType 0x30"},
+		"universal tag":         {tag: 0x04, want: "unknown PDUType 0x4"},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {

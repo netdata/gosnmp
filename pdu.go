@@ -251,8 +251,7 @@ func unmarshalPayload(packet []byte, cursor int, response *SnmpPacket) error {
 
 	requestType := PDUType(packet[cursor])
 	if !requestType.known() {
-		// Known bug: %#x formats the hexadecimal of the type's name.
-		return fmt.Errorf("unknown PDUType %#x", requestType)
+		return fmt.Errorf("unknown PDUType %#x", byte(requestType))
 	}
 	response.PDUType = requestType
 	if requestType == Trap {

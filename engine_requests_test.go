@@ -506,7 +506,6 @@ func engineScenarios() map[string]engineScenario {
 				r[bytes.IndexByte(r, byte(GetResponse))] = 0xaf
 				return r
 			}),
-			knownBug: "the error text formats the PDU type's String() as hexadecimal",
 		},
 		"answer/other-version": {
 			agent: answerWith(func(p *SnmpPacket) { p.Version = Version1 }, sysDescr),
