@@ -228,3 +228,5 @@ jobs:
         run: go test -fuzztime 60s -v -run '^FuzzDecodeV3$' -fuzz '^FuzzDecodeV3$'
       - name: Fuzz ReadMessage
         run: go test -fuzztime 60s -v -run '^FuzzReadMessage$' -fuzz '^FuzzReadMessage$'
+      - name: Fuzz EngineReply
+        run: go test -fuzztime 60s -v -run '^FuzzEngineReply$' -fuzz '^FuzzEngineReply$'
