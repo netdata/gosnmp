@@ -149,8 +149,8 @@ var testsSnmpVersionString = []struct {
 	{Version1, "1"},
 	{Version2c, "2c"},
 	{Version3, "3"},
-	{SnmpVersion(2), "3"},   // known bug: an unknown version prints as "3"
-	{SnmpVersion(255), "3"}, // known bug
+	{SnmpVersion(2), "SnmpVersion(2)"},
+	{SnmpVersion(255), "SnmpVersion(255)"},
 }
 
 func TestSnmpVersionString(t *testing.T) {
