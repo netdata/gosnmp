@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -195,8 +196,6 @@ func varbinds(vbs ...SnmpPDU) func(req, out *SnmpPacket) {
 
 var errWalkFn = errors.New("codec walkFn stop")
 
-const lastLeafBug = "a leaf root that is the MIB's last object returns nothing: the Get fallback runs only when the first answer is outside the subtree, not on endOfMibView or noSuchName (net-snmp's snmpwalk makes the Get for noSuchName)"
-
 // walkScenarios are the scenarios of TestEngineWalkCharacterization.
 func walkScenarios() map[string]walkScenario {
 	ifDescr := func(i int) SnmpPDU { return walkMIB[3+i] }
@@ -223,6 +222,9 @@ func walkScenarios() map[string]walkScenario {
 		"walkfn-error/bulk":     {root: walkSystem, bulk: true, stopAfter: 2},
 		"walk-all":              {root: walkIfDescr, all: true},
 		"walk-all/bulk":         {root: walkIfDescr, bulk: true, all: true},
+		// A root the codec cannot encode fails the walk before any request,
+		// naming the root as given.
+		"root-invalid": {root: "1.3.6.x"},
 
 		// A leaf as the root: the first answer is outside the subtree, so the
 		// walk gets the root.
@@ -233,21 +235,49 @@ func walkScenarios() map[string]walkScenario {
 		"leaf/no-such-instance": {root: ".1.3.6.1.2.1.1.5.1"},
 		"leaf/no-such-object":   {root: ".1.3.6.1.2.1.1.7.0"},
 		"leaf/v1-no-such-name":  {root: ".1.3.6.1.2.1.1.5.1", v1: true},
-		"leaf/last-object": {
-			root: ".1.3.6.1.4.1.99.1.0", knownBug: lastLeafBug,
-		},
-		"leaf/last-object-v1": {
-			root: ".1.3.6.1.4.1.99.1.0", v1: true, knownBug: lastLeafBug,
-		},
-		// An agent echoing the root as the first answer: the root is taken
-		// for a leaf.
+		// A leaf root that is the MIB's last object: SNMPv2c answers
+		// endOfMibView, which ends the walk without the Get, as in net-snmp's
+		// snmpwalk; SNMPv1 answers noSuchName, after which the walk gets it.
+		"leaf/last-object":    {root: ".1.3.6.1.4.1.99.1.0"},
+		"leaf/last-object-v1": {root: ".1.3.6.1.4.1.99.1.0", v1: true},
+		// An agent echoing the root as the first answer: the root is in the
+		// subtree and not after the requested name.
 		"leaf/root-echo": {
 			root: walkSystem, script: onWalkRequest(1, varbinds(SnmpPDU{Name: walkSystem, Type: Integer, Value: 1})),
 		},
+		// The leaf's Get answered with a name under the root: one Get, nothing
+		// passed on.
 		"leaf/get-answer-in-subtree": {
-			root:     ".1.3.6.1.2.1.1.5.0",
-			script:   onWalkRequest(2, varbinds(SnmpPDU{Name: ".1.3.6.1.2.1.1.5.0.1", Type: OctetString, Value: []byte("inside")})),
-			knownBug: "after the leaf fallback the walk keeps sending Gets: an answer inside the subtree is walked and the walk gets the next name (net-snmp's snmpwalk makes one Get)",
+			root:   ".1.3.6.1.2.1.1.5.0",
+			script: onWalkRequest(2, varbinds(SnmpPDU{Name: ".1.3.6.1.2.1.1.5.0.1", Type: OctetString, Value: []byte("inside")})),
+		},
+		// The leaf's Get unanswered: the walk returns the request's error.
+		"leaf/get-error": {
+			root:   ".1.3.6.1.2.1.1.5.0",
+			script: func(n int, _, _ *SnmpPacket) bool { return n >= 2 },
+		},
+		// The leaf's Get answered with an error status: nothing passed on.
+		"leaf/get-error-status": {
+			root:   ".1.3.6.1.2.1.1.5.0",
+			script: onWalkRequest(2, errorStatus(GenErr)),
+		},
+		// The leaf's Get answered with a status no RFC names.
+		"leaf/get-unknown-status": {
+			root: ".1.3.6.1.2.1.1.5.0",
+			script: onWalkRequest(2, func(_, out *SnmpPacket) {
+				out.Error = InconsistentName + 1
+			}),
+			knownBug: "an error status the walk does not name is ignored and the root's value passed on",
+		},
+		// The leaf's Get answered with another name before the root's value.
+		"leaf/get-other-name-first": {
+			root:   ".1.3.6.1.2.1.1.5.0",
+			script: onWalkRequest(2, varbinds(walkMIB[0], walkMIB[2])),
+		},
+		// The leaf's Get answered without varbinds: nothing passed on.
+		"leaf/get-empty": {
+			root:   ".1.3.6.1.2.1.1.5.0",
+			script: onWalkRequest(2, varbinds()),
 		},
 
 		// Answers a walk does not expect.
@@ -261,9 +291,10 @@ func walkScenarios() map[string]walkScenario {
 		},
 		"not-increasing/equal":      {root: walkSystem, script: onWalkRequest(2, varbinds(walkMIB[0]))},
 		"not-increasing/decreasing": {root: walkIfDescr, script: onWalkRequest(3, varbinds(ifDescr(0)))},
+		// Each name is compared with the request's, as in net-snmp's
+		// snmpbulkwalk: a decrease inside one answer passes.
 		"not-increasing/bulk-inside-response": {
 			root: walkIfDescr, bulk: true, script: onWalkRequest(1, varbinds(ifDescr(1), ifDescr(0), ifDescr(2))),
-			knownBug: "the increasing check compares each OID with the request's, not with the previous OID, so a decrease inside one response passes",
 		},
 		"not-increasing/app-opts-c": {
 			root: walkIfDescr, setup: func(x *GoSNMP) { x.AppOpts = map[string]any{"c": true} },
@@ -289,11 +320,31 @@ func walkScenarios() map[string]walkScenario {
 			root: walkSystem, bulk: true,
 			script: onWalkRequest(1, varbinds(walkMIB[0], SnmpPDU{Name: walkMIB[1].Name, Type: NoSuchInstance}, walkMIB[2])),
 		},
+		// An exception value outside the subtree as the walk's first value:
+		// the subtree is checked first, as in net-snmp, so the walk gets the
+		// root.
+		"exception/outside-first-value": {
+			root:   ".1.3.6.1.2.1.1.5.0",
+			script: onWalkRequest(1, varbinds(SnmpPDU{Name: ifDescr(0).Name, Type: NoSuchObject})),
+		},
+		// A name equal to the root lies in the subtree and fails the
+		// increasing check; under "c" it is walked and the walk goes on from
+		// it, as net-snmp's snmpwalk -Cc does.
 		"root-in-bulk-response": {
 			root: walkSystem, bulk: true,
-			script:   onWalkRequest(1, varbinds(walkMIB[0], SnmpPDU{Name: walkSystem, Type: Integer, Value: 1}, walkMIB[1])),
-			knownBug: "an answer naming the root itself skips the increasing check, is passed to walkFn and ends the walk",
+			script: onWalkRequest(1, varbinds(walkMIB[0], SnmpPDU{Name: walkSystem, Type: Integer, Value: 1}, walkMIB[1])),
 		},
+		"root-in-response": {
+			root:   walkSystem,
+			script: onWalkRequest(2, varbinds(SnmpPDU{Name: walkSystem, Type: Integer, Value: 1})),
+		},
+		"not-increasing/app-opts-c-root": {
+			root: walkSystem, setup: func(x *GoSNMP) { x.AppOpts = map[string]any{"c": true} },
+			script: onWalkRequest(2, varbinds(SnmpPDU{Name: walkSystem, Type: Integer, Value: 1})),
+		},
+		// A name before the root lies outside the subtree.
+		"below-root/first-value": {root: walkIfDescr, script: onWalkRequest(1, varbinds(walkMIB[0]))},
+		"below-root/later":       {root: walkIfDescr, script: onWalkRequest(2, varbinds(walkMIB[0]))},
 		"request-error": {
 			root: walkSystem, all: true,
 			script: func(n int, _, _ *SnmpPacket) bool { return n > 2 },
@@ -344,6 +395,17 @@ func walkScenarios() map[string]walkScenario {
 		root: walkSystem, bulk: true, script: onWalkRequest(1, errorStatus(TooBig)),
 		knownBug: "an error status ends the walk with a nil error and the values so far",
 	}
+	// NoSuchName as an SNMPv2c walk's first answer, with and without the
+	// request's varbinds: the status is read first, and the walk gets the root.
+	scenarios["error-status/no-such-name-first"] = walkScenario{
+		root: ".1.3.6.1.2.1.1.5.0", script: onWalkRequest(1, errorStatus(NoSuchName)),
+	}
+	scenarios["error-status/no-such-name-empty-first"] = walkScenario{
+		root: ".1.3.6.1.2.1.1.5.0",
+		script: onWalkRequest(1, func(_, out *SnmpPacket) {
+			out.Error, out.ErrorIndex, out.Variables = NoSuchName, 0, nil
+		}),
+	}
 	return scenarios
 }
 
@@ -364,6 +426,97 @@ func TestEngineWalkCharacterization(t *testing.T) {
 		results = append(results, goldenCase{name: "walk/" + name, dump: dump})
 	}
 	engineGolden.check(t, "walk", results)
+}
+
+// TestEngineWalkRootSpellings exercises the public walks through the codec:
+// equivalent root spellings must visit the same objects and get a leaf once.
+func TestEngineWalkRootSpellings(t *testing.T) {
+	spellings := []struct {
+		name string
+		root func(string) string
+	}{
+		{"canonical", func(root string) string { return root }},
+		{"undotted", func(root string) string { return strings.TrimPrefix(root, ".") }},
+		{"leading-zeros", func(root string) string { return strings.ReplaceAll(root, ".", ".0") }},
+		{"leading-dots", func(root string) string { return "." + root }},
+		{"repeated-dots", func(root string) string { return strings.ReplaceAll(root, ".", "..") }},
+		{"trailing-dot", func(root string) string { return root + "." }},
+		{"combined", func(root string) string { return strings.ReplaceAll(root, ".", "..0") + ".." }},
+	}
+	cases := []struct {
+		name    string
+		root    string
+		version SnmpVersion
+		want    []SnmpPDU
+		gets    int
+		equal   bool // answer the first request with the root itself
+	}{
+		{name: "subtree", root: walkIfDescr, version: Version2c, want: walkMIB[3:6]},
+		{name: "subtree-v1", root: walkIfDescr, version: Version1, want: walkMIB[3:6]},
+		{name: "leaf", root: walkMIB[2].Name, version: Version2c, want: walkMIB[2:3], gets: 1},
+		{name: "last-leaf-v1", root: walkMIB[6].Name, version: Version1, want: walkMIB[6:7], gets: 1},
+		{name: "last-leaf-v2", root: walkMIB[6].Name, version: Version2c},
+		{name: "equal-root", root: walkIfDescr, version: Version2c, equal: true},
+	}
+	for _, api := range []string{"Walk", "WalkAll", "BulkWalk", "BulkWalkAll"} {
+		for _, tc := range cases {
+			if tc.version == Version1 && strings.HasPrefix(api, "Bulk") {
+				continue // GetBulk is not supported by SNMPv1.
+			}
+			for _, spelling := range spellings {
+				t.Run(api+"/"+tc.name+"/"+spelling.name, func(t *testing.T) {
+					synctest.Test(t, func(t *testing.T) {
+						gets := 0
+						agent := &mibAgent{mib: walkMIB, script: func(n int, req, out *SnmpPacket) bool {
+							if n == 1 || req.PDUType == GetRequest {
+								if len(req.Variables) != 1 || req.Variables[0].Name != tc.root {
+									t.Fatalf("request root = %v, want %q", req.Variables, tc.root)
+								}
+							}
+							if req.PDUType == GetRequest {
+								gets++
+							}
+							if tc.equal && n == 1 {
+								out.Variables = []SnmpPDU{{Name: tc.root, Type: Integer, Value: 1}}
+							}
+							return false
+						}}
+						x := newEngineClient(t, nil, tc.version, fakePacketTransport{newFakeTransport(nil, agent.handle)})
+						root := spelling.root(tc.root)
+						var got []SnmpPDU
+						var err error
+						visit := func(vb SnmpPDU) error {
+							got = append(got, vb)
+							return nil
+						}
+						switch api {
+						case "Walk":
+							err = x.Walk(root, visit)
+						case "WalkAll":
+							got, err = x.WalkAll(root)
+						case "BulkWalk":
+							err = x.BulkWalk(root, visit)
+						case "BulkWalkAll":
+							got, err = x.BulkWalkAll(root)
+						}
+						if tc.equal {
+							if err == nil || !strings.Contains(err.Error(), "OID not increasing") {
+								t.Errorf("error = %v, want OID not increasing", err)
+							}
+						} else if err != nil {
+							t.Errorf("walk: %v", err)
+						}
+						if !reflect.DeepEqual(got, tc.want) {
+							t.Errorf("values = %v, want %v", got, tc.want)
+						}
+						if gets != tc.gets {
+							t.Errorf("leaf Gets = %d, want %d", gets, tc.gets)
+						}
+					})
+				})
+			}
+		}
+	}
 }
 
 // runWalkScenario runs sc in the calling synctest bubble and returns its
