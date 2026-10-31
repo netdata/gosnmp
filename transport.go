@@ -92,9 +92,18 @@ func (x *GoSNMP) interruptible(ctx context.Context, conn net.Conn) attemptInterr
 	seq := x.attempt.seq
 	x.mu.Unlock()
 	a := attemptInterrupts{x: x, seq: seq}
+	// Until this returns, the caller cannot defer end. Roll back setup if
+	// a Context method panics, including while AfterFunc registers it.
+	complete := false
+	defer func() {
+		if !complete {
+			a.end()
+		}
+	}()
 	if ctx.Done() != nil {
 		a.stopContext = context.AfterFunc(ctx, func() { x.interrupt(seq) })
 	}
+	complete = true
 	return a
 }
 

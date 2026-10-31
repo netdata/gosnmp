@@ -119,7 +119,8 @@
 // when a walk logs between its requests; in Control when a dial runs it on
 // goroutines of its own, racing the IPv4 and IPv6 addresses of a name; in a
 // Conn's SetDeadline when Close or a done Context interrupts an attempt; in a
-// Context's methods that the context package calls; and in Connect and Close.
+// Context's methods that the context package calls on goroutines of its own;
+// and in Connect and Close.
 //
 // # SNMPv3
 //

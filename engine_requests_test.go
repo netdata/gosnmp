@@ -2017,6 +2017,85 @@ func TestRequestPanicNil(t *testing.T) {
 	assert.EqualError(t, err, want)
 }
 
+// panicInterruptContext panics either in Done or in the AfterFunc method
+// context.AfterFunc calls while setting up the attempt's interrupt.
+type panicInterruptContext struct {
+	context.Context
+	done      chan struct{}
+	afterFunc bool
+	value     any
+}
+
+func (c *panicInterruptContext) Done() <-chan struct{} {
+	if !c.afterFunc {
+		panic(c.value)
+	}
+	return c.done
+}
+
+func (c *panicInterruptContext) AfterFunc(func()) func() bool { panic(c.value) }
+
+// TestRequestContextPanicCleanup checks that interrupted setup leaves no
+// active attempt behind: after Close and a new Conn, cancellation and Close
+// still interrupt the next request without waiting for its timeout.
+func TestRequestContextPanicCleanup(t *testing.T) {
+	for _, stage := range []string{"Done", "AfterFunc"} {
+		for _, value := range []struct {
+			name  string
+			panic any
+		}{
+			{name: "error", panic: errCallerFailure},
+			{name: "nil"},
+		} {
+			for _, interrupt := range []string{"cancel", "close-replaced-conn"} {
+				t.Run(stage+"/"+value.name+"/"+interrupt, func(t *testing.T) {
+					synctest.Test(t, func(t *testing.T) {
+						x := newEngineClient(t, nil, Version2c, newFakeTransport(nil, nil))
+						x.Timeout, x.Retries = time.Hour, 0
+						x.Context = &panicInterruptContext{
+							Context: context.Background(), done: make(chan struct{}),
+							afterFunc: stage == "AfterFunc", value: value.panic,
+						}
+						res, err := x.Get([]string{engineOID})
+						require.Nil(t, res)
+						require.ErrorContains(t, err, "request panicked:")
+						if value.panic != nil {
+							require.ErrorIs(t, err, errCallerFailure)
+						}
+						x.mu.Lock()
+						active, interrupted := x.attempt.conn, x.attempt.interrupted
+						x.mu.Unlock()
+						assert.Nil(t, active, "the failed setup left an active attempt")
+						assert.Nil(t, interrupted, "the failed setup left an interrupt")
+						require.NoError(t, x.Close())
+
+						conn := newFakeTransport(nil, nil)
+						defer conn.Close()
+						x.Conn = conn // a caller may use a closed client again this way
+						ctx, cancel := context.WithCancel(context.Background())
+						defer cancel()
+						x.Context = ctx
+						wantErr := context.Canceled
+						x.OnSent = func(*GoSNMP) { cancel() }
+						if interrupt == "close-replaced-conn" {
+							wantErr = net.ErrClosed
+							x.OnSent = func(x *GoSNMP) {
+								x.Conn = newFakeTransport(nil, nil)
+								require.NoError(t, x.Close()) // must interrupt conn too
+							}
+						}
+						start := time.Now()
+						res, err = x.Get([]string{engineOID})
+						assert.Nil(t, res)
+						assert.ErrorIs(t, err, wantErr)
+						assert.Zero(t, time.Since(start), "the interrupt waited for the attempt's timeout")
+					})
+				})
+			}
+		}
+	}
+}
+
 // TestEngineReadCountOutsideBuffer checks, on loopback sockets, a Conn the
 // caller set whose Read breaks the io.Reader contract once, returning a count
 // outside the buffer: the attempt fails as a transport error, which the retry
