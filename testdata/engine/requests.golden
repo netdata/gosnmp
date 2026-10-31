@@ -8,7 +8,9 @@
 0s    agent answers #1 after 0s
 0s    hook OnSent
 0s    read: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"xxxxxxxxxxxxxxxx"... (65484 octets)]
-0s    result: packet nil, error "response buffer too small" *errors.errorString
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"xxxxxxxxxxxxxxxx"... (65484 octets)], no error
 0s    client after: retries=0 next request id=1002
 
 == requests/answer/duplicated
@@ -229,10 +231,8 @@
 0s    agent answers #1 after 0s
 0s    hook OnSent
 0s    read: 54 octets, not decodable (error verifying packet sanity: invalid packet length: indefinite length encoding (0x80) is not permitted in SNMP)
-0s    hook OnRecv
-1s    read: deadline
-1s    result: packet nil, error "request timeout (after 0 retries): last discarded reply: error verifying packet sanity: invalid packet length: indefinite length encoding (0x80) is not permitted in SNMP" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
-1s    client after: retries=0 next request id=1002
+0s    result: packet nil, error "lost the message framing of the TCP stream: invalid packet length: indefinite length encoding (0x80) is not permitted in SNMP" *fmt.wrapErrors
+0s    client after: retries=0 next request id=1002
 
 == requests/answer/joined-tcp
 0s    client: 2c timeout=1s retries=0 exponential=false
@@ -243,9 +243,10 @@
 0s    hook OnSent
 0s    read: 104 octets, not decodable (error verifying packet sanity: 52 bytes after the TLV)
 0s    hook OnRecv
-1s    read: deadline
-1s    result: packet nil, error "request timeout (after 0 retries): last discarded reply: error verifying packet sanity: 52 bytes after the TLV" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
-1s    client after: retries=0 next request id=1002
+0s    hook OnRecv
+0s    hook OnFinish
+0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    client after: retries=0 next request id=1002
 
 == requests/answer/largest-tcp
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -342,7 +343,6 @@
 0s    agent answers #1 after 0s
 0s    hook OnSent
 0s    read: 10 octets, not decodable (error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input)
-0s    hook OnRecv
 1s    read: deadline
 1s    deadline +1s
 1s    hook PreSend
@@ -351,9 +351,10 @@
 1s    hook OnSent
 1s    read: 94 octets, not decodable (invalid packet header)
 1s    hook OnRecv
-2s    read: deadline
-2s    result: packet nil, error "request timeout (after 0 retries): last discarded reply: invalid packet header" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
-2s    client after: retries=0 next request id=1003
+1s    hook OnRecv
+1s    hook OnFinish
+1s    result: packet 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+1s    client after: retries=0 next request id=1003
 
 == requests/answer/length-octets-tcp
 0s    client: 2c timeout=1s retries=0 exponential=false
@@ -363,10 +364,8 @@
 0s    agent answers #1 after 0s
 0s    hook OnSent
 0s    read: 61 octets, not decodable (error verifying packet sanity: invalid packet length: more than 8 length octets)
-0s    hook OnRecv
-1s    read: deadline
-1s    result: packet nil, error "request timeout (after 0 retries): last discarded reply: error verifying packet sanity: invalid packet length: more than 8 length octets" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
-1s    client after: retries=0 next request id=1002
+0s    result: packet nil, error "lost the message framing of the TCP stream: invalid packet length: more than 8 length octets" *fmt.wrapErrors
+0s    client after: retries=0 next request id=1002
 
 == requests/answer/not-a-response
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -408,12 +407,8 @@
 0s    agent answers #1 after 10ms
 0s    hook OnSent
 0s    read: 3 octets, not decodable (invalid packet header)
-0s    hook OnRecv
-10ms  read: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
-10ms  hook OnRecv
-10ms  hook OnFinish
-10ms  result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
-10ms  client after: retries=0 next request id=1002
+0s    result: packet nil, error "lost the message framing of the TCP stream: a message starts with 0x04, not a SEQUENCE" *fmt.wrapError
+0s    client after: retries=0 next request id=1002
 
 == requests/answer/other-community
 0s    client: 2c timeout=1s retries=2 exponential=false
@@ -638,9 +633,8 @@
 0s    agent answers #1 after 0s
 0s    hook OnSent
 0s    read: 4 octets, not decodable (error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input)
-0s    hook OnRecv
 0s    read: EOF
-0s    result: packet nil, error "max retries (0) exceeded: last discarded reply: error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input" *gosnmp.attemptsError (is io.EOF)
+0s    result: packet nil, error "max retries (0) exceeded" *gosnmp.attemptsError (is io.EOF)
 0s    client after: retries=0 next request id=1002
 
 == requests/answer/reflected-request
@@ -733,7 +727,6 @@
 0s    agent answers #1 after 1.5s
 0s    hook OnSent
 0s    read: 10 octets, not decodable (error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input)
-0s    hook OnRecv
 1s    read: deadline
 1s    hook OnRetry
 1s    deadline +1s
@@ -742,9 +735,9 @@
 1s    hook OnSent
 1.5s  read: 42 octets, not decodable (invalid packet header)
 1.5s  hook OnRecv
-2s    read: deadline
-2s    result: packet nil, error "request timeout (after 1 retries): last discarded reply: invalid packet header" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
-2s    client after: retries=1 next request id=1003
+1.5s  hook OnFinish
+1.5s  result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+1.5s  client after: retries=1 next request id=1003
 
 == requests/answer/split-header-tcp
 0s    client: 2c timeout=1s retries=0 exponential=false
@@ -757,16 +750,13 @@
 0s    agent answers #1 after 30ms
 0s    hook OnSent
 0s    read: 1 octets, not decodable (invalid packet length: cannot unmarshal empty packet)
-0s    hook OnRecv
 10ms  read: 1 octets, not decodable (invalid packet length: cannot unmarshal empty packet)
-10ms  hook OnRecv
 20ms  read: 1 octets, not decodable (invalid packet length: cannot unmarshal empty packet)
-20ms  hook OnRecv
 30ms  read: 243 octets, not decodable (invalid packet header)
 30ms  hook OnRecv
-1s    read: deadline
-1s    result: packet nil, error "request timeout (after 0 retries): last discarded reply: invalid packet header" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
-1s    client after: retries=0 next request id=1002
+30ms  hook OnFinish
+30ms  result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"xxxxxxxxxxxxxxxx"... (200 octets)], no error
+30ms  client after: retries=0 next request id=1002
 
 == requests/answer/split-tcp
 0s    client: 2c timeout=1s retries=0 exponential=false
@@ -777,13 +767,11 @@
 0s    agent answers #1 after 10ms
 0s    hook OnSent
 0s    read: 10 octets, not decodable (error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input)
-0s    hook OnRecv
 10ms  read: 42 octets, not decodable (invalid packet header)
 10ms  hook OnRecv
-1s    read: deadline
-1s    result: packet nil, error "request timeout (after 0 retries): last discarded reply: invalid packet header" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
-1s    client after: retries=0 next request id=1002
-1s    known bug: a TCP reply must arrive in one read
+10ms  hook OnFinish
+10ms  result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+10ms  client after: retries=0 next request id=1002
 
 == requests/answer/too-big-tcp
 0s    client: 2c timeout=1s retries=0 exponential=false

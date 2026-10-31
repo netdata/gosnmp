@@ -70,7 +70,9 @@ type GoSNMP struct {
 	// "4" or "6" for IPv4 or IPv6 only. Connect fills in "udp" when it is empty
 	// and connects over it narrowed to IPv4 for an IPv4 LocalAddr, ConnectIPv4
 	// and ConnectIPv6 over it with the suffix; it does not change Transport
-	// otherwise.
+	// otherwise. Over TCP, also on a Conn the caller set, the client reads
+	// replies from the stream by their BER length; on other networks, one
+	// reply per read (see the package documentation).
 	Transport string
 
 	// Community is the community of SNMPv1 and SNMPv2c messages.
@@ -214,8 +216,8 @@ type GoSNMP struct {
 	requestIDSet atomic.Bool
 	msgIDSet     atomic.Bool
 
-	// rxBuf is the receive buffer, allocated by the first request.
-	rxBuf *[rxBufSize]byte // has to be pointer due to https://github.com/golang/go/issues/11728
+	// rx is the receive buffer, allocated by the first request.
+	rx *receiveBuffer // has to be pointer due to https://github.com/golang/go/issues/11728
 
 	// engine is the SNMPv3 engine state requests read and commit.
 	engine engineState

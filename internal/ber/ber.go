@@ -88,6 +88,19 @@ func Length(bytes []byte) (uint64, int, error) {
 	return length + uint64(header), header, nil
 }
 
+// HeaderComplete reports whether bytes holds as much of the TLV header it
+// starts with as Length reads: the tag and a length octet, and in the long
+// form its length octets, unless their number already makes Length fail. More
+// octets after a complete header do not change Length's result; a stream reader
+// waits for them until then.
+func HeaderComplete(bytes []byte) bool {
+	if len(bytes) < 2 {
+		return false
+	}
+	numOctets := int(bytes[1]) & 127
+	return bytes[1] <= 0x80 || numOctets > maxLengthOctets || len(bytes) >= 2+numOctets
+}
+
 // Int64 decodes the content octets of an INTEGER: a big-endian, two's
 // complement number of one to eight octets.
 func Int64(bytes []byte) (int64, error) {

@@ -321,10 +321,10 @@ func engineScenarios() map[string]engineScenario {
 		// A client given a Conn without Connect: the request supplies the
 		// Context and the receive buffer.
 		"conn-without-connect": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) {
-			x.Context, x.Transport, x.rxBuf = nil, "", nil
+			x.Context, x.Transport, x.rx = nil, "", nil
 		}},
 		"conn-without-receive-buffer": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) {
-			x.rxBuf = nil
+			x.rx = nil
 		}},
 		"custom-conn": {shape: shapeStream, agent: answer(sysDescr)},
 
@@ -541,10 +541,9 @@ func engineScenarios() map[string]engineScenario {
 			agent: func(int, []byte) []agentReply { return []agentReply{{data: garbage}} },
 		},
 		"answer/split-tcp": {
-			shape:    shapeStream,
-			setup:    overTCP(0),
-			agent:    answerSplit(sysDescr, 10),
-			knownBug: "a TCP reply must arrive in one read",
+			shape: shapeStream,
+			setup: overTCP(0),
+			agent: answerSplit(sysDescr, 10),
 		},
 		// A reply whose length takes a long form, split after its tag and
 		// inside its length octets.
@@ -1404,8 +1403,10 @@ func TestEngineTCPLostConnection(t *testing.T) {
 // TestEngineTCPStreamFraming checks, on loopback sockets, how a client reads
 // what a TCP agent writes in answer to the first request on its first
 // connection: a reply in two writes, a reply to another request and the reply
-// in one write, or octets that do not start a message; the agent serves the
-// connection on, and every later one.
+// in one write, octets that do not start a message, or a message longer than
+// the receive buffer; the agent serves the connection on, and every later one.
+// The client reads every reply in the attempt it arrives in; a stream it
+// cannot read on is lost, and the retry opens a new connection.
 func TestEngineTCPStreamFraming(t *testing.T) {
 	type outcome struct {
 		failed  []bool // per request
@@ -1423,18 +1424,24 @@ func TestEngineTCPStreamFraming(t *testing.T) {
 				time.Sleep(50 * time.Millisecond)
 				_, _ = conn.Write(r[10:])
 			},
-			want: outcome{failed: []bool{false, false}, retries: 1, dials: 1},
+			want: outcome{failed: []bool{false, false}, retries: 0, dials: 1},
 		},
 		"two replies in one write": {
 			first: func(conn net.Conn, req []byte) {
 				stale := replyTo(req, func(p *SnmpPacket) { p.RequestID += 100 }, sysDescr)
 				_, _ = conn.Write(slices.Concat(stale, replyTo(req, nil, sysDescr)))
 			},
-			want: outcome{failed: []bool{false, false}, retries: 1, dials: 1},
+			want: outcome{failed: []bool{false, false}, retries: 0, dials: 1},
 		},
 		"octets that do not start a message": {
 			first: func(conn net.Conn, _ []byte) { _, _ = conn.Write([]byte{byte(OctetString), 1, 0}) },
-			want:  outcome{failed: []bool{false, false}, retries: 1, dials: 1},
+			want:  outcome{failed: []bool{false, false}, retries: 1, dials: 2},
+		},
+		"a message longer than the receive buffer": {
+			first: func(conn net.Conn, _ []byte) {
+				_, _ = conn.Write(slices.Concat([]byte{byte(Sequence), 0x83, 0x01, 0x11, 0x70}, make([]byte, 70000)))
+			},
+			want: outcome{failed: []bool{false, false}, retries: 1, dials: 2},
 		},
 	}
 	for name, tc := range tests {

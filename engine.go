@@ -137,8 +137,8 @@ type requestConfig struct {
 // when the client has none and no negative retries, and allocates the receive
 // buffer the first time: a client given a Conn without Connect works too.
 func (x *GoSNMP) prepareRequest() requestConfig {
-	if x.rxBuf == nil {
-		x.rxBuf = new([rxBufSize]byte)
+	if x.rx == nil {
+		x.rx = new(receiveBuffer)
 	}
 	ctx := x.Context
 	if ctx == nil {
@@ -260,10 +260,11 @@ type attemptOutcome struct {
 
 // ioFailure is the outcome of an attempt whose write or read on c failed with
 // err. A TCP connection that fails otherwise than by the attempt's deadline
-// or a close (net.ErrClosed), as when the agent closed or reset it, is lost:
-// the next attempt opens it again.
+// or a close (net.ErrClosed), as when the agent closed or reset it, or when
+// its stream cannot be read on (receive), is lost: the next attempt opens it
+// again.
 func (x *GoSNMP) ioFailure(c *connection, err error) attemptOutcome {
-	tcpConn := strings.HasPrefix(c.dial.network, tcp)
+	tcpConn := c.stream()
 	var out attemptOutcome
 	switch {
 	case errors.Is(err, os.ErrDeadlineExceeded):
@@ -500,13 +501,8 @@ func (e *exchange) await(c *connection, earlier []sentIDs) attemptOutcome {
 		if x.Logger.enabled() {
 			x.Logger.Print("WAITING RESPONSE...")
 		}
-		resp, err := c.receive(x.rxBuf)
+		resp, err := c.receive(x.rx)
 		if err != nil {
-			if errors.Is(err, errReplyTooBig) {
-				// The connection did not fail: a TCP reply is read whole only
-				// when one read takes it (receive's known bug).
-				return attemptOutcome{kind: attemptTransportError, err: err}
-			}
 			return x.ioFailure(c, err)
 		}
 		if e.cfg.onRecv != nil {
