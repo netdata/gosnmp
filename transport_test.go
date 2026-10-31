@@ -1279,3 +1279,20 @@ func TestReceiveStreamState(t *testing.T) {
 		"30 01 00",       // b: the start went with the datagram
 	}, got)
 }
+
+// TestReadMessageAllocs checks that reading a message from a TCP stream
+// allocates only the message's copy: every reply of a TCP request is read so.
+func TestReadMessageAllocs(t *testing.T) {
+	msg := seqMessage(3)
+	reads := make([]streamRead, 1)
+	conn := &streamConn{}
+	rx := new(receiveBuffer)
+	allocs := testing.AllocsPerRun(100, func() {
+		reads[0] = streamRead{data: msg}
+		conn.reads = reads
+		if _, err := rx.readMessage(conn); err != nil {
+			t.Fatal(err)
+		}
+	})
+	assert.Equal(t, 1.0, allocs)
+}

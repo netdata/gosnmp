@@ -259,13 +259,19 @@ func (x *GoSNMP) replace(old net.Conn, nc connection) bool {
 	return true
 }
 
-// sameConn reports whether conn, the client's connection, is still old, the
-// connection an attempt took. == cannot panic when either value is
-// comparable: where the dynamic types match, both values are. Two values that
-// are not comparable (== would panic) count as the same: a caller's Conn of
-// such a type is more likely than a hook replacing it by another of the same
-// type.
+// sameConn reports whether conn is still old: the client's connection the one
+// an attempt took, or an attempt's connection the one whose octets the receive
+// buffer holds. == cannot panic when either value is comparable: where the
+// dynamic types match, both values are. Two values that are not comparable
+// (== would panic) count as the same: a caller's Conn of such a type is more
+// likely than a hook replacing it by another of the same type.
 func sameConn(conn, old net.Conn) bool {
+	// A pointer, as a connection the client opens, is comparable: no
+	// reflect.Value, which allocates, for the comparison every stream read
+	// makes.
+	if t := reflect.TypeOf(conn); t != nil && t.Kind() == reflect.Pointer {
+		return conn == old
+	}
 	v, o := reflect.ValueOf(conn), reflect.ValueOf(old)
 	switch {
 	case !v.IsValid() || !o.IsValid():
