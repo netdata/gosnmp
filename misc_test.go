@@ -43,6 +43,11 @@ var testsPartition = []struct {
 	{0, 5, 3, false}, // partition size above the slice length: one partition
 	{1, 5, 3, false},
 	{2, 5, 3, true},
+	{0, 0, 3, false}, // partition size of 0: one partition
+	{1, 0, 3, false},
+	{2, 0, 3, true},
+	{-1, 0, 3, false}, // out of range
+	{3, 0, 3, false},
 	{0, -1, 3, false}, // negative partition size: one partition
 	{1, -1, 3, false},
 	{2, -1, 3, true},
@@ -59,16 +64,6 @@ func TestPartition(t *testing.T) {
 			t.Errorf("#%d: Bad result: %v (expected %v)", i, ok, test.ok)
 		}
 	}
-}
-
-// TestPartitionSizeZero pins that a partition size of 0 panics (integer
-// divide by zero) for a position in range. Known bug.
-func TestPartitionSizeZero(t *testing.T) {
-	for i := range 3 {
-		assert.Panics(t, func() { _ = Partition(i, 0, 3) }, "position %d", i)
-	}
-	assert.False(t, Partition(-1, 0, 3), "out of range")
-	assert.False(t, Partition(3, 0, 3), "out of range")
 }
 
 // ---------------------------------------------------------------------

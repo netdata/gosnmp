@@ -450,8 +450,8 @@ func (x *GoSNMP) SnmpDecodePacket(resp []byte) (*SnmpPacket, error) {
 // Partition reports whether currentPosition ends a partition when a slice of
 // sliceLength items is cut into partitions of partitionSize, the last one
 // possibly shorter: a loop over many OIDs can send a Get each time it reports
-// true. A position outside the slice reports false. Known bug: a
-// partitionSize of 0 panics for a position inside the slice.
+// true. A position outside the slice reports false. A partitionSize below 1
+// makes the whole slice one partition: only its last position reports true.
 //
 // For a slice of 8 items in partitions of 3, it reports true at 2, 5 and 7:
 //
@@ -461,16 +461,10 @@ func Partition(currentPosition, partitionSize, sliceLength int) bool {
 	if currentPosition < 0 || currentPosition >= sliceLength {
 		return false
 	}
-	if partitionSize == 1 { // redundant, but an obvious optimisation
-		return true
-	}
-	if currentPosition%partitionSize == partitionSize-1 {
-		return true
-	}
 	if currentPosition == sliceLength-1 {
 		return true
 	}
-	return false
+	return partitionSize > 0 && currentPosition%partitionSize == partitionSize-1
 }
 
 // ToBigInt converts an integer varbind value, of any Go integer type, or a
