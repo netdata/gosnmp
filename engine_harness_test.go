@@ -368,7 +368,7 @@ func newEngineClientFrom(tb testing.TB, tr *engineTranscript, conn net.Conn, x *
 	}
 	usm.Salts.Set(0x101)
 	x.Conn = conn
-	x.rxBuf = new([rxBufSize]byte)
+	x.rx = new(receiveBuffer)
 	x.SetRequestID(1000)
 	x.SetMsgID(2000)
 	if tr != nil {

@@ -17,6 +17,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/netdata/gosnmp/internal/ber"
 )
 
 // Connect readies the client and opens its connection to Target and Port
@@ -257,13 +259,19 @@ func (x *GoSNMP) replace(old net.Conn, nc connection) bool {
 	return true
 }
 
-// sameConn reports whether conn, the client's connection, is still old, the
-// connection an attempt took. == cannot panic when either value is
-// comparable: where the dynamic types match, both values are. Two values that
-// are not comparable (== would panic) count as the same: a caller's Conn of
-// such a type is more likely than a hook replacing it by another of the same
-// type.
+// sameConn reports whether conn is still old: the client's connection the one
+// an attempt took, or an attempt's connection the one whose octets the receive
+// buffer holds. == cannot panic when either value is comparable: where the
+// dynamic types match, both values are. Two values that are not comparable
+// (== would panic) count as the same: a caller's Conn of such a type is more
+// likely than a hook replacing it by another of the same type.
 func sameConn(conn, old net.Conn) bool {
+	// A pointer, as a connection the client opens, is comparable: no
+	// reflect.Value, which allocates, for the comparison every stream read
+	// makes.
+	if t := reflect.TypeOf(conn); t != nil && t.Kind() == reflect.Pointer {
+		return conn == old
+	}
 	v, o := reflect.ValueOf(conn), reflect.ValueOf(old)
 	switch {
 	case !v.IsValid() || !o.IsValid():
@@ -503,37 +511,137 @@ func (c *connection) write(b []byte) error {
 	return err
 }
 
-const rxBufSize = 65535 // max size of IPv4 & IPv6 packet
+// rxBufSize is the size of the receive buffer: the largest message the client
+// reads, and the msgMaxSize its SNMPv3 requests advertise. It is the largest
+// IPv4 and IPv6 packet.
+const rxBufSize = 65535
 
-// errReplyTooBig is the error of a read that filled the receive buffer.
+// errReplyTooBig is the error of a datagram that fills the receive buffer, and
+// of a message on a TCP stream longer than the buffer.
 var errReplyTooBig = errors.New("response buffer too small")
 
-// receive reads one reply from the connection into buf. Known bug: a TCP
-// reply is taken from a single Read, so a reply split over several reads fails
-// to decode.
-func (c *connection) receive(buf *[rxBufSize]byte) ([]byte, error) {
+// errLostFraming is the error of octets on a TCP stream that cannot start a
+// message: no later message can be found on the stream.
+var errLostFraming = errors.New("lost the message framing of the TCP stream")
+
+// receiveBuffer is the buffer a client reads replies into. On a TCP stream it
+// also keeps the octets read past the last message receive returned,
+// buf[start:end], the start of the next messages on conn.
+type receiveBuffer struct {
+	buf        [rxBufSize]byte
+	conn       net.Conn
+	start, end int
+}
+
+// stream reports whether c is a TCP connection, by the network it was opened
+// with (for a Conn the caller set: the request's Transport): one that receive
+// reads as a stream and that is lost when it fails (ioFailure).
+func (c *connection) stream() bool {
+	return strings.HasPrefix(c.dial.network, tcp)
+}
+
+// receive reads one reply from the connection into rx and returns a copy: on a
+// TCP stream the next message (readMessage), otherwise a datagram, whose
+// source address is not checked.
+func (c *connection) receive(rx *receiveBuffer) ([]byte, error) {
+	if c.stream() {
+		return rx.readMessage(c.conn)
+	}
+	rx.conn, rx.start, rx.end = nil, 0, 0 // no stream to continue after a datagram
 	var n int
 	var err error
-	// On a packet connection (UDP, connected or not), read a datagram; its
-	// source address is not checked.
 	if uconn, ok := c.conn.(net.PacketConn); ok {
-		n, _, err = uconn.ReadFrom(buf[:])
+		n, _, err = uconn.ReadFrom(rx.buf[:])
 	} else {
-		n, err = c.conn.Read(buf[:])
+		n, err = c.conn.Read(rx.buf[:])
 	}
-	if err == io.EOF {
-		return nil, err
-	} else if err != nil {
-		return nil, fmt.Errorf("error reading from socket: %w", err)
+	if err != nil {
+		return nil, readError(err)
 	}
-
 	if n == rxBufSize {
-		// A read that fills the buffer may have cut the reply short: a datagram
-		// cannot be this large, a TCP stream can.
+		// The datagram may have been cut short.
 		return nil, errReplyTooBig
 	}
-
 	resp := make([]byte, n)
-	copy(resp, buf[:n])
+	copy(resp, rx.buf[:n])
 	return resp, nil
+}
+
+// readMessage returns the next message on the TCP stream conn (RFC 3430
+// section 2.1), reading from conn until the whole message is buffered: one
+// SEQUENCE, by the decoder's length rule (frame). The octets after it stay
+// buffered for the next call on conn, and so does a message that a read error
+// cuts short: a timeout keeps the stream's framing. A call on another
+// connection than the last call's starts with an empty buffer. Octets that
+// cannot start a message fail with errLostFraming, and a message longer than
+// the buffer with errReplyTooBig: the stream cannot be read on.
+func (rx *receiveBuffer) readMessage(conn net.Conn) ([]byte, error) {
+	if !sameConn(rx.conn, conn) {
+		rx.conn, rx.start, rx.end = conn, 0, 0
+	}
+	var readErr error
+	for {
+		size, err := frame(rx.buf[rx.start:rx.end])
+		if err != nil {
+			return nil, err
+		}
+		if size > rxBufSize {
+			return nil, errReplyTooBig
+		}
+		need := int(size)
+		if need != 0 && need <= rx.end-rx.start {
+			return rx.take(need), nil
+		}
+		if readErr != nil {
+			return nil, readError(readErr)
+		}
+		// Make room for the rest of the message, or of its header.
+		if rx.end == rxBufSize || rx.start+need > rxBufSize {
+			rx.end = copy(rx.buf[:], rx.buf[rx.start:rx.end])
+			rx.start = 0
+		}
+		var n int
+		n, readErr = conn.Read(rx.buf[rx.end:])
+		rx.end += n
+	}
+}
+
+// take returns a copy of the n octets buffered at start, which it consumes.
+func (rx *receiveBuffer) take(n int) []byte {
+	b := make([]byte, n)
+	copy(b, rx.buf[rx.start:])
+	rx.start += n
+	if rx.start == rx.end {
+		rx.start, rx.end = 0, 0
+	}
+	return b
+}
+
+// frame returns the size of the message that b, octets read from a TCP
+// stream, starts with, or 0 while b does not hold its whole header. A message
+// is a SEQUENCE whose length the decoder takes (readVersion, ber.Length);
+// octets that cannot start one fail with errLostFraming.
+func frame(b []byte) (uint64, error) {
+	switch {
+	case len(b) == 0:
+		return 0, nil
+	case PDUType(b[0]) != Sequence:
+		return 0, fmt.Errorf("%w: a message starts with 0x%02x, not a SEQUENCE", errLostFraming, b[0])
+	case !ber.HeaderComplete(b):
+		return 0, nil
+	}
+	size, _, err := ber.Length(b)
+	if err != nil {
+		return 0, fmt.Errorf("%w: %w", errLostFraming, err)
+	}
+	return size, nil
+}
+
+// readError is the error of a failed read: io.EOF as it is, as the agent
+// closing a TCP connection ends a read, and any other wrapped.
+func readError(err error) error {
+	if err == io.EOF {
+		return err
+	}
+	return fmt.Errorf("error reading from socket: %w", err)
 }

@@ -23,18 +23,18 @@
 // the client learns during a request serves the rest of it (see SNMPv3), and
 // each attempt uses the connection Conn holds when it starts. A TCP connection
 // whose write or read fails otherwise than by the attempt's deadline or a close
-// ([net.ErrClosed]), as when the agent closed or reset it, is lost while Conn
-// holds it: the next attempt, of the same request or a later one, opens it
-// again before writing, within the request's Timeout and Context, with the
-// settings it was opened with (a Conn the caller set: with the request's
-// Transport, Target, Port, LocalAddr and Control), and replaces it; a failed
-// reopen keeps it, still lost, for the attempt after. A request over an
-// unconnected UDP socket, also one the caller set, writes to the agent's
-// address the last successful Connect in unconnected mode resolved, which Close
-// keeps and a Connect in connected mode clears: a request resolves no name. The
-// request IDs and msgIDs start at a random value on first use unless
-// [GoSNMP.SetRequestID] and [GoSNMP.SetMsgID] set them, and Connect does not
-// reset them.
+// ([net.ErrClosed]), as when the agent closed or reset it, or whose stream
+// cannot be read on (see Attempts and timeouts), is lost while Conn holds it:
+// the next attempt, of the same request or a later one, opens it again before
+// writing, within the request's Timeout and Context, with the settings it was
+// opened with (a Conn the caller set: with the request's Transport, Target,
+// Port, LocalAddr and Control), and replaces it; a failed reopen keeps it,
+// still lost, for the attempt after. A request over an unconnected UDP socket,
+// also one the caller set, writes to the agent's address the last successful
+// Connect in unconnected mode resolved, which Close keeps and a Connect in
+// connected mode clears: a request resolves no name. The request IDs and msgIDs
+// start at a random value on first use unless [GoSNMP.SetRequestID] and
+// [GoSNMP.SetMsgID] set them, and Connect does not reset them.
 //
 // # Concurrency
 //
@@ -62,18 +62,27 @@
 // SNMPv3 Report (see SNMPv3 below): an answer to any earlier attempt of the
 // same request answers it too. A message read that does not decode or
 // authenticate, or that is no answer, is discarded, and the attempt goes on
-// waiting (RFC 3412 section 7.2). A timeout (a write or read error matching
-// [os.ErrDeadlineExceeded]), another write or read error (except
-// [net.ErrClosed]) and a TCP connection the agent closed ([io.EOF]) start the
-// next attempt, unless the Context is done, which ends the request with the
-// Context's error, or the attempt timed out at the Context's deadline, which
-// ends it with [context.DeadlineExceeded] even before the Context reports its
-// deadline. A Context that is done during an attempt ends its write or wait at
-// once. An answer ends the request, and so do a connection closed under it
-// ([net.ErrClosed]), a client closed by Close, an encoding error, a Context
-// that is done before an attempt starts, a failure to set the deadline and a
-// failed TCP reopen (a done Context fails it with an error that matches the
-// Context's).
+// waiting (RFC 3412 section 7.2). The client reads one message per datagram;
+// over TCP it reads the stream one message at a time, by each message's BER
+// length (RFC 3430 section 2.1): the octets after a message, and a message a
+// timeout cuts short, stay for the next read, in the same request or a later
+// one, while the client reads that connection. A message takes at most 65535
+// octets, the msgMaxSize SNMPv3 requests advertise: a longer one, and a
+// datagram that fills them and may have been cut short, fail the attempt with
+// "response buffer too small". Over TCP, such a message and octets that cannot
+// start a message (not a SEQUENCE, or a length the decoder refuses) leave the
+// stream unreadable: the attempt fails and the connection is lost, its rest
+// unread. A timeout (a write or read error matching [os.ErrDeadlineExceeded]),
+// another write or read error (except [net.ErrClosed]) and a TCP connection the
+// agent closed ([io.EOF]) start the next attempt, unless the Context is done,
+// which ends the request with the Context's error, or the attempt timed out at
+// the Context's deadline, which ends it with [context.DeadlineExceeded] even
+// before the Context reports its deadline. A Context that is done during an
+// attempt ends its write or wait at once. An answer ends the request, and so do
+// a connection closed under it ([net.ErrClosed]), a client closed by Close, an
+// encoding error, a Context that is done before an attempt starts, a failure to
+// set the deadline and a failed TCP reopen (a done Context fails it with an
+// error that matches the Context's).
 // When the attempts run out, the request fails with the last attempt's error,
 // except that after a timeout the error's text is "request timeout (after N
 // retries)" and after the agent closed the TCP connection "max retries (N)

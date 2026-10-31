@@ -57,7 +57,11 @@ type GoSNMP struct {
 	// Close and a later Connect close it; a connection the caller or a hook
 	// replaces in Conn is the caller's again. Each attempt of a request uses
 	// the connection Conn holds when it starts, which Close interrupts even
-	// after a hook replaced it. Set Conn only while no Close runs.
+	// after a hook replaced it. Set Conn only while no Close runs. Two values
+	// of a type == cannot compare count as one connection: what the client
+	// keeps for one (the lost mark, the octets of a TCP stream read past a
+	// message) holds for the other, so replace such a Conn by a value of
+	// another type, or by Close and Connect.
 	Conn net.Conn
 
 	// Target is the agent's host name or IP address.
@@ -70,7 +74,9 @@ type GoSNMP struct {
 	// "4" or "6" for IPv4 or IPv6 only. Connect fills in "udp" when it is empty
 	// and connects over it narrowed to IPv4 for an IPv4 LocalAddr, ConnectIPv4
 	// and ConnectIPv6 over it with the suffix; it does not change Transport
-	// otherwise.
+	// otherwise. Over TCP, also on a Conn the caller set, the client reads
+	// replies from the stream by their BER length; on other networks, one
+	// reply per read (see the package documentation).
 	Transport string
 
 	// Community is the community of SNMPv1 and SNMPv2c messages.
@@ -214,8 +220,8 @@ type GoSNMP struct {
 	requestIDSet atomic.Bool
 	msgIDSet     atomic.Bool
 
-	// rxBuf is the receive buffer, allocated by the first request.
-	rxBuf *[rxBufSize]byte // has to be pointer due to https://github.com/golang/go/issues/11728
+	// rx is the receive buffer, allocated by the first request.
+	rx *receiveBuffer // has to be pointer due to https://github.com/golang/go/issues/11728
 
 	// engine is the SNMPv3 engine state requests read and commit.
 	engine engineState

@@ -170,6 +170,8 @@ jobs:
       GOSNMP_PORT_IPV4: "161"
       GOSNMP_TARGET_IPV6: "::1"
       GOSNMP_PORT_IPV6: "161"
+      GOSNMP_TARGET_TCP: "127.0.0.1"
+      GOSNMP_PORT_TCP: "161"
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -184,7 +186,7 @@ jobs:
           sudo apt-get update
           sudo apt-get -y install snmpd
           sudo ./snmp_users.sh
-          sudo sed -i -e 's/^agentaddress.*$/agentaddress 127.0.0.1/' /etc/snmp/snmpd.conf
+          sudo sed -i -e 's/^agentaddress.*$/agentaddress 127.0.0.1,tcp:127.0.0.1/' /etc/snmp/snmpd.conf
           sudo service snmpd restart
       - name: End-to-end tests
         run: go test -v ${{ matrix.flags }} -tags end2end ./...
@@ -224,3 +226,5 @@ jobs:
         run: go test -fuzztime 60s -v -run '^FuzzDecodeReencode$' -fuzz '^FuzzDecodeReencode$'
       - name: Fuzz DecodeV3
         run: go test -fuzztime 60s -v -run '^FuzzDecodeV3$' -fuzz '^FuzzDecodeV3$'
+      - name: Fuzz ReadMessage
+        run: go test -fuzztime 60s -v -run '^FuzzReadMessage$' -fuzz '^FuzzReadMessage$'

@@ -9,7 +9,11 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
+	"io"
+	"math/rand/v2"
 	"net"
+	"os"
 	"runtime"
 	"slices"
 	"strconv"
@@ -22,6 +26,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netdata/gosnmp/internal/ber"
 )
 
 // connectResult is what TestConnect observes of a Connect.
@@ -1084,4 +1090,213 @@ func TestSameConn(t *testing.T) {
 			assert.Equal(t, tc.want, sameConn(tc.conn, tc.old))
 		})
 	}
+}
+
+// streamConn is a net.Conn whose reads hand out reads in turn: the octets of
+// each, as many at a time as the caller's buffer takes, then its error. Past
+// the last read, reads fail with io.EOF. Only Read is implemented.
+type streamConn struct {
+	net.Conn
+	reads []streamRead
+}
+
+// streamRead is one read of a streamConn.
+type streamRead struct {
+	data []byte
+	err  error
+}
+
+func (c *streamConn) Read(b []byte) (int, error) {
+	if len(c.reads) == 0 {
+		return 0, io.EOF
+	}
+	r := &c.reads[0]
+	n := copy(b, r.data)
+	if r.data = r.data[n:]; len(r.data) > 0 {
+		return n, nil
+	}
+	err := r.err
+	c.reads = c.reads[1:]
+	return n, err
+}
+
+// seqMessage is a SEQUENCE of n content octets.
+func seqMessage(n int) []byte {
+	b := ber.AppendHeader(nil, byte(Sequence), n)
+	for i := range n {
+		b = append(b, byte(i))
+	}
+	return b
+}
+
+// describeRead describes what readMessage returned, for a comparison.
+func describeRead(b []byte, err error) string {
+	if err != nil {
+		return "error: " + err.Error()
+	}
+	return fmt.Sprintf("% x", b)
+}
+
+// TestReadMessage pins how readMessage frames a TCP stream: the messages it
+// returns, one per call, and the errors of octets it cannot frame and of
+// reads that fail.
+func TestReadMessage(t *testing.T) {
+	msg := seqMessage(3)
+	tests := map[string]struct {
+		reads []streamRead
+		calls int
+		want  []string
+	}{
+		"two messages in one read": {
+			reads: []streamRead{{data: slices.Concat(msg, seqMessage(1))}},
+			calls: 3, want: []string{"30 03 00 01 02", "30 01 00", "error: EOF"},
+		},
+		"a message in reads of one octet": {
+			reads: []streamRead{{data: msg[:1]}, {data: msg[1:2]}, {data: msg[2:4]}, {data: msg[4:]}},
+			calls: 1, want: []string{"30 03 00 01 02"},
+		},
+		"a long-form header in parts": {
+			reads: []streamRead{{data: []byte{0x30}}, {data: []byte{0x82}}, {data: []byte{0x00}}, {data: []byte{0x03, 7, 8, 9}}},
+			calls: 1, want: []string{"30 82 00 03 07 08 09"},
+		},
+		"a read of nothing": {
+			reads: []streamRead{{}, {data: msg}},
+			calls: 1, want: []string{"30 03 00 01 02"},
+		},
+		"a message and an error in one read": {
+			reads: []streamRead{{data: msg, err: io.EOF}},
+			calls: 2, want: []string{"30 03 00 01 02", "error: EOF"},
+		},
+		"a timeout inside a message, then the rest": {
+			reads: []streamRead{{data: msg[:2], err: os.ErrDeadlineExceeded}, {data: msg[2:]}},
+			calls: 2, want: []string{"error: error reading from socket: i/o timeout", "30 03 00 01 02"},
+		},
+		"the stream's end inside a message": {
+			reads: []streamRead{{data: msg[:4]}},
+			calls: 1, want: []string{"error: EOF"},
+		},
+		"not a SEQUENCE": {
+			reads: []streamRead{{data: []byte{byte(OctetString), 1, 0}}},
+			calls: 1, want: []string{"error: lost the message framing of the TCP stream: a message starts with 0x04, not a SEQUENCE"},
+		},
+		"not a SEQUENCE, before a length octet arrives": {
+			reads: []streamRead{{data: []byte{byte(OctetString)}}, {err: os.ErrDeadlineExceeded}},
+			calls: 1, want: []string{"error: lost the message framing of the TCP stream: a message starts with 0x04, not a SEQUENCE"},
+		},
+		"a message, then octets that do not start one": {
+			reads: []streamRead{{data: slices.Concat(msg, []byte{byte(Integer), 1, 0})}},
+			calls: 2, want: []string{"30 03 00 01 02", "error: lost the message framing of the TCP stream: a message starts with 0x02, not a SEQUENCE"},
+		},
+		"the indefinite form": {
+			reads: []streamRead{{data: []byte{byte(Sequence), 0x80, byte(Null), 0, 0, 0}}},
+			calls: 1, want: []string{"error: lost the message framing of the TCP stream: invalid packet length: indefinite length encoding (0x80) is not permitted in SNMP"},
+		},
+		"nine length octets, before they arrive": {
+			reads: []streamRead{{data: []byte{byte(Sequence), 0x89}}, {err: os.ErrDeadlineExceeded}},
+			calls: 1, want: []string{"error: lost the message framing of the TCP stream: invalid packet length: more than 8 length octets"},
+		},
+		"a length past the largest uint64": {
+			reads: []streamRead{{data: []byte{byte(Sequence), 0x88, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}}},
+			calls: 1, want: []string{"error: lost the message framing of the TCP stream: invalid packet length: TLV length exceeds the remaining input"},
+		},
+		"longer than the buffer, before its content arrives": {
+			reads: []streamRead{{data: []byte{byte(Sequence), 0x82, 0xff, 0xfc}}, {err: os.ErrDeadlineExceeded}},
+			calls: 1, want: []string{"error: response buffer too small"},
+		},
+		"a header cut at the buffer's end": {
+			reads: []streamRead{{data: slices.Concat(seqMessage(rxBufSize-7), []byte{byte(Sequence), 0x82, 0x00})}, {data: []byte{0x03, 7, 8, 9}}},
+			calls: 2, want: []string{fmt.Sprintf("% x", seqMessage(rxBufSize-7)), "30 82 00 03 07 08 09"},
+		},
+		"as long as the buffer, after a message": {
+			reads: []streamRead{{data: slices.Concat(msg, seqMessage(rxBufSize-4))}},
+			calls: 2, want: []string{"30 03 00 01 02", fmt.Sprintf("% x", seqMessage(rxBufSize-4))},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			conn := &streamConn{reads: tc.reads}
+			rx := new(receiveBuffer)
+			var got []string
+			for range tc.calls {
+				got = append(got, describeRead(rx.readMessage(conn)))
+			}
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestReadMessageSplits checks that readMessage returns the messages of a TCP
+// stream one by one, however the stream is split into reads, and then the
+// stream's end.
+func TestReadMessageSplits(t *testing.T) {
+	msgs := [][]byte{
+		seqMessage(0), seqMessage(1), seqMessage(127), seqMessage(128), seqMessage(1000),
+		{byte(Sequence), 0x82, 0x00, 0x03, 7, 8, 9}, // a length with a leading zero
+		seqMessage(rxBufSize - 4),                   // as long as the buffer
+	}
+	rng := rand.New(rand.NewPCG(58, 58))
+	for round := range 300 {
+		var want [][]byte
+		var stream []byte
+		for range 1 + rng.IntN(6) {
+			m := msgs[rng.IntN(len(msgs))]
+			want = append(want, m)
+			stream = append(stream, m...)
+		}
+		conn := &streamConn{}
+		for len(stream) > 0 {
+			n := 1 + rng.IntN(min(len(stream), []int{8, 300, 70000}[rng.IntN(3)]))
+			conn.reads = append(conn.reads, streamRead{data: stream[:n]})
+			stream = stream[n:]
+		}
+		rx := new(receiveBuffer)
+		for i, m := range want {
+			got, err := rx.readMessage(conn)
+			require.NoError(t, err, "round %d, message %d", round, i)
+			require.Equal(t, m, got, "round %d, message %d", round, i)
+		}
+		_, err := rx.readMessage(conn)
+		require.Equal(t, io.EOF, err, "round %d", round)
+	}
+}
+
+// TestReceiveStreamState checks what the receive buffer keeps of a TCP
+// stream: the octets after a message, for the next read on that connection
+// only; a read on another connection, or of a datagram, starts afresh.
+func TestReceiveStreamState(t *testing.T) {
+	msg := seqMessage(3)
+	tcpOn := func(conn net.Conn) *connection { return &connection{conn: conn, dial: dialSettings{network: "tcp"}} }
+	udpOn := func(conn net.Conn) *connection { return &connection{conn: conn, dial: dialSettings{network: "udp"}} }
+	a := &streamConn{reads: []streamRead{{data: slices.Concat(msg, msg[:2])}, {data: msg[2:]}}}
+	b := &streamConn{reads: []streamRead{{data: seqMessage(1)}, {data: slices.Concat(msg, msg[:2])}, {data: msg[2:]}, {data: seqMessage(1)}}}
+	rx := new(receiveBuffer)
+	var got []string
+	for _, c := range []*connection{tcpOn(a), tcpOn(b), tcpOn(a), tcpOn(b), udpOn(b), tcpOn(b)} {
+		got = append(got, describeRead(c.receive(rx)))
+	}
+	assert.Equal(t, []string{
+		"30 03 00 01 02", // a: the message; its next one starts
+		"30 01 00",       // b: a's octets are not read
+		"error: lost the message framing of the TCP stream: a message starts with 0x00, not a SEQUENCE", // a: its start is gone
+		"30 03 00 01 02", // b: the message; its next one starts
+		"00 01 02",       // b as a datagram: the next read, not the buffered start
+		"30 01 00",       // b: the start went with the datagram
+	}, got)
+}
+
+// TestReadMessageAllocs checks that reading a message from a TCP stream
+// allocates only the message's copy: every reply of a TCP request is read so.
+func TestReadMessageAllocs(t *testing.T) {
+	msg := seqMessage(3)
+	reads := make([]streamRead, 1)
+	conn := &streamConn{}
+	rx := new(receiveBuffer)
+	allocs := testing.AllocsPerRun(100, func() {
+		reads[0] = streamRead{data: msg}
+		conn.reads = reads
+		if _, err := rx.readMessage(conn); err != nil {
+			t.Fatal(err)
+		}
+	})
+	assert.Equal(t, 1.0, allocs)
 }

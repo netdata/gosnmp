@@ -15,6 +15,7 @@ package gosnmp
 
 import (
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -288,6 +289,49 @@ func TestGenericBulkWalk(t *testing.T) {
 	}
 	if len(result) <= 1 {
 		t.Fatalf("Expected multiple values, got %d", len(result))
+	}
+}
+
+// TestGenericBulkWalkTCP walks the agent's MIB over TCP and checks that it
+// finds the names a walk over UDP finds. It runs when GOSNMP_TARGET_TCP and
+// GOSNMP_PORT_TCP name the agent's TCP address.
+func TestGenericBulkWalkTCP(t *testing.T) {
+	target, envPort := os.Getenv("GOSNMP_TARGET_TCP"), os.Getenv("GOSNMP_PORT_TCP")
+	if target == "" || envPort == "" {
+		t.Skip("environment variables not set: GOSNMP_TARGET_TCP, GOSNMP_PORT_TCP")
+	}
+	port, err := strconv.ParseUint(envPort, 10, 16)
+	if err != nil {
+		t.Fatalf("invalid port number %q: %v", envPort, err)
+	}
+
+	names := func(gs *GoSNMP) []string {
+		t.Helper()
+		defer gs.Close()
+		result, err := gs.BulkWalkAll("")
+		if err != nil {
+			t.Fatalf("BulkWalkAll() over %s failed with error => %v", gs.Transport, err)
+		}
+		out := make([]string, 0, len(result))
+		for _, pdu := range result {
+			out = append(out, pdu.Name)
+		}
+		return out
+	}
+
+	gsUDP := newTestGoSNMP()
+	connectToTarget(t, gsUDP)
+	want := names(gsUDP)
+
+	gsTCP := newTestGoSNMP()
+	gsTCP.Transport, gsTCP.Target, gsTCP.Port = "tcp", target, uint16(port)
+	if err := gsTCP.Connect(); err != nil {
+		t.Fatalf("Connection failed. Is snmpd listening on TCP %s:%d?\n(err: %v)", target, port, err)
+	}
+	got := names(gsTCP)
+
+	if len(got) <= 1 || !slices.Equal(got, want) {
+		t.Fatalf("names over TCP (%d) differ from those over UDP (%d):\ntcp %v\nudp %v", len(got), len(want), got, want)
 	}
 }
 

@@ -51,6 +51,39 @@ func TestLengthLongFormLimits(t *testing.T) {
 	}
 }
 
+// TestHeaderComplete checks, for every first length octet and every prefix of
+// a header, that HeaderComplete holds exactly from the prefix on which Length
+// returns what it returns for the whole input: before that, Length fails
+// otherwise.
+func TestHeaderComplete(t *testing.T) {
+	type result struct {
+		length uint64
+		cursor int
+		err    error
+	}
+	lengthOf := func(b []byte) result {
+		length, cursor, err := Length(b)
+		return result{length, cursor, err}
+	}
+	for first := range 256 {
+		full := append([]byte{0x30, byte(first)}, bytes.Repeat([]byte{0x01}, 130)...)
+		want := lengthOf(full)
+		for n := range len(full) + 1 {
+			b := full[:n]
+			got := lengthOf(b)
+			if !HeaderComplete(b) {
+				if got.err == nil || got == want {
+					t.Fatalf("HeaderComplete(% x) = false, but Length already decides: %+v", b, got)
+				}
+				continue
+			}
+			if got != want {
+				t.Fatalf("HeaderComplete(% x) = true, but Length = %+v, %+v with the rest", b, got, want)
+			}
+		}
+	}
+}
+
 // TestLength tests the Length function with various BER length encodings
 func TestLength(t *testing.T) {
 	tests := []struct {
