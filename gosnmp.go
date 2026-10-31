@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"math/big"
 	"net"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -468,42 +467,37 @@ func Partition(currentPosition, partitionSize, sliceLength int) bool {
 }
 
 // ToBigInt converts an integer varbind value, of any Go integer type, or a
-// string holding a decimal integer, to a big.Int, and anything else to zero.
-// It saves a type switch over the integer types values decode to. Known bug:
-// a uint above math.MaxInt64 converts through int64 and comes out negative.
+// string holding a decimal integer of any size, to a big.Int, and anything
+// else to zero. It saves a type switch over the integer types values decode
+// to.
 func ToBigInt(value any) *big.Int {
-	var val int64
-
 	switch value := value.(type) { // shadow
 	case int:
-		val = int64(value)
+		return big.NewInt(int64(value))
 	case int8:
-		val = int64(value)
+		return big.NewInt(int64(value))
 	case int16:
-		val = int64(value)
+		return big.NewInt(int64(value))
 	case int32:
-		val = int64(value)
+		return big.NewInt(int64(value))
 	case int64:
-		val = value
+		return big.NewInt(value)
 	case uint:
-		val = int64(value) //nolint:gosec
+		return new(big.Int).SetUint64(uint64(value))
 	case uint8:
-		val = int64(value)
+		return new(big.Int).SetUint64(uint64(value))
 	case uint16:
-		val = int64(value)
+		return new(big.Int).SetUint64(uint64(value))
 	case uint32:
-		val = int64(value)
-	case uint64: // beware: int64(MaxUint64) overflow, handle different
+		return new(big.Int).SetUint64(uint64(value))
+	case uint64:
 		return new(big.Int).SetUint64(value)
 	case string:
-		// for testing and other apps - numbers may appear as strings
-		var err error
-		if val, err = strconv.ParseInt(value, 10, 64); err != nil {
-			val = 0
+		// The syntax strconv.ParseInt accepts in base 10: an optional sign
+		// and digits.
+		if v, ok := new(big.Int).SetString(value, 10); ok {
+			return v
 		}
-	default:
-		val = 0
 	}
-
-	return big.NewInt(val)
+	return new(big.Int)
 }

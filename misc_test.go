@@ -100,6 +100,7 @@ var testsToBigInt = []struct {
 	{uint16(math.MaxUint16), big.NewInt(math.MaxUint16)},
 	{uint32(math.MaxUint32), big.NewInt(math.MaxUint32)},
 	{uint64(0), new(big.Int)},
+	{^uint(0), new(big.Int).SetUint64(uint64(^uint(0)))}, // above math.MaxInt64 on 64-bit platforms
 	{uint64(math.MaxUint64), new(big.Int).SetUint64(math.MaxUint64)},
 
 	// string: valid number
@@ -109,10 +110,11 @@ var testsToBigInt = []struct {
 	{"9223372036854775807", big.NewInt(math.MaxInt64)},
 	{"-9223372036854775808", big.NewInt(math.MinInt64)},
 
-	// string: a number outside int64; known bug: it converts to zero
-	{"9223372036854775808", new(big.Int)},
-	{"18446744073709551615", new(big.Int)},
-	{"-9223372036854775809", new(big.Int)},
+	// string: a number outside int64
+	{"9223372036854775808", new(big.Int).Lsh(big.NewInt(1), 63)},
+	{"18446744073709551615", new(big.Int).SetUint64(math.MaxUint64)},
+	{"-9223372036854775809", new(big.Int).Sub(big.NewInt(math.MinInt64), big.NewInt(1))},
+	{"-340282366920938463463374607431768211456", new(big.Int).Neg(new(big.Int).Lsh(big.NewInt(1), 128))},
 
 	// string: invalid number
 	{"foo", new(big.Int)},
@@ -136,17 +138,6 @@ func TestToBigInt(t *testing.T) {
 			t.Errorf("#%d, %T: got %v expected %v", i, test.in, result, test.expected)
 		}
 	}
-}
-
-// TestToBigIntLargeUint pins that a uint above math.MaxInt64, possible on
-// 64-bit platforms only, converts through int64 and comes out negative. Known
-// bug.
-func TestToBigIntLargeUint(t *testing.T) {
-	want := new(big.Int).SetUint64(uint64(^uint(0)))
-	if strconv.IntSize == 64 {
-		want = big.NewInt(-1)
-	}
-	assert.Equal(t, want, ToBigInt(^uint(0)))
 }
 
 // ---------------------------------------------------------------------
