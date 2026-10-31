@@ -94,16 +94,16 @@ func (x *GoSNMP) interruptible(ctx context.Context, conn net.Conn) attemptInterr
 	a := attemptInterrupts{x: x, seq: seq}
 	// Until this returns, the caller cannot defer end. Roll back setup if
 	// a Context method panics, including while AfterFunc registers it.
-	complete := false
+	completed := false
 	defer func() {
-		if !complete {
+		if !completed {
 			a.end()
 		}
 	}()
 	if ctx.Done() != nil {
 		a.stopContext = context.AfterFunc(ctx, func() { x.interrupt(seq) })
 	}
-	complete = true
+	completed = true
 	return a
 }
 
@@ -114,13 +114,20 @@ type attemptInterrupts struct {
 	stopContext func() bool
 }
 
-// end ends the attempt's interrupts: it waits for one that has started, so
-// that its deadline cannot land after a later attempt's, and one that runs
-// later finds the attempt ended.
+// end ends the attempt's interrupts: it stops the Context's, then ends the
+// attempt (clear), also when stopping panics: a Context with its own AfterFunc
+// method gives the stop function, the caller's code.
 func (a attemptInterrupts) end() {
+	defer a.clear()
 	if a.stopContext != nil {
 		a.stopContext()
 	}
+}
+
+// clear ends the attempt: an interrupt that runs later finds it ended, and one
+// that has started is waited for, so that its deadline cannot land after a
+// later attempt's.
+func (a attemptInterrupts) clear() {
 	x := a.x
 	x.mu.Lock()
 	interrupted := x.attempt.interrupted

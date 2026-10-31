@@ -2017,29 +2017,36 @@ func TestRequestPanicNil(t *testing.T) {
 	assert.EqualError(t, err, want)
 }
 
-// panicInterruptContext panics either in Done or in the AfterFunc method
-// context.AfterFunc calls while setting up the attempt's interrupt.
+// panicInterruptContext panics at stage: in Done or in the AfterFunc method
+// context.AfterFunc calls while setting up the attempt's interrupt, or in the
+// stop function that AfterFunc method returned, which ending the attempt calls.
 type panicInterruptContext struct {
 	context.Context
-	done      chan struct{}
-	afterFunc bool
-	value     any
+	done  chan struct{}
+	stage string
+	value any
 }
 
 func (c *panicInterruptContext) Done() <-chan struct{} {
-	if !c.afterFunc {
+	if c.stage == "Done" {
 		panic(c.value)
 	}
 	return c.done
 }
 
-func (c *panicInterruptContext) AfterFunc(func()) func() bool { panic(c.value) }
+func (c *panicInterruptContext) AfterFunc(func()) func() bool {
+	if c.stage == "AfterFunc" {
+		panic(c.value)
+	}
+	return func() bool { panic(c.value) }
+}
 
-// TestRequestContextPanicCleanup checks that interrupted setup leaves no
-// active attempt behind: after Close and a new Conn, cancellation and Close
-// still interrupt the next request without waiting for its timeout.
+// TestRequestContextPanicCleanup checks that a Context that panics while the
+// attempt sets up or ends its interrupts leaves no active attempt behind: after
+// Close and a new Conn, cancellation and Close still interrupt the next request
+// without waiting for its timeout.
 func TestRequestContextPanicCleanup(t *testing.T) {
-	for _, stage := range []string{"Done", "AfterFunc"} {
+	for _, stage := range []string{"Done", "AfterFunc", "stop"} {
 		for _, value := range []struct {
 			name  string
 			panic any
@@ -2054,7 +2061,7 @@ func TestRequestContextPanicCleanup(t *testing.T) {
 						x.Timeout, x.Retries = time.Hour, 0
 						x.Context = &panicInterruptContext{
 							Context: context.Background(), done: make(chan struct{}),
-							afterFunc: stage == "AfterFunc", value: value.panic,
+							stage: stage, value: value.panic,
 						}
 						res, err := x.Get([]string{engineOID})
 						require.Nil(t, res)
@@ -2065,8 +2072,8 @@ func TestRequestContextPanicCleanup(t *testing.T) {
 						x.mu.Lock()
 						active, interrupted := x.attempt.conn, x.attempt.interrupted
 						x.mu.Unlock()
-						assert.Nil(t, active, "the failed setup left an active attempt")
-						assert.Nil(t, interrupted, "the failed setup left an interrupt")
+						assert.Nil(t, active, "the panic left an active attempt")
+						assert.Nil(t, interrupted, "the panic left an interrupt")
 						require.NoError(t, x.Close())
 
 						conn := newFakeTransport(nil, nil)
