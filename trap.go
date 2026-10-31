@@ -90,11 +90,11 @@ func (x *GoSNMP) unmarshalTrapByUser(trap []byte) (*SnmpPacket, error) {
 // parameters, whose keys it derives first.
 func (x *GoSNMP) unmarshalTrapBase(trap []byte, useResponseSecurityParameters bool) (*SnmpPacket, error) {
 	result := new(SnmpPacket)
-	if x.SecurityParameters != nil {
-		if err := x.SecurityParameters.InitSecurityKeys(); err != nil {
+	if sp := usmOf(x.SecurityParameters); sp != nil {
+		if err := sp.InitSecurityKeys(); err != nil {
 			return nil, err
 		}
-		result.SecurityParameters = x.SecurityParameters.Copy()
+		result.SecurityParameters = sp.Copy()
 	}
 
 	cursor, w, err := unmarshalHeader(trap, result)

@@ -92,9 +92,18 @@ func (x *GoSNMP) interruptible(ctx context.Context, conn net.Conn) attemptInterr
 	seq := x.attempt.seq
 	x.mu.Unlock()
 	a := attemptInterrupts{x: x, seq: seq}
+	// Until this returns, the caller cannot defer end. Roll back setup if
+	// a Context method panics, including while AfterFunc registers it.
+	completed := false
+	defer func() {
+		if !completed {
+			a.end()
+		}
+	}()
 	if ctx.Done() != nil {
 		a.stopContext = context.AfterFunc(ctx, func() { x.interrupt(seq) })
 	}
+	completed = true
 	return a
 }
 
@@ -105,13 +114,20 @@ type attemptInterrupts struct {
 	stopContext func() bool
 }
 
-// end ends the attempt's interrupts: it waits for one that has started, so
-// that its deadline cannot land after a later attempt's, and one that runs
-// later finds the attempt ended.
+// end ends the attempt's interrupts: it stops the Context's, then ends the
+// attempt (clear), also when stopping panics: a Context with its own AfterFunc
+// method gives the stop function, the caller's code.
 func (a attemptInterrupts) end() {
+	defer a.clear()
 	if a.stopContext != nil {
 		a.stopContext()
 	}
+}
+
+// clear ends the attempt: an interrupt that runs later finds it ended, and one
+// that has started is waited for, so that its deadline cannot land after a
+// later attempt's.
+func (a attemptInterrupts) clear() {
 	x := a.x
 	x.mu.Lock()
 	interrupted := x.attempt.interrupted
@@ -524,6 +540,10 @@ var errReplyTooBig = errors.New("response buffer too small")
 // message: no later message can be found on the stream.
 var errLostFraming = errors.New("lost the message framing of the TCP stream")
 
+// errReadCount is the error of a read whose count is outside the buffer it
+// read into: a Conn that breaks the io.Reader contract.
+var errReadCount = errors.New("the connection's read returned a count outside the buffer")
+
 // receiveBuffer is the buffer a client reads replies into. On a TCP stream it
 // also keeps the octets read past the last message receive returned,
 // buf[start:end], the start of the next messages on conn.
@@ -542,7 +562,8 @@ func (c *connection) stream() bool {
 
 // receive reads one reply from the connection into rx and returns a copy: on a
 // TCP stream the next message (readMessage), otherwise a datagram, whose
-// source address is not checked.
+// source address is not checked; a read whose count is outside the buffer
+// fails with errReadCount.
 func (c *connection) receive(rx *receiveBuffer) ([]byte, error) {
 	if c.stream() {
 		return rx.readMessage(c.conn)
@@ -554,6 +575,9 @@ func (c *connection) receive(rx *receiveBuffer) ([]byte, error) {
 		n, _, err = uconn.ReadFrom(rx.buf[:])
 	} else {
 		n, err = c.conn.Read(rx.buf[:])
+	}
+	if n < 0 || n > rxBufSize {
+		return nil, fmt.Errorf("%w: %d", errReadCount, n)
 	}
 	if err != nil {
 		return nil, readError(err)
@@ -573,8 +597,9 @@ func (c *connection) receive(rx *receiveBuffer) ([]byte, error) {
 // buffered for the next call on conn, and so does a message that a read error
 // cuts short: a timeout keeps the stream's framing. A call on another
 // connection than the last call's starts with an empty buffer. Octets that
-// cannot start a message fail with errLostFraming, and a message longer than
-// the buffer with errReplyTooBig: the stream cannot be read on.
+// cannot start a message fail with errLostFraming, a message longer than the
+// buffer with errReplyTooBig, and a read whose count is outside the buffer
+// with errReadCount: the stream cannot be read on.
 func (rx *receiveBuffer) readMessage(conn net.Conn) ([]byte, error) {
 	if !sameConn(rx.conn, conn) {
 		rx.conn, rx.start, rx.end = conn, 0, 0
@@ -602,6 +627,9 @@ func (rx *receiveBuffer) readMessage(conn net.Conn) ([]byte, error) {
 		}
 		var n int
 		n, readErr = conn.Read(rx.buf[rx.end:])
+		if n < 0 || n > rxBufSize-rx.end {
+			return nil, fmt.Errorf("%w: %d", errReadCount, n)
+		}
 		rx.end += n
 	}
 }

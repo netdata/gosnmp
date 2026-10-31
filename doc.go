@@ -108,6 +108,20 @@
 // the request, and one resend (see below). A request calls the hooks set when
 // it starts.
 //
+// A panic in the code a request runs on its own goroutine ends the request: in
+// a hook, in the Logger, or in a method of a Conn or Context the caller gave
+// that the request calls. The request returns no packet and an error whose
+// text starts with "request panicked: " and that wraps the panic's value when
+// it is an error, so that [errors.Is] and [errors.As] reach it (a
+// [runtime.Error] included); the client stays usable. Other panics are not
+// recovered: they reach the caller, or end the process when they run on a
+// goroutine of their own. That is a panic in a [WalkFunc], or in the Logger
+// when a walk logs between its requests; in Control when a dial runs it on
+// goroutines of its own, racing the IPv4 and IPv6 addresses of a name; in a
+// Conn's SetDeadline when Close or a done Context interrupts an attempt; in a
+// Context's methods that the context package calls on goroutines of its own;
+// and in Connect and Close.
+//
 // # SNMPv3
 //
 // The client keeps what it knows of the agent's engine, its engine state (RFC

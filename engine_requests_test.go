@@ -15,6 +15,7 @@ import (
 	"maps"
 	"net"
 	"os"
+	"os/exec"
 	"regexp"
 	"runtime"
 	"slices"
@@ -134,6 +135,46 @@ func answerFrom(first int, vbs ...SnmpPDU) engineAgent {
 		}
 		return []agentReply{{data: replyTo(req, nil, vbs...)}}
 	}
+}
+
+// errCallerFailure is what the caller's code panics with in the panic
+// scenarios.
+var errCallerFailure = errors.New("the caller's code failed")
+
+// panicWithError panics with errCallerFailure.
+func panicWithError() { panic(errCallerFailure) }
+
+// panicOnNilMap panics with a runtime error: an assignment to a nil map.
+func panicOnNilMap() {
+	var m map[string]int
+	m["hook"]++ //nolint:staticcheck // the runtime error is the point
+}
+
+// panicOnce makes the hook *h, which the transcript names name, panic through
+// fail the first time it runs, after doing what it did before.
+func panicOnce(c *fakeTransport, name string, h *func(*GoSNMP), fail func()) {
+	next, armed := *h, true
+	*h = func(x *GoSNMP) {
+		next(x)
+		if armed {
+			armed = false
+			c.tr.addf("hook %s panics", name)
+			fail()
+		}
+	}
+}
+
+// getAfterPanic runs a Get in which the caller's code panics (the scenario's
+// setup arms it), records its result and what its error matches, then runs a
+// second Get on the same client, whose result it returns.
+func getAfterPanic(x *GoSNMP) (*SnmpPacket, error) {
+	tr := x.Conn.(fakePacketTransport).tr
+	res, err := x.Get([]string{engineOID})
+	tr.addf("first request: %s", describeEngineResult(res, err))
+	var re runtime.Error
+	tr.addf("first request's error: matches the caller's error %t, a runtime.Error %t", errors.Is(err, errCallerFailure),
+		errors.As(err, &re))
+	return x.Get([]string{engineOID})
 }
 
 // answerRaw is an agent that answers every request with its sysDescr reply
@@ -897,6 +938,43 @@ func engineScenarios() map[string]engineScenario {
 		// Hooks.
 		"hook-panics": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) {
 			x.PreSend = func(*GoSNMP) { panic("codec hook failure") }
+		}},
+
+		// The caller's code panics in a request, which ends; the next request
+		// on the client is answered.
+		"hook-panics/presend-error": {agent: answer(sysDescr), run: getAfterPanic, setup: func(x *GoSNMP, c *fakeTransport) {
+			panicOnce(c, "PreSend", &x.PreSend, panicWithError)
+		}},
+		"hook-panics/onsent-runtime-error": {agent: answer(sysDescr), run: getAfterPanic, setup: func(x *GoSNMP, c *fakeTransport) {
+			panicOnce(c, "OnSent", &x.OnSent, panicOnNilMap)
+		}},
+		"hook-panics/onrecv": {agent: answer(sysDescr), run: getAfterPanic, setup: func(x *GoSNMP, c *fakeTransport) {
+			panicOnce(c, "OnRecv", &x.OnRecv, panicWithError)
+		}},
+		"hook-panics/onretry": {agent: answerFromSecond(sysDescr), run: getAfterPanic, setup: func(x *GoSNMP, c *fakeTransport) {
+			panicOnce(c, "OnRetry", &x.OnRetry, panicWithError)
+		}},
+		"hook-panics/onfinish": {agent: answer(sysDescr), run: getAfterPanic, setup: func(x *GoSNMP, c *fakeTransport) {
+			panicOnce(c, "OnFinish", &x.OnFinish, panicWithError)
+		}},
+		"hook-panics/logger": {agent: answer(sysDescr), run: getAfterPanic, setup: func(x *GoSNMP, c *fakeTransport) {
+			armed := true
+			x.Logger = NewLogger(funcLogger(func(s string) {
+				if armed && strings.HasPrefix(s, "GET RESPONSE OK") {
+					armed = false
+					c.tr.addf("Logger panics at %q", "GET RESPONSE OK")
+					panicWithError()
+				}
+			}))
+		}},
+		"hook-panics/conn-read": {agent: answer(sysDescr), run: getAfterPanic, setup: func(_ *GoSNMP, c *fakeTransport) {
+			c.failRead = func(n int) error {
+				if n == 1 {
+					c.tr.addf("the Conn's read #1 panics")
+					panicWithError()
+				}
+				return nil
+			}
 		}},
 	}
 
@@ -1913,6 +1991,198 @@ func dialTCPAgent(t *testing.T, port uint16) net.Conn {
 	conn, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(int(port))))
 	require.NoError(t, err)
 	return conn
+}
+
+// TestRequestPanicNil checks that a hook's panic(nil) ends the request with no
+// packet and an error, by default (a *runtime.PanicNilError) and under
+// GODEBUG=panicnil=1, where recover returns nil: for that setting the test
+// runs itself again in a child process.
+func TestRequestPanicNil(t *testing.T) {
+	child := os.Getenv("GOSNMP_TEST_PANICNIL") != ""
+	if !child {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestRequestPanicNil$", "-test.count=1", "-test.v") //nolint:gosec // the test binary itself
+		cmd.Env = append(os.Environ(), "GOSNMP_TEST_PANICNIL=1", "GODEBUG=panicnil=1")
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "%s", out)
+		require.Contains(t, string(out), "--- PASS: TestRequestPanicNil", "the child ran the test")
+	}
+	x := newEngineClient(t, nil, Version2c, fakePacketTransport{newFakeTransport(nil, answer(sysDescr))})
+	x.PreSend = func(*GoSNMP) { panic(nil) } //nolint:govet // the nil panic is the point
+	res, err := x.Get([]string{engineOID})
+	assert.Nil(t, res)
+	want := "request panicked: runtime error: panic called with nil argument"
+	if child {
+		want = "request panicked: <nil>"
+	}
+	assert.EqualError(t, err, want)
+}
+
+// panicInterruptContext panics at stage: in Done or in the AfterFunc method
+// context.AfterFunc calls while setting up the attempt's interrupt, or in the
+// stop function that AfterFunc method returned, which ending the attempt calls.
+type panicInterruptContext struct {
+	context.Context
+	done  chan struct{}
+	stage string
+	value any
+}
+
+func (c *panicInterruptContext) Done() <-chan struct{} {
+	if c.stage == "Done" {
+		panic(c.value)
+	}
+	return c.done
+}
+
+func (c *panicInterruptContext) AfterFunc(func()) func() bool {
+	if c.stage == "AfterFunc" {
+		panic(c.value)
+	}
+	return func() bool { panic(c.value) }
+}
+
+// TestRequestContextPanicCleanup checks that a Context that panics while the
+// attempt sets up or ends its interrupts leaves no active attempt behind: after
+// Close and a new Conn, cancellation and Close still interrupt the next request
+// without waiting for its timeout.
+func TestRequestContextPanicCleanup(t *testing.T) {
+	for _, stage := range []string{"Done", "AfterFunc", "stop"} {
+		for _, value := range []struct {
+			name  string
+			panic any
+		}{
+			{name: "error", panic: errCallerFailure},
+			{name: "nil"},
+		} {
+			for _, interrupt := range []string{"cancel", "close-replaced-conn"} {
+				t.Run(stage+"/"+value.name+"/"+interrupt, func(t *testing.T) {
+					synctest.Test(t, func(t *testing.T) {
+						x := newEngineClient(t, nil, Version2c, newFakeTransport(nil, nil))
+						x.Timeout, x.Retries = time.Hour, 0
+						x.Context = &panicInterruptContext{
+							Context: context.Background(), done: make(chan struct{}),
+							stage: stage, value: value.panic,
+						}
+						res, err := x.Get([]string{engineOID})
+						require.Nil(t, res)
+						require.ErrorContains(t, err, "request panicked:")
+						if value.panic != nil {
+							require.ErrorIs(t, err, errCallerFailure)
+						}
+						x.mu.Lock()
+						active, interrupted := x.attempt.conn, x.attempt.interrupted
+						x.mu.Unlock()
+						assert.Nil(t, active, "the panic left an active attempt")
+						assert.Nil(t, interrupted, "the panic left an interrupt")
+						require.NoError(t, x.Close())
+
+						conn := newFakeTransport(nil, nil)
+						defer conn.Close()
+						x.Conn = conn // a caller may use a closed client again this way
+						ctx, cancel := context.WithCancel(context.Background())
+						defer cancel()
+						x.Context = ctx
+						wantErr := context.Canceled
+						x.OnSent = func(*GoSNMP) { cancel() }
+						if interrupt == "close-replaced-conn" {
+							wantErr = net.ErrClosed
+							x.OnSent = func(x *GoSNMP) {
+								x.Conn = newFakeTransport(nil, nil)
+								require.NoError(t, x.Close()) // must interrupt conn too
+							}
+						}
+						start := time.Now()
+						res, err = x.Get([]string{engineOID})
+						assert.Nil(t, res)
+						assert.ErrorIs(t, err, wantErr)
+						assert.Zero(t, time.Since(start), "the interrupt waited for the attempt's timeout")
+					})
+				})
+			}
+		}
+	}
+}
+
+// TestEngineReadCountOutsideBuffer checks, on loopback sockets, a Conn the
+// caller set whose Read breaks the io.Reader contract once, returning a count
+// outside the buffer: the attempt fails as a transport error, which the retry
+// cures (over TCP the connection is lost and opened again), and the client
+// answers the next request.
+func TestEngineReadCountOutsideBuffer(t *testing.T) {
+	type outcome struct {
+		failed  []bool // per request
+		retries int
+		dials   int32 // Connect's and the reopens'
+	}
+	answer := func(req []byte) []byte { return replyTo(req, nil, sysDescr) }
+	tests := map[string]struct {
+		transport string
+		count     func(p []byte) int
+		want      outcome
+	}{
+		"TCP, more than the buffer": {
+			transport: "tcp", count: func(p []byte) int { return len(p) + 1 },
+			want: outcome{failed: []bool{false, false}, retries: 1, dials: 2},
+		},
+		"TCP, negative": {
+			transport: "tcp", count: func([]byte) int { return -1 },
+			want: outcome{failed: []bool{false, false}, retries: 1, dials: 2},
+		},
+		"UDP, more than the buffer": {
+			transport: "udp", count: func(p []byte) int { return len(p) + 1 },
+			want: outcome{failed: []bool{false, false}, retries: 1, dials: 1},
+		},
+		"UDP, negative": {
+			transport: "udp", count: func([]byte) int { return -1 },
+			want: outcome{failed: []bool{false, false}, retries: 1, dials: 1},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			var port uint16
+			if tc.transport == "tcp" {
+				port = tcpAgent(t, false, func(req []byte) ([]byte, bool) { return answer(req), true })
+			} else {
+				port, _ = udpAgent(t, func(_ int, req []byte) []byte { return answer(req) })
+			}
+			var dials atomic.Int32
+			var got outcome
+			x := &GoSNMP{
+				Target: "127.0.0.1", Port: port, Transport: tc.transport, Community: "public", Version: Version2c,
+				Timeout: 300 * time.Millisecond, Retries: 1,
+				Control: func(string, string, syscall.RawConn) error {
+					dials.Add(1)
+					return nil
+				},
+				OnRetry: func(*GoSNMP) { got.retries++ },
+			}
+			require.NoError(t, x.Connect())
+			defer x.Close()
+			x.Conn = &badCountConn{Conn: x.Conn, count: tc.count}
+			for range 2 {
+				_, err := x.Get([]string{engineOID})
+				got.failed = append(got.failed, err != nil)
+			}
+			got.dials = dials.Load()
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// badCountConn is a Conn whose first Read returns count's count without
+// reading, breaking the io.Reader contract; its other calls go to Conn.
+type badCountConn struct {
+	net.Conn
+	count func(p []byte) int
+	done  bool
+}
+
+func (c *badCountConn) Read(p []byte) (int, error) {
+	if !c.done {
+		c.done = true
+		return c.count(p), nil
+	}
+	return c.Conn.Read(p)
 }
 
 // tcpAgent listens on a loopback TCP port and serves each connection with

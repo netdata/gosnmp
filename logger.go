@@ -4,6 +4,8 @@
 
 package gosnmp
 
+import "reflect"
+
 // LoggerInterface is where a Logger writes debug output. Its methods match
 // Print and Printf of the standard library's *log.Logger.
 type LoggerInterface interface {
@@ -19,8 +21,12 @@ type Logger struct {
 	logger LoggerInterface
 }
 
-// NewLogger returns a Logger writing to logger; a nil logger disables logging.
+// NewLogger returns a Logger writing to logger; a nil logger, or a nil pointer
+// such as a nil *log.Logger, disables logging.
 func NewLogger(logger LoggerInterface) Logger {
+	if v := reflect.ValueOf(logger); v.Kind() == reflect.Pointer && v.IsNil() {
+		return Logger{}
+	}
 	return Logger{
 		logger: logger,
 	}

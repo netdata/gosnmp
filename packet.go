@@ -168,8 +168,8 @@ func (t PDUType) read() bool {
 // community is in it.
 func (packet *SnmpPacket) SafeString() string {
 	sp := ""
-	if packet.SecurityParameters != nil {
-		sp = packet.SecurityParameters.SafeString()
+	if usp := usmOf(packet.SecurityParameters); usp != nil {
+		sp = usp.SafeString()
 	}
 	return fmt.Sprintf("Version:%s, MsgFlags:%s, SecurityModel:%s, SecurityParameters:%s, ContextEngineID:%s, ContextName:%s, Community:%s, PDUType:%s, MsgID:%d, RequestID:%d, MsgMaxSize:%d, Error:%s, ErrorIndex:%d, NonRepeaters:%d, MaxRepetitions:%d, Variables:%v",
 		packet.Version,

@@ -31,8 +31,13 @@ func NewSnmpV3SecurityParametersTable(logger Logger) *SnmpV3SecurityParametersTa
 
 // Add derives the keys of sp (InitSecurityKeys), while it holds the table's
 // lock, and appends sp itself, not a copy, to the sets of key; UnmarshalTrap
-// tries a user's sets in the order they were added.
+// tries a user's sets in the order they were added. Without parameters (nil,
+// or a nil *UsmSecurityParameters) it fails.
 func (spm *SnmpV3SecurityParametersTable) Add(key string, sp SnmpV3SecurityParameters) error {
+	usp := usmOf(sp)
+	if usp == nil {
+		return fmt.Errorf("no security parameters to add for the key %s", key)
+	}
 	spm.mu.Lock()
 	defer spm.mu.Unlock()
 
@@ -41,7 +46,7 @@ func (spm *SnmpV3SecurityParametersTable) Add(key string, sp SnmpV3SecurityParam
 	}
 
 	// If no logger is set for the security params (empty struct), use the one from the table
-	if usp := sp.usm(); (Logger{}) == usp.Logger {
+	if (Logger{}) == usp.Logger {
 		usp.Logger = spm.Logger
 	}
 
