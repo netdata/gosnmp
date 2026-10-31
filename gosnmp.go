@@ -482,13 +482,13 @@ func ToBigInt(value any) *big.Int {
 		return big.NewInt(int64(value))
 	case int64:
 		return big.NewInt(value)
-	case uint:
-		return new(big.Int).SetUint64(uint64(value))
 	case uint8:
-		return new(big.Int).SetUint64(uint64(value))
+		return big.NewInt(int64(value))
 	case uint16:
-		return new(big.Int).SetUint64(uint64(value))
+		return big.NewInt(int64(value))
 	case uint32:
+		return big.NewInt(int64(value))
+	case uint: // may not fit an int64
 		return new(big.Int).SetUint64(uint64(value))
 	case uint64:
 		return new(big.Int).SetUint64(value)
