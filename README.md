@@ -194,7 +194,7 @@ Its SNMPv3 test logs in as each user of `testdata/snmp_users.txt`, one per
 authentication and privacy protocol pair; `snmp_users.sh` creates them in
 net-snmp's `snmpd.conf`, as CI and the Docker image do.
 
-The `netsnmp` module compares gosnmp with net-snmp: packet encodings and the SNMPv3
+The `netsnmp` module compares gosnmp with net-snmp: message encodings and the SNMPv3
 User-based Security Model (localized keys, encryption and authentication for every
 protocol pair). By default it replays the recordings in `netsnmp/testdata`. With libsnmp
 installed (`libsnmp-dev`), `make -C netsnmp test_netsnmp` compares with the library

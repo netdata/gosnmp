@@ -18,7 +18,7 @@ const (
 //go:generate go tool -modfile=tools/go.mod stringer -type=Version -linecomment
 
 // Message is an SNMP message: a request, an answer or a trap. A decoded
-// packet holds the fields the message carried; its SecurityParameters are a
+// message holds the fields it carried; its SecurityParameters are a
 // copy of the parameters it was decoded with (the client's, or on
 // UnmarshalTrap's table path the matching set's), protocols, passphrases and
 // keys included, with the message's fields decoded into them.
@@ -61,7 +61,7 @@ type Message struct {
 	// VarBinds are the varbinds.
 	VarBinds []VarBind
 
-	// IsInform reports that the packet is an InformRequest, which its sender
+	// IsInform reports that the message is an InformRequest, which its sender
 	// expects an answer to, not a trap; SNMPv1 has no informs.
 	IsInform bool
 
@@ -118,10 +118,10 @@ func (t PDUType) confirmed() bool {
 	return false
 }
 
-// Message.Encode encodes the packet as it is, ready for the wire. An SNMPv3
+// Encode encodes the message as it is, ready for the wire. An SNMPv3
 // message is encrypted and signed when its flags ask for it, with the keys in
 // its SecurityParameters, which it requires; each encrypted message gets a
-// new salt, whatever PrivacyParameters holds. Message.Encode draws no new msgID
+// new salt, whatever PrivacyParameters holds. Encode draws no new msgID
 // (Client.EncodeMessage does).
 func (packet *Message) Encode() ([]byte, error) {
 	return packet.marshalMsg()
