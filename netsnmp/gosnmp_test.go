@@ -214,13 +214,13 @@ func savePcap(t *testing.T, fp string, exp, got []byte) {
 // decoded header fields and varbinds with the PDU each one was made from.
 func TestDecodeRecorded(t *testing.T) {
 	type decoded struct {
-		Version    gosnmp.Version
-		Community  string
-		PDUType    gosnmp.PDUType
-		RequestID  uint32
-		Error      gosnmp.ErrorStatus
-		ErrorIndex uint8
-		Variables  []gosnmp.VarBind
+		Version     gosnmp.Version
+		Community   string
+		PDUType     gosnmp.PDUType
+		RequestID   uint32
+		ErrorStatus gosnmp.ErrorStatus
+		ErrorIndex  uint8
+		VarBinds    []gosnmp.VarBind
 	}
 
 	for i, tc := range pduCases {
@@ -242,16 +242,16 @@ func TestDecodeRecorded(t *testing.T) {
 				Community: "public",
 				PDUType:   gosnmp.SetRequest,
 				RequestID: 1,
-				Variables: []gosnmp.VarBind{{Name: tc.pdu.Name, Type: tc.pdu.Type, Value: tc.decoded}},
+				VarBinds:  []gosnmp.VarBind{{Name: tc.pdu.Name, Type: tc.pdu.Type, Value: tc.decoded}},
 			}
 			got := decoded{
-				Version:    res.Version,
-				Community:  res.Community,
-				PDUType:    res.PDUType,
-				RequestID:  res.RequestID,
-				Error:      res.ErrorStatus,
-				ErrorIndex: res.ErrorIndex,
-				Variables:  res.VarBinds,
+				Version:     res.Version,
+				Community:   res.Community,
+				PDUType:     res.PDUType,
+				RequestID:   res.RequestID,
+				ErrorStatus: res.ErrorStatus,
+				ErrorIndex:  res.ErrorIndex,
+				VarBinds:    res.VarBinds,
 			}
 			if diff := cmp.Diff(want, got); diff != "" {
 				t.Fatalf("decoded packet differs (-want +got):\n%s", diff)

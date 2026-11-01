@@ -95,7 +95,7 @@ func TestUSM(t *testing.T) {
 				ContextName:     usmContextName,
 				PDUType:         gosnmp.SNMPv2Trap,
 				RequestID:       usmRequestID,
-				Variables:       usmVarbinds,
+				VarBinds:        usmVarbinds,
 			}
 			if diff := cmp.Diff(wantView, newUSMTrapView(res)); diff != "" {
 				t.Errorf("decoded trap differs (-want +got):\n%s", diff)
@@ -400,7 +400,7 @@ type usmTrapView struct {
 	ContextName     string
 	PDUType         gosnmp.PDUType
 	RequestID       uint32
-	Variables       []gosnmp.VarBind
+	VarBinds        []gosnmp.VarBind
 }
 
 func newUSMTrapView(p *gosnmp.Message) usmTrapView {
@@ -409,7 +409,7 @@ func newUSMTrapView(p *gosnmp.Message) usmTrapView {
 		ContextName:     p.ContextName,
 		PDUType:         p.PDUType,
 		RequestID:       p.RequestID,
-		Variables:       p.VarBinds,
+		VarBinds:        p.VarBinds,
 	}
 	if sp, ok := p.SecurityParameters.(*gosnmp.UsmSecurityParameters); ok {
 		v.UserName = sp.UserName
