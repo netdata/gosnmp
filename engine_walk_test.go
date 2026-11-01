@@ -343,6 +343,23 @@ func walkScenarios() map[string]walkScenario {
 				x.Version = Version1
 			},
 		},
+		// The walk's later GetNext requests are SNMPv1 requests.
+		"user-code/hook-sets-version-1/getnext": {
+			root: walkIfDescr,
+			onFinish: func(x *GoSNMP, tr *engineTranscript) {
+				tr.addf("hook OnFinish sets Version to 1")
+				x.Version = Version1
+			},
+		},
+		// MaxOids applies to each of the walk's requests: zero refuses the
+		// next one, and the walk returns the values so far.
+		"user-code/hook-sets-max-oids-0": {
+			root: walkIfDescr,
+			onFinish: func(x *GoSNMP, tr *engineTranscript) {
+				tr.addf("hook OnFinish sets MaxOids to 0")
+				x.MaxOids = 0
+			},
+		},
 	}
 
 	// Every error status the walk names, and one it does not. NoSuchName

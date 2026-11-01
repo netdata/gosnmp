@@ -1397,6 +1397,9 @@ func v3Scenarios() map[string]v3Scenario {
 		"answer/reflected-request/md5": {
 			user: "codec-md5", script: onRequest(2, agentAnswer{reflect: true, why: "the request sent back"}),
 		},
+		"answer/reflected-request/sha-aes": {
+			user: "codec-sha-aes", script: onRequest(2, agentAnswer{reflect: true, why: "the request sent back"}),
+		},
 		// An SNMPv2c message whose body reads as a scoped PDU, with the
 		// request's request ID, does not answer an SNMPv3 request.
 		"answer/other-version/noauth-scoped-body": {

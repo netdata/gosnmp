@@ -1028,6 +1028,16 @@
 0s    values: [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo" .1.3.6.1.2.1.2.2.1.2.2=OctetString:"eth0" .1.3.6.1.2.1.2.2.1.2.10=OctetString:"eth1"]
 0s    result: no error
 
+== walk/user-code/hook-sets-max-oids-0
+0s    client: 2c root=".1.3.6.1.2.1.2.2.1.2" bulk=false max-repetitions=0
+0s    deadline +1s
+0s    write #1: 2c "public" GetNextRequest id=1001 [.1.3.6.1.2.1.2.2.1.2]
+0s    agent answers #1 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo"]
+0s    hook OnFinish sets MaxOids to 0
+0s    values: [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo"]
+0s    result: error "oid count (1) is greater than MaxOids (0)" *errors.errorString
+
 == walk/user-code/hook-sets-max-repetitions
 0s    client: 2c root=".1.3.6.1.2.1.2.2.1.2" bulk=true max-repetitions=1
 0s    deadline +1s
@@ -1062,6 +1072,31 @@
 0s    hook OnFinish sets Version to 1
 0s    values: [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo"]
 0s    result: error "GETBULK not supported in SNMPv1" *errors.errorString
+
+== walk/user-code/hook-sets-version-1/getnext
+0s    client: 2c root=".1.3.6.1.2.1.2.2.1.2" bulk=false max-repetitions=0
+0s    deadline +1s
+0s    write #1: 2c "public" GetNextRequest id=1001 [.1.3.6.1.2.1.2.2.1.2]
+0s    agent answers #1 after 0s
+0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo"]
+0s    hook OnFinish sets Version to 1
+0s    deadline +1s
+0s    write #2: 1 "public" GetNextRequest id=1002 [.1.3.6.1.2.1.2.2.1.2.1]
+0s    agent answers #2 after 0s
+0s    read from 127.0.0.2:161: 1 "public" GetResponse id=1002 [.1.3.6.1.2.1.2.2.1.2.2=OctetString:"eth0"]
+0s    hook OnFinish sets Version to 1
+0s    deadline +1s
+0s    write #3: 1 "public" GetNextRequest id=1003 [.1.3.6.1.2.1.2.2.1.2.2]
+0s    agent answers #3 after 0s
+0s    read from 127.0.0.2:161: 1 "public" GetResponse id=1003 [.1.3.6.1.2.1.2.2.1.2.10=OctetString:"eth1"]
+0s    hook OnFinish sets Version to 1
+0s    deadline +1s
+0s    write #4: 1 "public" GetNextRequest id=1004 [.1.3.6.1.2.1.2.2.1.2.10]
+0s    agent answers #4 after 0s
+0s    read from 127.0.0.2:161: 1 "public" GetResponse id=1004 [.1.3.6.1.4.1.99.1.0=Integer:7]
+0s    hook OnFinish sets Version to 1
+0s    values: [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo" .1.3.6.1.2.1.2.2.1.2.2=OctetString:"eth0" .1.3.6.1.2.1.2.2.1.2.10=OctetString:"eth1"]
+0s    result: no error
 
 == walk/v1-bulk
 0s    client: 1 root=".1.3.6.1.2.1.1" bulk=true max-repetitions=0
