@@ -995,7 +995,7 @@ func v3Scenarios() map[string]v3Scenario {
 		// Once the client has an engine ID it does not take another from an
 		// unauthenticated Report (RFC 3414 section 1.5.2; net-snmp neither):
 		// the request ends with ErrUnknownEngineID, and an application that
-		// expects a replaced device clears the engine ID to rediscover.
+		// expects a replaced device calls ForgetEngine to rediscover.
 		"engine-change": {
 			user: "codec-md5", run: getTwice(func(a *fakeV3Agent) { a.setEngineID(agentOtherEngineID) }),
 		},
@@ -1006,6 +1006,22 @@ func v3Scenarios() map[string]v3Scenario {
 		// its context engine ID follows (net-snmp keeps the first one).
 		"engine-change/noauth": {
 			user: "codec-noauth", run: getThrice(func(a *fakeV3Agent) { a.setEngineID(agentOtherEngineID) }),
+		},
+		// The result of a request is the caller's: writing into its header
+		// leaves the engine state as it is, also after a request took the
+		// engine ID the result names.
+		"engine-change/noauth/caller-writes-result": {
+			user: "codec-noauth", run: func(x *Client, a *fakeV3Agent) (*Message, error) {
+				res, err := getTwice(func(a *fakeV3Agent) { a.setEngineID(agentOtherEngineID) })(x, a)
+				if err != nil {
+					return nil, fmt.Errorf("second Get: %w", err)
+				}
+				a.tr.addf("caller clears the second result's engine ID; client %s", describeEngineState(&x.engine))
+				clear(res.SecurityParameters.AuthoritativeEngineID)
+				a.tr.addf("client %s", describeEngineState(&x.engine))
+				time.Sleep(10 * time.Second)
+				return x.Get([]string{engineOID})
+			},
 		},
 		"unknown-engine-report/noauth-retransmit-unanswered": {
 			user: "codec-noauth", script: func(n int, _ agentRequest) (agentAnswer, bool) {
@@ -1095,6 +1111,8 @@ func v3Scenarios() map[string]v3Scenario {
 		},
 		"caller/encode-after-forget-engine": {user: "codec-md5", run: encodeThenGet(
 			"calls ForgetEngine", func(x *Client) { x.ForgetEngine() })},
+		"caller/encode-after-forget-engine/noauth": {user: "codec-noauth", run: encodeThenGet(
+			"calls ForgetEngine", func(x *Client) { x.ForgetEngine() })},
 		"caller/encode-after-other-user": {user: "codec-md5", run: encodeThenGet(
 			"sets another user", func(x *Client) { x.User = agentUserOf("codec-sha-aes") })},
 
@@ -1102,6 +1120,19 @@ func v3Scenarios() map[string]v3Scenario {
 		// change applies from the next request.
 		"hooks/discovery-onfinish-forgets-engine": {
 			user: "codec-md5", run: onFinishThenGet(1, "calls ForgetEngine", func(x *Client) { x.ForgetEngine() }),
+		},
+		// A user a hook sets during the discovery serves from the next request:
+		// the discovery's commit derives the keys of the user the request
+		// started with.
+		"hooks/discovery-presend-changes-user": {
+			user: "codec-md5", run: func(x *Client, a *fakeV3Agent) (*Message, error) {
+				res, err := onFirstPreSend("sets another user", func(x *Client) {
+					x.User = agentUserOf("codec-sha-aes")
+				})(x, a)
+				a.tr.addf("first Get: %s", describeEngineResult(res, err))
+				time.Sleep(10 * time.Second)
+				return x.Get([]string{engineOID})
+			},
 		},
 		"hooks/request-onfinish-changes-user": {
 			user: "codec-md5", run: onFinishThenGet(2, "sets another user", func(x *Client) {

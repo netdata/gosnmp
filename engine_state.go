@@ -37,8 +37,8 @@ type engineState struct {
 type clockSource uint8
 
 const (
-	// fromUnauthenticated: discovery, an unauthenticated answer, a Report
-	// lent to a resend, or the caller.
+	// fromUnauthenticated: discovery, an unauthenticated answer or a Report
+	// lent to a resend.
 	fromUnauthenticated clockSource = iota
 	// fromTimeWindowReport: an unauthenticated notInTimeWindow Report lent
 	// to a resend (exchange.settle).
@@ -64,14 +64,13 @@ func clockOf(boots, engineTime uint32, now time.Time, source clockSource) source
 // at now (RFC 3414 section 3.1 step 6): c's notion of them, whatever c's
 // source, or zeros without a clock. Every request is a read request (send),
 // which an on-path sender could replay only as itself, so a clock from
-// discovery, an unauthenticated answer or the caller signs it as an
-// authenticated clock does; a request without authentication carries the
-// notion too, which no agent checks the time of (net-snmp sends its notion;
-// section 3.1 step 6 c sends zeros). A request that changes the agent, which
-// the client does not send, would need the rule back: authenticated, it
-// carries zeros with a clock that is not authenticated, which the agent
-// answers with an authenticated notInTimeWindow Report carrying its own
-// (section 4).
+// discovery or an unauthenticated answer signs it as an authenticated clock
+// does; a request without authentication carries the notion too, which no agent
+// checks the time of (net-snmp sends its notion; section 3.1 step 6 c sends
+// zeros). A request that changes the agent, which the client does not send,
+// would need the rule back: authenticated, it carries zeros with a clock that
+// is not authenticated, which the agent answers with an authenticated
+// notInTimeWindow Report carrying its own (section 4).
 func (c sourcedClock) timeFor(now time.Time) (boots, engineTime uint32) {
 	if !c.known() {
 		return 0, 0
@@ -93,7 +92,7 @@ func (s *engineState) contextEngineID() []byte {
 // own engine ID, else one with the user's keys localized to engineID and no
 // clock (RFC 3414 section 2.3: the next authentic message synchronizes it). An
 // empty engine ID is an error, and so are keys that do not derive. The state
-// keeps engineID, which its caller must not write.
+// keeps a copy of engineID: an answer's header, which the caller gets.
 func (s *engineState) withEngine(engineID []byte) (engineState, error) {
 	next := *s
 	switch {
@@ -106,7 +105,7 @@ func (s *engineState) withEngine(engineID []byte) (engineState, error) {
 	if err != nil {
 		return next, err
 	}
-	next.engineID, next.keys, next.clock = engineID, keys, sourcedClock{}
+	next.engineID, next.keys, next.clock = bytes.Clone(engineID), keys, sourcedClock{}
 	return next, nil
 }
 
