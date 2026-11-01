@@ -21,11 +21,11 @@ import (
 )
 
 // The USM characterization tests pin the observable behavior of the
-// User-based Security Model, known bugs included, before it is restructured:
-// key derivation for every protocol pair and passphrase/engine ID shape,
-// decryption of malformed privacy fields, salts, Copy, the password cache,
-// parameter validation and the string forms. TestUSM in the netsnmp module
-// checks the same keys, ciphertexts and digests against net-snmp.
+// User-based Security Model: key derivation for every protocol pair and
+// passphrase/engine ID shape, decryption of malformed privacy fields, salts,
+// Copy, the password cache, parameter validation and the string forms.
+// TestUSM in the netsnmp module checks the same keys, ciphertexts and digests
+// against net-snmp.
 
 var (
 	usmAuthProtocols = []SnmpV3AuthProtocol{NoAuth, MD5, SHA, SHA224, SHA256, SHA384, SHA512}

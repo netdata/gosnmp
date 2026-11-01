@@ -22,9 +22,8 @@ import (
 )
 
 // The characterization tests pin the observable behavior of the public entry
-// points, known bugs included, in golden files under testdata/codec (encode
-// and decode) and testdata/usm (SNMPv3 security). Each golden file is a list
-// of cases:
+// points in golden files under testdata/codec (encode and decode) and
+// testdata/usm (SNMPv3 security). Each golden file is a list of cases:
 //
 //	== <case name>
 //	<dump line>

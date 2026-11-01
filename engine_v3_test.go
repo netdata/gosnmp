@@ -36,8 +36,6 @@ type v3Scenario struct {
 	setup  func(x *GoSNMP, sp *UsmSecurityParameters)
 	script func(n int, req agentRequest) (agentAnswer, bool)
 	run    func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) // a Get of engineOID unless set
-	// knownBug names the known bug the scenario pins.
-	knownBug string
 }
 
 // getTwice runs a Get, then between applies a change to the agent 10 s
@@ -1744,10 +1742,10 @@ func v3Scenarios() map[string]v3Scenario {
 }
 
 // TestEngineV3Characterization pins what the request engine does with an
-// SNMPv3 agent, known bugs included: engine discovery, the request at each
-// security level, an agent that reboots or changes its engine ID, each
-// Report counter, and answers that do not match the request.
-// testdata/engine/v3.golden holds the transcripts.
+// SNMPv3 agent: engine discovery, the request at each security level, an
+// agent that reboots or changes its engine ID, each Report counter, and
+// answers that do not match the request. testdata/engine/v3.golden holds the
+// transcripts.
 func TestEngineV3Characterization(t *testing.T) {
 	scenarios := v3Scenarios()
 	var results []goldenCase
@@ -1916,9 +1914,6 @@ func runV3Scenario(t *testing.T, sc v3Scenario) string {
 	usp := x.SecurityParameters.usm()
 	tr.addf("client after: engine=%q boots=%d time=%d keys=%s context engine=%q", usp.AuthoritativeEngineID,
 		usp.AuthoritativeEngineBoots, usp.AuthoritativeEngineTime, describeKeys(usp), x.ContextEngineID)
-	if sc.knownBug != "" {
-		tr.addf("known bug: %s", sc.knownBug)
-	}
 	return tr.text()
 }
 

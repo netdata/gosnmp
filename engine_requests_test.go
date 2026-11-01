@@ -59,10 +59,9 @@ type engineScenario struct {
 	setup func(x *GoSNMP, c *fakeTransport)
 	// context, when set, gives the client's Context; its cancel runs when
 	// the scenario ends.
-	context  func() (context.Context, context.CancelFunc)
-	agent    engineAgent
-	run      func(x *GoSNMP) (*SnmpPacket, error) // a Get of engineOID unless set
-	knownBug string
+	context func() (context.Context, context.CancelFunc)
+	agent   engineAgent
+	run     func(x *GoSNMP) (*SnmpPacket, error) // a Get of engineOID unless set
 }
 
 // answer is an agent that answers every request at once with vbs.
@@ -999,9 +998,9 @@ func engineScenarios() map[string]engineScenario {
 }
 
 // TestEngineRequestCharacterization pins what the request engine does for
-// v1/v2c requests, known bugs included: the messages it writes, the deadline
-// of each attempt, which replies it accepts, the hooks it calls and what it
-// returns. testdata/engine/requests.golden holds the transcripts.
+// v1/v2c requests: the messages it writes, the deadline of each attempt,
+// which replies it accepts, the hooks it calls and what it returns.
+// testdata/engine/requests.golden holds the transcripts.
 func TestEngineRequestCharacterization(t *testing.T) {
 	scenarios := engineScenarios()
 	var results []goldenCase
@@ -1063,9 +1062,6 @@ func runEngineScenario(t *testing.T, sc engineScenario) string {
 	}
 	x.mu.Unlock()
 	tr.addf("%s", after)
-	if sc.knownBug != "" {
-		tr.addf("known bug: %s", sc.knownBug)
-	}
 	// Let the scenario's own goroutines finish on the bubble's clock: when a
 	// regression ends the request before them, what they record afterwards
 	// shows in the transcript instead of a synctest deadlock.
@@ -1158,7 +1154,7 @@ func TestEngineLateContextInterrupt(t *testing.T) {
 // TestEngineTCPReconnect pins, on loopback sockets, what the engine does when
 // a TCP agent closes the connection after reading a request: the next attempt
 // opens the connection again and sends again; the request fails with the
-// reopen's error or when the retries run out, known bugs included.
+// reopen's error or when the retries run out.
 func TestEngineTCPReconnect(t *testing.T) {
 	tests := map[string]struct {
 		transport      string        // "tcp" unless set
