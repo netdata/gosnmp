@@ -113,22 +113,17 @@ func (m *mockAgentUnknownUserNames) serve() {
 			return
 		}
 
-		req := &Message{
-			SecurityParameters: &UsmSecurityParameters{},
-		}
-
-		cursor, w, err := unmarshalHeader(buf[:n], req)
-		if err == nil {
-			_, err = req.SecurityParameters.usm().receive(req.SecurityLevel, &w, false)
-		}
+		req := &Message{}
+		cursor, _, err := unmarshalHeader(buf[:n], req)
 		if err != nil {
 			m.sendErr(fmt.Errorf("unmarshalHeader: %w", err))
 			continue
 		}
 
-		// decryptPacket advances the cursor past the ScopedPDU wrapper and
-		// context fields, leaving it at the PDU type byte.
-		pkt, cursor, err := unmarshalScopedPDU(buf[:n], cursor, req, req.SecurityLevel.privFlag())
+		// unmarshalScopedPDU advances the cursor past the ScopedPDU wrapper
+		// and context fields, leaving it at the PDU type byte; the client
+		// sends noAuthNoPriv requests, which take no keys.
+		pkt, cursor, err := unmarshalScopedPDU(buf[:n], cursor, req, req.SecurityLevel.privFlag(), &usmKeys{})
 		if err != nil {
 			m.sendErr(fmt.Errorf("decryptPacket: %w", err))
 			continue
@@ -139,10 +134,8 @@ func (m *mockAgentUnknownUserNames) serve() {
 			continue
 		}
 
-		usp := req.SecurityParameters.(*UsmSecurityParameters)
-
 		var responseBytes []byte
-		if usp.AuthoritativeEngineID == "" || m.failAuthRequests {
+		if len(req.SecurityParameters.AuthoritativeEngineID) == 0 || m.failAuthRequests {
 			// Discovery probe (empty engine ID) or an agent configured to
 			// reject all users: respond with usmStatsUnknownUserNames and
 			// include valid engine parameters in the USM security header.
@@ -160,9 +153,9 @@ func (m *mockAgentUnknownUserNames) serve() {
 	}
 }
 
-func (m *mockAgentUnknownUserNames) secParams() *UsmSecurityParameters {
-	return &UsmSecurityParameters{
-		AuthoritativeEngineID:    m.engineID,
+func (m *mockAgentUnknownUserNames) secParams() SecurityParameters {
+	return SecurityParameters{
+		AuthoritativeEngineID:    []byte(m.engineID),
 		AuthoritativeEngineBoots: m.boots,
 		AuthoritativeEngineTime:  m.engineTime,
 	}
@@ -176,7 +169,7 @@ func (m *mockAgentUnknownUserNames) secParams() *UsmSecurityParameters {
 func (m *mockAgentUnknownUserNames) marshalUnknownUserNamesReport(req *Message) ([]byte, error) {
 	secParams := m.secParams()
 	if m.omitEngineIDInReport {
-		secParams.AuthoritativeEngineID = ""
+		secParams.AuthoritativeEngineID = nil
 	}
 	secParams.UserName = m.reportUserName
 	pkt := &Message{
@@ -193,14 +186,14 @@ func (m *mockAgentUnknownUserNames) marshalUnknownUserNamesReport(req *Message) 
 			Type:  Integer,
 		}},
 	}
-	return pkt.Encode()
+	return pkt.Encode(nil)
 }
 
 // marshalResponse builds a Response that echoes the client's MsgID,
 // RequestID and user name, as an agent does, and returns a single OID value.
 func (m *mockAgentUnknownUserNames) marshalResponse(req *Message) ([]byte, error) {
 	secParams := m.secParams()
-	secParams.UserName = req.SecurityParameters.usm().UserName
+	secParams.UserName = req.SecurityParameters.UserName
 	pkt := &Message{
 		Version:       Version3,
 		SecurityLevel: NoAuthNoPriv,
@@ -209,24 +202,21 @@ func (m *mockAgentUnknownUserNames) marshalResponse(req *Message) ([]byte, error
 		PDUType:            Response,
 		MsgID:              req.MsgID,
 		RequestID:          req.RequestID,
-		ContextEngineID:    m.engineID,
+		ContextEngineID:    []byte(m.engineID),
 		VarBinds: []VarBind{{
 			Name:  ".1.3.6.1.2.1.1.1.0",
 			Value: "mock sysDescr",
 			Type:  OctetString,
 		}},
 	}
-	return pkt.Encode()
+	return pkt.Encode(nil)
 }
 
 // newV3NoAuthClientForDiscoveryTest returns a client configured for
-// NoAuthNoPriv SNMPv3 with an empty AuthoritativeEngineID so that
-// the first request starts with engine-ID discovery (discoveryPacket).
+// NoAuthNoPriv SNMPv3, which knows no engine yet, so that the first request
+// starts with engine-ID discovery (discoveryPacket).
 func newV3NoAuthClientForDiscoveryTest(port uint16) *Client {
-	gs := newTestClientV3(NoAuthNoPriv, &UsmSecurityParameters{
-		UserName: "testUser",
-		// AuthoritativeEngineID intentionally empty to trigger discovery.
-	})
+	gs := newTestClientV3(NoAuthNoPriv, User{Name: "testUser"})
 	gs.Target = "127.0.0.1"
 	gs.Port = port
 	gs.Retries = 0
@@ -263,17 +253,17 @@ func TestV3DiscoveryUnknownUserNames(t *testing.T) {
 	// NewMessage produces the same packet shape that Get() passes to
 	// negotiateInitialSecurityParameters internally.
 	pkt := ts.NewMessage(GetRequest, nil, 0, 0)
-	require.NoError(t, ts.reconcileEngine())
+	require.NoError(t, ts.startEngine())
 	err := ts.negotiateInitialSecurityParameters(new(ts.prepareRequest()), pkt)
 	require.NoError(t, err, "negotiateInitialSecurityParameters must succeed even when the device "+
 		"responds with usmStatsUnknownUserNames during engine-ID discovery")
 
-	storedParams := ts.SecurityParameters.(*UsmSecurityParameters)
-	require.Equal(t, testDiscoveryEngineID, storedParams.AuthoritativeEngineID,
+	stored := &ts.engine
+	require.Equal(t, []byte(testDiscoveryEngineID), stored.engineID,
 		"engine ID must be extracted from the usmStatsUnknownUserNames Report")
-	require.Equal(t, testDiscoveryEngineBoots, storedParams.AuthoritativeEngineBoots,
+	require.Equal(t, testDiscoveryEngineBoots, stored.clock.boots,
 		"engine boots must be extracted from the usmStatsUnknownUserNames Report")
-	require.Equal(t, testDiscoveryEngineTime, storedParams.AuthoritativeEngineTime,
+	require.Equal(t, testDiscoveryEngineTime, stored.clock.latest,
 		"engine time must be extracted from the usmStatsUnknownUserNames Report")
 }
 
@@ -317,7 +307,7 @@ func TestV3DiscoveryUnknownUserNamesNoEngineID(t *testing.T) {
 	t.Cleanup(func() { ts.Conn.Close() })
 
 	pkt := ts.NewMessage(GetRequest, nil, 0, 0)
-	require.NoError(t, ts.reconcileEngine())
+	require.NoError(t, ts.startEngine())
 	err := ts.negotiateInitialSecurityParameters(new(ts.prepareRequest()), pkt)
 	require.ErrorIs(t, err, ErrUnknownUsername,
 		"ErrUnknownUsername must not be suppressed when the Report carries an empty engine ID")
@@ -362,8 +352,8 @@ func TestV3DiscoveryUnknownUserNamesOtherUser(t *testing.T) {
 	t.Cleanup(func() { ts.Conn.Close() })
 
 	pkt := ts.NewMessage(GetRequest, nil, 0, 0)
-	require.NoError(t, ts.reconcileEngine())
+	require.NoError(t, ts.startEngine())
 	err := ts.negotiateInitialSecurityParameters(new(ts.prepareRequest()), pkt)
 	require.ErrorIs(t, err, errUnknownUser)
-	require.Empty(t, ts.SecurityParameters.usm().AuthoritativeEngineID)
+	require.Empty(t, ts.engine.engineID)
 }

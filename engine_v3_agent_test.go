@@ -36,7 +36,7 @@ type fakeV3Agent struct {
 	timeBase uint32
 	start    time.Time
 	creds    map[string]agentUser
-	users    map[string]*UsmSecurityParameters // keys localized to engineID
+	users    map[string]*usmKeys // the users' keys localized to engineID
 	vbs      []VarBind
 	counters map[string]uint32
 	// frozen stops the engine time at timeBase, as on devices whose engine
@@ -73,7 +73,7 @@ type agentRequest struct {
 type agentAnswer struct {
 	report string        // the Report's counter OID, or "" for a Response
 	level  SecurityLevel // the security level of the answer
-	edit   func(*Message)
+	edit   func(*agentOut)
 	raw    func(*v3Message)       // edits the encoded answer, after edit
 	encode func(v3Message) []byte // encodes the answer after raw, instead of v3Message.bytes
 	drop   bool                   // no answer
@@ -123,21 +123,27 @@ func newFakeV3Agent(tr *engineTranscript, creds map[string]agentUser, vbs ...Var
 // and localizes its users' keys to it.
 func (a *fakeV3Agent) setEngineID(engineID string) {
 	a.engineID = engineID
-	a.users = make(map[string]*UsmSecurityParameters, len(a.creds))
+	a.users = make(map[string]*usmKeys, len(a.creds))
 	for name, c := range a.creds {
-		sp := &UsmSecurityParameters{
-			UserName:                 name,
-			AuthenticationProtocol:   c.auth,
-			AuthenticationPassphrase: c.authPass,
-			PrivacyProtocol:          c.priv,
-			PrivacyPassphrase:        c.privPass,
-			AuthoritativeEngineID:    engineID,
-		}
-		if err := sp.InitSecurityKeys(); err != nil {
+		u := c.user(name)
+		keys, err := u.localize([]byte(engineID))
+		if err != nil {
 			panic(err)
 		}
-		a.users[name] = sp
+		a.users[name] = &keys
 	}
+}
+
+// user returns the User of the credentials c named name.
+func (c agentUser) user(name string) User {
+	return User{Name: name, AuthProtocol: c.auth, AuthPassphrase: c.authPass, PrivProtocol: c.priv, PrivPassphrase: c.privPass}
+}
+
+// agentOut is an answer of the fake agent and the keys it is encoded with,
+// which a scenario's edit may change to forge it.
+type agentOut struct {
+	*Message
+	keys usmKeys
 }
 
 // reboot restarts the agent: its boots go up by one and its time restarts
@@ -232,8 +238,8 @@ func (a *fakeV3Agent) handle(n int, data []byte) []agentReply {
 // encodeAnswer encodes ans to req, the n-th request.
 func (a *fakeV3Agent) encodeAnswer(n int, req agentRequest, ans agentAnswer) []byte {
 	out := a.answer(req, ans)
-	a.tr.addf("agent: answers #%d with %s at %s (%s)", n, describeAnswerPDU(out), describeFlags(out.SecurityLevel), ans.why)
-	b, err := out.Encode()
+	a.tr.addf("agent: answers #%d with %s at %s (%s)", n, describeAnswerPDU(out.Message), describeFlags(out.SecurityLevel), ans.why)
+	b, err := out.marshalMsg(&out.keys)
 	if err != nil {
 		panic(fmt.Sprintf("agent cannot encode its answer: %v", err))
 	}
@@ -263,8 +269,8 @@ func (a *fakeV3Agent) check(data []byte, m v3Message, req *agentRequest) agentAn
 		return agentAnswer{report: usmStatsUnknownEngineIDs, why: "unknown engine ID"}
 	case user == nil:
 		return agentAnswer{report: usmStatsUnknownUserNames, why: "unknown user"}
-	case req.flags&AuthNoPriv != 0 && user.AuthenticationProtocol <= NoAuth,
-		req.flags&AuthPriv == AuthPriv && user.PrivacyProtocol <= NoPriv:
+	case req.flags&AuthNoPriv != 0 && user.authProtocol <= NoAuth,
+		req.flags&AuthPriv == AuthPriv && user.privProtocol <= NoPriv:
 		return agentAnswer{report: usmStatsUnsupportedSecLevels, why: "unsupported security level"}
 	}
 	if req.flags&AuthNoPriv != 0 {
@@ -319,10 +325,10 @@ func (a *fakeV3Agent) readScopedPDU(m v3Message, req *agentRequest) error {
 	plain := m.scoped
 	if m.scopedTag == byte(OctetString) {
 		user := a.users[req.user]
-		if user == nil || user.PrivacyProtocol <= NoPriv {
+		if user == nil || user.privProtocol <= NoPriv {
 			return errors.New("encrypted scoped PDU without a privacy key")
 		}
-		dec, err := user.PrivacyProtocol.spec().Decrypt(user.PrivacyKey, m.usm[5], req.boots, req.engineTime, m.scoped)
+		dec, err := user.privProtocol.spec().Decrypt(user.priv, m.usm[5], req.boots, req.engineTime, m.scoped)
 		if err != nil {
 			return fmt.Errorf("%w: %w", errAgentDecryption, err)
 		}
@@ -348,36 +354,35 @@ func (a *fakeV3Agent) readScopedPDU(m v3Message, req *agentRequest) error {
 	return nil
 }
 
-// answer builds the agent's answer to req.
-func (a *fakeV3Agent) answer(req agentRequest, ans agentAnswer) *Message {
-	sp := &UsmSecurityParameters{
-		AuthoritativeEngineID:    a.engineID,
-		AuthoritativeEngineBoots: a.boots,
-		AuthoritativeEngineTime:  a.engineTime(),
-		UserName:                 req.user,
-	}
-	if user := a.users[req.user]; user != nil {
-		if ans.level&AuthNoPriv != 0 {
-			sp.AuthenticationProtocol, sp.SecretKey = user.AuthenticationProtocol, user.SecretKey
-		}
-		if ans.level&AuthPriv == AuthPriv {
-			sp.PrivacyProtocol, sp.PrivacyKey = user.PrivacyProtocol, user.PrivacyKey
-		}
-	}
-	out := &Message{
+// answer builds the agent's answer to req, with the user's keys the answer's
+// level needs.
+func (a *fakeV3Agent) answer(req agentRequest, ans agentAnswer) *agentOut {
+	out := &agentOut{Message: &Message{
 		Version:       Version3,
 		SecurityLevel: ans.level,
-
-		SecurityParameters: sp,
-		ContextEngineID:    req.contextEngineID,
-		ContextName:        req.contextName,
-		PDUType:            Response,
-		MsgID:              uint32(req.msgID), //nolint:gosec // checked by discarded
-		VarBinds:           a.vbs,
+		SecurityParameters: SecurityParameters{
+			AuthoritativeEngineID:    []byte(a.engineID),
+			AuthoritativeEngineBoots: a.boots,
+			AuthoritativeEngineTime:  a.engineTime(),
+			UserName:                 req.user,
+		},
+		ContextEngineID: []byte(req.contextEngineID),
+		ContextName:     req.contextName,
+		PDUType:         Response,
+		MsgID:           uint32(req.msgID), //nolint:gosec // checked by discarded
+		VarBinds:        a.vbs,
+	}}
+	if user := a.users[req.user]; user != nil {
+		if ans.level&AuthNoPriv != 0 {
+			out.keys.authProtocol, out.keys.auth = user.authProtocol, user.auth
+		}
+		if ans.level&AuthPriv == AuthPriv {
+			out.keys.privProtocol, out.keys.priv = user.privProtocol, user.priv
+		}
 	}
-	if out.ContextEngineID == "" {
+	if len(out.ContextEngineID) == 0 {
 		// snmpd answers a request without a context engine ID in its own.
-		out.ContextEngineID = a.engineID
+		out.ContextEngineID = []byte(a.engineID)
 	}
 	if req.pdu != nil {
 		out.RequestID = req.pdu.RequestID
@@ -387,7 +392,7 @@ func (a *fakeV3Agent) answer(req agentRequest, ans agentAnswer) *Message {
 		// default context.
 		a.counters[ans.report]++
 		out.PDUType = Report
-		out.ContextEngineID, out.ContextName = a.engineID, ""
+		out.ContextEngineID, out.ContextName = []byte(a.engineID), ""
 		out.VarBinds = []VarBind{{Name: ans.report, Type: Counter32, Value: a.counters[ans.report]}}
 	}
 	if ans.edit != nil {
@@ -452,8 +457,8 @@ func readAgentRequest(m v3Message) (agentRequest, error) {
 // agentDigestOK reports whether data, read as m, carries the digest of
 // user's key, computed over the message as received with the digest field
 // zeroed (RFC 3414 section 3.2 step 6).
-func agentDigestOK(data []byte, m v3Message, user *UsmSecurityParameters) bool {
-	spec := user.AuthenticationProtocol.spec()
+func agentDigestOK(data []byte, m v3Message, user *usmKeys) bool {
+	spec := user.authProtocol.spec()
 	mac := m.usm[4]
 	if len(mac) != spec.MACLen {
 		return false
@@ -465,7 +470,7 @@ func agentDigestOK(data []byte, m v3Message, user *UsmSecurityParameters) bool {
 	}
 	zeroed := bytes.Clone(data)
 	clear(zeroed[off : off+len(mac)])
-	digest, err := spec.Digest(user.SecretKey, zeroed)
+	digest, err := spec.Digest(user.auth, zeroed)
 	return err == nil && bytes.Equal(digest, mac)
 }
 

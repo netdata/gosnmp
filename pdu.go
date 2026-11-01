@@ -442,10 +442,11 @@ func readVarbind(r *ber.Reader) (VarBind, error) {
 
 // marshalMsg encodes the message: a SEQUENCE of the version, then the
 // community and the PDU, or for SNMPv3 the header, the security parameters and
-// the scoped PDU; an SNMPv3 message is then authenticated when its flags ask
-// for it. The version, which takes one octet, must be SNMPv1, SNMPv2c or
-// SNMPv3.
-func (packet *Message) marshalMsg() ([]byte, error) {
+// the scoped PDU, encrypted with keys when its level asks for privacy; an
+// SNMPv3 message is then signed with keys when its level asks for
+// authentication. The version, which takes one octet, must be SNMPv1, SNMPv2c
+// or SNMPv3.
+func (packet *Message) marshalMsg(keys *usmKeys) ([]byte, error) {
 	switch packet.Version {
 	case Version1, Version2c, Version3:
 	default:
@@ -460,12 +461,12 @@ func (packet *Message) marshalMsg() ([]byte, error) {
 		}
 		return ber.End(msg, start), nil
 	}
-	dst, auth, err := packet.appendV3(dst)
+	dst, auth, err := packet.appendV3(dst, keys)
 	if err != nil {
 		return nil, err
 	}
 	dst, auth = ber.EndMoving(dst, start, auth)
-	return packet.sign(dst, auth)
+	return packet.sign(dst, auth, keys)
 }
 
 // sizeHint estimates the encoded size of the message so that marshalMsg

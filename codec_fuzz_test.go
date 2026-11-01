@@ -65,7 +65,7 @@ func FuzzDecodeReencode(f *testing.F) {
 			return
 		}
 		usm.Salts.Set(1)
-		encoded, err := first.Encode()
+		encoded, err := first.Encode(nil)
 		if err != nil {
 			if decodeQuirk(first) {
 				return
@@ -78,7 +78,7 @@ func FuzzDecodeReencode(f *testing.F) {
 			t.Fatalf("re-encoded packet does not decode: %v\ninput:      %x\nre-encoded: %x", err, data, encoded)
 		}
 		usm.Salts.Set(1)
-		reencoded, err := second.Encode()
+		reencoded, err := second.Encode(nil)
 		if err != nil {
 			t.Fatalf("second encode failed: %v\ninput:      %x\nre-encoded: %x", err, data, encoded)
 		}

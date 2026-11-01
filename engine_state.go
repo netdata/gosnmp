@@ -7,40 +7,30 @@ package gosnmp
 import (
 	"bytes"
 	"errors"
-	"slices"
 	"time"
 )
 
 // engineState is the client's notion of the agent's SNMPv3 engine, the local
 // configuration datastore of a non-authoritative engine (RFC 3414 section
-// 2.3): the engine ID, the user's keys localized to it, the engine boots and
-// time, and the context engine ID of requests. Every decision of a request
-// reads it, and only a commit replaces it, whole, with a value validated
-// first (commitEngine). The exported fields mirror it (mirrorEngine).
+// 2.3): the engine ID, the user's keys localized to it and the engine boots
+// and time; the context engine ID of requests is the engine ID. Every decision
+// of a request reads it, and only a commit replaces it, whole, with a value
+// validated first (commitEngine); startEngine takes the configuration into it
+// when a request starts. It is internal: nothing exported shows it.
 type engineState struct {
-	// params is the SecurityParameters value the state follows; nil before
-	// the first SNMPv3 request.
-	params *UsmSecurityParameters
+	// user is the user the keys derive from, as the last request started
+	// with it; zero before the first SNMPv3 request.
+	user User
 
-	engineID string
+	// engineID is the agent's engine ID, empty before discovery; a new value
+	// is a new slice, never written.
+	engineID []byte
 	// clock is the notion of the engine's boots and time, none for a new
 	// engine ID (RFC 3414 section 2.3).
 	clock sourcedClock
-
-	// authKey and privKey are the keys localized to engineID. The exported
-	// fields get copies, so that a write into them changes no request; the
-	// packets of requests and their answers share these.
-	authKey, privKey []byte
-	// authGiven and privGiven mark keys the caller gave that their
-	// passphrases do not derive, which no change of the credentials derives
-	// again.
-	authGiven, privGiven bool
-	// cred are the credentials the keys the client derived come from.
-	cred credentials
-
-	// context is the context engine ID the caller configured; empty, requests
-	// take engineID.
-	context string
+	// keys are the user's keys localized to engineID; without one, the
+	// protocols only.
+	keys usmKeys
 }
 
 // clockSource is where an engine clock came from.
@@ -89,262 +79,89 @@ func (c sourcedClock) timeFor(now time.Time) (boots, engineTime uint32) {
 	return c.at(now)
 }
 
-// credentials are the parameters' fields the keys derive from.
-type credentials struct {
-	authProtocol   AuthProtocol
-	authPassphrase string
-	privProtocol   PrivProtocol
-	privPassphrase string
-}
-
-// engineFields are the values of the exported fields that mirror an engine
-// state.
-type engineFields struct {
-	engineID          string
-	boots, engineTime uint32
-	authKey, privKey  []byte
-	contextEngineID   string
-}
-
 // errAnswerNoEngineID is the error of an answer that names no engine ID where
 // the client needs one, from discovery or to lend (RFC 3414 section 3.2 step 3:
 // a zero-length engine ID is unknown).
 var errAnswerNoEngineID = inCategory(ErrUnknownEngineID, errors.New("the answer names no engine ID"))
 
-// contextEngineID returns the context engine ID of requests: the configured
-// one, else the engine ID.
-func (s *engineState) contextEngineID() string {
-	if s.context != "" {
-		return s.context
-	}
+// contextEngineID returns the context engine ID of requests: the engine ID.
+func (s *engineState) contextEngineID() []byte {
 	return s.engineID
 }
 
-// fields returns the values the state's exported fields show.
-func (s *engineState) fields() engineFields {
-	return engineFields{
-		engineID:        s.engineID,
-		boots:           s.clock.boots,
-		engineTime:      s.clock.latest,
-		authKey:         s.authKey,
-		privKey:         s.privKey,
-		contextEngineID: s.contextEngineID(),
-	}
-}
-
-// sp returns private parameters with the state's credentials, engine ID and
-// keys, from which keysFor derives.
-func (s *engineState) sp() *UsmSecurityParameters {
-	return &UsmSecurityParameters{
-		AuthoritativeEngineID:    s.engineID,
-		AuthenticationProtocol:   s.cred.authProtocol,
-		AuthenticationPassphrase: s.cred.authPassphrase,
-		PrivacyProtocol:          s.cred.privProtocol,
-		PrivacyPassphrase:        s.cred.privPassphrase,
-		SecretKey:                s.authKey,
-		PrivacyKey:               s.privKey,
-	}
-}
-
 // withEngine returns the state for the engine engineID: the same state for its
-// own engine ID, else one with the keys keysFor localizes to engineID (an
-// error for keys given without a passphrase, which stay bound to their engine
-// ID) and no clock (RFC 3414 section 2.3: the next authentic message
-// synchronizes it). An empty engine ID is an error.
-func (s *engineState) withEngine(engineID string) (engineState, error) {
+// own engine ID, else one with the user's keys localized to engineID and no
+// clock (RFC 3414 section 2.3: the next authentic message synchronizes it). An
+// empty engine ID is an error, and so are keys that do not derive. The state
+// keeps engineID, which its caller must not write.
+func (s *engineState) withEngine(engineID []byte) (engineState, error) {
 	next := *s
-	switch engineID {
-	case "":
+	switch {
+	case len(engineID) == 0:
 		return next, errAnswerNoEngineID
-	case s.engineID:
+	case bytes.Equal(engineID, s.engineID):
 		return next, nil
 	}
-	authKey, privKey, err := s.sp().keysFor(engineID)
+	keys, err := s.user.localize(engineID)
 	if err != nil {
 		return next, err
 	}
-	next.engineID, next.authKey, next.privKey = engineID, authKey, privKey
-	next.authGiven, next.privGiven = false, false
-	next.clock = sourcedClock{}
+	next.engineID, next.keys, next.clock = engineID, keys, sourcedClock{}
 	return next, nil
 }
 
-// reconcileEngine takes into the engine state, at the start of an SNMPv3
-// request, what the caller changed since the client last wrote the exported
-// fields: another SecurityParameters value is configuration whole; otherwise a
-// field that no longer holds the state's value is the caller's from this
-// request on (an empty engine ID discovers again, another one has no clock,
-// boots and time are a clock, an empty key derives, an empty context engine ID
-// follows the engine ID). Keys localize to the engine ID: the client derives
-// the missing ones for a known engine ID, a key given for another engine ID
-// again from its passphrase (none: an error, the key is bound, but a key
-// given without an engine ID or passphrase serves the first one), and the
-// ones it derived again after a change of the credentials; a key its passphrase
-// derives is the client's, however it reached the field. Without an engine ID
-// the keys must derive all the same, before discovery. An error ends the
-// request and changes nothing.
-func (x *Client) reconcileEngine() error {
-	sp := usmOf(x.SecurityParameters)
-	if sp == nil {
-		return errors.New("SNMPV3 SecurityParameters must be set")
-	}
-	sp.mu.Lock()
-	cur := engineFields{
-		engineID:   sp.AuthoritativeEngineID,
-		boots:      sp.AuthoritativeEngineBoots,
-		engineTime: sp.AuthoritativeEngineTime,
-		authKey:    sp.SecretKey,
-		privKey:    sp.PrivacyKey,
-	}
-	cred := credentials{
-		authProtocol:   sp.AuthenticationProtocol,
-		authPassphrase: sp.AuthenticationPassphrase,
-		privProtocol:   sp.PrivacyProtocol,
-		privPassphrase: sp.PrivacyPassphrase,
-	}
-	sp.mu.Unlock()
-	cur.contextEngineID = x.ContextEngineID
-
-	prev := &x.engine
-	same := prev.params == sp
-	newClock := !same || cur.boots != prev.clock.boots || cur.engineTime != prev.clock.latest
-	if same && cur.engineID == prev.engineID && !newClock &&
-		bytes.Equal(cur.authKey, prev.authKey) && bytes.Equal(cur.privKey, prev.privKey) &&
-		cred == prev.cred && cur.contextEngineID == prev.contextEngineID() {
+// startEngine takes the configuration into the engine state at the start of
+// an SNMPv3 request (and of EncodeMessage): after ForgetEngine the state starts
+// over, with no engine ID, so the request discovers the engine again; another
+// User keeps the engine ID and clock and derives the keys again for the engine
+// ID. Without an engine ID the keys must derive all the same, before
+// discovery: FIPS 140-only mode, for one, refuses MD5 and SHA-1. An error ends
+// the request and changes nothing.
+func (x *Client) startEngine() error {
+	next := x.engine
+	if x.forgetEngine {
+		next = engineState{}
+	} else if next.user == x.User {
 		return nil
 	}
-
-	// A field that holds the state's value and one the caller changed both
-	// give the field's value; the keys, the clock and the context engine ID
-	// also need to know which it was.
-	next := engineState{
-		params:   sp,
-		engineID: cur.engineID,
-		cred:     cred,
-		context:  prev.context,
-	}
-	if cur.contextEngineID != prev.contextEngineID() {
-		next.context = cur.contextEngineID
-	}
-	newEngine, newCred := same && cur.engineID != prev.engineID, same && cred != prev.cred
-	// The boots and time are one pair: one the caller set is an
-	// unauthenticated clock received now, none for zeros (net-snmp takes
-	// non-zero ones only); the state's clock stays for its engine ID.
-	switch {
-	case newClock && (cur.boots != 0 || cur.engineTime != 0):
-		next.clock = clockOf(cur.boots, cur.engineTime, time.Now(), fromUnauthenticated)
-	case !newClock && !newEngine:
-		next.clock = prev.clock
-	}
-	fromNone := prev.engineID == ""
-	var err error
-	if next.authKey, next.authGiven, err = nextKey(cur.authKey, prev.authKey, prev.authGiven, same, newEngine, newCred,
-		fromNone, cred.authProtocol > NoAuth && cred.authPassphrase == ""); err != nil {
-		return errAuthKeyBoundToEngine
-	}
-	if next.privKey, next.privGiven, err = nextKey(cur.privKey, prev.privKey, prev.privGiven, same, newEngine, newCred,
-		fromNone, cred.privProtocol > NoPriv && cred.privPassphrase == ""); err != nil {
-		return errPrivKeyBoundToEngine
-	}
-	keys := next.sp()
-	if err := keys.InitSecurityKeys(); err != nil {
+	next.user = x.User
+	keys, err := next.user.localize(next.engineID)
+	if err != nil {
 		return err
 	}
-	if next.engineID == "" {
-		// Supplied keys passing validation do not prove their passphrases can
-		// derive keys for discovery. Check that too, keeping keys just derived
-		// above and keys supplied without passphrases. With PasswordCaching
-		// off, discovery hashes the passphrases again for its engine ID.
-		if len(next.authKey) != 0 && cred.authPassphrase != "" {
-			keys.SecretKey = nil
-		}
-		if len(next.privKey) != 0 && cred.privPassphrase != "" {
-			keys.PrivacyKey = nil
-		}
-		if err := keys.deriveKeys(); err != nil {
-			return err
-		}
-	} else {
-		next.authKey, next.privKey = keys.SecretKey, keys.PrivacyKey
-		if next.authGiven || next.privGiven {
-			derived := next.sp()
-			derived.SecretKey, derived.PrivacyKey = nil, nil
-			if derived.deriveKeys() == nil {
-				next.authGiven = next.authGiven && !bytes.Equal(next.authKey, derived.SecretKey)
-				next.privGiven = next.privGiven && !bytes.Equal(next.privKey, derived.PrivacyKey)
-			}
-		}
+	if len(next.engineID) == 0 {
+		// No keys before discovery, only their protocols: a message signed
+		// or encrypted then (EncodeMessage) fails the key check.
+		keys.auth, keys.priv = nil, nil
 	}
-	*prev = next
-	x.mirrorEngine(cur, prev)
+	next.keys = keys
+	x.engine, x.forgetEngine = next, false
 	return nil
 }
 
-// errKeyBound is nextKey's error of a key given for another engine ID.
-var errKeyBound = errors.New("key bound to another engine ID")
-
-// nextKey returns a key of the state reconcileEngine builds, from the field's
-// key and the state's key, whether the caller gave it, and what changed in
-// the same SecurityParameters value (same): the field's key when the caller
-// changed it or the value is another (empty: none, to derive); for another
-// engine ID none, to derive again, but for a key the caller gave whose
-// passphrase is empty (bound) the key itself when the state had no engine ID
-// (fromNone: the key serves the first one), else errKeyBound; for other
-// credentials none, to derive again, when the client derived it; else the
-// state's key.
-func nextKey(field, key []byte, given, same, newEngine, newCred, fromNone, bound bool) ([]byte, bool, error) {
-	switch {
-	case !same || !bytes.Equal(field, key):
-		return slices.Clone(field), len(field) != 0, nil
-	case newEngine && given && bound && fromNone:
-		return key, given, nil
-	case newEngine && given && bound:
-		return nil, false, errKeyBound
-	case newEngine, newCred && !given:
-		return nil, false, nil
-	}
-	return key, given, nil
+// ForgetEngine makes the client forget what it learned of the agent's SNMPv3
+// engine: its engine ID, the keys localized to it, its engine boots and time
+// and the context engine ID taken from it. The next request starts from the
+// configuration and discovers the engine again (RFC 3414 section 4); a request
+// that is running, the one a hook runs in included, keeps the state it has.
+// Call it when a request fails with an error that matches ErrUnknownEngineID:
+// the agent's engine ID changed (a replaced device), or a forged answer to the
+// discovery gave the client another engine's. Like the configuration, it is
+// not safe to call while a request runs on another goroutine.
+func (x *Client) ForgetEngine() {
+	x.forgetEngine = true
 }
 
 // commitEngine replaces the engine state with next, a state validated by its
-// caller, and mirrors it into the exported fields.
+// caller.
 func (x *Client) commitEngine(next engineState) {
-	was := x.engine.fields()
 	x.engine = next
-	x.mirrorEngine(was, &x.engine)
 }
 
-// mirrorEngine writes the engine state s into the exported fields that still
-// hold was, the values the client last wrote or read there: the fields of the
-// SecurityParameters value the state follows, and ContextEngineID. A field a
-// caller or a hook changed since keeps the change, which the next request
-// takes (reconcileEngine). Keys are written as copies.
-func (x *Client) mirrorEngine(was engineFields, s *engineState) {
-	sp := s.params
-	sp.mu.Lock()
-	if sp.AuthoritativeEngineID == was.engineID {
-		sp.AuthoritativeEngineID = s.engineID
-	}
-	if sp.AuthoritativeEngineBoots == was.boots && sp.AuthoritativeEngineTime == was.engineTime {
-		sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = s.clock.boots, s.clock.latest
-	}
-	if !bytes.Equal(s.authKey, was.authKey) && bytes.Equal(sp.SecretKey, was.authKey) {
-		sp.SecretKey = slices.Clone(s.authKey)
-	}
-	if !bytes.Equal(s.privKey, was.privKey) && bytes.Equal(sp.PrivacyKey, was.privKey) {
-		sp.PrivacyKey = slices.Clone(s.privKey)
-	}
-	sp.mu.Unlock()
-	if x.ContextEngineID == was.contextEngineID {
-		x.ContextEngineID = s.contextEngineID()
-	}
-}
-
-// stamp gives packet, a request's private copy of the parameters, the engine
-// state's engine ID and keys, and its context engine ID; each attempt gives it
-// the engine boots and time (exchange.encode).
+// stamp gives packet, a request, the engine state's engine ID and context
+// engine ID; its attempts sign and encrypt it with the state's keys and give
+// it the engine boots and time (exchange.encode).
 func (s *engineState) stamp(packet *Message) {
-	sp := packet.SecurityParameters.usm()
-	sp.AuthoritativeEngineID, sp.SecretKey, sp.PrivacyKey = s.engineID, s.authKey, s.privKey
+	packet.SecurityParameters.AuthoritativeEngineID = s.engineID
 	packet.ContextEngineID = s.contextEngineID()
 }

@@ -58,7 +58,7 @@ func (a *mibAgent) handle(n int, data []byte) []agentReply {
 		a.tr.addf("agent: drops #%d", n)
 		return nil
 	}
-	b, err := out.marshalMsg()
+	b, err := out.Encode(nil)
 	if err != nil {
 		panic(fmt.Sprintf("agent cannot encode its answer: %v", err))
 	}

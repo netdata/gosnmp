@@ -14,31 +14,32 @@ import (
 // and does not compare the community: check PDUType and Community.
 //
 // An SNMPv3 message is decoded, when TrapSecurityParametersTable is set, with
-// the sets the table holds for its user name, until one accepts it; otherwise
-// UnmarshalTrap derives the missing keys of SecurityParameters, so parameters
-// naming a protocol with neither a key nor a passphrase fail every message,
-// and decodes it with a copy of them. trap is not written (see the package
-// documentation for the values that alias it).
+// the users the table holds for its user name, until one accepts it; otherwise
+// with the client's User. The keys are localized to the message's engine ID
+// (RFC 3414 section 2.6): a table user's were derived for its engine ID when it
+// was added, and derive for another one, as the client's User's always do; a
+// protocol without a passphrase fails every SNMPv3 message. The result carries
+// the message's own security parameters and no secret; trap is not written (see
+// the package documentation for the values that alias it).
 //
 // An SNMPv3 message goes through the security processing of RFC 3414 section
 // 3.2, by its own flags, and each rejection unwraps (errors.Is) to the error
 // named after the step's counter: it must name an engine ID
 // (ErrUnknownEngineID); the user must be known (ErrUnknownUsername): the table
-// looks it up by name, the single user must be the message's, and parameters
-// with a key given without its passphrase serve only the engine ID it was
-// localized to; the user must have the protocols the message asks for
-// (ErrUnknownSecurityLevel); a message that asks for authentication must
-// carry a digest that checks with the user's key, localized to the message's
-// engine ID (ErrWrongDigest); a message is decrypted exactly when it asks for
-// privacy (ErrDecryption); an authenticated message whose PDU is not a request
-// or an inform, a trap, must be in the time window of its engine
-// (ErrNotInTimeWindow, see the package documentation). Then the receiver's
-// minimum level applies (ErrUnknownSecurityLevel): a table set or the single
-// user with an authentication protocol accepts only authenticated messages;
-// the single user also requires the level of the client's SecurityLevel, one
-// of the three levels, unless useResponseSecurityParameters is set. A table tries all of a user's sets in
+// looks it up by name, the single user must be the message's; the user must
+// have the protocols the message asks for (ErrUnknownSecurityLevel); a message
+// that asks for authentication must carry a digest that checks with the user's
+// key, localized to the message's engine ID (ErrWrongDigest); a message is
+// decrypted exactly when it asks for privacy (ErrDecryption); an authenticated
+// message whose PDU is not a request or an inform, a trap, must be in the time
+// window of its engine (ErrNotInTimeWindow, see the package documentation).
+// Then the receiver's minimum level applies (ErrUnknownSecurityLevel): a table
+// user or the single user with an authentication protocol accepts only
+// authenticated messages; the single user also requires the level of the
+// client's SecurityLevel, one of the three levels, unless
+// useResponseSecurityParameters is set. A table tries all of a name's users in
 // the order they were added; when none accepts the message, the error is the
-// one of the set that got furthest through these steps, the first on ties.
+// one of the user that got furthest through these steps, the first on ties.
 func (x *Client) UnmarshalTrap(trap []byte, useResponseSecurityParameters bool) (*Message, error) {
 	version, _, err := readVersion(trap)
 	if err != nil {
@@ -51,31 +52,31 @@ func (x *Client) UnmarshalTrap(trap []byte, useResponseSecurityParameters bool) 
 }
 
 // unmarshalTrapByUser decodes an SNMPv3 trap, whose header it reads once,
-// with the parameter sets the table holds for its user name, in the order
-// they were added, each a private copy with the message's security
-// parameters. The first set that accepts it wins; when none does, the error
-// wraps the one of the set that got furthest.
+// with the users the table holds for its user name, in the order they were
+// added. The first user that accepts it wins; when none does, the error wraps
+// the one of the user that got furthest.
 func (x *Client) unmarshalTrapByUser(trap []byte) (*Message, error) {
 	var header Message
 	_, w, err := unmarshalHeader(trap, &header)
 	if err != nil {
 		return nil, err
 	}
-	if err = x.checkTrapV3(&w); err != nil {
+	if err = x.checkTrapV3(&header); err != nil {
 		return nil, err
 	}
-	secParamsList, err := x.TrapSecurityParametersTable.Get(w.userName)
+	entries, err := x.TrapSecurityParametersTable.get(header.SecurityParameters.UserName)
 	if err != nil {
 		return nil, inCategory(ErrUnknownUsername, err)
 	}
 	var furthest error
 	var reached trapStep
-	for _, secParams := range secParamsList {
-		// The attempts share the header's empty variable list: they run one
-		// after the other, and only the last one's result is kept.
+	for _, entry := range entries {
+		// The attempts share the header's empty variable list and its USM
+		// fields: they run one after the other, and only the last one's
+		// result is kept.
 		result := new(Message)
 		*result = header
-		step, err := decodeTrapV3(trap, w, result, secParams.Copy().usm(), trapRule{})
+		step, err := decodeTrapV3(trap, w, result, &entry.user, entry, trapRule{})
 		if err == nil {
 			return result, nil
 		}
@@ -86,17 +87,9 @@ func (x *Client) unmarshalTrapByUser(trap []byte) (*Message, error) {
 	return nil, fmt.Errorf("no credentials successfully unmarshaled trap: %w", furthest)
 }
 
-// unmarshalTrapBase decodes trap with a copy of the client's security
-// parameters, whose keys it derives first.
+// unmarshalTrapBase decodes trap with the client's User.
 func (x *Client) unmarshalTrapBase(trap []byte, useResponseSecurityParameters bool) (*Message, error) {
 	result := new(Message)
-	if sp := usmOf(x.SecurityParameters); sp != nil {
-		if err := sp.InitSecurityKeys(); err != nil {
-			return nil, err
-		}
-		result.SecurityParameters = sp.Copy()
-	}
-
 	cursor, w, err := unmarshalHeader(trap, result)
 	if err != nil {
 		return nil, err
@@ -107,16 +100,10 @@ func (x *Client) unmarshalTrapBase(trap []byte, useResponseSecurityParameters bo
 		}
 		return result, nil
 	}
-	if err := x.checkTrapV3(&w); err != nil {
+	if err := x.checkTrapV3(result); err != nil {
 		return nil, err
 	}
 
-	var sp *UsmSecurityParameters
-	if result.SecurityParameters != nil {
-		sp = result.SecurityParameters.usm()
-	} else {
-		sp = &UsmSecurityParameters{}
-	}
 	rule := trapRule{singleUser: true}
 	if !useResponseSecurityParameters {
 		if !x.SecurityLevel.valid() {
@@ -124,7 +111,7 @@ func (x *Client) unmarshalTrapBase(trap []byte, useResponseSecurityParameters bo
 		}
 		rule.minimum = x.SecurityLevel
 	}
-	if _, err := decodeTrapV3(trap, w, result, sp, rule); err != nil {
+	if _, err := decodeTrapV3(trap, w, result, &x.User, nil, rule); err != nil {
 		return nil, err
 	}
 	return result, nil
@@ -133,11 +120,11 @@ func (x *Client) unmarshalTrapBase(trap []byte, useResponseSecurityParameters bo
 // checkTrapV3 makes the checks of an SNMPv3 trap that come before its user is
 // known: the client's version, and an engine ID that is not empty (RFC 3414
 // section 3.2 step 3: no receiver's engine has it).
-func (x *Client) checkTrapV3(w *v3Wire) error {
+func (x *Client) checkTrapV3(header *Message) error {
 	if x.Version != Version3 {
 		return errors.New("UnmarshalTrap: an SNMPv3 message needs a client whose Version is Version3")
 	}
-	if w.engineID == "" {
+	if len(header.SecurityParameters.AuthoritativeEngineID) == 0 {
 		return errNoEngineID
 	}
 	return nil
@@ -150,11 +137,11 @@ type trapRule struct {
 	// receiver's (the table looks the user up by name).
 	singleUser bool
 	// minimum is the security level the receiver requires besides its
-	// parameters' (the client's SecurityLevel on the single path).
+	// user's (the client's SecurityLevel on the single path).
 	minimum SecurityLevel
 }
 
-// trapStep is how far an SNMPv3 trap got through decodeTrapV3 with one set:
+// trapStep is how far an SNMPv3 trap got through decodeTrapV3 with one user:
 // the steps of RFC 3414 section 3.2 from step 4 on (step 7 after step 8, which
 // reveals the PDU type it depends on), the minimum level, the PDU. A local
 // failure counts at the step it occurred in.
@@ -170,18 +157,18 @@ const (
 	stepPDU
 )
 
-// decodeTrapV3 decodes the SNMPv3 trap whose header is in result and w with
-// sp, a private copy of the receiver's parameters, and returns how far it
+// decodeTrapV3 decodes the SNMPv3 trap whose header is in result and w for
+// user, with own's keys for own's engine ID (nil: none), and returns how far it
 // got: the security processing from RFC 3414 section 3.2 step 4 on, by the
-// message's flags, with step 7 by the class of the decrypted PDU (RFC 3412
+// message's level, with step 7 by the class of the decrypted PDU (RFC 3412
 // section 6.4: the PDU type, not the reportable flag, decides once the PDU
-// decodes), the minimum level of rule and sp, then the PDU.
-func decodeTrapV3(trap []byte, w v3Wire, result *Message, sp *UsmSecurityParameters, rule trapRule) (trapStep, error) {
-	if rule.singleUser && w.userName != sp.UserName {
+// decodes), the minimum level of rule and user, then the PDU.
+func decodeTrapV3(trap []byte, w v3Wire, result *Message, user *User, own *tableUser, rule trapRule) (trapStep, error) {
+	if rule.singleUser && result.SecurityParameters.UserName != user.Name {
 		return stepUser, errUnknownUser
 	}
-	minimum := rule.minimum | sp.levelFloor()
-	in, err := receiveV3(trap, w, result, sp)
+	minimum := rule.minimum | user.levelFloor()
+	in, err := receiveV3(trap, w, result, user, own)
 	if err != nil {
 		if errors.Is(err, ErrUnknownSecurityLevel) {
 			return stepLevel, err
@@ -202,7 +189,8 @@ func decodeTrapV3(trap []byte, w v3Wire, result *Message, sp *UsmSecurityParamet
 	// but a Confirmed-class one (an inform), whose receiver is, and whose time
 	// the library does not keep. A PDU that does not decode fails below.
 	if flags.authFlag() && (cursor >= len(scoped) || !PDUType(scoped[cursor]).confirmed()) {
-		if err = trapEngineTimes.admit(keyOf(sp), sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime); err != nil {
+		h := &result.SecurityParameters
+		if err = trapEngineTimes.admit(keyOf(h.AuthoritativeEngineID, &in.keys), h.AuthoritativeEngineBoots, h.AuthoritativeEngineTime); err != nil {
 			return stepTimeliness, err
 		}
 	}

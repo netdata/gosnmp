@@ -319,7 +319,7 @@ func TestEnmarshalMsg(t *testing.T) {
 			VarBinds:  vbPosPdus(test),
 		}
 
-		testBytes, err := x.marshalMsg()
+		testBytes, err := x.Encode(nil)
 		if err != nil {
 			t.Errorf("#%s: marshal() err returned: %v", test.funcName, err)
 		}
@@ -330,7 +330,7 @@ func TestEnmarshalMsg(t *testing.T) {
 			if err != nil {
 				t.Errorf("#%s: DecodeMessage() err returned: %v", test.funcName, err)
 			}
-			newResultTestBytes, err := result.marshalMsg()
+			newResultTestBytes, err := result.Encode(nil)
 			if err != nil {
 				t.Errorf("#%s: marshal() err returned: %v", test.funcName, err)
 			}
@@ -819,9 +819,9 @@ func TestUnmarshal(t *testing.T) {
 				assert.Equal(t, newUnmarshalView(test.out), newUnmarshalView(res))
 			})
 			t.Run("remarshal", func(t *testing.T) {
-				result, err := res.marshalMsg()
+				result, err := res.Encode(nil)
 				if err != nil {
-					t.Fatalf("#%s: marshalMsg() err returned: %v", funcName, err)
+					t.Fatalf("#%s: Encode() err returned: %v", funcName, err)
 				}
 				resNew, err := vhandle.DecodeMessage(result)
 				if err != nil {
@@ -972,7 +972,7 @@ func panicUnmarshalDecryptPacketIndex() []byte {
 
 /*
 panicUnmarshalDecryptPacketIndex() tests a boundary condition that results in a panic
-in UsmSecurityParameters.decryptPacket() when handling malformed data.
+in the decryption of the scoped PDU when handling malformed data.
 */
 func panicUnmarshalDecryptNoPriv() []byte {
 	return []byte{
@@ -1528,9 +1528,9 @@ func TestUnmarshalEmptyPanic(t *testing.T) {
 
 func TestV3USMInitialPacket(t *testing.T) {
 	blankPacket := newDiscoveryPacket()
-	iBytes, err := blankPacket.marshalMsg()
+	iBytes, err := blankPacket.Encode(nil)
 	if err != nil {
-		t.Errorf("#TestV3USMInitialPacket: marshalMsg() err returned: %v", err)
+		t.Errorf("#TestV3USMInitialPacket: Encode() err returned: %v", err)
 	}
 	engine := Client{}
 	pktNew, errDecode := engine.DecodeMessage(iBytes)
@@ -1566,13 +1566,13 @@ func TestSendOneRequest_dups(t *testing.T) {
 	// This is not actually a Response, but we need something our test server can unmarshal.
 	reqPkt := x.NewMessage(Response, pdus, 0, 0)
 
-	_, _, err = x.sendOneRequest(new(x.prepareRequest()), reqPkt, false, sourcedClock{})
+	_, _, err = x.sendOneRequest(new(x.prepareRequest()), reqPkt, false, attemptSecurity{})
 	if err != nil {
 		t.Errorf("error: %s", err)
 		return
 	}
 
-	_, _, err = x.sendOneRequest(new(x.prepareRequest()), reqPkt, false, sourcedClock{})
+	_, _, err = x.sendOneRequest(new(x.prepareRequest()), reqPkt, false, attemptSecurity{})
 	if err != nil {
 		t.Errorf("error: %s", err)
 		return
@@ -1609,7 +1609,7 @@ func serveResponses(t *testing.T, srvr *net.UDPConn, x *Client, send func(reply 
 			},
 		}, 0, 0)
 		rspPkt.RequestID = reqPkt.RequestID
-		reply, err := rspPkt.marshalMsg()
+		reply, err := rspPkt.Encode(nil)
 		if err != nil {
 			t.Errorf("ERR: %s", err)
 		}

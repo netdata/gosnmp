@@ -10,20 +10,17 @@ import (
 )
 
 // NewMessage builds a request or trap message of pduType with the varbinds
-// varBinds from the client's version, community, SNMPv3 security level, a copy
-// of its security parameters (none for a nil *UsmSecurityParameters) and its
-// context; maxRepetitions is kept with its top bit cleared.
+// varBinds from the client's version, community, SNMPv3 security level, user
+// name and context name; maxRepetitions is kept with its top bit cleared. An
+// SNMPv3 message's engine fields and context engine ID are left empty: a
+// request takes them from the client's engine state, and the caller sets them
+// for a message it encodes itself.
 func (x *Client) NewMessage(pduType PDUType, varBinds []VarBind, nonRepeaters uint8, maxRepetitions uint32) *Message {
-	var newSecParams SnmpV3SecurityParameters
-	if sp := usmOf(x.SecurityParameters); sp != nil {
-		newSecParams = sp.Copy()
-	}
 	return &Message{
 		Version:            x.Version,
 		Community:          x.Community,
 		SecurityLevel:      x.SecurityLevel,
-		SecurityParameters: newSecParams,
-		ContextEngineID:    x.ContextEngineID,
+		SecurityParameters: SecurityParameters{UserName: x.User.Name},
 		ContextName:        x.ContextName,
 		ErrorStatus:        0,
 		ErrorIndex:         0,

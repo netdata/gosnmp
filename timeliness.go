@@ -117,13 +117,14 @@ func newEngineTimes(limit int, now func() time.Time) *engineTimes {
 	return &engineTimes{limit: limit, now: now, records: make(map[engineTimeKey]*list.Element)}
 }
 
-// keyOf returns the key of the records of sp's engine and credential.
-func keyOf(sp *UsmSecurityParameters) engineTimeKey {
+// keyOf returns the key of the records of an engine and a credential: the
+// engine ID and the authentication protocol and key localized to it.
+func keyOf(engineID []byte, keys *usmKeys) engineTimeKey {
 	var buf [128]byte
-	b := append(buf[:0], byte(sp.AuthenticationProtocol))
-	b = binary.BigEndian.AppendUint32(b, uint32(len(sp.AuthoritativeEngineID))) //nolint:gosec // a message is shorter
-	b = append(b, sp.AuthoritativeEngineID...)
-	b = append(b, sp.SecretKey...)
+	b := append(buf[:0], byte(keys.authProtocol))
+	b = binary.BigEndian.AppendUint32(b, uint32(len(engineID))) //nolint:gosec // a message is shorter
+	b = append(b, engineID...)
+	b = append(b, keys.auth...)
 	return sha256.Sum256(b)
 }
 

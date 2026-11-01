@@ -5,52 +5,52 @@
 package gosnmp
 
 import (
+	"bytes"
 	"fmt"
 	"sync"
 )
 
-// SnmpV3SecurityParametersTable holds sets of SNMPv3 security parameters by
-// key, for Client.UnmarshalTrap, which looks them up by the message's user
-// name. It is safe for concurrent use.
+// SnmpV3SecurityParametersTable holds SNMPv3 users by name, each with the
+// engine ID it is registered for, for Client.UnmarshalTrap, which looks them
+// up by the message's user name. It is safe for concurrent use.
 type SnmpV3SecurityParametersTable struct {
-	table map[string][]SnmpV3SecurityParameters
+	table map[string][]*tableUser
 	mu    sync.RWMutex
 }
 
 // NewSnmpV3SecurityParametersTable returns an empty table.
 func NewSnmpV3SecurityParametersTable() *SnmpV3SecurityParametersTable {
 	return &SnmpV3SecurityParametersTable{
-		table: make(map[string][]SnmpV3SecurityParameters),
+		table: make(map[string][]*tableUser),
 	}
 }
 
-// Add derives the keys of sp (InitSecurityKeys), while it holds the table's
-// lock, and appends sp itself, not a copy, to the sets of key; UnmarshalTrap
-// tries a user's sets in the order they were added. Without parameters (nil,
-// or a nil *UsmSecurityParameters) it fails.
-func (spm *SnmpV3SecurityParametersTable) Add(key string, sp SnmpV3SecurityParameters) error {
-	if usmOf(sp) == nil {
-		return fmt.Errorf("no security parameters to add for the key %s", key)
-	}
+// Add derives user's keys localized to engineID, while it holds the table's
+// lock, and appends the user to the entries of its name; UnmarshalTrap tries a
+// name's entries in the order they were added, and derives the keys again for
+// a message naming another engine ID. Keys that do not derive, as for a
+// protocol without a passphrase, fail.
+func (spm *SnmpV3SecurityParametersTable) Add(user User, engineID []byte) error {
 	spm.mu.Lock()
 	defer spm.mu.Unlock()
 
-	if err := sp.InitSecurityKeys(); err != nil {
+	keys, err := user.localize(engineID)
+	if err != nil {
 		return err
 	}
-
-	spm.table[key] = append(spm.table[key], sp)
+	entry := &tableUser{user: user, engineID: bytes.Clone(engineID), keys: keys}
+	spm.table[user.Name] = append(spm.table[user.Name], entry)
 	return nil
 }
 
-// Get returns the sets of key, as the table's own slice, or an error when
-// there are none.
-func (spm *SnmpV3SecurityParametersTable) Get(key string) ([]SnmpV3SecurityParameters, error) {
+// get returns the entries of the user name, as the table's own slice, or an
+// error when there are none.
+func (spm *SnmpV3SecurityParametersTable) get(name string) ([]*tableUser, error) {
 	spm.mu.RLock()
 	defer spm.mu.RUnlock()
 
-	if sp, ok := spm.table[key]; ok {
-		return sp, nil
+	if entries, ok := spm.table[name]; ok {
+		return entries, nil
 	}
-	return nil, fmt.Errorf("no security parameters found for the key %s", key)
+	return nil, fmt.Errorf("no security parameters found for the key %s", name)
 }
