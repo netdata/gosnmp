@@ -245,9 +245,8 @@ func dumpError(err error) string {
 }
 
 // observe runs fn and reports whether it panicked and whether it wrote to
-// os.Stdout, which the library does when it recovers from some panics. It
-// swaps the global os.Stdout, so tests that use it must not run in parallel
-// with others.
+// os.Stdout, which the library must not do: it writes no output. It swaps the
+// global os.Stdout, so tests that use it must not run in parallel with others.
 func observe(fn func()) (panicked, wroteStdout bool) {
 	r, w, err := os.Pipe()
 	if err != nil {

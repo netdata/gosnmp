@@ -5,12 +5,10 @@
 package gosnmp
 
 import (
-	"io"
-	"log"
 	"time"
 )
 
-// newTestGoSNMP returns an unconnected SNMPv2c client that discards its log.
+// newTestGoSNMP returns an unconnected SNMPv2c client.
 func newTestGoSNMP() *GoSNMP {
 	return &GoSNMP{
 		Port:      161,
@@ -19,7 +17,6 @@ func newTestGoSNMP() *GoSNMP {
 		Timeout:   2 * time.Second,
 		Retries:   3,
 		MaxOids:   MaxOids,
-		Logger:    NewLogger(log.New(io.Discard, "", 0)),
 	}
 }
 

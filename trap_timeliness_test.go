@@ -103,7 +103,7 @@ var timelyReceivers = []struct {
 	users    []string // the users the receiver knows
 }{
 	{"table", func(t *testing.T) *GoSNMP {
-		tb := NewSnmpV3SecurityParametersTable(Logger{})
+		tb := NewSnmpV3SecurityParametersTable()
 		require.NoError(t, tb.Add("codec-user", usmDecoder(SHA, "codec-auth-pass", AES, "codec-priv-pass")().SecurityParameters))
 		require.NoError(t, tb.Add("other-user", usmDecoder(SHA, "other-auth-pass", AES, "other-priv-pass")().SecurityParameters))
 		require.NoError(t, tb.Add("plain-user", &UsmSecurityParameters{UserName: "plain-user"}))
@@ -290,7 +290,7 @@ func TestTrapEncodedReplay(t *testing.T) {
 			require.NoError(t, err)
 			receiver := &GoSNMP{Version: Version3, MsgFlags: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy()}
 			if path == "table" {
-				receiver.TrapSecurityParametersTable = NewSnmpV3SecurityParametersTable(Logger{})
+				receiver.TrapSecurityParametersTable = NewSnmpV3SecurityParametersTable()
 				require.NoError(t, receiver.TrapSecurityParametersTable.Add("codec-user", sp.Copy()))
 			}
 			got, err := receiver.UnmarshalTrap(bytes.Clone(wire), false)
