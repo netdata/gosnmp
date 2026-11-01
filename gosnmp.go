@@ -225,10 +225,11 @@ const (
 
 //go:generate go tool -modfile=tools/go.mod stringer -type ErrorStatus
 
-// ErrorStatus is the type for standard SNMP errors.
+// ErrorStatus is the error-status of a PDU (RFC 3416 section 3): NoError, or
+// why the agent did not process a request as asked.
 type ErrorStatus uint8
 
-// SNMP Errors
+// The error statuses (RFC 3416; SNMPv1 has the first six).
 const (
 	NoError             ErrorStatus = iota // No error occurred. This code is also used in all request PDUs, since they have no error status to report.
 	TooBig                                 // The size of the Response-PDU would be too large to transport.
