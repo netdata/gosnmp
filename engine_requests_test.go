@@ -1157,8 +1157,9 @@ func TestRequestContextPanicCleanup(t *testing.T) {
 
 // TestEngineReadCountOutsideBuffer checks, on a loopback socket, a Conn the
 // caller set whose Read breaks the io.Reader contract once, returning a count
-// outside the buffer: the attempt fails as a transport error, which the retry
-// cures, and the client answers the next request.
+// outside the buffer: the attempt fails as a transport error, also when the
+// read returns an error that would end the request (a closed connection),
+// which the retry cures, and the client answers the next request.
 func TestEngineReadCountOutsideBuffer(t *testing.T) {
 	type outcome struct {
 		failed  []bool // per request
@@ -1166,6 +1167,7 @@ func TestEngineReadCountOutsideBuffer(t *testing.T) {
 	}
 	tests := map[string]struct {
 		count func(p []byte) int
+		err   error // the error of the read that returns count
 		want  outcome
 	}{
 		"more than the buffer": {
@@ -1175,6 +1177,10 @@ func TestEngineReadCountOutsideBuffer(t *testing.T) {
 		"negative": {
 			count: func([]byte) int { return -1 },
 			want:  outcome{failed: []bool{false, false}, retries: 1},
+		},
+		"negative, with a closed-connection error": {
+			count: func([]byte) int { return -1 }, err: net.ErrClosed,
+			want: outcome{failed: []bool{false, false}, retries: 1},
 		},
 	}
 	for name, tc := range tests {
@@ -1188,7 +1194,7 @@ func TestEngineReadCountOutsideBuffer(t *testing.T) {
 			}
 			require.NoError(t, x.Connect())
 			defer x.Close()
-			x.Conn = &badCountConn{Conn: x.Conn, count: tc.count}
+			x.Conn = &badCountConn{Conn: x.Conn, count: tc.count, err: tc.err}
 			for range 2 {
 				_, err := x.Get([]string{engineOID})
 				got.failed = append(got.failed, err != nil)
@@ -1198,18 +1204,19 @@ func TestEngineReadCountOutsideBuffer(t *testing.T) {
 	}
 }
 
-// badCountConn is a Conn whose first Read returns count's count without
-// reading, breaking the io.Reader contract; its other calls go to Conn.
+// badCountConn is a Conn whose first Read returns count's count and err
+// without reading, breaking the io.Reader contract; its other calls go to Conn.
 type badCountConn struct {
 	net.Conn
 	count func(p []byte) int
+	err   error
 	done  bool
 }
 
 func (c *badCountConn) Read(p []byte) (int, error) {
 	if !c.done {
 		c.done = true
-		return c.count(p), nil
+		return c.count(p), c.err
 	}
 	return c.Conn.Read(p)
 }
