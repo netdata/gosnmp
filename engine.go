@@ -114,8 +114,8 @@ func resyncKindOf(result *Message) reportKind {
 
 // requestConfig is the client's configuration as a request reads it, once, at
 // its start: a change a hook makes to the client applies from the next
-// request. The packet carries the rest (version, security level and model,
-// context), and the SNMPv3 engine state takes the caller's changes to its
+// request. The packet carries the rest (version, security level, context),
+// and the SNMPv3 engine state takes the caller's changes to its
 // fields at the same time (reconcileEngine). Not part of it: the connection,
 // which each attempt takes from the client (connection).
 type requestConfig struct {

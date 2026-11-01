@@ -285,6 +285,10 @@ const (
 // 3412 section 7.2 step 4).
 var errNotUSM = errors.New("error parsing SNMPV3: the security model is not USM")
 
+// errInvalidLevel is the error of a client's security level that is not one
+// of the three (validate, and UnmarshalTrap's single path).
+var errInvalidLevel = errors.New("validate: SecurityLevel must be populated with an appropriate security level")
+
 // errMsgFlags is the error of an SNMPv3 msgFlags that is not an OCTET STRING
 // of one octet (RFC 3412 section 6).
 var errMsgFlags = errors.New("error parsing SNMPV3 msgFlags: not an OCTET STRING of one octet")
@@ -304,9 +308,8 @@ func v3ParseError(err error) error {
 }
 
 // parseV3 reads the SNMPv3 header at packet[cursor:]: the message ID, maximum
-// size, the security level of msgFlags and the security model into response,
-// and the USM fields and the
-// offsets security processing needs into the v3Wire it returns. It takes
+// size and the security level of msgFlags into response, and the USM fields
+// and the offsets security processing needs into the v3Wire it returns. It takes
 // net-snmp v5.9.4's extents: every declared length must fit what remains; the
 // fields of msgGlobalData are read against the rest of the message, whatever
 // its declared length; the USM fields are bounded by their SEQUENCE and the

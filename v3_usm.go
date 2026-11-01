@@ -390,7 +390,7 @@ func (sp *UsmSecurityParameters) validate(flags SecurityLevel) error {
 	}
 
 	if !flags.valid() {
-		return fmt.Errorf("validate: SecurityLevel must be populated with an appropriate security level")
+		return errInvalidLevel
 	}
 	if err := sp.checkLevel(flags); err != nil {
 		return err

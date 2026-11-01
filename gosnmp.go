@@ -251,7 +251,7 @@ const (
 // prepare readies the client for Connect, EncodeMessage and
 // DecodeMessage, which call it each time: it fills in the defaults (MaxOids,
 // a background Context), rejects a negative MaxOids and, for SNMPv3, checks
-// the security model and parameters.
+// the security level and parameters.
 func (x *Client) prepare() error {
 	if x.MaxOids == 0 {
 		x.MaxOids = MaxOids
