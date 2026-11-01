@@ -686,6 +686,7 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/v3/flags-empty", in: craftedV3(intTLV(42), intTLV(65507), octets(""), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},
 		{name: "crafted/v3/flags-two-octets", in: craftedV3(intTLV(42), intTLV(65507), octets("\x00\x00"), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},
 		{name: "crafted/v3/flags-two-octets-reportable", in: craftedV3(intTLV(42), intTLV(65507), octets("\x04\x00"), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},
+		{name: "crafted/v3/flags-reserved-bits", in: craftedV3(intTLV(42), intTLV(65507), octets("\xfc"), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},
 		{name: "crafted/v3/flags-integer", in: craftedV3(intTLV(42), intTLV(65507), intTLV(0), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},
 		{name: "crafted/v3/security-model-2", in: craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(2), craftedNoAuthUSM, craftedScopedResp)},
 		{name: "crafted/v3/msg-id-negative", in: craftedV3(intTLV(-1), intTLV(65507), octets("\x00"), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},

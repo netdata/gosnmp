@@ -633,6 +633,21 @@ func v3Scenarios() map[string]v3Scenario {
 			}
 			return agentAnswer{}, false
 		}},
+		"unauthenticated-report/security-level-changed-by-hook": {
+			user:   "codec-md5",
+			script: onRequest(2, agentAnswer{report: usmStatsNotInTimeWindows, why: "not in time window, unauthenticated"}),
+			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
+				onRecv := x.OnRecv
+				x.OnRecv = func(x *Client) {
+					onRecv(x)
+					if a.counters[usmStatsNotInTimeWindows] == 1 && x.SecurityLevel == AuthNoPriv {
+						x.SecurityLevel = NoAuthNoPriv
+						a.tr.addf("hook OnRecv sets the client's security level to noAuthNoPriv")
+					}
+				}
+				return x.Get([]string{engineOID})
+			},
+		},
 		"unauthenticated-report/version-changed-by-hook": {
 			user:   "codec-md5",
 			script: onRequest(2, agentAnswer{report: usmStatsNotInTimeWindows, why: "not in time window, unauthenticated"}),
@@ -741,6 +756,10 @@ func v3Scenarios() map[string]v3Scenario {
 		"hooks/discovery-presend-changes-version": {
 			user: "codec-md5",
 			run:  onFirstPreSend("sets the client's version to 2c", func(x *Client) { x.Version = Version2c }),
+		},
+		"hooks/discovery-presend-changes-security-level": {
+			user: "codec-md5",
+			run:  onFirstPreSend("sets the client's security level to noAuthNoPriv", func(x *Client) { x.SecurityLevel = NoAuthNoPriv }),
 		},
 		// The discovery exchange's OnFinish changes the client: the request
 		// keeps its retries, timeout and hooks.
@@ -868,6 +887,36 @@ func v3Scenarios() map[string]v3Scenario {
 					if calls++; calls == 3 {
 						a.tr.addf("hook PreSend panics in the retransmission")
 						panic("hook failure")
+					}
+				}
+				return x.Get([]string{engineOID})
+			},
+		},
+		"resync/security-level-changed-by-hook": {
+			user:   "codec-md5",
+			script: onRequest(2, agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "not in time window"}),
+			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
+				onFinish, calls := x.OnFinish, 0
+				x.OnFinish = func(x *Client) {
+					onFinish(x)
+					if calls++; calls == 2 {
+						x.SecurityLevel = NoAuthNoPriv
+						a.tr.addf("hook OnFinish sets the client's security level to noAuthNoPriv")
+					}
+				}
+				return x.Get([]string{engineOID})
+			},
+		},
+		"resync/version-changed-by-hook": {
+			user:   "codec-md5",
+			script: onRequest(2, agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "not in time window"}),
+			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
+				onFinish, calls := x.OnFinish, 0
+				x.OnFinish = func(x *Client) {
+					onFinish(x)
+					if calls++; calls == 2 {
+						x.Version = Version2c
+						a.tr.addf("hook OnFinish sets the client's version to 2c")
 					}
 				}
 				return x.Get([]string{engineOID})
@@ -1337,6 +1386,13 @@ func v3Scenarios() map[string]v3Scenario {
 			level: AuthNoPriv, why: "Response for another user",
 			edit: func(p *Message) { p.SecurityParameters.usm().UserName = "codec-other-user" },
 		})},
+		// The reportableFlag and the reserved bits of an answer's msgFlags are
+		// not part of its level: the Response answers.
+		"answer/reserved-msg-flags": {
+			user: "codec-noauth", script: onRequest(2, agentAnswer{
+				why: "Response with msgFlags 0xfc", raw: msgFlagsOctets(0xfc),
+			}),
+		},
 		"answer/empty-msg-flags": {
 			user: "codec-noauth", script: onRequest(2, agentAnswer{
 				why: "Response with an empty msgFlags", raw: msgFlagsOctets(),
