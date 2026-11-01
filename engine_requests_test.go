@@ -47,22 +47,22 @@ const (
 type engineScenario struct {
 	v1    bool // SNMPv1 instead of SNMPv2c
 	shape engineShape
-	setup func(x *GoSNMP, c *fakeTransport)
+	setup func(x *Client, c *fakeTransport)
 	// context, when set, gives the client's Context; its cancel runs when
 	// the scenario ends.
 	context func() (context.Context, context.CancelFunc)
 	agent   engineAgent
-	run     func(x *GoSNMP) (*SnmpPacket, error) // a Get of engineOID unless set
+	run     func(x *Client) (*Message, error) // a Get of engineOID unless set
 }
 
 // answer is an agent that answers every request at once with vbs.
-func answer(vbs ...SnmpPDU) engineAgent {
+func answer(vbs ...VarBind) engineAgent {
 	return answerWith(nil, vbs...)
 }
 
 // answerWith is an agent that answers every request at once with a reply
 // changed by edit.
-func answerWith(edit func(*SnmpPacket), vbs ...SnmpPDU) engineAgent {
+func answerWith(edit func(*Message), vbs ...VarBind) engineAgent {
 	return func(_ int, req []byte) []agentReply {
 		return []agentReply{{data: replyTo(req, edit, vbs...)}}
 	}
@@ -75,20 +75,20 @@ var errEngineCause = errors.New("engine test cause")
 // msgData is the Report PDU itself, without the scoped PDU around it, so that
 // a v1/v2c client reads it as the PDU after the SNMPv3 header.
 func bareV3Report(req []byte, counter string) []byte {
-	return bareV3Answer(req, 7, Report, SnmpPDU{Name: counter, Type: Counter32, Value: uint32(1)})
+	return bareV3Answer(req, 7, Report, VarBind{Name: counter, Type: Counter32, Value: uint32(1)})
 }
 
 // bareV3Answer is bareV3Report with msgID for a PDU of type pduType with vbs.
-func bareV3Answer(req []byte, msgID uint32, pduType PDUType, vbs ...SnmpPDU) []byte {
+func bareV3Answer(req []byte, msgID uint32, pduType PDUType, vbs ...VarBind) []byte {
 	in, err := decodeMessage(req)
 	if err != nil {
 		panic(fmt.Sprintf("agent cannot decode the request: %v", err))
 	}
-	out := &SnmpPacket{
+	out := &Message{
 		Version: Version3, MsgFlags: NoAuthNoPriv, SecurityModel: UserSecurityModel,
 		SecurityParameters: &UsmSecurityParameters{UserName: "public"},
 		PDUType:            pduType, RequestID: in.RequestID, MsgID: msgID,
-		Variables: vbs,
+		VarBinds: vbs,
 	}
 	b, err := out.marshalMsg()
 	if err != nil {
@@ -112,13 +112,13 @@ func bareV3Answer(req []byte, msgID uint32, pduType PDUType, vbs ...SnmpPDU) []b
 
 // answerFromSecond is an agent that answers the requests from the second on
 // with vbs.
-func answerFromSecond(vbs ...SnmpPDU) engineAgent {
+func answerFromSecond(vbs ...VarBind) engineAgent {
 	return answerFrom(2, vbs...)
 }
 
 // answerFrom is an agent that answers the requests from the first-th on with
 // vbs.
-func answerFrom(first int, vbs ...SnmpPDU) engineAgent {
+func answerFrom(first int, vbs ...VarBind) engineAgent {
 	return func(n int, req []byte) []agentReply {
 		if n < first {
 			return nil
@@ -142,9 +142,9 @@ func panicOnNilMap() {
 
 // panicOnce makes the hook *h, which the transcript names name, panic through
 // fail the first time it runs, after doing what it did before.
-func panicOnce(c *fakeTransport, name string, h *func(*GoSNMP), fail func()) {
+func panicOnce(c *fakeTransport, name string, h *func(*Client), fail func()) {
 	next, armed := *h, true
-	*h = func(x *GoSNMP) {
+	*h = func(x *Client) {
 		next(x)
 		if armed {
 			armed = false
@@ -157,7 +157,7 @@ func panicOnce(c *fakeTransport, name string, h *func(*GoSNMP), fail func()) {
 // getAfterPanic runs a Get in which the caller's code panics (the scenario's
 // setup arms it), records its result and what its error matches, then runs a
 // second Get on the same client, whose result it returns.
-func getAfterPanic(x *GoSNMP) (*SnmpPacket, error) {
+func getAfterPanic(x *Client) (*Message, error) {
 	tr := x.Conn.(fakePacketTransport).tr
 	res, err := x.Get([]string{engineOID})
 	tr.addf("first request: %s", describeEngineResult(res, err))
@@ -175,11 +175,11 @@ func answerRaw(edit func(reply []byte) []byte) engineAgent {
 	}
 }
 
-var sysDescr = SnmpPDU{Name: engineOID, Type: OctetString, Value: []byte("codec agent")}
+var sysDescr = VarBind{Name: engineOID, Type: OctetString, Value: []byte("codec agent")}
 
 // answerSplit is an agent that answers every request with its reply with vb,
 // cut at the offsets cuts, its parts 10ms apart: a read each.
-func answerSplit(vb SnmpPDU, cuts ...int) engineAgent {
+func answerSplit(vb VarBind, cuts ...int) engineAgent {
 	return func(_ int, req []byte) []agentReply {
 		r := replyTo(req, nil, vb)
 		parts := make([]agentReply, 0, len(cuts)+1)
@@ -196,7 +196,7 @@ func answerSplit(vb SnmpPDU, cuts ...int) engineAgent {
 func replySized(req []byte, size int) []byte {
 	n := size - 100
 	for {
-		r := replyTo(req, nil, SnmpPDU{Name: engineOID, Type: OctetString, Value: bytes.Repeat([]byte{'x'}, n)})
+		r := replyTo(req, nil, VarBind{Name: engineOID, Type: OctetString, Value: bytes.Repeat([]byte{'x'}, n)})
 		if len(r) == size {
 			return r
 		}
@@ -208,7 +208,7 @@ func replySized(req []byte, size int) []byte {
 // idDelta, with the error status -1: the request ID decodes, then the PDU
 // fails.
 func errorStatusOutOfRange(req []byte, idDelta uint32) []byte {
-	r := replyTo(req, func(p *SnmpPacket) { p.RequestID += idDelta }, sysDescr)
+	r := replyTo(req, func(p *Message) { p.RequestID += idDelta }, sysDescr)
 	i := bytes.Index(r, []byte{byte(Integer), 1, 0, byte(Integer), 1, 0}) // error status and index
 	if i < 0 {
 		panic("no error status")
@@ -279,19 +279,19 @@ func withUnreportedDeadline(d time.Duration) func() (context.Context, context.Ca
 	}
 }
 
-func getOIDs(oids ...string) func(x *GoSNMP) (*SnmpPacket, error) {
-	return func(x *GoSNMP) (*SnmpPacket, error) { return x.Get(oids) }
+func getOIDs(oids ...string) func(x *Client) (*Message, error) {
+	return func(x *Client) (*Message, error) { return x.Get(oids) }
 }
 
 // engineScenarios are the request scenarios of TestEngineRequestCharacterization.
 func engineScenarios() map[string]engineScenario {
-	twoGets := func(x *GoSNMP) (*SnmpPacket, error) {
+	twoGets := func(x *Client) (*Message, error) {
 		if _, err := x.Get([]string{engineOID}); err != nil {
 			return nil, fmt.Errorf("first Get: %w", err)
 		}
 		return x.Get([]string{engineOID})
 	}
-	maxOIDs2 := func(x *GoSNMP, _ *fakeTransport) { x.MaxOids = 2 }
+	maxOIDs2 := func(x *Client, _ *fakeTransport) { x.MaxOids = 2 }
 	twoOIDs := []string{engineOID, ".1.3.6.1.2.1.1.3.0"}
 	threeOIDs := []string{engineOID, ".1.3.6.1.2.1.1.3.0", ".1.3.6.1.2.1.1.5.0"}
 
@@ -299,8 +299,8 @@ func engineScenarios() map[string]engineScenario {
 		// Operations.
 		"get":    {agent: answer(sysDescr)},
 		"get/v1": {v1: true, agent: answer(sysDescr)},
-		"mk-snmp-packet": {agent: answer(sysDescr), run: func(x *GoSNMP) (*SnmpPacket, error) {
-			return x.send(x.MkSnmpPacket(GetBulkRequest, []SnmpPDU{{Name: ".1.3.6.1.2.1.1", Type: Null}}, 2, 7))
+		"mk-snmp-packet": {agent: answer(sysDescr), run: func(x *Client) (*Message, error) {
+			return x.send(x.NewMessage(GetBulkRequest, []VarBind{{Name: ".1.3.6.1.2.1.1", Type: Null}}, 2, 7))
 		}},
 		"get/invalid-oid": {agent: answer(), run: getOIDs(".1.3.6.1.x")},
 
@@ -309,34 +309,34 @@ func engineScenarios() map[string]engineScenario {
 		"get/max-oids/over-limit": {agent: answer(sysDescr), setup: maxOIDs2, run: getOIDs(threeOIDs...)},
 
 		// The client.
-		"get/no-conn": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.Conn = nil }},
+		"get/no-conn": {agent: answer(sysDescr), setup: func(x *Client, _ *fakeTransport) { x.Conn = nil }},
 		// A client given a Conn without Connect: the request supplies the
 		// Context and the receive buffer.
-		"conn-without-connect": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) {
+		"conn-without-connect": {agent: answer(sysDescr), setup: func(x *Client, _ *fakeTransport) {
 			x.Context, x.rx = nil, nil
 		}},
-		"conn-without-receive-buffer": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) {
+		"conn-without-receive-buffer": {agent: answer(sysDescr), setup: func(x *Client, _ *fakeTransport) {
 			x.rx = nil
 		}},
 		"custom-conn": {shape: shapeConn, agent: answer(sysDescr)},
 
 		// Timeouts and retries.
 		"timeout":                  {},
-		"timeout/no-retries":       {setup: func(x *GoSNMP, _ *fakeTransport) { x.Retries = 0 }},
-		"timeout/negative-retries": {setup: func(x *GoSNMP, _ *fakeTransport) { x.Retries = -3 }},
+		"timeout/no-retries":       {setup: func(x *Client, _ *fakeTransport) { x.Retries = 0 }},
+		"timeout/negative-retries": {setup: func(x *Client, _ *fakeTransport) { x.Retries = -3 }},
 
 		// A hook that changes the client during a request.
-		"hooks/retry-sets-retries": {setup: func(x *GoSNMP, c *fakeTransport) {
+		"hooks/retry-sets-retries": {setup: func(x *Client, c *fakeTransport) {
 			onRetry := x.OnRetry
-			x.OnRetry = func(x *GoSNMP) {
+			x.OnRetry = func(x *Client) {
 				onRetry(x)
 				c.tr.addf("hook OnRetry sets Retries to 0")
 				x.Retries = 0
 			}
 		}},
-		"hooks/retry-cancels-context": {setup: func(x *GoSNMP, c *fakeTransport) {
+		"hooks/retry-cancels-context": {setup: func(x *Client, c *fakeTransport) {
 			onRetry := x.OnRetry
-			x.OnRetry = func(x *GoSNMP) {
+			x.OnRetry = func(x *Client) {
 				onRetry(x)
 				c.tr.addf("hook OnRetry sets a canceled Context")
 				ctx, cancel := context.WithCancel(context.Background())
@@ -344,27 +344,27 @@ func engineScenarios() map[string]engineScenario {
 				x.Context = ctx
 			}
 		}},
-		"hooks/retry-sets-context-deadline": {setup: func(x *GoSNMP, c *fakeTransport) {
+		"hooks/retry-sets-context-deadline": {setup: func(x *Client, c *fakeTransport) {
 			onRetry := x.OnRetry
-			x.OnRetry = func(x *GoSNMP) {
+			x.OnRetry = func(x *Client) {
 				onRetry(x)
 				c.tr.addf("hook OnRetry sets a Context with a deadline in 500ms")
 				x.Context = unreportedDeadline{context.Background(), time.Now().Add(500 * time.Millisecond)}
 			}
 		}},
-		"hooks/retry-replaces-hooks": {agent: answerFrom(3, sysDescr), setup: func(x *GoSNMP, c *fakeTransport) {
+		"hooks/retry-replaces-hooks": {agent: answerFrom(3, sysDescr), setup: func(x *Client, c *fakeTransport) {
 			onRetry := x.OnRetry
-			x.OnRetry = func(x *GoSNMP) {
+			x.OnRetry = func(x *Client) {
 				onRetry(x)
 				c.tr.addf("hook OnRetry replaces the hooks")
-				replacement := func(name string) func(*GoSNMP) {
-					return func(*GoSNMP) { c.tr.addf("hook %s, the replacement", name) }
+				replacement := func(name string) func(*Client) {
+					return func(*Client) { c.tr.addf("hook %s, the replacement", name) }
 				}
 				x.PreSend, x.OnSent, x.OnRecv = replacement("PreSend"), replacement("OnSent"), replacement("OnRecv")
 				x.OnRetry, x.OnFinish = replacement("OnRetry"), replacement("OnFinish")
 			}
 		}},
-		"timeout/zero":          {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.Timeout = 0 }},
+		"timeout/zero":          {agent: answer(sysDescr), setup: func(x *Client, _ *fakeTransport) { x.Timeout = 0 }},
 		"answer/second-attempt": {agent: answerFromSecond(sysDescr)},
 
 		// Reply matching.
@@ -395,7 +395,7 @@ func engineScenarios() map[string]engineScenario {
 			return []agentReply{{data: r}, {data: r}}
 		}},
 		"answer/first-result-after-second-get": {
-			run: func(x *GoSNMP) (*SnmpPacket, error) {
+			run: func(x *Client) (*Message, error) {
 				first, err := x.Get([]string{engineOID})
 				if err != nil {
 					return nil, fmt.Errorf("first Get: %w", err)
@@ -407,17 +407,17 @@ func engineScenarios() map[string]engineScenario {
 			},
 			agent: func(n int, req []byte) []agentReply {
 				value := fmt.Sprintf("codec agent %d", n)
-				return []agentReply{{data: replyTo(req, nil, SnmpPDU{Name: engineOID, Type: OctetString, Value: []byte(value)})}}
+				return []agentReply{{data: replyTo(req, nil, VarBind{Name: engineOID, Type: OctetString, Value: []byte(value)})}}
 			},
 		},
-		"answer/wrong-id": {agent: answerWith(func(p *SnmpPacket) { p.RequestID += 100 }, sysDescr)},
+		"answer/wrong-id": {agent: answerWith(func(p *Message) { p.RequestID += 100 }, sysDescr)},
 		"answer/zero-id": {
-			agent: answerWith(func(p *SnmpPacket) { p.RequestID = 0 }, sysDescr),
+			agent: answerWith(func(p *Message) { p.RequestID = 0 }, sysDescr),
 		},
 		"answer/v1-trap": {
 			agent: func(int, []byte) []agentReply {
-				trap := &SnmpPacket{
-					Version: Version1, Community: "public", PDUType: Trap, Variables: []SnmpPDU{sysDescr},
+				trap := &Message{
+					Version: Version1, Community: "public", PDUType: Trap, VarBinds: []VarBind{sysDescr},
 					Enterprise: ".1.3.6.1.4.1.8072", AgentAddress: "127.0.0.2", GenericTrap: 6, SpecificTrap: 1,
 				}
 				b, err := trap.marshalMsg()
@@ -429,40 +429,40 @@ func engineScenarios() map[string]engineScenario {
 		},
 		"answer/empty": {agent: answerWith(nil)},
 		"answer/empty-wrong-id": {
-			agent: answerWith(func(p *SnmpPacket) { p.RequestID += 100 }),
+			agent: answerWith(func(p *Message) { p.RequestID += 100 }),
 		},
-		"answer/empty-with-error-status-wrong-id": {agent: answerWith(func(p *SnmpPacket) { p.RequestID += 100; p.Error = GenErr })},
-		"answer/error-status":                     {agent: answerWith(func(p *SnmpPacket) { p.Error, p.ErrorIndex = NoSuchName, 1 }, SnmpPDU{Name: engineOID, Type: Null})},
+		"answer/empty-with-error-status-wrong-id": {agent: answerWith(func(p *Message) { p.RequestID += 100; p.ErrorStatus = GenErr })},
+		"answer/error-status":                     {agent: answerWith(func(p *Message) { p.ErrorStatus, p.ErrorIndex = NoSuchName, 1 }, VarBind{Name: engineOID, Type: Null})},
 		"answer/not-a-response": {
-			agent: answerWith(func(p *SnmpPacket) { p.PDUType = GetRequest }, sysDescr),
+			agent: answerWith(func(p *Message) { p.PDUType = GetRequest }, sysDescr),
 		},
 		"answer/reflected-request": {
 			agent: func(_ int, req []byte) []agentReply { return []agentReply{{data: bytes.Clone(req)}} },
 		},
 		"answer/report": {
-			agent: answerWith(func(p *SnmpPacket) { p.PDUType = Report }, sysDescr),
+			agent: answerWith(func(p *Message) { p.PDUType = Report }, sysDescr),
 		},
 		"answer/unknown-pdu-type": {
 			agent: answerRaw(func(r []byte) []byte {
-				r[bytes.IndexByte(r, byte(GetResponse))] = 0xaf
+				r[bytes.IndexByte(r, byte(Response))] = 0xaf
 				return r
 			}),
 		},
 		"answer/other-version": {
-			agent: answerWith(func(p *SnmpPacket) { p.Version = Version1 }, sysDescr),
+			agent: answerWith(func(p *Message) { p.Version = Version1 }, sysDescr),
 		},
 		// Replies that answer nothing, each followed by the answer.
 		"answer/other-version-then-valid": {agent: func(_ int, req []byte) []agentReply {
-			return []agentReply{{data: replyTo(req, func(p *SnmpPacket) { p.Version = Version1 }, sysDescr)}, {data: replyTo(req, nil, sysDescr)}}
+			return []agentReply{{data: replyTo(req, func(p *Message) { p.Version = Version1 }, sysDescr)}, {data: replyTo(req, nil, sysDescr)}}
 		}},
 		"answer/zero-id-then-valid": {agent: func(_ int, req []byte) []agentReply {
-			return []agentReply{{data: replyTo(req, func(p *SnmpPacket) { p.RequestID = 0 }, sysDescr)}, {data: replyTo(req, nil, sysDescr)}}
+			return []agentReply{{data: replyTo(req, func(p *Message) { p.RequestID = 0 }, sysDescr)}, {data: replyTo(req, nil, sysDescr)}}
 		}},
 		"answer/empty-wrong-id-then-valid": {agent: func(_ int, req []byte) []agentReply {
-			return []agentReply{{data: replyTo(req, func(p *SnmpPacket) { p.RequestID += 100 })}, {data: replyTo(req, nil, sysDescr)}}
+			return []agentReply{{data: replyTo(req, func(p *Message) { p.RequestID += 100 })}, {data: replyTo(req, nil, sysDescr)}}
 		}},
 		"answer/other-version-v3": {
-			agent: answerWith(func(p *SnmpPacket) {
+			agent: answerWith(func(p *Message) {
 				p.Version, p.MsgFlags, p.SecurityModel = Version3, NoAuthNoPriv, UserSecurityModel
 				p.SecurityParameters = &UsmSecurityParameters{UserName: "public"}
 			}, sysDescr),
@@ -479,15 +479,15 @@ func engineScenarios() map[string]engineScenario {
 		},
 		"answer/other-version-v3-msg-id-zero": {
 			agent: func(_ int, req []byte) []agentReply {
-				return []agentReply{{data: bareV3Answer(req, 0, Report, SnmpPDU{Name: usmStatsUnknownUserNames, Type: Counter32, Value: uint32(1)})}}
+				return []agentReply{{data: bareV3Answer(req, 0, Report, VarBind{Name: usmStatsUnknownUserNames, Type: Counter32, Value: uint32(1)})}}
 			},
 		},
 		"answer/other-version-v3-get-response": {
 			agent: func(_ int, req []byte) []agentReply {
-				return []agentReply{{data: bareV3Answer(req, 7, GetResponse, sysDescr)}}
+				return []agentReply{{data: bareV3Answer(req, 7, Response, sysDescr)}}
 			},
 		},
-		"answer/other-community": {agent: answerWith(func(p *SnmpPacket) { p.Community = "private" }, sysDescr)},
+		"answer/other-community": {agent: answerWith(func(p *Message) { p.Community = "private" }, sysDescr)},
 		"answer/garbage-then-valid": {
 			agent: func(_ int, req []byte) []agentReply {
 				return []agentReply{{data: garbage}, {data: replyTo(req, nil, sysDescr)}}
@@ -511,7 +511,7 @@ func engineScenarios() map[string]engineScenario {
 		// A datagram that fills the receive buffer, which may have been cut
 		// short: the attempt fails, and the retry uses the same socket.
 		"answer/too-big-udp": {
-			setup: func(x *GoSNMP, _ *fakeTransport) { x.Retries = 1 },
+			setup: func(x *Client, _ *fakeTransport) { x.Retries = 1 },
 			agent: func(_ int, req []byte) []agentReply {
 				return []agentReply{{data: replySized(req, rxBufSize)}}
 			},
@@ -519,44 +519,44 @@ func engineScenarios() map[string]engineScenario {
 		// A custom net.Conn whose reply comes in two reads.
 		"custom-conn/split": {
 			shape: shapeConn,
-			setup: func(x *GoSNMP, _ *fakeTransport) { x.Retries = 0 },
+			setup: func(x *Client, _ *fakeTransport) { x.Retries = 0 },
 			agent: answerSplit(sysDescr, 10),
 		},
 
 		// Transport errors.
-		"write-error/once": {agent: answer(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
+		"write-error/once": {agent: answer(sysDescr), setup: func(_ *Client, c *fakeTransport) {
 			c.failWrite = func(n int) error { return map[int]error{1: errEngineWrite}[n] }
 		}},
-		"write-error/always": {agent: answer(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
+		"write-error/always": {agent: answer(sysDescr), setup: func(_ *Client, c *fakeTransport) {
 			c.failWrite = func(int) error { return errEngineWrite }
 		}},
-		"write-error/timeout-in-text": {agent: answer(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
+		"write-error/timeout-in-text": {agent: answer(sysDescr), setup: func(_ *Client, c *fakeTransport) {
 			c.failWrite = func(int) error { return errors.New("codec timeout of the write queue") }
 		}},
-		"deadline-error": {agent: answer(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
+		"deadline-error": {agent: answer(sysDescr), setup: func(_ *Client, c *fakeTransport) {
 			c.deadlineErr = errors.New("codec deadline failure")
 		}},
-		"read-error/once": {agent: answerFromSecond(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
+		"read-error/once": {agent: answerFromSecond(sysDescr), setup: func(_ *Client, c *fakeTransport) {
 			c.failRead = func(n int) error { return map[int]error{1: refused}[n] }
 		}},
-		"read-error/always": {agent: answer(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
+		"read-error/always": {agent: answer(sysDescr), setup: func(_ *Client, c *fakeTransport) {
 			c.failRead = func(int) error { return refused }
 		}},
 		// The connection closed under the read and under the write: from then
 		// on its deadline cannot be set either.
-		"read-error/closed": {agent: answer(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
+		"read-error/closed": {agent: answer(sysDescr), setup: func(_ *Client, c *fakeTransport) {
 			c.failRead = func(int) error {
 				c.deadlineErr = closedSet
 				return closedRead
 			}
 		}},
-		"write-error/closed": {agent: answer(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
+		"write-error/closed": {agent: answer(sysDescr), setup: func(_ *Client, c *fakeTransport) {
 			c.failWrite = func(int) error {
 				c.deadlineErr = closedSet
 				return closedWrite
 			}
 		}},
-		"read-eof/udp": {agent: answerFromSecond(sysDescr), setup: func(_ *GoSNMP, c *fakeTransport) {
+		"read-eof/udp": {agent: answerFromSecond(sysDescr), setup: func(_ *Client, c *fakeTransport) {
 			c.failRead = func(n int) error { return map[int]error{1: io.EOF}[n] }
 		}},
 
@@ -573,15 +573,15 @@ func engineScenarios() map[string]engineScenario {
 		}},
 		"context/deadline-equal-to-timeout": {
 			context: withEngineTimeout(time.Second),
-			setup:   func(x *GoSNMP, _ *fakeTransport) { x.Retries = 0 },
+			setup:   func(x *Client, _ *fakeTransport) { x.Retries = 0 },
 		},
 		"context/deadline-in-first-attempt":   {context: withEngineTimeout(700 * time.Millisecond)},
 		"context/deadline-in-third-attempt":   {context: withEngineTimeout(2500 * time.Millisecond)},
 		"context/deadline-after-all-attempts": {context: withEngineTimeout(time.Hour)},
 		"context/deadline-during-hook": {
 			context: withEngineTimeout(1500 * time.Millisecond),
-			setup: func(x *GoSNMP, c *fakeTransport) {
-				x.OnRetry = func(*GoSNMP) {
+			setup: func(x *Client, c *fakeTransport) {
+				x.OnRetry = func(*Client) {
 					c.tr.addf("hook OnRetry, which takes 1s")
 					time.Sleep(time.Second)
 				}
@@ -592,14 +592,14 @@ func engineScenarios() map[string]engineScenario {
 		"context/deadline-unreported-in-first-attempt": {context: withUnreportedDeadline(700 * time.Millisecond)},
 		"context/deadline-unreported-equal-to-timeout": {
 			context: withUnreportedDeadline(time.Second),
-			setup:   func(x *GoSNMP, _ *fakeTransport) { x.Retries = 0 },
+			setup:   func(x *Client, _ *fakeTransport) { x.Retries = 0 },
 		},
 		// A Context whose deadline passed ends the request after an attempt
 		// that failed otherwise, before OnRetry.
 		"context/deadline-passed-in-hook": {
 			context: withEngineTimeout(700 * time.Millisecond),
-			setup: func(x *GoSNMP, c *fakeTransport) {
-				x.OnSent = func(*GoSNMP) {
+			setup: func(x *Client, c *fakeTransport) {
+				x.OnSent = func(*Client) {
 					c.tr.addf("hook OnSent, which takes 1s")
 					time.Sleep(time.Second)
 				}
@@ -619,7 +619,7 @@ func engineScenarios() map[string]engineScenario {
 			agent: func(_ int, req []byte) []agentReply {
 				return []agentReply{{data: replyTo(req, nil, sysDescr), after: 100 * time.Millisecond}}
 			},
-			setup: func(_ *GoSNMP, c *fakeTransport) {
+			setup: func(_ *Client, c *fakeTransport) {
 				hold := make(chan struct{})
 				c.holdInterrupt = hold
 				go func() {
@@ -635,7 +635,7 @@ func engineScenarios() map[string]engineScenario {
 		// ends when the interrupt does.
 		"context/canceled-then-closed-while-interrupting": {
 			context: canceledAfter(50 * time.Millisecond),
-			setup: func(x *GoSNMP, c *fakeTransport) {
+			setup: func(x *Client, c *fakeTransport) {
 				hold := make(chan struct{})
 				c.holdInterrupt = hold
 				time.AfterFunc(100*time.Millisecond, func() {
@@ -651,7 +651,7 @@ func engineScenarios() map[string]engineScenario {
 		},
 		// A Context canceled after its request leaves the connection alone:
 		// the next request, with another Context, is answered.
-		"context/canceled-after-request": {agent: answer(sysDescr), run: func(x *GoSNMP) (*SnmpPacket, error) {
+		"context/canceled-after-request": {agent: answer(sysDescr), run: func(x *Client) (*Message, error) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			x.Context = ctx
@@ -667,12 +667,12 @@ func engineScenarios() map[string]engineScenario {
 		// Close.
 		"close/before-request": {
 			agent: answer(sysDescr),
-			setup: func(x *GoSNMP, _ *fakeTransport) { _ = x.Close() },
+			setup: func(x *Client, _ *fakeTransport) { _ = x.Close() },
 		},
 		"close/during-attempt": {
 			agent: answerFromSecond(sysDescr),
-			setup: func(x *GoSNMP, c *fakeTransport) {
-				x.OnSent = func(x *GoSNMP) {
+			setup: func(x *Client, c *fakeTransport) {
+				x.OnSent = func(x *Client) {
 					c.tr.addf("hook OnSent closes the client")
 					_ = x.Close()
 				}
@@ -680,16 +680,16 @@ func engineScenarios() map[string]engineScenario {
 		},
 		"close/between-attempts": {
 			agent: answerFromSecond(sysDescr),
-			setup: func(x *GoSNMP, c *fakeTransport) {
-				x.OnRetry = func(x *GoSNMP) {
+			setup: func(x *Client, c *fakeTransport) {
+				x.OnRetry = func(x *Client) {
 					c.tr.addf("hook OnRetry closes the client")
 					_ = x.Close()
 				}
 			},
 		},
 		// A Close after the reply was read: the reply answers the request.
-		"close/after-the-reply": {agent: answer(sysDescr), setup: func(x *GoSNMP, c *fakeTransport) {
-			x.OnRecv = func(x *GoSNMP) {
+		"close/after-the-reply": {agent: answer(sysDescr), setup: func(x *Client, c *fakeTransport) {
+			x.OnRecv = func(x *Client) {
 				c.tr.addf("hook OnRecv closes the client")
 				_ = x.Close()
 			}
@@ -699,14 +699,14 @@ func engineScenarios() map[string]engineScenario {
 		// caller's again, alone.
 		"close/after-a-request-conn-replaced-by-hook": {
 			agent: answer(sysDescr),
-			setup: func(x *GoSNMP, c *fakeTransport) {
+			setup: func(x *Client, c *fakeTransport) {
 				hookConn := fakePacketTransport{newFakeTransport(c.tr, nil)}
-				x.OnSent = func(x *GoSNMP) {
+				x.OnSent = func(x *Client) {
 					c.tr.addf("hook OnSent replaces Conn")
 					x.Conn = hookConn
 				}
 			},
-			run: func(x *GoSNMP) (*SnmpPacket, error) {
+			run: func(x *Client) (*Message, error) {
 				res, err := x.Get([]string{engineOID})
 				_ = x.Close()
 				return res, err
@@ -714,8 +714,8 @@ func engineScenarios() map[string]engineScenario {
 		},
 		// A hook removes Conn: the request fails for want of a connection, not
 		// as closed.
-		"close/conn-removed-by-hook": {setup: func(x *GoSNMP, c *fakeTransport) {
-			x.OnRetry = func(x *GoSNMP) {
+		"close/conn-removed-by-hook": {setup: func(x *Client, c *fakeTransport) {
+			x.OnRetry = func(x *Client) {
 				c.tr.addf("hook OnRetry removes Conn")
 				x.Conn = nil
 			}
@@ -724,7 +724,7 @@ func engineScenarios() map[string]engineScenario {
 		// does when its context ends, while the request waits.
 		// The read the interrupt wakes looks only once Close has closed the
 		// connection too: either may come first otherwise.
-		"close/from-another-goroutine": {setup: func(x *GoSNMP, c *fakeTransport) {
+		"close/from-another-goroutine": {setup: func(x *Client, c *fakeTransport) {
 			hold := make(chan struct{})
 			c.holdWake = hold
 			go func() {
@@ -735,7 +735,7 @@ func engineScenarios() map[string]engineScenario {
 		}},
 		// The connection itself closed from another goroutine, as Netdata's
 		// SNMP vnode acquisition does when its context ends.
-		"close/connection-from-another-goroutine": {setup: func(_ *GoSNMP, c *fakeTransport) {
+		"close/connection-from-another-goroutine": {setup: func(_ *Client, c *fakeTransport) {
 			go func() {
 				time.Sleep(300 * time.Millisecond)
 				_ = c.Close()
@@ -743,35 +743,35 @@ func engineScenarios() map[string]engineScenario {
 		}},
 
 		// Request IDs.
-		"request-id/wraps": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.SetRequestID(0x7FFFFFFF) }},
-		"request-id/wraps-between-attempts": {agent: answerFromSecond(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) {
+		"request-id/wraps": {agent: answer(sysDescr), setup: func(x *Client, _ *fakeTransport) { x.SetRequestID(0x7FFFFFFF) }},
+		"request-id/wraps-between-attempts": {agent: answerFromSecond(sysDescr), setup: func(x *Client, _ *fakeTransport) {
 			x.SetRequestID(0x7FFFFFFE)
 		}},
-		"request-id/set": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.SetRequestID(5) }},
+		"request-id/set": {agent: answer(sysDescr), setup: func(x *Client, _ *fakeTransport) { x.SetRequestID(5) }},
 
 		// Hooks.
-		"hook-panics": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) {
-			x.PreSend = func(*GoSNMP) { panic("codec hook failure") }
+		"hook-panics": {agent: answer(sysDescr), setup: func(x *Client, _ *fakeTransport) {
+			x.PreSend = func(*Client) { panic("codec hook failure") }
 		}},
 
 		// The caller's code panics in a request, which ends; the next request
 		// on the client is answered.
-		"hook-panics/presend-error": {agent: answer(sysDescr), run: getAfterPanic, setup: func(x *GoSNMP, c *fakeTransport) {
+		"hook-panics/presend-error": {agent: answer(sysDescr), run: getAfterPanic, setup: func(x *Client, c *fakeTransport) {
 			panicOnce(c, "PreSend", &x.PreSend, panicWithError)
 		}},
-		"hook-panics/onsent-runtime-error": {agent: answer(sysDescr), run: getAfterPanic, setup: func(x *GoSNMP, c *fakeTransport) {
+		"hook-panics/onsent-runtime-error": {agent: answer(sysDescr), run: getAfterPanic, setup: func(x *Client, c *fakeTransport) {
 			panicOnce(c, "OnSent", &x.OnSent, panicOnNilMap)
 		}},
-		"hook-panics/onrecv": {agent: answer(sysDescr), run: getAfterPanic, setup: func(x *GoSNMP, c *fakeTransport) {
+		"hook-panics/onrecv": {agent: answer(sysDescr), run: getAfterPanic, setup: func(x *Client, c *fakeTransport) {
 			panicOnce(c, "OnRecv", &x.OnRecv, panicWithError)
 		}},
-		"hook-panics/onretry": {agent: answerFromSecond(sysDescr), run: getAfterPanic, setup: func(x *GoSNMP, c *fakeTransport) {
+		"hook-panics/onretry": {agent: answerFromSecond(sysDescr), run: getAfterPanic, setup: func(x *Client, c *fakeTransport) {
 			panicOnce(c, "OnRetry", &x.OnRetry, panicWithError)
 		}},
-		"hook-panics/onfinish": {agent: answer(sysDescr), run: getAfterPanic, setup: func(x *GoSNMP, c *fakeTransport) {
+		"hook-panics/onfinish": {agent: answer(sysDescr), run: getAfterPanic, setup: func(x *Client, c *fakeTransport) {
 			panicOnce(c, "OnFinish", &x.OnFinish, panicWithError)
 		}},
-		"hook-panics/conn-read": {agent: answer(sysDescr), run: getAfterPanic, setup: func(_ *GoSNMP, c *fakeTransport) {
+		"hook-panics/conn-read": {agent: answer(sysDescr), run: getAfterPanic, setup: func(_ *Client, c *fakeTransport) {
 			c.failRead = func(n int) error {
 				if n == 1 {
 					c.tr.addf("the Conn's read #1 panics")
@@ -834,7 +834,7 @@ func runEngineScenario(t *testing.T, sc engineScenario) string {
 	}
 
 	tr.addf("client: %v timeout=%s retries=%d", x.Version, x.Timeout, x.Retries)
-	var res *SnmpPacket
+	var res *Message
 	var err error
 	before := configOf(x)
 	if v, _ := recoverPanic(func() { res, err = run(x) }); v != nil {
@@ -951,7 +951,7 @@ func TestEngineUncomparableConn(t *testing.T) {
 			caller, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: int(port)})
 			require.NoError(t, err)
 			defer caller.Close()
-			x := &GoSNMP{
+			x := &Client{
 				Target: "127.0.0.1", Port: port, MaxOids: MaxOids,
 				Community: "public", Version: Version2c, Timeout: 10 * time.Second,
 			}
@@ -963,7 +963,7 @@ func TestEngineUncomparableConn(t *testing.T) {
 
 			res, err := x.Get([]string{engineOID})
 			require.NoError(t, err)
-			assert.Equal(t, []SnmpPDU{sysDescr}, res.Variables)
+			assert.Equal(t, []VarBind{sysDescr}, res.VarBinds)
 			closed := make(chan error, 1)
 			go func() { closed <- x.Close() }()
 			select {
@@ -990,7 +990,7 @@ func TestRequestPanicNil(t *testing.T) {
 		require.Contains(t, string(out), "--- PASS: TestRequestPanicNil", "the child ran the test")
 	}
 	x := newEngineClient(t, nil, Version2c, fakePacketTransport{newFakeTransport(nil, answer(sysDescr))})
-	x.PreSend = func(*GoSNMP) { panic(nil) } //nolint:govet // the nil panic is the point
+	x.PreSend = func(*Client) { panic(nil) } //nolint:govet // the nil panic is the point
 	res, err := x.Get([]string{engineOID})
 	assert.Nil(t, res)
 	want := "request panicked: runtime error: panic called with nil argument"
@@ -1066,10 +1066,10 @@ func TestRequestContextPanicCleanup(t *testing.T) {
 						defer cancel()
 						x.Context = ctx
 						wantErr := context.Canceled
-						x.OnSent = func(*GoSNMP) { cancel() }
+						x.OnSent = func(*Client) { cancel() }
 						if interrupt == "close-replaced-conn" {
 							wantErr = net.ErrClosed
-							x.OnSent = func(x *GoSNMP) {
+							x.OnSent = func(x *Client) {
 								x.Conn = newFakeTransport(nil, nil)
 								require.NoError(t, x.Close()) // must interrupt conn too
 							}
@@ -1118,10 +1118,10 @@ func TestEngineReadCountOutsideBuffer(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			port, _ := udpAgent(t, func(_ int, req []byte) []byte { return replyTo(req, nil, sysDescr) })
 			var got outcome
-			x := &GoSNMP{
+			x := &Client{
 				Target: "127.0.0.1", Port: port, Community: "public", Version: Version2c,
 				Timeout: 300 * time.Millisecond, Retries: 1,
-				OnRetry: func(*GoSNMP) { got.retries++ },
+				OnRetry: func(*Client) { got.retries++ },
 			}
 			require.NoError(t, x.Connect())
 			defer x.Close()
@@ -1161,7 +1161,7 @@ func TestEngineRequestTimeoutError(t *testing.T) {
 	require.NoError(t, err)
 	defer agent.Close()
 
-	x := &GoSNMP{
+	x := &Client{
 		Target:    "127.0.0.1",
 		Port:      uint16(agent.LocalAddr().(*net.UDPAddr).Port), //nolint:gosec // a UDP port
 		Community: "public",
@@ -1190,10 +1190,10 @@ func TestEngineRequestTimeoutError(t *testing.T) {
 func BenchmarkSendOneRequest(b *testing.B) {
 	const oid = ".1.3.6.1.2.1.31.1.1.1.10.1"
 	c := newFakeTransport(nil, func(_ int, req []byte) []agentReply {
-		return []agentReply{{data: replyTo(req, nil, SnmpPDU{Name: oid, Type: Counter64, Value: uint64(3825929753)})}}
+		return []agentReply{{data: replyTo(req, nil, VarBind{Name: oid, Type: Counter64, Value: uint64(3825929753)})}}
 	})
 	x := newEngineClient(b, nil, Version2c, fakePacketTransport{c})
-	pkt := x.MkSnmpPacket(GetRequest, []SnmpPDU{{Name: oid, Type: Null}}, 0, 0)
+	pkt := x.NewMessage(GetRequest, []VarBind{{Name: oid, Type: Null}}, 0, 0)
 	cfg := x.prepareRequest()
 
 	b.ReportAllocs()
@@ -1239,35 +1239,35 @@ func TestExchangeDiscard(t *testing.T) {
 
 // TestExchangeRankOf checks the rank of a discarded message, by the ID it read
 // that names the request's attempts, if any (the msgID of an SNMPv3 request,
-// the request ID of an SNMPv2c GetResponse), and whether its digest checked.
+// the request ID of an SNMPv2c Response), and whether its digest checked.
 func TestExchangeRankOf(t *testing.T) {
 	earlier := []sentIDs{{requestID: 1, msgID: 5}}
 	tests := map[string]struct {
-		version  SnmpVersion
-		read     *SnmpPacket
+		version  Version
+		read     *Message
 		verified bool
 		want     discardRank
 	}{
 		"v3/msgID not read":                    {version: Version3, want: rankUnread},
-		"v3/another request's msgID":           {version: Version3, read: &SnmpPacket{MsgID: 6, RequestID: 2}},
-		"v3/another request's msgID, verified": {version: Version3, read: &SnmpPacket{MsgID: 6, RequestID: 2}, verified: true},
-		"v3/the attempt's msgID":               {version: Version3, read: &SnmpPacket{MsgID: 7}, want: rankNamed},
-		"v3/an earlier attempt's msgID":        {version: Version3, read: &SnmpPacket{MsgID: 5}, want: rankNamed},
-		"v3/the attempt's msgID, verified":     {version: Version3, read: &SnmpPacket{MsgID: 7}, verified: true, want: rankAuthentic},
-		"v3/the attempt's msgID, a GetRequest": {version: Version3, read: &SnmpPacket{MsgID: 7, PDUType: GetRequest}, want: rankNamed},
-		"v3/a verified GetRequest":             {version: Version3, read: &SnmpPacket{MsgID: 7, PDUType: GetRequest}, verified: true, want: rankNamed},
-		"v3/a verified InformRequest":          {version: Version3, read: &SnmpPacket{MsgID: 7, PDUType: InformRequest}, verified: true, want: rankNamed},
-		"v3/a verified Report":                 {version: Version3, read: &SnmpPacket{MsgID: 7, PDUType: Report}, verified: true, want: rankAuthentic},
-		"v3/a verified GetResponse":            {version: Version3, read: &SnmpPacket{MsgID: 7, PDUType: GetResponse}, verified: true, want: rankAuthentic},
+		"v3/another request's msgID":           {version: Version3, read: &Message{MsgID: 6, RequestID: 2}},
+		"v3/another request's msgID, verified": {version: Version3, read: &Message{MsgID: 6, RequestID: 2}, verified: true},
+		"v3/the attempt's msgID":               {version: Version3, read: &Message{MsgID: 7}, want: rankNamed},
+		"v3/an earlier attempt's msgID":        {version: Version3, read: &Message{MsgID: 5}, want: rankNamed},
+		"v3/the attempt's msgID, verified":     {version: Version3, read: &Message{MsgID: 7}, verified: true, want: rankAuthentic},
+		"v3/the attempt's msgID, a GetRequest": {version: Version3, read: &Message{MsgID: 7, PDUType: GetRequest}, want: rankNamed},
+		"v3/a verified GetRequest":             {version: Version3, read: &Message{MsgID: 7, PDUType: GetRequest}, verified: true, want: rankNamed},
+		"v3/a verified InformRequest":          {version: Version3, read: &Message{MsgID: 7, PDUType: InformRequest}, verified: true, want: rankNamed},
+		"v3/a verified Report":                 {version: Version3, read: &Message{MsgID: 7, PDUType: Report}, verified: true, want: rankAuthentic},
+		"v3/a verified Response":               {version: Version3, read: &Message{MsgID: 7, PDUType: Response}, verified: true, want: rankAuthentic},
 		"v2c/request ID not read":              {version: Version2c, want: rankUnread},
-		"v2c/another request's ID":             {version: Version2c, read: &SnmpPacket{RequestID: 3, MsgID: 7, PDUType: GetResponse}},
-		"v2c/the attempt's request ID":         {version: Version2c, read: &SnmpPacket{RequestID: 2, PDUType: GetResponse}, want: rankNamed},
-		"v2c/an earlier attempt's request ID":  {version: Version2c, read: &SnmpPacket{RequestID: 1, PDUType: GetResponse}, want: rankNamed},
-		"v2c/the attempt's request ID, Report": {version: Version2c, read: &SnmpPacket{RequestID: 2, PDUType: Report}},
+		"v2c/another request's ID":             {version: Version2c, read: &Message{RequestID: 3, MsgID: 7, PDUType: Response}},
+		"v2c/the attempt's request ID":         {version: Version2c, read: &Message{RequestID: 2, PDUType: Response}, want: rankNamed},
+		"v2c/an earlier attempt's request ID":  {version: Version2c, read: &Message{RequestID: 1, PDUType: Response}, want: rankNamed},
+		"v2c/the attempt's request ID, Report": {version: Version2c, read: &Message{RequestID: 2, PDUType: Report}},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			e := exchange{packet: &SnmpPacket{Version: tc.version, RequestID: 2, MsgID: 7}}
+			e := exchange{packet: &Message{Version: tc.version, RequestID: 2, MsgID: 7}}
 			assert.Equal(t, tc.want, e.rankOf(tc.read, tc.verified, earlier))
 		})
 	}
@@ -1283,24 +1283,24 @@ func TestExchangeDecodeRequestID(t *testing.T) {
 		want *uint32 // the request ID of the message returned, nil for none
 	}{
 		"error status after the request ID": {
-			msg: craftedMsg(1, tlv(byte(GetResponse), intTLV(9), intTLV(-1), intTLV(0), vbl)), want: new(uint32(9)),
+			msg: craftedMsg(1, tlv(byte(Response), intTLV(9), intTLV(-1), intTLV(0), vbl)), want: new(uint32(9)),
 		},
-		"request ID that does not decode": {msg: craftedMsg(1, tlv(byte(GetResponse), octets("x"), intTLV(0), intTLV(0), vbl))},
+		"request ID that does not decode": {msg: craftedMsg(1, tlv(byte(Response), octets("x"), intTLV(0), intTLV(0), vbl))},
 		"unknown PDU type":                {msg: craftedMsg(1, tlv(0xaf, intTLV(9), intTLV(0), intTLV(0), vbl))},
 		"SNMPv1 trap tag":                 {msg: craftedMsg(1, tlv(byte(Trap), intTLV(9), intTLV(0)))},
-		"a PDU without its message":       {msg: tlv(byte(GetResponse), intTLV(9), intTLV(-1), intTLV(0), vbl)},
+		"a PDU without its message":       {msg: tlv(byte(Response), intTLV(9), intTLV(-1), intTLV(0), vbl)},
 		// Another version is discarded before its request ID is read.
-		"SNMPv1 message": {msg: craftedMsg(0, tlv(byte(GetResponse), intTLV(9), intTLV(-1), intTLV(0), vbl))},
+		"SNMPv1 message": {msg: craftedMsg(0, tlv(byte(Response), intTLV(9), intTLV(-1), intTLV(0), vbl))},
 		// An SNMPv3 message names its request by its msgID.
 		"SNMPv3 message whose msgData is a PDU": {
 			msg: craftedV3(intTLV(7), intTLV(65507), octets("\x00"), intTLV(3),
 				craftedUSM(octets(usmCharEngineID), intTLV(3), intTLV(77), octets("codec-user"), octets(""), octets("")),
-				tlv(byte(GetResponse), intTLV(9), intTLV(-1), intTLV(0), vbl)),
+				tlv(byte(Response), intTLV(9), intTLV(-1), intTLV(0), vbl)),
 		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			e := &exchange{x: &GoSNMP{Version: Version2c}, packet: &SnmpPacket{Version: Version2c, PDUType: GetRequest}}
+			e := &exchange{x: &Client{Version: Version2c}, packet: &Message{Version: Version2c, PDUType: GetRequest}}
 			reply, _, err := e.decode(tc.msg, nil)
 			require.Error(t, err)
 			if tc.want == nil {
@@ -1318,8 +1318,8 @@ func TestExchangeDecodeRequestID(t *testing.T) {
 // and 5: each field the answer rule compares, both ways.
 func TestExchangeAnswers(t *testing.T) {
 	earlier := []sentIDs{{requestID: 1, msgID: 5}}
-	request := func(version SnmpVersion) *SnmpPacket {
-		p := &SnmpPacket{Version: version, PDUType: GetRequest, RequestID: 2, Community: "public"}
+	request := func(version Version) *Message {
+		p := &Message{Version: version, PDUType: GetRequest, RequestID: 2, Community: "public"}
 		if version == Version3 {
 			p.MsgID, p.MsgFlags, p.ContextEngineID, p.ContextName = 7, AuthNoPriv|Reportable, "ctx-engine", "ctx"
 			p.SecurityParameters = &UsmSecurityParameters{UserName: "user", AuthoritativeEngineID: "engine"}
@@ -1327,65 +1327,65 @@ func TestExchangeAnswers(t *testing.T) {
 		return p
 	}
 	// reply is the answer to the current attempt, a copy of its request.
-	reply := func(req *SnmpPacket) *SnmpPacket {
+	reply := func(req *Message) *Message {
 		p := *req
-		p.PDUType, p.MsgFlags, p.Variables = GetResponse, req.MsgFlags&AuthPriv, []SnmpPDU{sysDescr}
+		p.PDUType, p.MsgFlags, p.VarBinds = Response, req.MsgFlags&AuthPriv, []VarBind{sysDescr}
 		if req.SecurityParameters != nil {
 			p.SecurityParameters = req.SecurityParameters.Copy()
 		}
 		return &p
 	}
-	usm := func(p *SnmpPacket) *UsmSecurityParameters { return p.SecurityParameters.usm() }
-	report := func(counter string) func(p *SnmpPacket) {
-		return func(p *SnmpPacket) {
-			p.PDUType, p.RequestID, p.MsgFlags, p.Variables = Report, 0, NoAuthNoPriv, []SnmpPDU{{Name: counter, Type: Counter32, Value: uint32(1)}}
+	usm := func(p *Message) *UsmSecurityParameters { return p.SecurityParameters.usm() }
+	report := func(counter string) func(p *Message) {
+		return func(p *Message) {
+			p.PDUType, p.RequestID, p.MsgFlags, p.VarBinds = Report, 0, NoAuthNoPriv, []VarBind{{Name: counter, Type: Counter32, Value: uint32(1)}}
 			p.ContextEngineID, p.ContextName = "engine", ""
 		}
 	}
 	tests := map[string]struct {
-		version SnmpVersion
-		request func(p *SnmpPacket)
-		reply   func(p *SnmpPacket)
+		version Version
+		request func(p *Message)
+		reply   func(p *Message)
 		answers bool
 		err     error
 	}{
 		"v3/the answer":                    {version: Version3, answers: true},
-		"v3/an earlier attempt's answer":   {version: Version3, reply: func(p *SnmpPacket) { p.MsgID, p.RequestID = 5, 1 }, answers: true},
-		"v3/an earlier attempt's ID":       {version: Version3, reply: func(p *SnmpPacket) { p.RequestID = 1 }, err: errOtherRequestID},
-		"v3/the attempt's ID, earlier msg": {version: Version3, reply: func(p *SnmpPacket) { p.MsgID = 5 }, err: errOtherRequestID},
-		"v3/request ID 0":                  {version: Version3, reply: func(p *SnmpPacket) { p.RequestID = 0 }, err: errOtherRequestID},
+		"v3/an earlier attempt's answer":   {version: Version3, reply: func(p *Message) { p.MsgID, p.RequestID = 5, 1 }, answers: true},
+		"v3/an earlier attempt's ID":       {version: Version3, reply: func(p *Message) { p.RequestID = 1 }, err: errOtherRequestID},
+		"v3/the attempt's ID, earlier msg": {version: Version3, reply: func(p *Message) { p.MsgID = 5 }, err: errOtherRequestID},
+		"v3/request ID 0":                  {version: Version3, reply: func(p *Message) { p.RequestID = 0 }, err: errOtherRequestID},
 		"v3/empty, another request ID": {
-			version: Version3, reply: func(p *SnmpPacket) { p.Variables, p.RequestID = nil, 9 }, err: errOtherRequestID,
+			version: Version3, reply: func(p *Message) { p.VarBinds, p.RequestID = nil, 9 }, err: errOtherRequestID,
 		},
-		"v3/reportable":           {version: Version3, reply: func(p *SnmpPacket) { p.MsgFlags |= Reportable }, answers: true},
-		"v3/not reportable":       {version: Version3, request: func(p *SnmpPacket) { p.MsgFlags = AuthNoPriv }, reply: func(p *SnmpPacket) { p.MsgFlags |= Reportable }, answers: true},
-		"v3/noAuthNoPriv":         {version: Version3, reply: func(p *SnmpPacket) { p.MsgFlags = NoAuthNoPriv }, err: errOtherLevel},
-		"v3/authPriv":             {version: Version3, reply: func(p *SnmpPacket) { p.MsgFlags = AuthPriv }, err: errOtherLevel},
-		"v3/to noAuthNoPriv":      {version: Version3, request: func(p *SnmpPacket) { p.MsgFlags = NoAuthNoPriv | Reportable }, err: errOtherLevel},
-		"v3/to authPriv":          {version: Version3, request: func(p *SnmpPacket) { p.MsgFlags = AuthPriv | Reportable }, err: errOtherLevel},
-		"v3/another user":         {version: Version3, reply: func(p *SnmpPacket) { usm(p).UserName = "other" }, err: errOtherUser},
-		"v3/the empty user":       {version: Version3, reply: func(p *SnmpPacket) { usm(p).UserName = "" }, err: errOtherUser},
-		"v3/to the empty user":    {version: Version3, request: func(p *SnmpPacket) { usm(p).UserName = "" }, err: errOtherUser},
-		"v3/another engine ID":    {version: Version3, reply: func(p *SnmpPacket) { usm(p).AuthoritativeEngineID = "other" }, err: errOtherEngine},
-		"v3/no engine ID":         {version: Version3, reply: func(p *SnmpPacket) { usm(p).AuthoritativeEngineID = "" }, err: errOtherEngine},
-		"v3/to no engine ID":      {version: Version3, request: func(p *SnmpPacket) { usm(p).AuthoritativeEngineID = "" }, err: errOtherEngine},
-		"v3/another context ID":   {version: Version3, reply: func(p *SnmpPacket) { p.ContextEngineID = "engine" }, err: errOtherContext},
-		"v3/to no context ID":     {version: Version3, request: func(p *SnmpPacket) { p.ContextEngineID = "" }, err: errOtherContext},
-		"v3/another context name": {version: Version3, reply: func(p *SnmpPacket) { p.ContextName = "" }, err: errOtherContext},
-		"v3/to another context":   {version: Version3, request: func(p *SnmpPacket) { p.ContextName = "other" }, err: errOtherContext},
-		"v3/a GetRequest":         {version: Version3, reply: func(p *SnmpPacket) { p.PDUType = GetRequest }, err: errNotAnswer},
+		"v3/reportable":           {version: Version3, reply: func(p *Message) { p.MsgFlags |= Reportable }, answers: true},
+		"v3/not reportable":       {version: Version3, request: func(p *Message) { p.MsgFlags = AuthNoPriv }, reply: func(p *Message) { p.MsgFlags |= Reportable }, answers: true},
+		"v3/noAuthNoPriv":         {version: Version3, reply: func(p *Message) { p.MsgFlags = NoAuthNoPriv }, err: errOtherLevel},
+		"v3/authPriv":             {version: Version3, reply: func(p *Message) { p.MsgFlags = AuthPriv }, err: errOtherLevel},
+		"v3/to noAuthNoPriv":      {version: Version3, request: func(p *Message) { p.MsgFlags = NoAuthNoPriv | Reportable }, err: errOtherLevel},
+		"v3/to authPriv":          {version: Version3, request: func(p *Message) { p.MsgFlags = AuthPriv | Reportable }, err: errOtherLevel},
+		"v3/another user":         {version: Version3, reply: func(p *Message) { usm(p).UserName = "other" }, err: errOtherUser},
+		"v3/the empty user":       {version: Version3, reply: func(p *Message) { usm(p).UserName = "" }, err: errOtherUser},
+		"v3/to the empty user":    {version: Version3, request: func(p *Message) { usm(p).UserName = "" }, err: errOtherUser},
+		"v3/another engine ID":    {version: Version3, reply: func(p *Message) { usm(p).AuthoritativeEngineID = "other" }, err: errOtherEngine},
+		"v3/no engine ID":         {version: Version3, reply: func(p *Message) { usm(p).AuthoritativeEngineID = "" }, err: errOtherEngine},
+		"v3/to no engine ID":      {version: Version3, request: func(p *Message) { usm(p).AuthoritativeEngineID = "" }, err: errOtherEngine},
+		"v3/another context ID":   {version: Version3, reply: func(p *Message) { p.ContextEngineID = "engine" }, err: errOtherContext},
+		"v3/to no context ID":     {version: Version3, request: func(p *Message) { p.ContextEngineID = "" }, err: errOtherContext},
+		"v3/another context name": {version: Version3, reply: func(p *Message) { p.ContextName = "" }, err: errOtherContext},
+		"v3/to another context":   {version: Version3, request: func(p *Message) { p.ContextName = "other" }, err: errOtherContext},
+		"v3/a GetRequest":         {version: Version3, reply: func(p *Message) { p.PDUType = GetRequest }, err: errNotAnswer},
 		"v3/a Report":             {version: Version3, reply: report(usmStatsUnknownUserNames), answers: true, err: ErrUnknownUsername},
 		"v3/a resync Report":      {version: Version3, reply: report(usmStatsNotInTimeWindows), answers: true},
 		"v2c/the answer":          {version: Version2c, answers: true},
 		"v2c/an earlier attempt's answer": {
-			version: Version2c, reply: func(p *SnmpPacket) { p.RequestID = 1 }, answers: true,
+			version: Version2c, reply: func(p *Message) { p.RequestID = 1 }, answers: true,
 		},
-		"v2c/another community": {version: Version2c, reply: func(p *SnmpPacket) { p.Community = "private" }, answers: true},
-		"v2c/request ID 0":      {version: Version2c, reply: func(p *SnmpPacket) { p.RequestID = 0 }, err: errOtherRequestID},
+		"v2c/another community": {version: Version2c, reply: func(p *Message) { p.Community = "private" }, answers: true},
+		"v2c/request ID 0":      {version: Version2c, reply: func(p *Message) { p.RequestID = 0 }, err: errOtherRequestID},
 		"v2c/empty, another request ID": {
-			version: Version2c, reply: func(p *SnmpPacket) { p.Variables, p.RequestID = nil, 9 }, err: errOtherRequestID,
+			version: Version2c, reply: func(p *Message) { p.VarBinds, p.RequestID = nil, 9 }, err: errOtherRequestID,
 		},
-		"v2c/a Report": {version: Version2c, reply: func(p *SnmpPacket) { p.PDUType = Report }, err: errNotAnswer},
+		"v2c/a Report": {version: Version2c, reply: func(p *Message) { p.PDUType = Report }, err: errNotAnswer},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -1409,33 +1409,33 @@ func TestExchangeAnswers(t *testing.T) {
 // the counter's OID and one instance sub-identifier of any value, as net-snmp
 // does; anything else is ErrUnknownReportPDU.
 func TestReportKindOf(t *testing.T) {
-	counter := func(name string) SnmpPDU { return SnmpPDU{Name: name, Type: Counter32, Value: uint32(1)} }
+	counter := func(name string) VarBind { return VarBind{Name: name, Type: Counter32, Value: uint32(1)} }
 	tests := map[string]struct {
-		version SnmpVersion
+		version Version
 		pduType PDUType
-		vbs     []SnmpPDU
+		vbs     []VarBind
 		report  bool
 		err     error
 	}{
-		"instance 0":                   {vbs: []SnmpPDU{counter(usmStatsNotInTimeWindows)}, report: true, err: ErrNotInTimeWindow},
-		"instance 1":                   {vbs: []SnmpPDU{counter(".1.3.6.1.6.3.15.1.1.2.1")}, report: true, err: ErrNotInTimeWindow},
-		"a large instance":             {vbs: []SnmpPDU{counter(".1.3.6.1.6.3.15.1.1.4.4294967295")}, report: true, err: ErrUnknownEngineID},
-		"message processing's counter": {vbs: []SnmpPDU{counter(".1.3.6.1.6.3.11.2.1.2.3")}, report: true, err: ErrInvalidMsgs},
-		"without an instance":          {vbs: []SnmpPDU{counter(".1.3.6.1.6.3.15.1.1.5")}, report: true, err: ErrUnknownReportPDU},
-		"two instance sub-identifiers": {vbs: []SnmpPDU{counter(".1.3.6.1.6.3.15.1.1.5.0.0")}, report: true, err: ErrUnknownReportPDU},
-		"the prefix":                   {vbs: []SnmpPDU{counter(".1.3.6.1.6.3.15.1.1")}, report: true, err: ErrUnknownReportPDU},
-		"an unknown counter":           {vbs: []SnmpPDU{counter(".1.3.6.1.6.3.15.1.1.9.0")}, report: true, err: ErrUnknownReportPDU},
-		"SNMP-TARGET-MIB's counter":    {vbs: []SnmpPDU{counter(".1.3.6.1.6.3.12.1.5.0")}, report: true, err: ErrUnknownReportPDU},
-		"a name without a dot":         {vbs: []SnmpPDU{counter("0")}, report: true, err: ErrUnknownReportPDU},
+		"instance 0":                   {vbs: []VarBind{counter(usmStatsNotInTimeWindows)}, report: true, err: ErrNotInTimeWindow},
+		"instance 1":                   {vbs: []VarBind{counter(".1.3.6.1.6.3.15.1.1.2.1")}, report: true, err: ErrNotInTimeWindow},
+		"a large instance":             {vbs: []VarBind{counter(".1.3.6.1.6.3.15.1.1.4.4294967295")}, report: true, err: ErrUnknownEngineID},
+		"message processing's counter": {vbs: []VarBind{counter(".1.3.6.1.6.3.11.2.1.2.3")}, report: true, err: ErrInvalidMsgs},
+		"without an instance":          {vbs: []VarBind{counter(".1.3.6.1.6.3.15.1.1.5")}, report: true, err: ErrUnknownReportPDU},
+		"two instance sub-identifiers": {vbs: []VarBind{counter(".1.3.6.1.6.3.15.1.1.5.0.0")}, report: true, err: ErrUnknownReportPDU},
+		"the prefix":                   {vbs: []VarBind{counter(".1.3.6.1.6.3.15.1.1")}, report: true, err: ErrUnknownReportPDU},
+		"an unknown counter":           {vbs: []VarBind{counter(".1.3.6.1.6.3.15.1.1.9.0")}, report: true, err: ErrUnknownReportPDU},
+		"SNMP-TARGET-MIB's counter":    {vbs: []VarBind{counter(".1.3.6.1.6.3.12.1.5.0")}, report: true, err: ErrUnknownReportPDU},
+		"a name without a dot":         {vbs: []VarBind{counter("0")}, report: true, err: ErrUnknownReportPDU},
 		"no varbinds":                  {report: true, err: ErrUnknownReportPDU},
-		"a counter after another name": {vbs: []SnmpPDU{sysDescr, counter(usmStatsWrongDigests)}, report: true, err: ErrUnknownReportPDU},
-		"a counter, then another name": {vbs: []SnmpPDU{counter(usmStatsWrongDigests), sysDescr}, report: true, err: ErrWrongDigest},
-		"a GetResponse":                {pduType: GetResponse, vbs: []SnmpPDU{counter(usmStatsWrongDigests)}},
-		"an SNMPv2c Report":            {version: Version2c, vbs: []SnmpPDU{counter(usmStatsWrongDigests)}},
+		"a counter after another name": {vbs: []VarBind{sysDescr, counter(usmStatsWrongDigests)}, report: true, err: ErrUnknownReportPDU},
+		"a counter, then another name": {vbs: []VarBind{counter(usmStatsWrongDigests), sysDescr}, report: true, err: ErrWrongDigest},
+		"a Response":                   {pduType: Response, vbs: []VarBind{counter(usmStatsWrongDigests)}},
+		"an SNMPv2c Report":            {version: Version2c, vbs: []VarBind{counter(usmStatsWrongDigests)}},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			p := &SnmpPacket{Version: cmp.Or(tc.version, Version3), PDUType: cmp.Or(tc.pduType, Report), Variables: tc.vbs}
+			p := &Message{Version: cmp.Or(tc.version, Version3), PDUType: cmp.Or(tc.pduType, Report), VarBinds: tc.vbs}
 			kind, report := reportKindOf(p)
 			assert.Equal(t, tc.report, report)
 			assert.Equal(t, tc.err, kind.err)
@@ -1509,7 +1509,7 @@ func TestExchangeEndErrors(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			e := exchange{x: &GoSNMP{}}
+			e := exchange{x: &Client{}}
 			if tc.discarded != nil {
 				e.discard(tc.discarded, rankAuthentic)
 			}

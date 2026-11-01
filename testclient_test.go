@@ -8,9 +8,9 @@ import (
 	"time"
 )
 
-// newTestGoSNMP returns an unconnected SNMPv2c client.
-func newTestGoSNMP() *GoSNMP {
-	return &GoSNMP{
+// newTestClient returns an unconnected SNMPv2c client.
+func newTestClient() *Client {
+	return &Client{
 		Port:      161,
 		Community: "public",
 		Version:   Version2c,
@@ -20,10 +20,10 @@ func newTestGoSNMP() *GoSNMP {
 	}
 }
 
-// newTestGoSNMPv3 returns an unconnected SNMPv3 client of the User-based
+// newTestClientV3 returns an unconnected SNMPv3 client of the User-based
 // Security Model with msgFlags and sp.
-func newTestGoSNMPv3(msgFlags SnmpV3MsgFlags, sp SnmpV3SecurityParameters) *GoSNMP {
-	gs := newTestGoSNMP()
+func newTestClientV3(msgFlags SnmpV3MsgFlags, sp SnmpV3SecurityParameters) *Client {
+	gs := newTestClient()
 	gs.Version = Version3
 	gs.MsgFlags = msgFlags
 	gs.SecurityModel = UserSecurityModel

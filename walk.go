@@ -36,7 +36,7 @@ import (
 // before the error with it. Known bugs: an empty answer, or one whose Error is
 // another of TooBig through InconsistentName, ends the walk without an error;
 // another Error is ignored.
-func (x *GoSNMP) BulkWalkAll(rootOid string) (results []SnmpPDU, err error) {
+func (x *Client) BulkWalkAll(rootOid string) (results []VarBind, err error) {
 	return x.walk(GetBulkRequest, rootOid)
 }
 
@@ -46,7 +46,7 @@ func (x *GoSNMP) BulkWalkAll(rootOid string) (results []SnmpPDU, err error) {
 // does; net-snmp's snmpwalk differs only for a name before rootOid, which fails
 // its increasing check where WalkAll ends (or, as the first answer, gets
 // rootOid).
-func (x *GoSNMP) WalkAll(rootOid string) (results []SnmpPDU, err error) {
+func (x *Client) WalkAll(rootOid string) (results []VarBind, err error) {
 	return x.walk(GetNextRequest, rootOid)
 }
 
@@ -56,7 +56,7 @@ func (x *GoSNMP) WalkAll(rootOid string) (results []SnmpPDU, err error) {
 // until an answer ends the walk (visit's rule). When that answer shows the
 // root to be a leaf, the walk gets it once (getRoot). An error ends the walk
 // with the values collected before it.
-func (x *GoSNMP) walk(requestType PDUType, rootOid string) (results []SnmpPDU, err error) {
+func (x *Client) walk(requestType PDUType, rootOid string) (results []VarBind, err error) {
 	root, err := walkRoot(rootOid)
 	if err != nil {
 		return nil, err
@@ -81,7 +81,7 @@ func (x *GoSNMP) walk(requestType PDUType, rootOid string) (results []SnmpPDU, e
 		}
 		switch next {
 		case walkContinue:
-			oid = response.Variables[len(response.Variables)-1].Name
+			oid = response.VarBinds[len(response.VarBinds)-1].Name
 			continue
 		case walkGetRoot:
 			if results, err = w.getRoot(results); err != nil {
@@ -94,7 +94,7 @@ func (x *GoSNMP) walk(requestType PDUType, rootOid string) (results []SnmpPDU, e
 
 // walker holds what a walk fixes at its start.
 type walker struct {
-	x *GoSNMP
+	x *Client
 	// requestType is GetNextRequest or GetBulkRequest.
 	requestType PDUType
 	root        string
@@ -136,7 +136,7 @@ func walkRoot(rootOid string) (string, error) {
 
 // request asks the agent for the objects after oid, with the walk's
 // max-repetitions for a GetBulk, which SNMPv1 does not have.
-func (w *walker) request(oid string) (*SnmpPacket, error) {
+func (w *walker) request(oid string) (*Message, error) {
 	var maxReps uint32
 	if w.requestType == GetBulkRequest {
 		if w.x.Version == Version1 {
@@ -158,24 +158,24 @@ func (w *walker) request(oid string) (*SnmpPacket, error) {
 // marks the walk's first answer: a walk goes on only after an answer whose
 // values it all collected, so only the first answer can end a walk that found
 // nothing, the case in which net-snmp gets the root.
-func (w *walker) visit(response *SnmpPacket, oid string, firstAnswer bool, results []SnmpPDU) ([]SnmpPDU, walkStep, error) {
+func (w *walker) visit(response *Message, oid string, firstAnswer bool, results []VarBind) ([]VarBind, walkStep, error) {
 	// The error statuses tooBig to inconsistentName (RFC 3416) end the walk.
 	// noSuchName is the end of an SNMPv1 MIB: as the first answer, the root may
 	// still be a leaf, the MIB's last object. Known bugs: the others end the
 	// walk with a nil error and the values so far, where net-snmp fails; a
 	// status the RFC does not name is ignored and the answer walked.
-	if status := response.Error; rfcError(status) {
+	if status := response.ErrorStatus; rfcError(status) {
 		if status == NoSuchName && firstAnswer {
 			return results, walkGetRoot, nil
 		}
 		return results, walkDone, nil
 	}
 	// Known bug: an empty answer ends the walk with a nil error.
-	if len(response.Variables) == 0 {
+	if len(response.VarBinds) == 0 {
 		return results, walkDone, nil
 	}
 
-	for i, pdu := range response.Variables {
+	for i, pdu := range response.VarBinds {
 		// A name outside the subtree ends the walk; as the walk's first value,
 		// it shows the root to be a leaf (gosnmp/gosnmp#78).
 		if !inSubtree(pdu.Name, w.root) {
@@ -207,15 +207,15 @@ func (w *walker) visit(response *SnmpPacket, oid string, firstAnswer bool, resul
 // (a Get of one name is answered by its first varbind). Statuses read as in
 // visit: an error status adds nothing (known bug: one the RFC does not name is
 // ignored).
-func (w *walker) getRoot(results []SnmpPDU) ([]SnmpPDU, error) {
+func (w *walker) getRoot(results []VarBind) ([]VarBind, error) {
 	response, err := w.x.Get([]string{w.root})
 	if err != nil {
 		return results, err
 	}
-	if rfcError(response.Error) || len(response.Variables) == 0 {
+	if rfcError(response.ErrorStatus) || len(response.VarBinds) == 0 {
 		return results, nil
 	}
-	if pdu := response.Variables[0]; pdu.Name == w.root && !isException(pdu.Type) {
+	if pdu := response.VarBinds[0]; pdu.Name == w.root && !isException(pdu.Type) {
 		return append(results, pdu), nil
 	}
 	return results, nil
@@ -233,13 +233,13 @@ func inSubtree(name, root string) bool {
 
 // rfcError reports whether status is one of the error statuses RFC 3416
 // names, tooBig to inconsistentName.
-func rfcError(status SNMPError) bool {
+func rfcError(status ErrorStatus) bool {
 	return status >= TooBig && status <= InconsistentName
 }
 
 // isException reports whether t is an exception value of RFC 3416 section
 // 4.2: noSuchObject, noSuchInstance or endOfMibView.
-func isException(t Asn1BER) bool {
+func isException(t ValueType) bool {
 	return t == NoSuchObject || t == NoSuchInstance || t == EndOfMibView
 }
 

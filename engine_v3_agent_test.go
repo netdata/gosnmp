@@ -23,7 +23,7 @@ import (
 // step 3 b). It checks the rest with the library's digests and ciphers in the
 // order of RFC 3414 section 3.2 (engine ID, user, security level, digest over
 // the message as received, time window, decryption when the privacy flag is
-// set) and answers with a GetResponse at the request's security level and in
+// set) and answers with a Response at the request's security level and in
 // its context, or with a Report in the default context: noAuthNoPriv for an
 // unknown engine ID or user, an unsupported level, a wrong digest or a
 // decryption error, authNoPriv for a message outside the time window. Its
@@ -37,7 +37,7 @@ type fakeV3Agent struct {
 	start    time.Time
 	creds    map[string]agentUser
 	users    map[string]*UsmSecurityParameters // keys localized to engineID
-	vbs      []SnmpPDU
+	vbs      []VarBind
 	counters map[string]uint32
 	// frozen stops the engine time at timeBase, as on devices whose engine
 	// time stalls; noTimeCheck skips the time window check of requests, as
@@ -51,9 +51,9 @@ type fakeV3Agent struct {
 
 // agentUser is the credentials of a fake agent user.
 type agentUser struct {
-	auth     SnmpV3AuthProtocol
+	auth     AuthProtocol
 	authPass string
-	priv     SnmpV3PrivProtocol
+	priv     PrivProtocol
 	privPass string
 }
 
@@ -66,14 +66,14 @@ type agentRequest struct {
 	boots, engineTime            uint32
 	salt                         []byte // msgPrivacyParameters
 	contextEngineID, contextName string
-	pdu                          *SnmpPacket // nil when the scoped PDU was not read
+	pdu                          *Message // nil when the scoped PDU was not read
 }
 
 // agentAnswer is the answer of the fake agent to one request.
 type agentAnswer struct {
-	report string         // the Report's counter OID, or "" for a GetResponse
+	report string         // the Report's counter OID, or "" for a Response
 	level  SnmpV3MsgFlags // the security level of the answer
-	edit   func(*SnmpPacket)
+	edit   func(*Message)
 	raw    func(*v3Message)       // edits the encoded answer, after edit
 	encode func(v3Message) []byte // encodes the answer after raw, instead of v3Message.bytes
 	drop   bool                   // no answer
@@ -105,7 +105,7 @@ const (
 // to one that decrypts to something it cannot decode.
 var errAgentDecryption = errors.New("decryption error")
 
-func newFakeV3Agent(tr *engineTranscript, creds map[string]agentUser, vbs ...SnmpPDU) *fakeV3Agent {
+func newFakeV3Agent(tr *engineTranscript, creds map[string]agentUser, vbs ...VarBind) *fakeV3Agent {
 	a := &fakeV3Agent{
 		tr:       tr,
 		boots:    agentBoots,
@@ -193,7 +193,7 @@ func (a *fakeV3Agent) handle(n int, data []byte) []agentReply {
 	}
 	if m.scopedTag == byte(OctetString) && req.pdu != nil {
 		a.tr.addf("agent: #%d decrypts to context=%q/%q %v id=%d %s", n, req.contextEngineID, req.contextName,
-			req.pdu.PDUType, req.pdu.RequestID, describeVarbinds(req.pdu.Variables))
+			req.pdu.PDUType, req.pdu.RequestID, describeVarbinds(req.pdu.VarBinds))
 	}
 	if ans.report != "" && req.pdu == nil && req.flags&Reportable == 0 {
 		ans = agentAnswer{drop: true, why: "no Report: the request is not reportable and its PDU unknown"}
@@ -233,7 +233,7 @@ func (a *fakeV3Agent) handle(n int, data []byte) []agentReply {
 func (a *fakeV3Agent) encodeAnswer(n int, req agentRequest, ans agentAnswer) []byte {
 	out := a.answer(req, ans)
 	a.tr.addf("agent: answers #%d with %s at %s (%s)", n, describeAnswerPDU(out), describeFlags(out.MsgFlags), ans.why)
-	b, err := out.MarshalMsg()
+	b, err := out.Encode()
 	if err != nil {
 		panic(fmt.Sprintf("agent cannot encode its answer: %v", err))
 	}
@@ -340,7 +340,7 @@ func (a *fakeV3Agent) readScopedPDU(m v3Message, req *agentRequest) error {
 		}
 		fields[i] = string(f)
 	}
-	pdu := new(SnmpPacket)
+	pdu := new(Message)
 	if err := unmarshalPayload(plain, len(plain)-r.Len(), pdu); err != nil {
 		return fmt.Errorf("scoped PDU: %w", err)
 	}
@@ -349,7 +349,7 @@ func (a *fakeV3Agent) readScopedPDU(m v3Message, req *agentRequest) error {
 }
 
 // answer builds the agent's answer to req.
-func (a *fakeV3Agent) answer(req agentRequest, ans agentAnswer) *SnmpPacket {
+func (a *fakeV3Agent) answer(req agentRequest, ans agentAnswer) *Message {
 	sp := &UsmSecurityParameters{
 		AuthoritativeEngineID:    a.engineID,
 		AuthoritativeEngineBoots: a.boots,
@@ -364,16 +364,16 @@ func (a *fakeV3Agent) answer(req agentRequest, ans agentAnswer) *SnmpPacket {
 			sp.PrivacyProtocol, sp.PrivacyKey = user.PrivacyProtocol, user.PrivacyKey
 		}
 	}
-	out := &SnmpPacket{
+	out := &Message{
 		Version:            Version3,
 		MsgFlags:           ans.level,
 		SecurityModel:      UserSecurityModel,
 		SecurityParameters: sp,
 		ContextEngineID:    req.contextEngineID,
 		ContextName:        req.contextName,
-		PDUType:            GetResponse,
+		PDUType:            Response,
 		MsgID:              uint32(req.msgID), //nolint:gosec // checked by discarded
-		Variables:          a.vbs,
+		VarBinds:           a.vbs,
 	}
 	if out.ContextEngineID == "" {
 		// snmpd answers a request without a context engine ID in its own.
@@ -388,7 +388,7 @@ func (a *fakeV3Agent) answer(req agentRequest, ans agentAnswer) *SnmpPacket {
 		a.counters[ans.report]++
 		out.PDUType = Report
 		out.ContextEngineID, out.ContextName = a.engineID, ""
-		out.Variables = []SnmpPDU{{Name: ans.report, Type: Counter32, Value: a.counters[ans.report]}}
+		out.VarBinds = []VarBind{{Name: ans.report, Type: Counter32, Value: a.counters[ans.report]}}
 	}
 	if ans.edit != nil {
 		ans.edit(out)
@@ -509,11 +509,11 @@ func describeAgentRequest(req agentRequest) string {
 	}
 	if req.pdu != nil {
 		fmt.Fprintf(&sb, " context=%q/%q %v id=%d %s", req.contextEngineID, req.contextName, req.pdu.PDUType,
-			req.pdu.RequestID, describeVarbinds(req.pdu.Variables))
+			req.pdu.RequestID, describeVarbinds(req.pdu.VarBinds))
 	}
 	return sb.String()
 }
 
-func describeAnswerPDU(p *SnmpPacket) string {
-	return fmt.Sprintf("%v id=%d msgID=%d %s", p.PDUType, p.RequestID, p.MsgID, describeVarbinds(p.Variables))
+func describeAnswerPDU(p *Message) string {
+	return fmt.Sprintf("%v id=%d msgID=%d %s", p.PDUType, p.RequestID, p.MsgID, describeVarbinds(p.VarBinds))
 }

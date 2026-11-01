@@ -24,7 +24,7 @@ func randomID() uint32 {
 // nextRequestID advances the request ID counter, which starts at a random
 // value on first use unless SetRequestID set it, and returns it without its
 // top bit, so request IDs wrap to 0 after 2147483647.
-func (x *GoSNMP) nextRequestID() uint32 {
+func (x *Client) nextRequestID() uint32 {
 	if !x.requestIDSet.Load() {
 		x.SetRequestID(randomID())
 	}
@@ -33,7 +33,7 @@ func (x *GoSNMP) nextRequestID() uint32 {
 
 // nextMsgID advances the msgID counter, which starts at a random value on
 // first use unless SetMsgID set it, and returns it without its top bit.
-func (x *GoSNMP) nextMsgID() uint32 {
+func (x *Client) nextMsgID() uint32 {
 	if !x.msgIDSet.Load() {
 		x.SetMsgID(randomID())
 	}
@@ -42,14 +42,14 @@ func (x *GoSNMP) nextMsgID() uint32 {
 
 // SetRequestID sets the request ID counter: the next request ID is reqID+1,
 // without its top bit. Connect does not change the counter.
-func (x *GoSNMP) SetRequestID(reqID uint32) {
+func (x *Client) SetRequestID(reqID uint32) {
 	x.requestID.Store(reqID & math.MaxInt32)
 	x.requestIDSet.Store(true)
 }
 
 // SetMsgID sets the SNMPv3 msgID counter: the next msgID is msgID+1,
 // without its top bit. Connect does not change the counter.
-func (x *GoSNMP) SetMsgID(msgID uint32) {
+func (x *Client) SetMsgID(msgID uint32) {
 	x.msgID.Store(msgID & math.MaxInt32)
 	x.msgIDSet.Store(true)
 }

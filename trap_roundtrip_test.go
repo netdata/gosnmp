@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Socket-free trap and inform round trips: packets made by MarshalMsg, the
+// Socket-free trap and inform round trips: packets made by Message.Encode, the
 // way an agent sends them, are decoded by UnmarshalTrap the way trap
 // receivers use it.
 
@@ -25,7 +25,7 @@ const (
 
 // rtVarbinds are the varbinds of every round-trip packet. Their Go types are
 // the ones UnmarshalTrap returns, so the decoded list must equal them.
-var rtVarbinds = []SnmpPDU{
+var rtVarbinds = []VarBind{
 	{Name: ".1.3.6.1.2.1.1.3.0", Type: TimeTicks, Value: uint32(12345)},
 	{Name: ".1.3.6.1.6.3.1.1.4.1.0", Type: ObjectIdentifier, Value: ".1.3.6.1.4.1.20372.1.2"},
 	{Name: ".1.3.6.1.4.1.20372.1.2.1", Type: OctetString, Value: []byte("trap-payload")},
@@ -33,20 +33,20 @@ var rtVarbinds = []SnmpPDU{
 }
 
 var (
-	rtAuthProtocols = []SnmpV3AuthProtocol{NoAuth, MD5, SHA, SHA224, SHA256, SHA384, SHA512}
-	rtPrivProtocols = []SnmpV3PrivProtocol{NoPriv, DES, AES, AES192, AES192C, AES256, AES256C}
+	rtAuthProtocols = []AuthProtocol{NoAuth, MD5, SHA, SHA224, SHA256, SHA384, SHA512}
+	rtPrivProtocols = []PrivProtocol{NoPriv, DES, AES, AES192, AES192C, AES256, AES256C}
 )
 
 // rtCredentials are the USM settings of a sender or a receiver.
 type rtCredentials struct {
 	user     string
-	auth     SnmpV3AuthProtocol
+	auth     AuthProtocol
 	authPass string
-	priv     SnmpV3PrivProtocol
+	priv     PrivProtocol
 	privPass string
 }
 
-func rtCreds(auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol) rtCredentials {
+func rtCreds(auth AuthProtocol, priv PrivProtocol) rtCredentials {
 	return rtCredentials{user: rtUser, auth: auth, authPass: rtAuthPass, priv: priv, privPass: rtPrivPass}
 }
 
@@ -89,7 +89,7 @@ func rtEncodeV3(t *testing.T, sender rtCredentials, pduType PDUType) []byte {
 	if pduType == InformRequest {
 		flags |= Reportable
 	}
-	pkt := &SnmpPacket{
+	pkt := &Message{
 		Version:            Version3,
 		MsgFlags:           flags,
 		SecurityModel:      UserSecurityModel,
@@ -99,22 +99,22 @@ func rtEncodeV3(t *testing.T, sender rtCredentials, pduType PDUType) []byte {
 		PDUType:            pduType,
 		MsgID:              21,
 		RequestID:          42,
-		Variables:          rtVarbinds,
+		VarBinds:           rtVarbinds,
 	}
-	data, err := pkt.MarshalMsg()
+	data, err := pkt.Encode()
 	require.NoError(t, err)
 	return data
 }
 
-// rtReceiver builds the GoSNMP that calls UnmarshalTrap for the given credentials.
-type rtReceiver func(t *testing.T, creds ...rtCredentials) *GoSNMP
+// rtReceiver builds the Client that calls UnmarshalTrap for the given credentials.
+type rtReceiver func(t *testing.T, creds ...rtCredentials) *Client
 
 // rtSingleUser configures one user and the security level it requires on the
-// receiving GoSNMP itself, without a credentials table.
-func rtSingleUser(t *testing.T, creds ...rtCredentials) *GoSNMP {
+// receiving Client itself, without a credentials table.
+func rtSingleUser(t *testing.T, creds ...rtCredentials) *Client {
 	t.Helper()
 	require.Len(t, creds, 1)
-	return &GoSNMP{
+	return &Client{
 		Version:            Version3,
 		MsgFlags:           creds[0].flags(),
 		SecurityModel:      UserSecurityModel,
@@ -125,13 +125,13 @@ func rtSingleUser(t *testing.T, creds ...rtCredentials) *GoSNMP {
 // rtTable returns a receiver with a credentials table, as the Netdata trap
 // receiver builds it, with the table entries localized to engineID.
 func rtTable(engineID string) rtReceiver {
-	return func(t *testing.T, creds ...rtCredentials) *GoSNMP {
+	return func(t *testing.T, creds ...rtCredentials) *Client {
 		t.Helper()
 		table := NewSnmpV3SecurityParametersTable()
 		for _, c := range creds {
 			require.NoError(t, table.Add(c.user, c.usm(engineID)))
 		}
-		return &GoSNMP{Version: Version3, TrapSecurityParametersTable: table}
+		return &Client{Version: Version3, TrapSecurityParametersTable: table}
 	}
 }
 
@@ -146,7 +146,7 @@ var rtReceivers = []struct {
 
 // trapView is the part of a decoded trap the round-trip tests compare.
 type trapView struct {
-	Version         SnmpVersion
+	Version         Version
 	MsgFlags        SnmpV3MsgFlags
 	UserName        string
 	EngineID        string
@@ -161,10 +161,10 @@ type trapView struct {
 	GenericTrap     int
 	SpecificTrap    int
 	Timestamp       uint
-	Variables       []SnmpPDU
+	Variables       []VarBind
 }
 
-func newTrapView(p *SnmpPacket) trapView {
+func newTrapView(p *Message) trapView {
 	v := trapView{
 		Version:         p.Version,
 		MsgFlags:        p.MsgFlags,
@@ -179,7 +179,7 @@ func newTrapView(p *SnmpPacket) trapView {
 		GenericTrap:     p.GenericTrap,
 		SpecificTrap:    p.SpecificTrap,
 		Timestamp:       p.Timestamp,
-		Variables:       p.Variables,
+		Variables:       p.VarBinds,
 	}
 	if sp, ok := p.SecurityParameters.(*UsmSecurityParameters); ok {
 		v.UserName = sp.UserName
@@ -191,11 +191,11 @@ func newTrapView(p *SnmpPacket) trapView {
 func TestTrapRoundTripV1V2c(t *testing.T) {
 	useEngineTimes(t)
 	tests := map[string]struct {
-		pkt  *SnmpPacket
+		pkt  *Message
 		want trapView
 	}{
 		"v1 trap": {
-			pkt: &SnmpPacket{
+			pkt: &Message{
 				Version:      Version1,
 				Community:    "public",
 				PDUType:      Trap,
@@ -204,7 +204,7 @@ func TestTrapRoundTripV1V2c(t *testing.T) {
 				GenericTrap:  6,
 				SpecificTrap: 42,
 				Timestamp:    12345,
-				Variables:    rtVarbinds[2:],
+				VarBinds:     rtVarbinds[2:],
 			},
 			want: trapView{
 				Version:      Version1,
@@ -219,11 +219,11 @@ func TestTrapRoundTripV1V2c(t *testing.T) {
 			},
 		},
 		"v2c trap": {
-			pkt:  &SnmpPacket{Version: Version2c, Community: "public", PDUType: SNMPv2Trap, RequestID: 42, Variables: rtVarbinds},
+			pkt:  &Message{Version: Version2c, Community: "public", PDUType: SNMPv2Trap, RequestID: 42, VarBinds: rtVarbinds},
 			want: trapView{Version: Version2c, Community: "public", PDUType: SNMPv2Trap, RequestID: 42, Variables: rtVarbinds},
 		},
 		"v2c inform": {
-			pkt: &SnmpPacket{Version: Version2c, Community: "public", PDUType: InformRequest, RequestID: 42, Variables: rtVarbinds},
+			pkt: &Message{Version: Version2c, Community: "public", PDUType: InformRequest, RequestID: 42, VarBinds: rtVarbinds},
 			want: trapView{
 				Version:   Version2c,
 				Community: "public",
@@ -237,10 +237,10 @@ func TestTrapRoundTripV1V2c(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			data, err := tc.pkt.MarshalMsg()
+			data, err := tc.pkt.Encode()
 			require.NoError(t, err)
 
-			got, err := (&GoSNMP{}).UnmarshalTrap(data, false)
+			got, err := (&Client{}).UnmarshalTrap(data, false)
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, newTrapView(got))
 		})
@@ -367,7 +367,7 @@ func TestTrapSecurityOutcomes(t *testing.T) {
 				return
 			}
 			require.NoError(t, err, "trap rejected")
-			assert.Equal(t, rtVarbinds, got.Variables)
+			assert.Equal(t, rtVarbinds, got.VarBinds)
 		})
 	}
 }

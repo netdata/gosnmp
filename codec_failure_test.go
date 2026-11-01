@@ -13,7 +13,7 @@ import (
 // decodedFields are the packet fields a decode sets, so a failed decode's
 // partial packet can be compared whole.
 type decodedFields struct {
-	version                      SnmpVersion
+	version                      Version
 	community                    string
 	msgID, msgMaxSize            uint32
 	msgFlags                     SnmpV3MsgFlags
@@ -23,16 +23,16 @@ type decodedFields struct {
 	contextEngineID, contextName string
 	pduType                      PDUType
 	requestID                    uint32
-	errorStatus                  SNMPError
+	errorStatus                  ErrorStatus
 	errorIndex, nonRepeaters     uint8
 	maxRepetitions               uint32
 	enterprise, agentAddress     string
 	genericTrap, specificTrap    int
 	timestamp                    uint
-	variables                    []SnmpPDU
+	variables                    []VarBind
 }
 
-func fieldsOf(p *SnmpPacket) decodedFields {
+func fieldsOf(p *Message) decodedFields {
 	d := decodedFields{
 		version:         p.Version,
 		community:       p.Community,
@@ -44,7 +44,7 @@ func fieldsOf(p *SnmpPacket) decodedFields {
 		contextName:     p.ContextName,
 		pduType:         p.PDUType,
 		requestID:       p.RequestID,
-		errorStatus:     p.Error,
+		errorStatus:     p.ErrorStatus,
 		errorIndex:      p.ErrorIndex,
 		nonRepeaters:    p.NonRepeaters,
 		maxRepetitions:  p.MaxRepetitions,
@@ -53,7 +53,7 @@ func fieldsOf(p *SnmpPacket) decodedFields {
 		genericTrap:     p.GenericTrap,
 		specificTrap:    p.SpecificTrap,
 		timestamp:       p.Timestamp,
-		variables:       p.Variables,
+		variables:       p.VarBinds,
 	}
 	if sp := usmOf(p.SecurityParameters); sp != nil {
 		d.usmEngineID, d.usmUser = sp.AuthoritativeEngineID, sp.UserName
@@ -63,24 +63,24 @@ func fieldsOf(p *SnmpPacket) decodedFields {
 }
 
 // TestDecodeFailurePartialResults pins, for a field of each decoder failing
-// in turn, the error text and the packet SnmpDecodePacket returns with it:
+// in turn, the error text and the packet DecodeMessage returns with it:
 // the fields read before the failure are set, the later ones are not. Known
 // bug: the variables are an empty list, not nil, for any input of two octets
 // or more, decoded or not.
 func TestDecodeFailurePartialResults(t *testing.T) {
 	bad := tlv(0x05) // a NULL where a field goes: a field of another tag
 	vbl := craftedVBL(craftedVB(intTLV(5)))
-	firstVB := []SnmpPDU{{Name: ".1.3.6.1.2.1.1.5.0", Type: Integer, Value: 5}}
+	firstVB := []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Type: Integer, Value: 5}}
 	secondVB := func(vb []byte) []byte {
-		return craftedMsg(1, tlv(byte(GetResponse), intTLV(7), intTLV(2), intTLV(3), craftedVBL(craftedVB(intTLV(5)), vb)))
+		return craftedMsg(1, tlv(byte(Response), intTLV(7), intTLV(2), intTLV(3), craftedVBL(craftedVB(intTLV(5)), vb)))
 	}
 	with := func(d decodedFields, set func(*decodedFields)) decodedFields {
-		d.variables = []SnmpPDU{}
+		d.variables = []VarBind{}
 		set(&d)
 		return d
 	}
 	v2c := decodedFields{version: Version2c, community: "public"}
-	resp := with(v2c, func(d *decodedFields) { d.pduType = GetResponse })
+	resp := with(v2c, func(d *decodedFields) { d.pduType = Response })
 	respFields := with(resp, func(d *decodedFields) { d.requestID, d.errorStatus, d.errorIndex = 7, 2, 3 })
 	bulk := with(v2c, func(d *decodedFields) { d.pduType = GetBulkRequest; d.requestID = 7 })
 	v1Trap := with(decodedFields{version: Version1, community: "public"}, func(d *decodedFields) { d.pduType = Trap })
@@ -119,15 +119,15 @@ func TestDecodeFailurePartialResults(t *testing.T) {
 		"community":      {in: tlv(0x30, intTLV(1), bad, vbl), wantErr: header + "error parsing community string" + notStr, want: with(decodedFields{version: Version2c}, func(*decodedFields) {})},
 
 		// PDU header.
-		"request ID":      {in: craftedMsg(1, tlv(byte(GetResponse), bad, intTLV(2), intTLV(3), vbl)), wantErr: body + "error parsing SNMP packet request ID" + notInt, want: resp},
-		"error status":    {in: craftedMsg(1, tlv(byte(GetResponse), intTLV(7), bad, intTLV(3), vbl)), wantErr: body + "error parsing SNMP packet error" + notInt, want: with(resp, func(d *decodedFields) { d.requestID = 7 })},
-		"error index":     {in: craftedMsg(1, tlv(byte(GetResponse), intTLV(7), intTLV(2), bad, vbl)), wantErr: body + "error parsing SNMP packet error index" + notInt, want: with(resp, func(d *decodedFields) { d.requestID, d.errorStatus = 7, 2 })},
+		"request ID":      {in: craftedMsg(1, tlv(byte(Response), bad, intTLV(2), intTLV(3), vbl)), wantErr: body + "error parsing SNMP packet request ID" + notInt, want: resp},
+		"error status":    {in: craftedMsg(1, tlv(byte(Response), intTLV(7), bad, intTLV(3), vbl)), wantErr: body + "error parsing SNMP packet error" + notInt, want: with(resp, func(d *decodedFields) { d.requestID = 7 })},
+		"error index":     {in: craftedMsg(1, tlv(byte(Response), intTLV(7), intTLV(2), bad, vbl)), wantErr: body + "error parsing SNMP packet error index" + notInt, want: with(resp, func(d *decodedFields) { d.requestID, d.errorStatus = 7, 2 })},
 		"non-repeaters":   {in: craftedMsg(1, tlv(byte(GetBulkRequest), intTLV(7), bad, intTLV(9), vbl)), wantErr: body + "error parsing SNMP packet non repeaters" + notInt, want: bulk},
 		"max-repetitions": {in: craftedMsg(1, tlv(byte(GetBulkRequest), intTLV(7), intTLV(3), bad, vbl)), wantErr: body + "error parsing SNMP packet max repetitions" + notInt, want: with(bulk, func(d *decodedFields) { d.nonRepeaters = 3 })},
 
 		// Varbind list.
-		"no varbind list":              {in: craftedMsg(1, tlv(byte(GetResponse), intTLV(7), intTLV(2), intTLV(3))), wantErr: body + "truncated packet when unmarshalling a VBL", want: respFields},
-		"varbind list not a sequence":  {in: craftedMsg(1, tlv(byte(GetResponse), intTLV(7), intTLV(2), intTLV(3), intTLV(1))), wantErr: body + "expected a sequence when unmarshalling a VBL, got 2", want: respFields},
+		"no varbind list":              {in: craftedMsg(1, tlv(byte(Response), intTLV(7), intTLV(2), intTLV(3))), wantErr: body + "truncated packet when unmarshalling a VBL", want: respFields},
+		"varbind list not a sequence":  {in: craftedMsg(1, tlv(byte(Response), intTLV(7), intTLV(2), intTLV(3), intTLV(1))), wantErr: body + "expected a sequence when unmarshalling a VBL, got 2", want: respFields},
 		"varbind not a sequence":       {in: secondVB(intTLV(1)), wantErr: body + "expected a sequence when unmarshalling a VB, got 2", want: with(respFields, func(d *decodedFields) { d.variables = firstVB })},
 		"varbind past the list":        {in: secondVB([]byte{0x30, 0x10, 0x06}), wantErr: body + "error reading varbind: invalid packet length: TLV length exceeds the remaining input", want: with(respFields, func(d *decodedFields) { d.variables = firstVB })},
 		"varbind name":                 {in: secondVB(tlv(0x30, bad, intTLV(6))), wantErr: body + "error parsing OID Value" + ": not an OBJECT IDENTIFIER or text", want: with(respFields, func(d *decodedFields) { d.variables = firstVB })},
@@ -189,15 +189,15 @@ func TestDecodeFailurePartialResults(t *testing.T) {
 		},
 
 		// SNMPv3 scoped PDU.
-		"context engine ID": {in: craftedV3NoAuth(tlv(0x30, bad, octets("ctx"), craftedPDU(GetResponse, vbl))), wantErr: "error parsing SNMPV3 contextEngineID" + notStr, want: v3USM},
-		"context name": {in: craftedV3NoAuth(tlv(0x30, craftedEngineID, bad, craftedPDU(GetResponse, vbl))), wantErr: "error parsing SNMPV3 contextName" + notStr, want: with(v3USM, func(d *decodedFields) {
+		"context engine ID": {in: craftedV3NoAuth(tlv(0x30, bad, octets("ctx"), craftedPDU(Response, vbl))), wantErr: "error parsing SNMPV3 contextEngineID" + notStr, want: v3USM},
+		"context name": {in: craftedV3NoAuth(tlv(0x30, craftedEngineID, bad, craftedPDU(Response, vbl))), wantErr: "error parsing SNMPV3 contextName" + notStr, want: with(v3USM, func(d *decodedFields) {
 			d.contextEngineID = "\x80\x00\x1f\x88\x04codec-engine"
 		})},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			p, err := (&GoSNMP{}).SnmpDecodePacket(tc.in)
+			p, err := (&Client{}).DecodeMessage(tc.in)
 			if assert.Error(t, err) {
 				assert.Equal(t, tc.wantErr, err.Error())
 			}
@@ -239,7 +239,7 @@ func TestDecodeUSMFields(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := (&GoSNMP{}).SnmpDecodePacket(tc.in)
+			_, err := (&Client{}).DecodeMessage(tc.in)
 			if tc.invalid {
 				assert.ErrorIs(t, err, ErrInvalidMsgs)
 			} else {
@@ -250,7 +250,7 @@ func TestDecodeUSMFields(t *testing.T) {
 }
 
 // TestUnknownPDUTypeError checks the error for a PDU type the package does not
-// know, from SnmpDecodePacket (SNMPv2c and SNMPv3) and UnmarshalTrap.
+// know, from DecodeMessage (SNMPv2c and SNMPv3) and UnmarshalTrap.
 func TestUnknownPDUTypeError(t *testing.T) {
 	nullVB := craftedVB(tlv(byte(Null)))
 	pdu := func(tag byte) []byte { return tlv(tag, intTLV(1), intTLV(0), intTLV(0), craftedVBL(nullVB)) }
@@ -264,18 +264,18 @@ func TestUnknownPDUTypeError(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := (&GoSNMP{Version: Version2c}).SnmpDecodePacket(craftedMsg(1, pdu(tc.tag)))
+			_, err := (&Client{Version: Version2c}).DecodeMessage(craftedMsg(1, pdu(tc.tag)))
 			assert.EqualError(t, err, "unable to decode packet body: "+tc.want, "SNMPv2c")
 
-			v3 := &GoSNMP{
+			v3 := &Client{
 				Version:            Version3,
 				SecurityModel:      UserSecurityModel,
 				SecurityParameters: &UsmSecurityParameters{UserName: "codec-user"},
 			}
-			_, err = v3.SnmpDecodePacket(craftedV3NoAuth(tlv(0x30, craftedEngineID, octets("ctx"), pdu(tc.tag))))
+			_, err = v3.DecodeMessage(craftedV3NoAuth(tlv(0x30, craftedEngineID, octets("ctx"), pdu(tc.tag))))
 			assert.EqualError(t, err, "unable to decode packet body: "+tc.want, "SNMPv3")
 
-			_, err = (&GoSNMP{Version: Version2c}).UnmarshalTrap(craftedMsg(1, pdu(tc.tag)), false)
+			_, err = (&Client{Version: Version2c}).UnmarshalTrap(craftedMsg(1, pdu(tc.tag)), false)
 			assert.EqualError(t, err, tc.want, "UnmarshalTrap")
 		})
 	}

@@ -34,7 +34,7 @@ func TestEngineV3MaximumBoots(t *testing.T) {
 					c := newFakeTransport(tr, a.handle)
 					sp := userParameters("codec-md5")
 					sp.AuthoritativeEngineID = agentEngineID
-					x := newEngineClientFrom(t, tr, fakePacketTransport{c}, &GoSNMP{
+					x := newEngineClientFrom(t, tr, fakePacketTransport{c}, &Client{
 						Version: Version3, MsgFlags: AuthNoPriv, SecurityModel: UserSecurityModel,
 						SecurityParameters: sp, Timeout: time.Second, Retries: 1,
 					})
@@ -67,7 +67,7 @@ func TestEngineV3MaximumBoots(t *testing.T) {
 					}
 
 					finished := 0
-					x.OnFinish = func(x *GoSNMP) {
+					x.OnFinish = func(x *Client) {
 						finished++
 						assert.NotEqual(t, uint32(maxEngineValue), x.SecurityParameters.usm().AuthoritativeEngineBoots,
 							"an exhausted clock must never be committed")
@@ -88,7 +88,7 @@ func TestEngineV3MaximumBoots(t *testing.T) {
 					} else {
 						require.NoError(t, err)
 						require.NotNil(t, result)
-						assert.Equal(t, GetResponse, result.PDUType)
+						assert.Equal(t, Response, result.PDUType)
 						assert.Equal(t, boots.value, sp.AuthoritativeEngineBoots)
 						assert.Equal(t, fromAuthenticated, x.engine.clock.source)
 						wantFinished := 1

@@ -20,12 +20,12 @@ var testsInvalidSNMPResponses = []string{
 }
 
 func TestInvalidSNMPResponses(t *testing.T) {
-	g := newTestGoSNMP()
+	g := newTestClient()
 	g.Target = "127.0.0.1"
 
 	for i, test := range testsInvalidSNMPResponses {
 		testBytes, _ := base64.StdEncoding.DecodeString(test)
-		result, err := g.SnmpDecodePacket(testBytes)
+		result, err := g.DecodeMessage(testBytes)
 		if err == nil {
 			t.Errorf("#%d, failed to error %v", i, result)
 		}

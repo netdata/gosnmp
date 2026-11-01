@@ -4,27 +4,27 @@
 
 package gosnmp
 
-// SnmpVersion is the SNMP version of a message, as it is encoded. Its String
-// is "1", "2c" or "3", and "SnmpVersion(N)" for another value.
-type SnmpVersion uint8
+// Version is the SNMP version of a message, as it is encoded. Its String
+// is "1", "2c" or "3", and "Version(N)" for another value.
+type Version uint8
 
 // The SNMP versions.
 const (
-	Version1  SnmpVersion = 0x0 // 1
-	Version2c SnmpVersion = 0x1 // 2c
-	Version3  SnmpVersion = 0x3 // 3
+	Version1  Version = 0x0 // 1
+	Version2c Version = 0x1 // 2c
+	Version3  Version = 0x3 // 3
 )
 
-//go:generate go tool -modfile=tools/go.mod stringer -type=SnmpVersion -linecomment
+//go:generate go tool -modfile=tools/go.mod stringer -type=Version -linecomment
 
-// SnmpPacket is an SNMP message: a request, an answer or a trap. A decoded
+// Message is an SNMP message: a request, an answer or a trap. A decoded
 // packet holds the fields the message carried; its SecurityParameters are a
 // copy of the parameters it was decoded with (the client's, or on
 // UnmarshalTrap's table path the matching set's), protocols, passphrases and
 // keys included, with the message's fields decoded into them.
-type SnmpPacket struct {
+type Message struct {
 	// Version is the SNMP version.
-	Version SnmpVersion
+	Version Version
 
 	// The SNMPv3 header: the flags, the security model and its parameters.
 	MsgFlags           SnmpV3MsgFlags
@@ -50,29 +50,29 @@ type SnmpPacket struct {
 	// encoder sends 65535 for zero.
 	MsgMaxSize uint32
 
-	// Error and ErrorIndex are the PDU's error status and index, each decoded
-	// to its low byte; a GetBulkRequest has NonRepeaters and MaxRepetitions
-	// in their place.
-	Error          SNMPError
+	// ErrorStatus and ErrorIndex are the PDU's error status and index, each
+	// decoded to its low byte; a GetBulkRequest has NonRepeaters and
+	// MaxRepetitions in their place.
+	ErrorStatus    ErrorStatus
 	ErrorIndex     uint8
 	NonRepeaters   uint8
 	MaxRepetitions uint32
 
-	// Variables are the varbinds.
-	Variables []SnmpPDU
+	// VarBinds are the varbinds.
+	VarBinds []VarBind
 
 	// IsInform reports that the packet is an InformRequest, which its sender
 	// expects an answer to, not a trap; SNMPv1 has no informs.
 	IsInform bool
 
-	// SnmpTrap is the SNMPv1 trap header.
-	SnmpTrap
+	// TrapV1Header is the SNMPv1 trap header.
+	TrapV1Header
 }
 
-// SnmpTrap is the SNMPv1 trap header (RFC 1157): the enterprise OID, the
+// TrapV1Header is the SNMPv1 trap header (RFC 1157): the enterprise OID, the
 // agent's IPv4 address, the generic and specific trap numbers and the
 // timestamp in TimeTicks.
-type SnmpTrap struct {
+type TrapV1Header struct {
 	Enterprise   string
 	AgentAddress string
 	GenericTrap  int
@@ -87,7 +87,7 @@ type PDUType byte
 const (
 	GetRequest     PDUType = 0xa0
 	GetNextRequest PDUType = 0xa1
-	GetResponse    PDUType = 0xa2
+	Response       PDUType = 0xa2
 	SetRequest     PDUType = 0xa3
 	Trap           PDUType = 0xa4 // v1
 	GetBulkRequest PDUType = 0xa5
@@ -102,7 +102,7 @@ const (
 // SNMPv1 Trap-PDU, the PDUs of RFC 3416 and the Report.
 func (t PDUType) known() bool {
 	switch t {
-	case GetRequest, GetNextRequest, GetResponse, SetRequest, Trap, GetBulkRequest, InformRequest, SNMPv2Trap, Report:
+	case GetRequest, GetNextRequest, Response, SetRequest, Trap, GetBulkRequest, InformRequest, SNMPv2Trap, Report:
 		return true
 	}
 	return false
@@ -118,11 +118,11 @@ func (t PDUType) confirmed() bool {
 	return false
 }
 
-// MarshalMsg encodes the packet as it is, ready for the wire. An SNMPv3
+// Message.Encode encodes the packet as it is, ready for the wire. An SNMPv3
 // message is encrypted and signed when its flags ask for it, with the keys in
 // its SecurityParameters, which it requires; each encrypted message gets a
-// new salt, whatever PrivacyParameters holds. MarshalMsg draws no new msgID
-// (GoSNMP.SnmpEncodePacket does).
-func (packet *SnmpPacket) MarshalMsg() ([]byte, error) {
+// new salt, whatever PrivacyParameters holds. Message.Encode draws no new msgID
+// (Client.EncodeMessage does).
+func (packet *Message) Encode() ([]byte, error) {
 	return packet.marshalMsg()
 }

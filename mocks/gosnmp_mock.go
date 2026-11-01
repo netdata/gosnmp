@@ -42,10 +42,10 @@ func (m *MockHandler) EXPECT() *MockHandlerMockRecorder {
 }
 
 // BulkWalkAll mocks base method.
-func (m *MockHandler) BulkWalkAll(rootOid string) ([]gosnmp.SnmpPDU, error) {
+func (m *MockHandler) BulkWalkAll(rootOid string) ([]gosnmp.VarBind, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "BulkWalkAll", rootOid)
-	ret0, _ := ret[0].([]gosnmp.SnmpPDU)
+	ret0, _ := ret[0].([]gosnmp.VarBind)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -127,10 +127,10 @@ func (mr *MockHandlerMockRecorder) ContextName() *gomock.Call {
 }
 
 // Get mocks base method.
-func (m *MockHandler) Get(oids []string) (*gosnmp.SnmpPacket, error) {
+func (m *MockHandler) Get(oids []string) (*gosnmp.Message, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Get", oids)
-	ret0, _ := ret[0].(*gosnmp.SnmpPacket)
+	ret0, _ := ret[0].(*gosnmp.Message)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -384,7 +384,7 @@ func (mr *MockHandlerMockRecorder) SetTimeout(timeout any) *gomock.Call {
 }
 
 // SetVersion mocks base method.
-func (m *MockHandler) SetVersion(version gosnmp.SnmpVersion) {
+func (m *MockHandler) SetVersion(version gosnmp.Version) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetVersion", version)
 }
@@ -424,10 +424,10 @@ func (mr *MockHandlerMockRecorder) Timeout() *gomock.Call {
 }
 
 // UnmarshalTrap mocks base method.
-func (m *MockHandler) UnmarshalTrap(trap []byte, useResponseSecurityParameters bool) (*gosnmp.SnmpPacket, error) {
+func (m *MockHandler) UnmarshalTrap(trap []byte, useResponseSecurityParameters bool) (*gosnmp.Message, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UnmarshalTrap", trap, useResponseSecurityParameters)
-	ret0, _ := ret[0].(*gosnmp.SnmpPacket)
+	ret0, _ := ret[0].(*gosnmp.Message)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -439,10 +439,10 @@ func (mr *MockHandlerMockRecorder) UnmarshalTrap(trap, useResponseSecurityParame
 }
 
 // Version mocks base method.
-func (m *MockHandler) Version() gosnmp.SnmpVersion {
+func (m *MockHandler) Version() gosnmp.Version {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Version")
-	ret0, _ := ret[0].(gosnmp.SnmpVersion)
+	ret0, _ := ret[0].(gosnmp.Version)
 	return ret0
 }
 
@@ -453,10 +453,10 @@ func (mr *MockHandlerMockRecorder) Version() *gomock.Call {
 }
 
 // WalkAll mocks base method.
-func (m *MockHandler) WalkAll(rootOid string) ([]gosnmp.SnmpPDU, error) {
+func (m *MockHandler) WalkAll(rootOid string) ([]gosnmp.VarBind, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "WalkAll", rootOid)
-	ret0, _ := ret[0].([]gosnmp.SnmpPDU)
+	ret0, _ := ret[0].([]gosnmp.VarBind)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

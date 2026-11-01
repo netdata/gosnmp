@@ -16,7 +16,7 @@ package netsnmp
 #include <net-snmp/library/snmpusm.h>
 #include <net-snmp/library/transform_oids.h>
 
-// auth_oid returns net-snmp's OID for a gosnmp SnmpV3AuthProtocol value.
+// auth_oid returns net-snmp's OID for a gosnmp AuthProtocol value.
 static oid *auth_oid(int proto, u_int *len) {
 	switch (proto) {
 	case 2: *len = OID_LENGTH(usmHMACMD5AuthProtocol); return usmHMACMD5AuthProtocol;
@@ -30,7 +30,7 @@ static oid *auth_oid(int proto, u_int *len) {
 }
 
 // priv_oid returns net-snmp's OID and key extension type for a gosnmp
-// SnmpV3PrivProtocol value. AES192C and AES256C are net-snmp's Cisco
+// PrivProtocol value. AES192C and AES256C are net-snmp's Cisco
 // variants, which extend the key with Reeder's algorithm.
 static oid *priv_oid(int proto, u_int *len, int *type) {
 	switch (proto) {
@@ -128,7 +128,7 @@ import (
 // and every key extension.
 const usmKeyBufSize = C.USM_LENGTH_KU_HASHBLOCK
 
-func netSnmpAuthKey(auth gosnmp.SnmpV3AuthProtocol, passphrase, engineID string) ([]byte, error) {
+func netSnmpAuthKey(auth gosnmp.AuthProtocol, passphrase, engineID string) ([]byte, error) {
 	pass, eid := cBytes(passphrase), cBytes(engineID)
 	defer C.free(pass)
 	defer C.free(eid)
@@ -143,7 +143,7 @@ func netSnmpAuthKey(auth gosnmp.SnmpV3AuthProtocol, passphrase, engineID string)
 	return C.GoBytes(key, C.int(keylen)), nil
 }
 
-func netSnmpPrivKey(auth gosnmp.SnmpV3AuthProtocol, priv gosnmp.SnmpV3PrivProtocol, passphrase, engineID string) ([]byte, error) {
+func netSnmpPrivKey(auth gosnmp.AuthProtocol, priv gosnmp.PrivProtocol, passphrase, engineID string) ([]byte, error) {
 	pass, eid := cBytes(passphrase), cBytes(engineID)
 	defer C.free(pass)
 	defer C.free(eid)
@@ -158,7 +158,7 @@ func netSnmpPrivKey(auth gosnmp.SnmpV3AuthProtocol, priv gosnmp.SnmpV3PrivProtoc
 	return C.GoBytes(key, C.int(keylen)), nil
 }
 
-func netSnmpHMAC(auth gosnmp.SnmpV3AuthProtocol, key, msg []byte) ([]byte, error) {
+func netSnmpHMAC(auth gosnmp.AuthProtocol, key, msg []byte) ([]byte, error) {
 	k, m := cBytes(string(key)), cBytes(string(msg))
 	defer C.free(k)
 	defer C.free(m)
@@ -173,7 +173,7 @@ func netSnmpHMAC(auth gosnmp.SnmpV3AuthProtocol, key, msg []byte) ([]byte, error
 	return C.GoBytes(mac, C.int(maclen)), nil
 }
 
-func netSnmpEncrypt(priv gosnmp.SnmpV3PrivProtocol, key, iv, plaintext []byte) ([]byte, error) {
+func netSnmpEncrypt(priv gosnmp.PrivProtocol, key, iv, plaintext []byte) ([]byte, error) {
 	k, v, p := cBytes(string(key)), cBytes(string(iv)), cBytes(string(plaintext))
 	defer C.free(k)
 	defer C.free(v)

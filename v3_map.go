@@ -10,7 +10,7 @@ import (
 )
 
 // SnmpV3SecurityParametersTable holds sets of SNMPv3 security parameters by
-// key, for GoSNMP.UnmarshalTrap, which looks them up by the message's user
+// key, for Client.UnmarshalTrap, which looks them up by the message's user
 // name. It is safe for concurrent use.
 type SnmpV3SecurityParametersTable struct {
 	table map[string][]SnmpV3SecurityParameters

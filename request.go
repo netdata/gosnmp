@@ -9,17 +9,17 @@ import (
 	"math"
 )
 
-// MkSnmpPacket builds a request or trap packet of pdutype with the variable
-// bindings pdus from the client's version, community, SNMPv3 flags, security
+// NewMessage builds a request or trap message of pduType with the varbinds
+// varBinds from the client's version, community, SNMPv3 flags, security
 // model, a copy of its security parameters (none for a nil
 // *UsmSecurityParameters) and its context; maxRepetitions is kept with its top
 // bit cleared.
-func (x *GoSNMP) MkSnmpPacket(pdutype PDUType, pdus []SnmpPDU, nonRepeaters uint8, maxRepetitions uint32) *SnmpPacket {
+func (x *Client) NewMessage(pduType PDUType, varBinds []VarBind, nonRepeaters uint8, maxRepetitions uint32) *Message {
 	var newSecParams SnmpV3SecurityParameters
 	if sp := usmOf(x.SecurityParameters); sp != nil {
 		newSecParams = sp.Copy()
 	}
-	return &SnmpPacket{
+	return &Message{
 		Version:            x.Version,
 		Community:          x.Community,
 		MsgFlags:           x.MsgFlags,
@@ -27,18 +27,18 @@ func (x *GoSNMP) MkSnmpPacket(pdutype PDUType, pdus []SnmpPDU, nonRepeaters uint
 		SecurityParameters: newSecParams,
 		ContextEngineID:    x.ContextEngineID,
 		ContextName:        x.ContextName,
-		Error:              0,
+		ErrorStatus:        0,
 		ErrorIndex:         0,
-		PDUType:            pdutype,
+		PDUType:            pduType,
 		NonRepeaters:       nonRepeaters,
 		MaxRepetitions:     maxRepetitions & math.MaxInt32,
-		Variables:          pdus,
+		VarBinds:           varBinds,
 	}
 }
 
 // Get sends a GET request for oids, at most MaxOids of them, and returns the
 // answer.
-func (x *GoSNMP) Get(oids []string) (result *SnmpPacket, err error) {
+func (x *Client) Get(oids []string) (result *Message, err error) {
 	packetOut, err := x.oidRequest(GetRequest, oids, 0)
 	if err != nil {
 		return nil, err
@@ -49,13 +49,13 @@ func (x *GoSNMP) Get(oids []string) (result *SnmpPacket, err error) {
 // oidRequest builds the request packet of pdutype for oids, each as a Null
 // varbind, with maxRepetitions for a GetBulk, after checking their count
 // against MaxOids: Get's, and each of a walk's GetNext and GetBulk requests.
-func (x *GoSNMP) oidRequest(pdutype PDUType, oids []string, maxRepetitions uint32) (*SnmpPacket, error) {
+func (x *Client) oidRequest(pdutype PDUType, oids []string, maxRepetitions uint32) (*Message, error) {
 	if len(oids) > x.MaxOids {
 		return nil, fmt.Errorf("oid count (%d) is greater than MaxOids (%d)", len(oids), x.MaxOids)
 	}
-	pdus := make([]SnmpPDU, 0, len(oids))
+	pdus := make([]VarBind, 0, len(oids))
 	for _, oid := range oids {
-		pdus = append(pdus, SnmpPDU{Name: oid, Type: Null, Value: nil})
+		pdus = append(pdus, VarBind{Name: oid, Type: Null, Value: nil})
 	}
-	return x.MkSnmpPacket(pdutype, pdus, 0, maxRepetitions), nil
+	return x.NewMessage(pdutype, pdus, 0, maxRepetitions), nil
 }

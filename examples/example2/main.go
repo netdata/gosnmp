@@ -36,7 +36,7 @@ func main() {
 	}
 	port, _ := strconv.ParseUint(envPort, 10, 16)
 
-	params := &g.GoSNMP{
+	params := &g.Client{
 		Target:    envTarget,
 		Port:      uint16(port),
 		Community: "public",
@@ -51,10 +51,10 @@ func main() {
 
 	// Function handles for collecting metrics on query latencies.
 	var sent time.Time
-	params.OnSent = func(_ *g.GoSNMP) {
+	params.OnSent = func(_ *g.Client) {
 		sent = time.Now()
 	}
-	params.OnRecv = func(_ *g.GoSNMP) {
+	params.OnRecv = func(_ *g.Client) {
 		log.Println("Query latency in seconds:", time.Since(sent).Seconds())
 	}
 
@@ -64,7 +64,7 @@ func main() {
 		log.Fatalf("Get() err: %v", err2)
 	}
 
-	for i, variable := range result.Variables {
+	for i, variable := range result.VarBinds {
 		fmt.Printf("%d: oid: %s ", i, variable.Name)
 
 		// The Go type of a Value depends on its Type (see the package

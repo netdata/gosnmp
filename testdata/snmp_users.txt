@@ -1,6 +1,6 @@
 # SNMPv3 users of the end-to-end tests: snmp_users.sh creates them in snmpd, the tests use them.
 # One user per authentication x privacy protocol pair, named after the pair; "-" is no passphrase.
-# Protocol names are the library's SnmpV3AuthProtocol and SnmpV3PrivProtocol names, which snmpd's
+# Protocol names are the library's AuthProtocol and PrivProtocol names, which snmpd's
 # createUser accepts as they are (AES192/AES256 extend the key as Blumenthal, AES192C/AES256C as Reeder).
 #
 # user auth authpass priv privpass
