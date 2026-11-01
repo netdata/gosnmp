@@ -20,27 +20,27 @@ import (
 	"github.com/netdata/gosnmp/internal/usm"
 )
 
-// SnmpV3AuthProtocol is the authentication protocol of an SNMPv3 user.
-type SnmpV3AuthProtocol uint8
+// AuthProtocol is the authentication protocol of an SNMPv3 user.
+type AuthProtocol uint8
 
 // Authentication protocols: HMAC-MD5-96 and HMAC-SHA-96 (RFC 3414) and the
 // HMAC-SHA-2 protocols (RFC 7860). The zero value means unset; other values
 // are rejected.
 const (
-	NoAuth SnmpV3AuthProtocol = 1
-	MD5    SnmpV3AuthProtocol = 2
-	SHA    SnmpV3AuthProtocol = 3
-	SHA224 SnmpV3AuthProtocol = 4
-	SHA256 SnmpV3AuthProtocol = 5
-	SHA384 SnmpV3AuthProtocol = 6
-	SHA512 SnmpV3AuthProtocol = 7
+	NoAuth AuthProtocol = 1
+	MD5    AuthProtocol = 2
+	SHA    AuthProtocol = 3
+	SHA224 AuthProtocol = 4
+	SHA256 AuthProtocol = 5
+	SHA384 AuthProtocol = 6
+	SHA512 AuthProtocol = 7
 )
 
-//go:generate go tool -modfile=tools/go.mod stringer -type=SnmpV3AuthProtocol
+//go:generate go tool -modfile=tools/go.mod stringer -type=AuthProtocol
 
 // HashType returns the hash of the protocol's HMAC and key derivation: MD5
 // for NoAuth, unset and unknown values.
-func (authProtocol SnmpV3AuthProtocol) HashType() crypto.Hash {
+func (authProtocol AuthProtocol) HashType() crypto.Hash {
 	if h := authProtocol.spec().Hash; h != 0 {
 		return h
 	}
@@ -59,7 +59,7 @@ var authSpecs = [...]usm.Auth{ //nolint:gochecknoglobals // a read-only table
 
 // spec describes the protocol; NoAuth, unset and unknown values have no
 // description.
-func (authProtocol SnmpV3AuthProtocol) spec() usm.Auth {
+func (authProtocol AuthProtocol) spec() usm.Auth {
 	if int(authProtocol) < len(authSpecs) {
 		return authSpecs[authProtocol]
 	}
@@ -74,23 +74,23 @@ func appendMACPlaceholder(dst []byte, macLen int) []byte {
 	return append(dst, make([]byte, macLen)...)
 }
 
-// SnmpV3PrivProtocol is the privacy protocol of an SNMPv3 user.
-type SnmpV3PrivProtocol uint8
+// PrivProtocol is the privacy protocol of an SNMPv3 user.
+type PrivProtocol uint8
 
 // Privacy protocols: CBC-DES (RFC 3414), CFB128-AES-128 (RFC 3826) and AES-192
 // and AES-256 with the Blumenthal or the Reeder key extension. The zero value
 // means unset; other values are rejected.
 const (
-	NoPriv  SnmpV3PrivProtocol = 1
-	DES     SnmpV3PrivProtocol = 2
-	AES     SnmpV3PrivProtocol = 3
-	AES192  SnmpV3PrivProtocol = 4 // Blumenthal-AES192
-	AES256  SnmpV3PrivProtocol = 5 // Blumenthal-AES256
-	AES192C SnmpV3PrivProtocol = 6 // Reeder-AES192
-	AES256C SnmpV3PrivProtocol = 7 // Reeder-AES256
+	NoPriv  PrivProtocol = 1
+	DES     PrivProtocol = 2
+	AES     PrivProtocol = 3
+	AES192  PrivProtocol = 4 // Blumenthal-AES192
+	AES256  PrivProtocol = 5 // Blumenthal-AES256
+	AES192C PrivProtocol = 6 // Reeder-AES192
+	AES256C PrivProtocol = 7 // Reeder-AES256
 )
 
-//go:generate go tool -modfile=tools/go.mod stringer -type=SnmpV3PrivProtocol
+//go:generate go tool -modfile=tools/go.mod stringer -type=PrivProtocol
 
 // privSpecs describes the privacy protocols by value.
 var privSpecs = [...]usm.Priv{ //nolint:gochecknoglobals // a read-only table
@@ -104,7 +104,7 @@ var privSpecs = [...]usm.Priv{ //nolint:gochecknoglobals // a read-only table
 
 // spec describes the protocol; NoPriv, unset and unknown values have no
 // description.
-func (privProtocol SnmpV3PrivProtocol) spec() usm.Priv {
+func (privProtocol PrivProtocol) spec() usm.Priv {
 	if int(privProtocol) < len(privSpecs) {
 		return privSpecs[privProtocol]
 	}
@@ -113,7 +113,7 @@ func (privProtocol SnmpV3PrivProtocol) spec() usm.Priv {
 
 // UsmSecurityParameters are the parameters of the User-based Security Model
 // (RFC 3414): the user's credentials, and the agent's engine parameters the
-// client learns. A client keeps them in GoSNMP.SecurityParameters, and each
+// client learns. A client keeps them in Client.SecurityParameters, and each
 // message carries a copy.
 type UsmSecurityParameters struct {
 	// mu serializes key initialization, the client's writes of its engine
@@ -142,8 +142,8 @@ type UsmSecurityParameters struct {
 	PrivacyParameters        []byte
 
 	// The protocols; zero means unset.
-	AuthenticationProtocol SnmpV3AuthProtocol
-	PrivacyProtocol        SnmpV3PrivProtocol
+	AuthenticationProtocol AuthProtocol
+	PrivacyProtocol        PrivProtocol
 
 	// The passphrases the keys derive from.
 	AuthenticationPassphrase string
@@ -157,7 +157,7 @@ type UsmSecurityParameters struct {
 	// replaces both with keys derived for it from the passphrases, so
 	// parameters with a protocol whose passphrase is empty, a key given
 	// without one among them, cannot take another engine ID: as a trap
-	// receiver's or SnmpDecodePacket's they decode no message naming another
+	// receiver's or DecodeMessage's they decode no message naming another
 	// one, and a client cannot take one.
 	SecretKey  []byte
 	PrivacyKey []byte
@@ -445,7 +445,7 @@ func PasswordCaching(enable bool) {
 // every encrypted message.
 //
 // Deprecated: there is nothing to initialize before encoding.
-func (sp *UsmSecurityParameters) InitPacket(*SnmpPacket) error {
+func (sp *UsmSecurityParameters) InitPacket(*Message) error {
 	return nil
 }
 
@@ -453,8 +453,8 @@ func (sp *UsmSecurityParameters) InitPacket(*SnmpPacket) error {
 // engine's ID, boots and time (RFC 3414 section 4): an unauthenticated Get
 // without variable bindings and with empty security parameters, which the
 // encoder sends reportable as every request.
-func newDiscoveryPacket() *SnmpPacket {
-	return &SnmpPacket{
+func newDiscoveryPacket() *Message {
+	return &Message{
 		Version:            Version3,
 		MsgFlags:           NoAuthNoPriv,
 		SecurityModel:      UserSecurityModel,
@@ -519,7 +519,7 @@ func (sp *UsmSecurityParameters) marshal(dst []byte, flags SnmpV3MsgFlags, salt 
 // rejected message's parameters show them. Another engine ID drops the keys:
 // with bind, derive reports that they derive for it from the passphrases when
 // needed, the authentication key here when the flags ask for authentication
-// (to check the message, or to answer it with the parameters SnmpDecodePacket
+// (to check the message, or to answer it with the parameters DecodeMessage
 // returns), the privacy key only to decrypt (inbound.scopedPDU), which a
 // Reeder-extended protocol caches per engine ID; without bind both stay
 // missing, as the answer to a request has no keys for another engine.
@@ -588,7 +588,7 @@ type inbound struct {
 // receiveV3 returns the SNMPv3 message msg, whose header is in result and w,
 // in security processing with sp, which becomes result's security
 // parameters (receive, with the engine ID rule).
-func receiveV3(msg []byte, w v3Wire, result *SnmpPacket, sp *UsmSecurityParameters) (inbound, error) {
+func receiveV3(msg []byte, w v3Wire, result *Message, sp *UsmSecurityParameters) (inbound, error) {
 	derive, err := sp.receive(result.MsgFlags, &w, true)
 	if err != nil {
 		return inbound{}, err
@@ -615,7 +615,7 @@ func (in *inbound) verify() error {
 // scopedPDU reads the scoped PDU into result (unmarshalScopedPDU), decrypted
 // exactly when the message's privFlag is set, deriving the privacy key for a
 // new engine ID first.
-func (in *inbound) scopedPDU(result *SnmpPacket) ([]byte, int, error) {
+func (in *inbound) scopedPDU(result *Message) ([]byte, int, error) {
 	encrypted := result.MsgFlags.privFlag()
 	if encrypted && in.derive && in.wire.scoped < len(in.msg) && PDUType(in.msg[in.wire.scoped]) == PDUType(OctetString) {
 		if err := in.sp.derivePrivKey(); err != nil {

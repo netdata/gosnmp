@@ -10,7 +10,7 @@ func _() {
 	var x [1]struct{}
 	_ = x[GetRequest-160]
 	_ = x[GetNextRequest-161]
-	_ = x[GetResponse-162]
+	_ = x[Response-162]
 	_ = x[SetRequest-163]
 	_ = x[Trap-164]
 	_ = x[GetBulkRequest-165]
@@ -19,9 +19,9 @@ func _() {
 	_ = x[Report-168]
 }
 
-const _PDUType_name = "GetRequestGetNextRequestGetResponseSetRequestTrapGetBulkRequestInformRequestSNMPv2TrapReport"
+const _PDUType_name = "GetRequestGetNextRequestResponseSetRequestTrapGetBulkRequestInformRequestSNMPv2TrapReport"
 
-var _PDUType_index = [...]uint8{0, 10, 24, 35, 45, 49, 63, 76, 86, 92}
+var _PDUType_index = [...]uint8{0, 10, 24, 32, 42, 46, 60, 73, 83, 89}
 
 func (i PDUType) String() string {
 	idx := int(i) - 160

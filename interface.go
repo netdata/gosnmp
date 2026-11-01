@@ -15,27 +15,27 @@ import (
 
 //go:generate go tool -modfile=tools/go.mod mockgen -source=interface.go -destination=mocks/gosnmp_mock.go -package=mocks
 
-// Handler is the interface of a GoSNMP, provided for mocks in tests; the
-// methods that act are documented on GoSNMP, the others get or set its
-// fields. Like a GoSNMP, a Handler is not safe for concurrent use, Close
+// Handler is the interface of a Client, provided for mocks in tests; the
+// methods that act are documented on Client, the others get or set its
+// fields. Like a Client, a Handler is not safe for concurrent use, Close
 // excepted.
 type Handler interface {
-	// Connect: see GoSNMP.Connect.
+	// Connect: see Client.Connect.
 	Connect() error
 
-	// Get: see GoSNMP.Get.
-	Get(oids []string) (result *SnmpPacket, err error)
+	// Get: see Client.Get.
+	Get(oids []string) (result *Message, err error)
 
-	// WalkAll: see GoSNMP.WalkAll.
-	WalkAll(rootOid string) (results []SnmpPDU, err error)
+	// WalkAll: see Client.WalkAll.
+	WalkAll(rootOid string) (results []VarBind, err error)
 
-	// BulkWalkAll: see GoSNMP.BulkWalkAll.
-	BulkWalkAll(rootOid string) (results []SnmpPDU, err error)
+	// BulkWalkAll: see Client.BulkWalkAll.
+	BulkWalkAll(rootOid string) (results []VarBind, err error)
 
-	// UnmarshalTrap: see GoSNMP.UnmarshalTrap.
-	UnmarshalTrap(trap []byte, useResponseSecurityParameters bool) (result *SnmpPacket, err error)
+	// UnmarshalTrap: see Client.UnmarshalTrap.
+	UnmarshalTrap(trap []byte, useResponseSecurityParameters bool) (result *Message, err error)
 
-	// Close: see GoSNMP.Close.
+	// Close: see Client.Close.
 	Close() error
 
 	// Target gets the Target
@@ -57,10 +57,10 @@ type Handler interface {
 	SetCommunity(community string)
 
 	// Version gets the Version
-	Version() SnmpVersion
+	Version() Version
 
 	// SetVersion sets the Version
-	SetVersion(version SnmpVersion)
+	SetVersion(version Version)
 
 	// Timeout gets the Timeout
 	Timeout() time.Duration
@@ -119,15 +119,15 @@ type Handler interface {
 
 // snmpHandler is a wrapper around gosnmp
 type snmpHandler struct {
-	GoSNMP
+	Client
 }
 
-// NewHandler returns a Handler backed by a new GoSNMP with Port 161,
+// NewHandler returns a Handler backed by a new Client with Port 161,
 // Community "public", Version2c, a Timeout of 2 seconds, 3 Retries and
 // MaxOids at the MaxOids constant.
 func NewHandler() Handler {
 	return &snmpHandler{
-		GoSNMP{
+		Client{
 			Port:      161,
 			Community: "public",
 			Version:   Version2c,
@@ -140,106 +140,106 @@ func NewHandler() Handler {
 
 func (x *snmpHandler) Target() string {
 	// not x.Target because it would reference function Target
-	return x.GoSNMP.Target
+	return x.Client.Target
 }
 
 func (x *snmpHandler) SetTarget(target string) {
-	x.GoSNMP.Target = target
+	x.Client.Target = target
 }
 
 func (x *snmpHandler) Port() uint16 {
-	return x.GoSNMP.Port
+	return x.Client.Port
 }
 
 func (x *snmpHandler) SetPort(port uint16) {
-	x.GoSNMP.Port = port
+	x.Client.Port = port
 }
 
 func (x *snmpHandler) Community() string {
-	return x.GoSNMP.Community
+	return x.Client.Community
 }
 
 func (x *snmpHandler) SetCommunity(community string) {
-	x.GoSNMP.Community = community
+	x.Client.Community = community
 }
 
-func (x *snmpHandler) Version() SnmpVersion {
-	return x.GoSNMP.Version
+func (x *snmpHandler) Version() Version {
+	return x.Client.Version
 }
 
-func (x *snmpHandler) SetVersion(version SnmpVersion) {
-	x.GoSNMP.Version = version
+func (x *snmpHandler) SetVersion(version Version) {
+	x.Client.Version = version
 }
 
 func (x *snmpHandler) Timeout() time.Duration {
-	return x.GoSNMP.Timeout
+	return x.Client.Timeout
 }
 
 func (x *snmpHandler) SetTimeout(timeout time.Duration) {
-	x.GoSNMP.Timeout = timeout
+	x.Client.Timeout = timeout
 }
 
 func (x *snmpHandler) Retries() int {
-	return x.GoSNMP.Retries
+	return x.Client.Retries
 }
 
 func (x *snmpHandler) SetRetries(retries int) {
-	x.GoSNMP.Retries = retries
+	x.Client.Retries = retries
 }
 
 func (x *snmpHandler) MaxOids() int {
-	return x.GoSNMP.MaxOids
+	return x.Client.MaxOids
 }
 
 func (x *snmpHandler) SetMaxOids(maxOids int) {
-	x.GoSNMP.MaxOids = maxOids
+	x.Client.MaxOids = maxOids
 }
 
 func (x *snmpHandler) MaxRepetitions() uint32 {
-	return x.GoSNMP.MaxRepetitions
+	return x.Client.MaxRepetitions
 }
 
 // SetMaxRepetitions sets MaxRepetitions with its top bit cleared.
 func (x *snmpHandler) SetMaxRepetitions(maxRepetitions uint32) {
-	x.GoSNMP.MaxRepetitions = maxRepetitions & math.MaxInt32
+	x.Client.MaxRepetitions = maxRepetitions & math.MaxInt32
 }
 
 func (x *snmpHandler) MsgFlags() SnmpV3MsgFlags {
-	return x.GoSNMP.MsgFlags
+	return x.Client.MsgFlags
 }
 
 func (x *snmpHandler) SetMsgFlags(msgFlags SnmpV3MsgFlags) {
-	x.GoSNMP.MsgFlags = msgFlags
+	x.Client.MsgFlags = msgFlags
 }
 
 func (x *snmpHandler) SecurityModel() SnmpV3SecurityModel {
-	return x.GoSNMP.SecurityModel
+	return x.Client.SecurityModel
 }
 
 func (x *snmpHandler) SetSecurityModel(securityModel SnmpV3SecurityModel) {
-	x.GoSNMP.SecurityModel = securityModel
+	x.Client.SecurityModel = securityModel
 }
 
 func (x *snmpHandler) SecurityParameters() SnmpV3SecurityParameters {
-	return x.GoSNMP.SecurityParameters
+	return x.Client.SecurityParameters
 }
 
 func (x *snmpHandler) SetSecurityParameters(securityParameters SnmpV3SecurityParameters) {
-	x.GoSNMP.SecurityParameters = securityParameters
+	x.Client.SecurityParameters = securityParameters
 }
 
 func (x *snmpHandler) ContextEngineID() string {
-	return x.GoSNMP.ContextEngineID
+	return x.Client.ContextEngineID
 }
 
 func (x *snmpHandler) SetContextEngineID(contextEngineID string) {
-	x.GoSNMP.ContextEngineID = contextEngineID
+	x.Client.ContextEngineID = contextEngineID
 }
 
 func (x *snmpHandler) ContextName() string {
-	return x.GoSNMP.ContextName
+	return x.Client.ContextName
 }
 
 func (x *snmpHandler) SetContextName(contextName string) {
-	x.GoSNMP.ContextName = contextName
+	x.Client.ContextName = contextName
 }

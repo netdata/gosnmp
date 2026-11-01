@@ -11,7 +11,7 @@ package gosnmp
 // discovery probe with a Report containing usmStatsUnknownUserNames
 // (.1.3.6.1.6.3.15.1.1.3.0) but still include valid engine parameters
 // (AuthoritativeEngineID, boots, time) in the USM security header of that
-// same response. net-snmp extracts those parameters and proceeds; GoSNMP
+// same response. net-snmp extracts those parameters and proceeds; the library
 // previously treated the response as a fatal error and aborted.
 //
 // These tests use a minimal mock UDP agent that replicates the exact packet
@@ -37,7 +37,7 @@ const (
 // mockAgentUnknownUserNames is a minimal UDP SNMP agent that responds to
 // SNMPv3 discovery probes with usmStatsUnknownUserNames rather than the
 // standard usmStatsUnknownEngineIDs. Subsequent authenticated requests
-// receive a minimal GetResponse so the full Get() call can succeed.
+// receive a minimal Response so the full Get() call can succeed.
 //
 // Set failAuthRequests to true before calling serve() to make the mock also
 // return usmStatsUnknownUserNames for post-discovery authenticated requests,
@@ -101,7 +101,7 @@ func (m *mockAgentUnknownUserNames) sendErr(err error) {
 // serve processes packets until the connection is closed. It detects discovery
 // probes by the empty AuthoritativeEngineID in the USM security parameters and
 // responds with usmStatsUnknownUserNames. All other packets are treated as
-// authenticated requests and receive a GetResponse, unless failAuthRequests is
+// authenticated requests and receive a Response, unless failAuthRequests is
 // set in which case they also receive usmStatsUnknownUserNames.
 func (m *mockAgentUnknownUserNames) serve() {
 	defer close(m.done)
@@ -113,7 +113,7 @@ func (m *mockAgentUnknownUserNames) serve() {
 			return
 		}
 
-		req := &SnmpPacket{
+		req := &Message{
 			SecurityParameters: &UsmSecurityParameters{},
 		}
 
@@ -148,7 +148,7 @@ func (m *mockAgentUnknownUserNames) serve() {
 			// include valid engine parameters in the USM security header.
 			responseBytes, err = m.marshalUnknownUserNamesReport(req)
 		} else {
-			responseBytes, err = m.marshalGetResponse(req)
+			responseBytes, err = m.marshalResponse(req)
 		}
 		if err != nil {
 			m.sendErr(fmt.Errorf("marshal response: %w", err))
@@ -173,13 +173,13 @@ func (m *mockAgentUnknownUserNames) secParams() *UsmSecurityParameters {
 // non-standard response that triggers the bug. If omitEngineIDInReport is set,
 // the AuthoritativeEngineID in the security parameters is left empty to simulate
 // a malformed device response.
-func (m *mockAgentUnknownUserNames) marshalUnknownUserNamesReport(req *SnmpPacket) ([]byte, error) {
+func (m *mockAgentUnknownUserNames) marshalUnknownUserNamesReport(req *Message) ([]byte, error) {
 	secParams := m.secParams()
 	if m.omitEngineIDInReport {
 		secParams.AuthoritativeEngineID = ""
 	}
 	secParams.UserName = m.reportUserName
-	pkt := &SnmpPacket{
+	pkt := &Message{
 		Version:            Version3,
 		MsgFlags:           NoAuthNoPriv,
 		SecurityModel:      UserSecurityModel,
@@ -187,43 +187,43 @@ func (m *mockAgentUnknownUserNames) marshalUnknownUserNamesReport(req *SnmpPacke
 		PDUType:            Report,
 		MsgID:              req.MsgID,
 		RequestID:          req.RequestID,
-		Variables: []SnmpPDU{{
+		VarBinds: []VarBind{{
 			Name:  usmStatsUnknownUserNames,
 			Value: 1,
 			Type:  Integer,
 		}},
 	}
-	return pkt.MarshalMsg()
+	return pkt.Encode()
 }
 
-// marshalGetResponse builds a GetResponse that echoes the client's MsgID,
+// marshalResponse builds a Response that echoes the client's MsgID,
 // RequestID and user name, as an agent does, and returns a single OID value.
-func (m *mockAgentUnknownUserNames) marshalGetResponse(req *SnmpPacket) ([]byte, error) {
+func (m *mockAgentUnknownUserNames) marshalResponse(req *Message) ([]byte, error) {
 	secParams := m.secParams()
 	secParams.UserName = req.SecurityParameters.usm().UserName
-	pkt := &SnmpPacket{
+	pkt := &Message{
 		Version:            Version3,
 		MsgFlags:           NoAuthNoPriv,
 		SecurityModel:      UserSecurityModel,
 		SecurityParameters: secParams,
-		PDUType:            GetResponse,
+		PDUType:            Response,
 		MsgID:              req.MsgID,
 		RequestID:          req.RequestID,
 		ContextEngineID:    m.engineID,
-		Variables: []SnmpPDU{{
+		VarBinds: []VarBind{{
 			Name:  ".1.3.6.1.2.1.1.1.0",
 			Value: "mock sysDescr",
 			Type:  OctetString,
 		}},
 	}
-	return pkt.MarshalMsg()
+	return pkt.Encode()
 }
 
-// newV3NoAuthClientForDiscoveryTest returns a GoSNMP client configured for
+// newV3NoAuthClientForDiscoveryTest returns a client configured for
 // NoAuthNoPriv SNMPv3 with an empty AuthoritativeEngineID so that
 // the first request starts with engine-ID discovery (discoveryPacket).
-func newV3NoAuthClientForDiscoveryTest(port uint16) *GoSNMP {
-	gs := newTestGoSNMPv3(NoAuthNoPriv, &UsmSecurityParameters{
+func newV3NoAuthClientForDiscoveryTest(port uint16) *Client {
+	gs := newTestClientV3(NoAuthNoPriv, &UsmSecurityParameters{
 		UserName: "testUser",
 		// AuthoritativeEngineID intentionally empty to trigger discovery.
 	})
@@ -237,7 +237,7 @@ func newV3NoAuthClientForDiscoveryTest(port uint16) *GoSNMP {
 // the usmStatsUnknownUserNames discovery tests. Cleanup is registered
 // automatically via t.Cleanup; callers must not close the agent or connection
 // themselves.
-func setupDiscoveryTest(t *testing.T) *GoSNMP {
+func setupDiscoveryTest(t *testing.T) *Client {
 	t.Helper()
 	agent := newMockAgentUnknownUserNames(t)
 	go agent.serve()
@@ -260,9 +260,9 @@ func setupDiscoveryTest(t *testing.T) *GoSNMP {
 func TestV3DiscoveryUnknownUserNames(t *testing.T) {
 	ts := setupDiscoveryTest(t)
 
-	// MkSnmpPacket produces the same packet shape that Get() passes to
+	// NewMessage produces the same packet shape that Get() passes to
 	// negotiateInitialSecurityParameters internally.
-	pkt := ts.MkSnmpPacket(GetRequest, nil, 0, 0)
+	pkt := ts.NewMessage(GetRequest, nil, 0, 0)
 	require.NoError(t, ts.reconcileEngine())
 	err := ts.negotiateInitialSecurityParameters(new(ts.prepareRequest()), pkt)
 	require.NoError(t, err, "negotiateInitialSecurityParameters must succeed even when the device "+
@@ -285,7 +285,7 @@ func TestV3DiscoveryUnknownUserNames(t *testing.T) {
 //  1. Client sends discovery probe (engineID="", userName="").
 //  2. Agent responds: Report with usmStatsUnknownUserNames + valid engine params.
 //  3. Client sends authenticated GetRequest.
-//  4. Agent responds: GetResponse with OID data.
+//  4. Agent responds: Response with OID data.
 //
 // Before the fix, step 2 causes Get() to return ErrUnknownUsername. After the
 // fix, all four steps complete successfully.
@@ -296,9 +296,9 @@ func TestV3GetWithDiscoveryUnknownUserNames(t *testing.T) {
 	require.NoError(t, err, "Get() must succeed when the device responds with "+
 		"usmStatsUnknownUserNames during engine-ID discovery")
 	require.NotNil(t, result)
-	require.Len(t, result.Variables, 1)
-	require.Equal(t, ".1.3.6.1.2.1.1.1.0", result.Variables[0].Name)
-	require.Equal(t, []byte("mock sysDescr"), result.Variables[0].Value)
+	require.Len(t, result.VarBinds, 1)
+	require.Equal(t, ".1.3.6.1.2.1.1.1.0", result.VarBinds[0].Name)
+	require.Equal(t, []byte("mock sysDescr"), result.VarBinds[0].Value)
 }
 
 // TestV3DiscoveryUnknownUserNamesNoEngineID verifies that ErrUnknownUsername is
@@ -316,7 +316,7 @@ func TestV3DiscoveryUnknownUserNamesNoEngineID(t *testing.T) {
 	require.NoError(t, ts.Connect())
 	t.Cleanup(func() { ts.Conn.Close() })
 
-	pkt := ts.MkSnmpPacket(GetRequest, nil, 0, 0)
+	pkt := ts.NewMessage(GetRequest, nil, 0, 0)
 	require.NoError(t, ts.reconcileEngine())
 	err := ts.negotiateInitialSecurityParameters(new(ts.prepareRequest()), pkt)
 	require.ErrorIs(t, err, ErrUnknownUsername,
@@ -361,7 +361,7 @@ func TestV3DiscoveryUnknownUserNamesOtherUser(t *testing.T) {
 	require.NoError(t, ts.Connect())
 	t.Cleanup(func() { ts.Conn.Close() })
 
-	pkt := ts.MkSnmpPacket(GetRequest, nil, 0, 0)
+	pkt := ts.NewMessage(GetRequest, nil, 0, 0)
 	require.NoError(t, ts.reconcileEngine())
 	err := ts.negotiateInitialSecurityParameters(new(ts.prepareRequest()), pkt)
 	require.ErrorIs(t, err, errUnknownUser)

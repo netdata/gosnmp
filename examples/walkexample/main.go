@@ -39,7 +39,7 @@ func main() {
 		oid = flag.Args()[1]
 	}
 
-	client := &gosnmp.GoSNMP{
+	client := &gosnmp.Client{
 		Target:    target,
 		Port:      161,
 		Community: community,
@@ -64,7 +64,7 @@ func main() {
 	}
 }
 
-func printValue(pdu gosnmp.SnmpPDU) {
+func printValue(pdu gosnmp.VarBind) {
 	fmt.Printf("%s = ", pdu.Name)
 
 	switch pdu.Type {

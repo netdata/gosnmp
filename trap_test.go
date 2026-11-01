@@ -41,11 +41,11 @@ var secParamsList = []*UsmSecurityParameters{
 
 var testsUnmarshalTrap = []struct {
 	in  func() []byte
-	out *SnmpPacket
+	out *Message
 }{
 	{
 		genericV3Trap,
-		&SnmpPacket{
+		&Message{
 			Version:   Version3,
 			PDUType:   SNMPv2Trap,
 			RequestID: 957979745,
@@ -59,7 +59,7 @@ var testsUnmarshalTrap = []struct {
 	},
 	{
 		snmpV3AuthPrivTrap,
-		&SnmpPacket{
+		&Message{
 			Version:   3,
 			PDUType:   SNMPv2Trap,
 			RequestID: 1318065890,
@@ -77,7 +77,7 @@ var testsUnmarshalTrap = []struct {
 
 func TestUnmarshalTrap(t *testing.T) {
 	useEngineTimes(t)
-	gs := newTestGoSNMP()
+	gs := newTestClient()
 	gs.Version = Version3
 
 SANITY:
@@ -108,7 +108,7 @@ func TestUnmarshalTrapWithMultipleUsers(t *testing.T) {
 	for _, sp := range secParamsList {
 		require.NoError(t, usmMap.Add(sp.UserName, sp))
 	}
-	gs := newTestGoSNMP()
+	gs := newTestClient()
 	gs.TrapSecurityParametersTable = usmMap
 	gs.Version = Version3
 SANITY:

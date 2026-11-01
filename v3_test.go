@@ -40,14 +40,14 @@ func TestMsgFlagsPredicates(t *testing.T) {
 // SecurityParameters, an interface that holds it and so is not nil, counts as
 // no parameters wherever the field is read, as a nil interface does.
 func TestNilSecurityParameters(t *testing.T) {
-	encode := func(version SnmpVersion, pduType PDUType) []byte {
-		msg, err := (&GoSNMP{Version: version, Community: "public"}).SnmpEncodePacket(pduType,
-			[]SnmpPDU{{Name: engineOID, Type: Null}}, 0, 0)
+	encode := func(version Version, pduType PDUType) []byte {
+		msg, err := (&Client{Version: version, Community: "public"}).EncodeMessage(pduType,
+			[]VarBind{{Name: engineOID, Type: Null}}, 0, 0)
 		require.NoError(t, err)
 		return msg
 	}
 	request, trap := encode(Version2c, GetRequest), encode(Version2c, SNMPv2Trap)
-	get := func(x *GoSNMP) error {
+	get := func(x *Client) error {
 		_, err := x.Get([]string{engineOID})
 		return err
 	}
@@ -56,39 +56,39 @@ func TestNilSecurityParameters(t *testing.T) {
 		errNoneToAdd = "error: no security parameters to add for the key user"
 	)
 	tests := map[string]struct {
-		version SnmpVersion
-		run     func(x *GoSNMP) error
+		version Version
+		run     func(x *Client) error
 		want    string
 	}{
 		"SNMPv2c Get":    {version: Version2c, run: get, want: "error: request timeout (after 0 retries)"},
 		"SNMPv3 Get":     {version: Version3, run: get, want: errMustBeSet},
-		"SNMPv3 Connect": {version: Version3, run: func(x *GoSNMP) error { return x.Connect() }, want: errMustBeSet},
-		"SNMPv3 SnmpEncodePacket": {version: Version3, run: func(x *GoSNMP) error {
-			_, err := x.SnmpEncodePacket(GetRequest, []SnmpPDU{{Name: engineOID, Type: Null}}, 0, 0)
+		"SNMPv3 Connect": {version: Version3, run: func(x *Client) error { return x.Connect() }, want: errMustBeSet},
+		"SNMPv3 EncodeMessage": {version: Version3, run: func(x *Client) error {
+			_, err := x.EncodeMessage(GetRequest, []VarBind{{Name: engineOID, Type: Null}}, 0, 0)
 			return err
 		}, want: errMustBeSet},
-		"SNMPv2c SnmpDecodePacket": {version: Version2c, run: func(x *GoSNMP) error {
-			_, err := x.SnmpDecodePacket(request)
+		"SNMPv2c DecodeMessage": {version: Version2c, run: func(x *Client) error {
+			_, err := x.DecodeMessage(request)
 			return err
 		}, want: "ok"},
-		"SNMPv3 SnmpDecodePacket": {version: Version3, run: func(x *GoSNMP) error {
-			_, err := x.SnmpDecodePacket(request)
+		"SNMPv3 DecodeMessage": {version: Version3, run: func(x *Client) error {
+			_, err := x.DecodeMessage(request)
 			return err
 		}, want: errMustBeSet},
-		"SNMPv2c UnmarshalTrap": {version: Version2c, run: func(x *GoSNMP) error {
+		"SNMPv2c UnmarshalTrap": {version: Version2c, run: func(x *Client) error {
 			_, err := x.UnmarshalTrap(trap, false)
 			return err
 		}, want: "ok"},
-		"table Add": {run: func(*GoSNMP) error {
+		"table Add": {run: func(*Client) error {
 			return NewSnmpV3SecurityParametersTable().Add("user", (*UsmSecurityParameters)(nil))
 		}, want: errNoneToAdd},
-		"table Add of a nil interface": {run: func(*GoSNMP) error {
+		"table Add of a nil interface": {run: func(*Client) error {
 			return NewSnmpV3SecurityParametersTable().Add("user", nil)
 		}, want: errNoneToAdd},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			x := &GoSNMP{
+			x := &Client{
 				Target: "127.0.0.1", Port: 161, Version: tc.version, Community: "public", Timeout: 10 * time.Millisecond,
 				MaxOids: MaxOids, SecurityModel: UserSecurityModel, MsgFlags: NoAuthNoPriv,
 				SecurityParameters: (*UsmSecurityParameters)(nil), Conn: fakePacketTransport{newFakeTransport(nil, nil)},

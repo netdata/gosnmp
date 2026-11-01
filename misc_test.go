@@ -100,19 +100,19 @@ func TestToBigIntFreshValue(t *testing.T) {
 
 // ---------------------------------------------------------------------
 
-var testsSnmpVersionString = []struct {
-	in  SnmpVersion
+var testsVersionString = []struct {
+	in  Version
 	out string
 }{
 	{Version1, "1"},
 	{Version2c, "2c"},
 	{Version3, "3"},
-	{SnmpVersion(2), "SnmpVersion(2)"},
-	{SnmpVersion(255), "SnmpVersion(255)"},
+	{Version(2), "Version(2)"},
+	{Version(255), "Version(255)"},
 }
 
-func TestSnmpVersionString(t *testing.T) {
-	for i, test := range testsSnmpVersionString {
+func TestVersionString(t *testing.T) {
+	for i, test := range testsVersionString {
 		result := test.in.String()
 		if result != test.out {
 			t.Errorf("#%d, got %v expected %v", i, result, test.out)

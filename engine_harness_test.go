@@ -338,9 +338,9 @@ func (c fakePacketTransport) WriteTo(b []byte, addr net.Addr) (int, error) {
 
 // newEngineClient returns a v1/v2c client on conn with a 1 s timeout and 2
 // retries, completed by newEngineClientFrom.
-func newEngineClient(tb testing.TB, tr *engineTranscript, version SnmpVersion, conn net.Conn) *GoSNMP {
+func newEngineClient(tb testing.TB, tr *engineTranscript, version Version, conn net.Conn) *Client {
 	tb.Helper()
-	return newEngineClientFrom(tb, tr, conn, &GoSNMP{
+	return newEngineClientFrom(tb, tr, conn, &Client{
 		Version:   version,
 		Community: "public",
 		Timeout:   time.Second,
@@ -351,7 +351,7 @@ func newEngineClient(tb testing.TB, tr *engineTranscript, version SnmpVersion, c
 // newEngineClientFrom completes x on conn as Connect would leave it, with
 // request IDs starting after 1000, message IDs after 2000 and the next salt
 // 0x101, and with hooks that record their calls in tr.
-func newEngineClientFrom(tb testing.TB, tr *engineTranscript, conn net.Conn, x *GoSNMP) *GoSNMP {
+func newEngineClientFrom(tb testing.TB, tr *engineTranscript, conn net.Conn, x *Client) *Client {
 	tb.Helper()
 	if err := x.prepare(); err != nil {
 		tb.Fatal(err)
@@ -362,11 +362,11 @@ func newEngineClientFrom(tb testing.TB, tr *engineTranscript, conn net.Conn, x *
 	x.SetRequestID(1000)
 	x.SetMsgID(2000)
 	if tr != nil {
-		x.PreSend = func(*GoSNMP) { tr.addf("hook PreSend") }
-		x.OnSent = func(*GoSNMP) { tr.addf("hook OnSent") }
-		x.OnRecv = func(*GoSNMP) { tr.addf("hook OnRecv") }
-		x.OnRetry = func(*GoSNMP) { tr.addf("hook OnRetry") }
-		x.OnFinish = func(*GoSNMP) { tr.addf("hook OnFinish") }
+		x.PreSend = func(*Client) { tr.addf("hook PreSend") }
+		x.OnSent = func(*Client) { tr.addf("hook OnSent") }
+		x.OnRecv = func(*Client) { tr.addf("hook OnRecv") }
+		x.OnRetry = func(*Client) { tr.addf("hook OnRetry") }
+		x.OnFinish = func(*Client) { tr.addf("hook OnFinish") }
 	}
 	return x
 }
@@ -375,7 +375,7 @@ func newEngineClientFrom(tb testing.TB, tr *engineTranscript, conn net.Conn, x *
 // exported fields, but for the hooks (user code), Conn (the
 // connection) and the SNMPv3 engine state the client learns
 // (SecurityParameters, ContextEngineID).
-func configOf(x *GoSNMP) map[string]any {
+func configOf(x *Client) map[string]any {
 	v := reflect.ValueOf(x).Elem()
 	cfg := make(map[string]any)
 	for i := range v.NumField() {
@@ -396,7 +396,7 @@ func configOf(x *GoSNMP) map[string]any {
 // addConfigChanges records the configuration fields whose values changed
 // from before to the client's current ones: a test's hooks may change them,
 // the library may not.
-func (tr *engineTranscript) addConfigChanges(before map[string]any, x *GoSNMP) {
+func (tr *engineTranscript) addConfigChanges(before map[string]any, x *Client) {
 	after := configOf(x)
 	var changed []string
 	for _, name := range slices.Sorted(maps.Keys(before)) {
@@ -410,8 +410,8 @@ func (tr *engineTranscript) addConfigChanges(before map[string]any, x *GoSNMP) {
 }
 
 // decodeMessage decodes a v1/v2c message, as an agent reads a request.
-func decodeMessage(b []byte) (*SnmpPacket, error) {
-	p := new(SnmpPacket)
+func decodeMessage(b []byte) (*Message, error) {
+	p := new(Message)
 	cursor, _, err := unmarshalHeader(b, p)
 	if err != nil {
 		return nil, err
@@ -438,10 +438,10 @@ func describeMessage(b []byte) string {
 	switch {
 	case p.PDUType == GetBulkRequest:
 		fmt.Fprintf(&sb, " nonRepeaters=%d maxRepetitions=%d", p.NonRepeaters, p.MaxRepetitions)
-	case p.Error != NoError || p.ErrorIndex != 0:
-		fmt.Fprintf(&sb, " error=%v index=%d", p.Error, p.ErrorIndex)
+	case p.ErrorStatus != NoError || p.ErrorIndex != 0:
+		fmt.Fprintf(&sb, " error=%v index=%d", p.ErrorStatus, p.ErrorIndex)
 	}
-	fmt.Fprintf(&sb, " %s", describeVarbinds(p.Variables))
+	fmt.Fprintf(&sb, " %s", describeVarbinds(p.VarBinds))
 	return sb.String()
 }
 
@@ -463,7 +463,7 @@ func describeV3Message(b []byte) string {
 	return "3 " + describeAgentRequest(req)
 }
 
-func describeVarbinds(vbs []SnmpPDU) string {
+func describeVarbinds(vbs []VarBind) string {
 	parts := make([]string, 0, len(vbs))
 	for _, vb := range vbs {
 		if vb.Type == Null {
@@ -482,20 +482,20 @@ func describeVarbinds(vbs []SnmpPDU) string {
 	return "[" + strings.Join(parts, " ") + "]"
 }
 
-// replyTo encodes the answer of an agent to req: a GetResponse with req's
+// replyTo encodes the answer of an agent to req: a Response with req's
 // version, community and request ID carrying vbs, changed by edit when it is
 // not nil.
-func replyTo(req []byte, edit func(*SnmpPacket), vbs ...SnmpPDU) []byte {
+func replyTo(req []byte, edit func(*Message), vbs ...VarBind) []byte {
 	in, err := decodeMessage(req)
 	if err != nil {
 		panic(fmt.Sprintf("agent cannot decode the request: %v", err))
 	}
-	out := &SnmpPacket{
+	out := &Message{
 		Version:   in.Version,
 		Community: in.Community,
-		PDUType:   GetResponse,
+		PDUType:   Response,
 		RequestID: in.RequestID,
-		Variables: vbs,
+		VarBinds:  vbs,
 	}
 	if edit != nil {
 		edit(out)
@@ -566,12 +566,12 @@ func describeEngineError(err error) string {
 }
 
 // describeEngineResult describes what a request returned.
-func describeEngineResult(p *SnmpPacket, err error) string {
+func describeEngineResult(p *Message, err error) string {
 	var sb strings.Builder
 	switch {
 	case p == nil:
 		sb.WriteString("packet nil")
-	case p.PDUType == 0 && p.Version == 0 && len(p.Variables) == 0:
+	case p.PDUType == 0 && p.Version == 0 && len(p.VarBinds) == 0:
 		sb.WriteString("packet empty")
 	case p.Version == Version3:
 		fmt.Fprintf(&sb, "packet 3 msgID=%d %s %v id=%d context=%q/%q", p.MsgID, describeFlags(p.MsgFlags), p.PDUType,
@@ -580,16 +580,16 @@ func describeEngineResult(p *SnmpPacket, err error) string {
 			fmt.Fprintf(&sb, " usm=%q/%q/%d/%d", usp.UserName, usp.AuthoritativeEngineID, usp.AuthoritativeEngineBoots,
 				usp.AuthoritativeEngineTime)
 		}
-		if p.Error != NoError || p.ErrorIndex != 0 {
-			fmt.Fprintf(&sb, " error=%v index=%d", p.Error, p.ErrorIndex)
+		if p.ErrorStatus != NoError || p.ErrorIndex != 0 {
+			fmt.Fprintf(&sb, " error=%v index=%d", p.ErrorStatus, p.ErrorIndex)
 		}
-		fmt.Fprintf(&sb, " %s", describeVarbinds(p.Variables))
+		fmt.Fprintf(&sb, " %s", describeVarbinds(p.VarBinds))
 	default:
 		fmt.Fprintf(&sb, "packet %v %q %v id=%d", p.Version, p.Community, p.PDUType, p.RequestID)
-		if p.Error != NoError || p.ErrorIndex != 0 {
-			fmt.Fprintf(&sb, " error=%v index=%d", p.Error, p.ErrorIndex)
+		if p.ErrorStatus != NoError || p.ErrorIndex != 0 {
+			fmt.Fprintf(&sb, " error=%v index=%d", p.ErrorStatus, p.ErrorIndex)
 		}
-		fmt.Fprintf(&sb, " %s", describeVarbinds(p.Variables))
+		fmt.Fprintf(&sb, " %s", describeVarbinds(p.VarBinds))
 	}
 	if err == nil {
 		sb.WriteString(", no error")

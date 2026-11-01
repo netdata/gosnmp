@@ -30,8 +30,8 @@ func TestHandlerMaxRepetitions(t *testing.T) {
 func TestNewHandler(t *testing.T) {
 	h, ok := NewHandler().(*snmpHandler)
 	require.True(t, ok)
-	want := &GoSNMP{Port: 161, Community: "public", Version: Version2c, Timeout: 2 * time.Second, Retries: 3, MaxOids: MaxOids}
-	assert.Equal(t, want, &h.GoSNMP)
+	want := &Client{Port: 161, Community: "public", Version: Version2c, Timeout: 2 * time.Second, Retries: 3, MaxOids: MaxOids}
+	assert.Equal(t, want, &h.Client)
 }
 
 // TestWalkRequestChecks pins the checks a walk makes before its first
@@ -40,7 +40,7 @@ func TestNewHandler(t *testing.T) {
 // carries.
 func TestWalkRequestChecks(t *testing.T) {
 	tests := map[string]struct {
-		version SnmpVersion
+		version Version
 		bulk    bool
 		root    string
 		wantErr string
@@ -54,7 +54,7 @@ func TestWalkRequestChecks(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			x := &GoSNMP{Version: tc.version}
+			x := &Client{Version: tc.version}
 			walk := x.WalkAll
 			if tc.bulk {
 				walk = x.BulkWalkAll
@@ -66,37 +66,37 @@ func TestWalkRequestChecks(t *testing.T) {
 	}
 }
 
-// TestSnmpEncodePacketErrors pins that SnmpEncodePacket returns an empty,
+// TestEncodeMessageErrors pins that EncodeMessage returns an empty,
 // non-nil message with each of its errors.
-func TestSnmpEncodePacketErrors(t *testing.T) {
+func TestEncodeMessageErrors(t *testing.T) {
 	tests := map[string]struct {
-		x       *GoSNMP
-		pdus    []SnmpPDU
+		x       *Client
+		pdus    []VarBind
 		wantErr string
 	}{
 		"invalid parameters": {
-			x: &GoSNMP{Version: Version2c, MaxOids: -1}, wantErr: "field MaxOids cannot be less than 0",
+			x: &Client{Version: Version2c, MaxOids: -1}, wantErr: "field MaxOids cannot be less than 0",
 		},
 		"unencodable varbind": {
-			x:       &GoSNMP{Version: Version2c, Community: "public"},
-			pdus:    []SnmpPDU{{Name: "not an oid", Type: Null}},
+			x:       &Client{Version: Version2c, Community: "public"},
+			pdus:    []VarBind{{Name: "not an oid", Type: Null}},
 			wantErr: "invalid object identifier",
 		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			out, err := tc.x.SnmpEncodePacket(GetRequest, tc.pdus, 0, 0)
+			out, err := tc.x.EncodeMessage(GetRequest, tc.pdus, 0, 0)
 			assert.ErrorContains(t, err, tc.wantErr)
 			assert.Equal(t, []byte{}, out)
 		})
 	}
 }
 
-// TestSnmpEncodePacketEmptyKey checks that SnmpEncodePacket does not sign an
+// TestEncodeMessageEmptyKey checks that EncodeMessage does not sign an
 // authenticated SNMPv3 message without a key: it derives none, and the signer
 // refuses the empty key with the rule's error and an empty message.
-func TestSnmpEncodePacketEmptyKey(t *testing.T) {
-	x := &GoSNMP{
+func TestEncodeMessageEmptyKey(t *testing.T) {
+	x := &Client{
 		Version:       Version3,
 		MsgFlags:      AuthNoPriv,
 		SecurityModel: UserSecurityModel,
@@ -107,7 +107,7 @@ func TestSnmpEncodePacketEmptyKey(t *testing.T) {
 			AuthenticationPassphrase: "codec-auth-pass",
 		},
 	}
-	out, err := x.SnmpEncodePacket(GetRequest, []SnmpPDU{{Name: engineOID, Type: Null}}, 0, 0)
+	out, err := x.EncodeMessage(GetRequest, []VarBind{{Name: engineOID, Type: Null}}, 0, 0)
 	require.EqualError(t, err, "usm: no authentication key, want 20 octets")
 	assert.Equal(t, []byte{}, out)
 	assert.Empty(t, x.SecurityParameters.usm().SecretKey, "key derived")
@@ -118,8 +118,8 @@ func TestSnmpEncodePacketEmptyKey(t *testing.T) {
 // SetRequestID or SetMsgID set it, counts up and wraps to 0 after 2147483647,
 // and Connect leaves both as they are.
 func TestRequestAndMsgIDs(t *testing.T) {
-	newClient := func() *GoSNMP {
-		return &GoSNMP{
+	newClient := func() *Client {
+		return &Client{
 			Target:             "127.0.0.1",
 			Port:               unusedUDPPort(t),
 			Version:            Version3,
@@ -128,15 +128,15 @@ func TestRequestAndMsgIDs(t *testing.T) {
 			SecurityParameters: &UsmSecurityParameters{UserName: "codec-user"},
 		}
 	}
-	ids := func(x *GoSNMP) [2]uint32 {
+	ids := func(x *Client) [2]uint32 {
 		t.Helper()
-		data, err := x.SnmpEncodePacket(GetRequest, []SnmpPDU{{Name: engineOID, Type: Null}}, 0, 0)
+		data, err := x.EncodeMessage(GetRequest, []VarBind{{Name: engineOID, Type: Null}}, 0, 0)
 		require.NoError(t, err)
-		p, err := x.SnmpDecodePacket(data)
+		p, err := x.DecodeMessage(data)
 		require.NoError(t, err)
 		return [2]uint32{p.RequestID, p.MsgID}
 	}
-	connect := func(x *GoSNMP) {
+	connect := func(x *Client) {
 		t.Helper()
 		require.NoError(t, x.Connect())
 		conn := x.Conn

@@ -22,16 +22,16 @@ import (
 // repeater reached endOfMibView, as RFC 3416 section 4.2.3 allows.
 type mibAgent struct {
 	tr  *engineTranscript
-	mib []SnmpPDU
+	mib []VarBind
 
 	// script, when set, changes the answer to the n-th request (counted
 	// from 1); drop true leaves the request unanswered.
-	script func(n int, req, out *SnmpPacket) (drop bool)
+	script func(n int, req, out *Message) (drop bool)
 }
 
 // walkMIB is the MIB of the walk tests: the system group, an interface table
 // column and one object after them.
-var walkMIB = []SnmpPDU{
+var walkMIB = []VarBind{
 	{Name: ".1.3.6.1.2.1.1.1.0", Type: OctetString, Value: []byte("codec agent")},
 	{Name: ".1.3.6.1.2.1.1.3.0", Type: TimeTicks, Value: uint32(4200)},
 	{Name: ".1.3.6.1.2.1.1.5.0", Type: OctetString, Value: []byte("codec-host")},
@@ -66,50 +66,50 @@ func (a *mibAgent) handle(n int, data []byte) []agentReply {
 }
 
 // answer is the agent's answer to req.
-func (a *mibAgent) answer(req *SnmpPacket) *SnmpPacket {
-	out := &SnmpPacket{
+func (a *mibAgent) answer(req *Message) *Message {
+	out := &Message{
 		Version:   req.Version,
 		Community: req.Community,
-		PDUType:   GetResponse,
+		PDUType:   Response,
 		RequestID: req.RequestID,
 	}
 	v1 := req.Version == Version1
-	for i, vb := range req.Variables {
-		var got []SnmpPDU
+	for i, vb := range req.VarBinds {
+		var got []VarBind
 		switch req.PDUType {
 		case GetRequest:
-			got = []SnmpPDU{a.get(vb.Name)}
+			got = []VarBind{a.get(vb.Name)}
 		case GetNextRequest:
-			got = []SnmpPDU{a.next(vb.Name)}
+			got = []VarBind{a.next(vb.Name)}
 		case GetBulkRequest:
 			if i < int(req.NonRepeaters) {
-				got = []SnmpPDU{a.next(vb.Name)}
+				got = []VarBind{a.next(vb.Name)}
 			}
 		default:
 			panic(fmt.Sprintf("agent cannot answer %v", req.PDUType))
 		}
 		if v1 && len(got) == 1 && got[0].Type >= NoSuchObject {
-			out.Error, out.ErrorIndex = NoSuchName, uint8(i+1) //nolint:gosec // a test request
-			out.Variables = req.Variables
+			out.ErrorStatus, out.ErrorIndex = NoSuchName, uint8(i+1) //nolint:gosec // a test request
+			out.VarBinds = req.VarBinds
 			return out
 		}
-		out.Variables = append(out.Variables, got...)
+		out.VarBinds = append(out.VarBinds, got...)
 	}
 	if req.PDUType == GetBulkRequest {
-		out.Variables = append(out.Variables, a.repeat(req)...)
+		out.VarBinds = append(out.VarBinds, a.repeat(req)...)
 	}
 	return out
 }
 
 // repeat is the repeated part of a GetBulk answer.
-func (a *mibAgent) repeat(req *SnmpPacket) []SnmpPDU {
-	last := make([]string, 0, len(req.Variables))
-	for i, vb := range req.Variables {
+func (a *mibAgent) repeat(req *Message) []VarBind {
+	last := make([]string, 0, len(req.VarBinds))
+	for i, vb := range req.VarBinds {
 		if i >= int(req.NonRepeaters) {
 			last = append(last, vb.Name)
 		}
 	}
-	var vbs []SnmpPDU
+	var vbs []VarBind
 	for range req.MaxRepetitions {
 		ended := 0
 		for i, name := range last {
@@ -128,7 +128,7 @@ func (a *mibAgent) repeat(req *SnmpPacket) []SnmpPDU {
 }
 
 // get is the value of name, or the exception for it.
-func (a *mibAgent) get(name string) SnmpPDU {
+func (a *mibAgent) get(name string) VarBind {
 	for _, vb := range a.mib {
 		if vb.Name == name {
 			return vb
@@ -137,20 +137,20 @@ func (a *mibAgent) get(name string) SnmpPDU {
 	parent := name[:max(strings.LastIndexByte(name, '.'), 0)]
 	for _, vb := range a.mib {
 		if strings.HasPrefix(vb.Name, parent+".") {
-			return SnmpPDU{Name: name, Type: NoSuchInstance}
+			return VarBind{Name: name, Type: NoSuchInstance}
 		}
 	}
-	return SnmpPDU{Name: name, Type: NoSuchObject}
+	return VarBind{Name: name, Type: NoSuchObject}
 }
 
 // next is the first object after name, or endOfMibView.
-func (a *mibAgent) next(name string) SnmpPDU {
+func (a *mibAgent) next(name string) VarBind {
 	for _, vb := range a.mib {
 		if oidCompare(vb.Name, name) > 0 {
 			return vb
 		}
 	}
-	return SnmpPDU{Name: name, Type: EndOfMibView}
+	return VarBind{Name: name, Type: EndOfMibView}
 }
 
 // walkScenario is one walk run against a mibAgent.
@@ -158,17 +158,17 @@ type walkScenario struct {
 	v1     bool
 	bulk   bool   // BulkWalkAll instead of WalkAll
 	root   string // the walk's root OID
-	setup  func(x *GoSNMP)
-	script func(n int, req, out *SnmpPacket) bool
+	setup  func(x *Client)
+	script func(n int, req, out *Message) bool
 	// onFinish, when set, is the OnFinish hook, run after each of the
 	// walk's requests: user code that changes the client during the walk.
-	onFinish func(x *GoSNMP, tr *engineTranscript)
+	onFinish func(x *Client, tr *engineTranscript)
 	knownBug string
 }
 
 // onWalkRequest changes the answer to request n only.
-func onWalkRequest(n int, edit func(req, out *SnmpPacket)) func(int, *SnmpPacket, *SnmpPacket) bool {
-	return func(k int, req, out *SnmpPacket) bool {
+func onWalkRequest(n int, edit func(req, out *Message)) func(int, *Message, *Message) bool {
+	return func(k int, req, out *Message) bool {
 		if k == n {
 			edit(req, out)
 		}
@@ -178,20 +178,20 @@ func onWalkRequest(n int, edit func(req, out *SnmpPacket)) func(int, *SnmpPacket
 
 // errorStatus answers with status and the request's varbinds, as an agent
 // reports an error.
-func errorStatus(status SNMPError) func(req, out *SnmpPacket) {
-	return func(req, out *SnmpPacket) {
-		out.Error, out.ErrorIndex, out.Variables = status, 1, req.Variables
+func errorStatus(status ErrorStatus) func(req, out *Message) {
+	return func(req, out *Message) {
+		out.ErrorStatus, out.ErrorIndex, out.VarBinds = status, 1, req.VarBinds
 	}
 }
 
 // varbinds answers with vbs.
-func varbinds(vbs ...SnmpPDU) func(req, out *SnmpPacket) {
-	return func(_, out *SnmpPacket) { out.Variables = vbs }
+func varbinds(vbs ...VarBind) func(req, out *Message) {
+	return func(_, out *Message) { out.VarBinds = vbs }
 }
 
 // walkScenarios are the scenarios of TestEngineWalkCharacterization.
 func walkScenarios() map[string]walkScenario {
-	ifDescr := func(i int) SnmpPDU { return walkMIB[3+i] }
+	ifDescr := func(i int) VarBind { return walkMIB[3+i] }
 	scenarios := map[string]walkScenario{
 		"subtree":               {root: walkSystem},
 		"subtree/bulk":          {root: walkSystem, bulk: true},
@@ -208,8 +208,8 @@ func walkScenarios() map[string]walkScenario {
 		"root-past-mib/v1":      {root: ".1.3.6.1.4.1.99.2", v1: true},
 		"empty-subtree":         {root: ".1.3.6.1.2.1.1.4"},
 		"empty-subtree/bulk":    {root: ".1.3.6.1.2.1.1.4", bulk: true},
-		"max-repetitions/two":   {root: walkIfDescr, bulk: true, setup: func(x *GoSNMP) { x.MaxRepetitions = 2 }},
-		"max-repetitions/one":   {root: walkSystem, bulk: true, setup: func(x *GoSNMP) { x.MaxRepetitions = 1 }},
+		"max-repetitions/two":   {root: walkIfDescr, bulk: true, setup: func(x *Client) { x.MaxRepetitions = 2 }},
+		"max-repetitions/one":   {root: walkSystem, bulk: true, setup: func(x *Client) { x.MaxRepetitions = 1 }},
 		"v1-bulk":               {root: walkSystem, bulk: true, v1: true},
 		// A root the codec cannot encode fails the walk before any request,
 		// naming the root as given.
@@ -231,18 +231,18 @@ func walkScenarios() map[string]walkScenario {
 		// An agent echoing the root as the first answer: the root is in the
 		// subtree and not after the requested name.
 		"leaf/root-echo": {
-			root: walkSystem, script: onWalkRequest(1, varbinds(SnmpPDU{Name: walkSystem, Type: Integer, Value: 1})),
+			root: walkSystem, script: onWalkRequest(1, varbinds(VarBind{Name: walkSystem, Type: Integer, Value: 1})),
 		},
 		// The leaf's Get answered with a name under the root: one Get, nothing
 		// passed on.
 		"leaf/get-answer-in-subtree": {
 			root:   ".1.3.6.1.2.1.1.5.0",
-			script: onWalkRequest(2, varbinds(SnmpPDU{Name: ".1.3.6.1.2.1.1.5.0.1", Type: OctetString, Value: []byte("inside")})),
+			script: onWalkRequest(2, varbinds(VarBind{Name: ".1.3.6.1.2.1.1.5.0.1", Type: OctetString, Value: []byte("inside")})),
 		},
 		// The leaf's Get unanswered: the walk returns the request's error.
 		"leaf/get-error": {
 			root:   ".1.3.6.1.2.1.1.5.0",
-			script: func(n int, _, _ *SnmpPacket) bool { return n >= 2 },
+			script: func(n int, _, _ *Message) bool { return n >= 2 },
 		},
 		// The leaf's Get answered with an error status: nothing passed on.
 		"leaf/get-error-status": {
@@ -252,8 +252,8 @@ func walkScenarios() map[string]walkScenario {
 		// The leaf's Get answered with a status no RFC names.
 		"leaf/get-unknown-status": {
 			root: ".1.3.6.1.2.1.1.5.0",
-			script: onWalkRequest(2, func(_, out *SnmpPacket) {
-				out.Error = InconsistentName + 1
+			script: onWalkRequest(2, func(_, out *Message) {
+				out.ErrorStatus = InconsistentName + 1
 			}),
 			knownBug: "an error status the walk does not name is ignored and the root's value passed on",
 		},
@@ -285,51 +285,51 @@ func walkScenarios() map[string]walkScenario {
 			root: walkIfDescr, bulk: true, script: onWalkRequest(1, varbinds(ifDescr(1), ifDescr(0), ifDescr(2))),
 		},
 		"exception/no-such-object": {
-			root: walkSystem, script: onWalkRequest(2, varbinds(SnmpPDU{Name: walkMIB[1].Name, Type: NoSuchObject})),
+			root: walkSystem, script: onWalkRequest(2, varbinds(VarBind{Name: walkMIB[1].Name, Type: NoSuchObject})),
 		},
 		"exception/no-such-instance-bulk": {
 			root: walkSystem, bulk: true,
-			script: onWalkRequest(1, varbinds(walkMIB[0], SnmpPDU{Name: walkMIB[1].Name, Type: NoSuchInstance}, walkMIB[2])),
+			script: onWalkRequest(1, varbinds(walkMIB[0], VarBind{Name: walkMIB[1].Name, Type: NoSuchInstance}, walkMIB[2])),
 		},
 		// An exception value outside the subtree as the walk's first value:
 		// the subtree is checked first, as in net-snmp, so the walk gets the
 		// root.
 		"exception/outside-first-value": {
 			root:   ".1.3.6.1.2.1.1.5.0",
-			script: onWalkRequest(1, varbinds(SnmpPDU{Name: ifDescr(0).Name, Type: NoSuchObject})),
+			script: onWalkRequest(1, varbinds(VarBind{Name: ifDescr(0).Name, Type: NoSuchObject})),
 		},
 		// A name equal to the root lies in the subtree and fails the
 		// increasing check.
 		"root-in-bulk-response": {
 			root: walkSystem, bulk: true,
-			script: onWalkRequest(1, varbinds(walkMIB[0], SnmpPDU{Name: walkSystem, Type: Integer, Value: 1}, walkMIB[1])),
+			script: onWalkRequest(1, varbinds(walkMIB[0], VarBind{Name: walkSystem, Type: Integer, Value: 1}, walkMIB[1])),
 		},
 		"root-in-response": {
 			root:   walkSystem,
-			script: onWalkRequest(2, varbinds(SnmpPDU{Name: walkSystem, Type: Integer, Value: 1})),
+			script: onWalkRequest(2, varbinds(VarBind{Name: walkSystem, Type: Integer, Value: 1})),
 		},
 		// A name before the root lies outside the subtree.
 		"below-root/first-value": {root: walkIfDescr, script: onWalkRequest(1, varbinds(walkMIB[0]))},
 		"below-root/later":       {root: walkIfDescr, script: onWalkRequest(2, varbinds(walkMIB[0]))},
 		"request-error": {
 			root:   walkSystem,
-			script: func(n int, _, _ *SnmpPacket) bool { return n > 2 },
+			script: func(n int, _, _ *Message) bool { return n > 2 },
 		},
 		"request-error/bulk": {
-			root: walkIfDescr, bulk: true, setup: func(x *GoSNMP) { x.MaxRepetitions = 1 },
-			script: func(n int, _, _ *SnmpPacket) bool { return n > 2 },
+			root: walkIfDescr, bulk: true, setup: func(x *Client) { x.MaxRepetitions = 1 },
+			script: func(n int, _, _ *Message) bool { return n > 2 },
 		},
 		// A name that extends the root's last arc lies outside the subtree.
 		"sibling-arc": {
 			root:   walkIfDescr,
-			script: onWalkRequest(4, varbinds(SnmpPDU{Name: walkIfDescr + "0.1", Type: OctetString, Value: []byte("sibling")})),
+			script: onWalkRequest(4, varbinds(VarBind{Name: walkIfDescr + "0.1", Type: OctetString, Value: []byte("sibling")})),
 		},
 
 		// User code changing the client during a walk: the walk keeps the
 		// max-repetitions it started with.
 		"user-code/hook-sets-max-repetitions": {
-			root: walkIfDescr, bulk: true, setup: func(x *GoSNMP) { x.MaxRepetitions = 1 },
-			onFinish: func(x *GoSNMP, tr *engineTranscript) {
+			root: walkIfDescr, bulk: true, setup: func(x *Client) { x.MaxRepetitions = 1 },
+			onFinish: func(x *Client, tr *engineTranscript) {
 				tr.addf("hook OnFinish sets MaxRepetitions to 2")
 				x.MaxRepetitions = 2
 			},
@@ -337,8 +337,8 @@ func walkScenarios() map[string]walkScenario {
 		// A change of version applies from the walk's next request: GETBULK
 		// on SNMPv1 is refused, and the walk returns the values so far.
 		"user-code/hook-sets-version-1": {
-			root: walkIfDescr, bulk: true, setup: func(x *GoSNMP) { x.MaxRepetitions = 1 },
-			onFinish: func(x *GoSNMP, tr *engineTranscript) {
+			root: walkIfDescr, bulk: true, setup: func(x *Client) { x.MaxRepetitions = 1 },
+			onFinish: func(x *Client, tr *engineTranscript) {
 				tr.addf("hook OnFinish sets Version to 1")
 				x.Version = Version1
 			},
@@ -346,7 +346,7 @@ func walkScenarios() map[string]walkScenario {
 		// The walk's later GetNext requests are SNMPv1 requests.
 		"user-code/hook-sets-version-1/getnext": {
 			root: walkIfDescr,
-			onFinish: func(x *GoSNMP, tr *engineTranscript) {
+			onFinish: func(x *Client, tr *engineTranscript) {
 				tr.addf("hook OnFinish sets Version to 1")
 				x.Version = Version1
 			},
@@ -355,7 +355,7 @@ func walkScenarios() map[string]walkScenario {
 		// next one, and the walk returns the values so far.
 		"user-code/hook-sets-max-oids-0": {
 			root: walkIfDescr,
-			onFinish: func(x *GoSNMP, tr *engineTranscript) {
+			onFinish: func(x *Client, tr *engineTranscript) {
 				tr.addf("hook OnFinish sets MaxOids to 0")
 				x.MaxOids = 0
 			},
@@ -377,8 +377,8 @@ func walkScenarios() map[string]walkScenario {
 	}
 	scenarios["error-status/19-unknown-empty"] = walkScenario{
 		root: walkSystem,
-		script: onWalkRequest(2, func(_, out *SnmpPacket) {
-			out.Error, out.ErrorIndex, out.Variables = InconsistentName+1, 0, nil
+		script: onWalkRequest(2, func(_, out *Message) {
+			out.ErrorStatus, out.ErrorIndex, out.VarBinds = InconsistentName+1, 0, nil
 		}),
 		knownBug: "an empty response ends the walk with a nil error",
 	}
@@ -393,8 +393,8 @@ func walkScenarios() map[string]walkScenario {
 	}
 	scenarios["error-status/no-such-name-empty-first"] = walkScenario{
 		root: ".1.3.6.1.2.1.1.5.0",
-		script: onWalkRequest(1, func(_, out *SnmpPacket) {
-			out.Error, out.ErrorIndex, out.Variables = NoSuchName, 0, nil
+		script: onWalkRequest(1, func(_, out *Message) {
+			out.ErrorStatus, out.ErrorIndex, out.VarBinds = NoSuchName, 0, nil
 		}),
 	}
 	return scenarios
@@ -437,8 +437,8 @@ func TestEngineWalkRootSpellings(t *testing.T) {
 	cases := []struct {
 		name    string
 		root    string
-		version SnmpVersion
-		want    []SnmpPDU
+		version Version
+		want    []VarBind
 		gets    int
 		equal   bool // answer the first request with the root itself
 	}{
@@ -458,17 +458,17 @@ func TestEngineWalkRootSpellings(t *testing.T) {
 				t.Run(api+"/"+tc.name+"/"+spelling.name, func(t *testing.T) {
 					synctest.Test(t, func(t *testing.T) {
 						gets := 0
-						agent := &mibAgent{mib: walkMIB, script: func(n int, req, out *SnmpPacket) bool {
+						agent := &mibAgent{mib: walkMIB, script: func(n int, req, out *Message) bool {
 							if n == 1 || req.PDUType == GetRequest {
-								if len(req.Variables) != 1 || req.Variables[0].Name != tc.root {
-									t.Fatalf("request root = %v, want %q", req.Variables, tc.root)
+								if len(req.VarBinds) != 1 || req.VarBinds[0].Name != tc.root {
+									t.Fatalf("request root = %v, want %q", req.VarBinds, tc.root)
 								}
 							}
 							if req.PDUType == GetRequest {
 								gets++
 							}
 							if tc.equal && n == 1 {
-								out.Variables = []SnmpPDU{{Name: tc.root, Type: Integer, Value: 1}}
+								out.VarBinds = []VarBind{{Name: tc.root, Type: Integer, Value: 1}}
 							}
 							return false
 						}}
@@ -514,7 +514,7 @@ func runWalkScenario(t *testing.T, sc walkScenario) string {
 		sc.setup(x)
 	}
 	if sc.onFinish != nil {
-		x.OnFinish = func(x *GoSNMP) { sc.onFinish(x, tr) }
+		x.OnFinish = func(x *Client) { sc.onFinish(x, tr) }
 	}
 
 	tr.addf("client: %v root=%q bulk=%t max-repetitions=%d", x.Version, sc.root, sc.bulk, x.MaxRepetitions)
@@ -524,7 +524,7 @@ func runWalkScenario(t *testing.T, sc walkScenario) string {
 	}
 	var err error
 	run := func() {
-		var vbs []SnmpPDU
+		var vbs []VarBind
 		vbs, err = walk(sc.root)
 		tr.addf("values: %s", describeVarbinds(vbs))
 	}
@@ -545,15 +545,15 @@ func runWalkScenario(t *testing.T, sc walkScenario) string {
 // collector does, over a 100-row table column on the in-memory agent.
 func BenchmarkWalk(b *testing.B) {
 	const root = ".1.3.6.1.4.1.99999.1.1.1.1.2.3.4"
-	mib := make([]SnmpPDU, 0, 101)
+	mib := make([]VarBind, 0, 101)
 	for i := range 100 {
-		mib = append(mib, SnmpPDU{Name: fmt.Sprintf("%s.%d", root, i+1), Type: Counter64, Value: uint64(i)})
+		mib = append(mib, VarBind{Name: fmt.Sprintf("%s.%d", root, i+1), Type: Counter64, Value: uint64(i)})
 	}
-	mib = append(mib, SnmpPDU{Name: ".1.3.6.1.4.1.99999.1.1.1.1.2.3.5.1", Type: Integer, Value: 1})
+	mib = append(mib, VarBind{Name: ".1.3.6.1.4.1.99999.1.1.1.1.2.3.5.1", Type: Integer, Value: 1})
 
-	for name, walkAll := range map[string]func(x *GoSNMP) ([]SnmpPDU, error){
-		"WalkAll":     func(x *GoSNMP) ([]SnmpPDU, error) { return x.WalkAll(root) },
-		"BulkWalkAll": func(x *GoSNMP) ([]SnmpPDU, error) { return x.BulkWalkAll(root) },
+	for name, walkAll := range map[string]func(x *Client) ([]VarBind, error){
+		"WalkAll":     func(x *Client) ([]VarBind, error) { return x.WalkAll(root) },
+		"BulkWalkAll": func(x *Client) ([]VarBind, error) { return x.BulkWalkAll(root) },
 	} {
 		b.Run(name, func(b *testing.B) {
 			agent := &mibAgent{mib: mib}

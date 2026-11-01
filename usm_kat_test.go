@@ -20,7 +20,7 @@ func TestUSMKeysRFC3414(t *testing.T) {
 	engineID := string([]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2})
 
 	tests := map[string]struct {
-		auth SnmpV3AuthProtocol
+		auth AuthProtocol
 		want string
 	}{
 		"MD5": {auth: MD5, want: "526f5eed9fcce26f8964c2930787d82b"},

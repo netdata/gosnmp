@@ -63,10 +63,10 @@ func encodeTimely(t *testing.T, engineID string, m timelyMessage) []byte {
 	if m.flipped {
 		flags ^= Reportable
 	}
-	data, err := (&SnmpPacket{
+	data, err := (&Message{
 		Version: Version3, MsgFlags: flags, SecurityModel: UserSecurityModel, SecurityParameters: sp,
-		PDUType: pdu, RequestID: 1, Variables: usmPlainVars,
-	}).MarshalMsg()
+		PDUType: pdu, RequestID: 1, VarBinds: usmPlainVars,
+	}).Encode()
 	require.NoError(t, err)
 	if m.flipped || m.boots != sp.AuthoritativeEngineBoots || m.time != sp.AuthoritativeEngineTime {
 		data = rewireV3(t, data, sp, flags, m.boots, m.time)
@@ -99,17 +99,17 @@ func rewireV3(t *testing.T, data []byte, sp *UsmSecurityParameters, flags SnmpV3
 // with the three users of encodeTimely, and a single user, codec-user.
 var timelyReceivers = []struct {
 	name     string
-	receiver func(t *testing.T) *GoSNMP
+	receiver func(t *testing.T) *Client
 	users    []string // the users the receiver knows
 }{
-	{"table", func(t *testing.T) *GoSNMP {
+	{"table", func(t *testing.T) *Client {
 		tb := NewSnmpV3SecurityParametersTable()
 		require.NoError(t, tb.Add("codec-user", usmDecoder(SHA, "codec-auth-pass", AES, "codec-priv-pass")().SecurityParameters))
 		require.NoError(t, tb.Add("other-user", usmDecoder(SHA, "other-auth-pass", AES, "other-priv-pass")().SecurityParameters))
 		require.NoError(t, tb.Add("plain-user", &UsmSecurityParameters{UserName: "plain-user"}))
-		return &GoSNMP{Version: Version3, TrapSecurityParametersTable: tb}
+		return &Client{Version: Version3, TrapSecurityParametersTable: tb}
 	}, []string{"", "codec-user", "other-user", "plain-user"}},
-	{"single", func(*testing.T) *GoSNMP {
+	{"single", func(*testing.T) *Client {
 		x := usmDecoder(SHA, "codec-auth-pass", AES, "codec-priv-pass")()
 		x.Version, x.MsgFlags, x.SecurityModel = Version3, AuthPriv, UserSecurityModel
 		return x
@@ -285,10 +285,10 @@ func TestTrapEncodedReplay(t *testing.T) {
 		t.Run(path, func(t *testing.T) {
 			advance := useEngineTimes(t)
 			sp := signedTestUSM(t, SHA256, AES, usmCharEngineID, "codec-user")
-			sender := &GoSNMP{Version: Version3, MsgFlags: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy()}
-			wire, err := sender.SnmpEncodePacket(SNMPv2Trap, usmPlainVars, 0, 0)
+			sender := &Client{Version: Version3, MsgFlags: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy()}
+			wire, err := sender.EncodeMessage(SNMPv2Trap, usmPlainVars, 0, 0)
 			require.NoError(t, err)
-			receiver := &GoSNMP{Version: Version3, MsgFlags: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy()}
+			receiver := &Client{Version: Version3, MsgFlags: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy()}
 			if path == "table" {
 				receiver.TrapSecurityParametersTable = NewSnmpV3SecurityParametersTable()
 				require.NoError(t, receiver.TrapSecurityParametersTable.Add("codec-user", sp.Copy()))
@@ -308,7 +308,7 @@ func TestTrapEncodedReplay(t *testing.T) {
 func TestPDUTypeConfirmed(t *testing.T) {
 	want := map[PDUType]bool{
 		GetRequest: true, GetNextRequest: true, GetBulkRequest: true, SetRequest: true, InformRequest: true,
-		GetResponse: false, Trap: false, SNMPv2Trap: false, Report: false, ber.Sequence: false,
+		Response: false, Trap: false, SNMPv2Trap: false, Report: false, ber.Sequence: false,
 	}
 	got := make(map[PDUType]bool, len(want))
 	for pdu := range want {
