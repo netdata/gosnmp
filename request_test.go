@@ -23,12 +23,36 @@ func TestHandlerMaxRepetitions(t *testing.T) {
 	assert.Equal(t, uint32(math.MaxInt32), h.MaxRepetitions())
 }
 
-// TestGetBulkChecks pins the order of GetBulk's input checks: the SNMPv1
-// check comes before the MaxOids check.
-func TestGetBulkChecks(t *testing.T) {
-	x := &GoSNMP{Version: Version1, MaxOids: 1}
-	_, err := x.GetBulk([]string{".1.3.6.1.2.1.1.1.0", ".1.3.6.1.2.1.1.3.0"}, 0, 10)
-	assert.EqualError(t, err, "GETBULK not supported in SNMPv1")
+// TestWalkRequestChecks pins the checks a walk makes before its first
+// request, in their order, on a client without Connect (MaxOids zero): the
+// root, then GetBulk on SNMPv1, then MaxOids against the one OID a request
+// carries.
+func TestWalkRequestChecks(t *testing.T) {
+	tests := map[string]struct {
+		version SnmpVersion
+		bulk    bool
+		root    string
+		wantErr string
+	}{
+		"root before SNMPv1": {
+			version: Version1, bulk: true, root: "1.3.6.x", wantErr: `unable to marshal OID "1.3.6.x": invalid object identifier`,
+		},
+		"SNMPv1 before MaxOids": {version: Version1, bulk: true, root: walkSystem, wantErr: "GETBULK not supported in SNMPv1"},
+		"MaxOids, GetNext":      {version: Version2c, root: walkSystem, wantErr: "oid count (1) is greater than MaxOids (0)"},
+		"MaxOids, GetBulk":      {version: Version2c, bulk: true, root: walkSystem, wantErr: "oid count (1) is greater than MaxOids (0)"},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			x := &GoSNMP{Version: tc.version}
+			walk := x.WalkAll
+			if tc.bulk {
+				walk = x.BulkWalkAll
+			}
+			values, err := walk(tc.root)
+			assert.EqualError(t, err, tc.wantErr)
+			assert.Empty(t, values)
+		})
+	}
 }
 
 // TestSnmpEncodePacketErrors pins that SnmpEncodePacket returns an empty,

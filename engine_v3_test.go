@@ -124,6 +124,18 @@ func setEngineOID(x *GoSNMP) (*SnmpPacket, error) {
 	return x.Set([]SnmpPDU{{Name: engineOID, Type: OctetString, Value: "codec"}})
 }
 
+// sendOIDs sends a request of pduType for oids, with maxRepetitions for a
+// GetBulk, as the walks send their GetNext and GetBulk requests.
+func sendOIDs(pduType PDUType, oids []string, maxRepetitions uint32) func(x *GoSNMP) (*SnmpPacket, error) {
+	return func(x *GoSNMP) (*SnmpPacket, error) {
+		packetOut, err := x.oidRequest(pduType, oids, 0, maxRepetitions)
+		if err != nil {
+			return nil, err
+		}
+		return x.send(packetOut)
+	}
+}
+
 // getThrice runs three Gets 10 s apart, applying between to the agent before
 // the second; it records the second Get's result and returns the third's.
 func getThrice(between func(a *fakeV3Agent)) func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
@@ -532,11 +544,11 @@ func v3Scenarios() map[string]v3Scenario {
 		"unauthenticated-report/time-jump/getnext": {user: "codec-md5", run: getThen(func(a *fakeV3Agent) {
 			timeJump(a)
 			unauthenticatedTimeWindow(a, nil)
-		}, func(x *GoSNMP) (*SnmpPacket, error) { return x.GetNext([]string{engineOID}) })},
+		}, sendOIDs(GetNextRequest, []string{engineOID}, 0))},
 		"unauthenticated-report/time-jump/getbulk": {user: "codec-md5", run: getThen(func(a *fakeV3Agent) {
 			timeJump(a)
 			unauthenticatedTimeWindow(a, nil)
-		}, func(x *GoSNMP) (*SnmpPacket, error) { return x.GetBulk([]string{engineOID}, 0, 2) })},
+		}, sendOIDs(GetBulkRequest, []string{engineOID}, 2))},
 		"unauthenticated-report/time-jump/set": {user: "codec-md5", run: getThen(func(a *fakeV3Agent) {
 			timeJump(a)
 			unauthenticatedTimeWindow(a, nil)
