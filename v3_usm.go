@@ -168,15 +168,8 @@ type usmKeys struct {
 // checking the protocols; each protocol needs a key that fits it, so a protocol
 // without a passphrase is the error of its missing key.
 func (u *User) localize(engineID []byte) (usmKeys, error) {
-	if err := u.checkProtocols(); err != nil {
-		return usmKeys{}, err
-	}
-	keys := usmKeys{authProtocol: u.AuthProtocol, privProtocol: u.PrivProtocol}
-	var err error
-	if keys.auth, err = u.authKey(engineID); err != nil {
-		return usmKeys{}, err
-	}
-	if keys.priv, err = u.privKey(engineID); err != nil {
+	keys, err := u.keysAt(AuthPriv, engineID)
+	if err != nil {
 		return usmKeys{}, err
 	}
 	if u.AuthProtocol > NoAuth {
@@ -187,6 +180,30 @@ func (u *User) localize(engineID []byte) (usmKeys, error) {
 	if u.PrivProtocol > NoPriv {
 		if err := u.PrivProtocol.spec().CheckKey(keys.priv); err != nil {
 			return usmKeys{}, fmt.Errorf("usm: %w", err)
+		}
+	}
+	return keys, nil
+}
+
+// keysAt returns the keys of u localized to engineID that a message at level
+// uses, after checking the protocols: the authentication key when the level
+// asks for authentication, the privacy key when it asks for privacy, none
+// without a passphrase. It does not check that a key fits its protocol: the
+// signer and the cipher do.
+func (u *User) keysAt(level SecurityLevel, engineID []byte) (usmKeys, error) {
+	if err := u.checkProtocols(); err != nil {
+		return usmKeys{}, err
+	}
+	keys := usmKeys{authProtocol: u.AuthProtocol, privProtocol: u.PrivProtocol}
+	var err error
+	if level.authFlag() {
+		if keys.auth, err = u.authKey(engineID); err != nil {
+			return usmKeys{}, err
+		}
+	}
+	if level.privFlag() {
+		if keys.priv, err = u.privKey(engineID); err != nil {
+			return usmKeys{}, err
 		}
 	}
 	return keys, nil
