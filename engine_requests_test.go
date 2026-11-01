@@ -652,6 +652,12 @@ func engineScenarios() map[string]engineScenario {
 				return []agentReply{{data: replySized(req, rxBufSize)}}
 			},
 		},
+		// The largest datagram the receive buffer accepts.
+		"answer/largest-udp": {
+			agent: func(_ int, req []byte) []agentReply {
+				return []agentReply{{data: replySized(req, rxBufSize-1)}}
+			},
+		},
 		// A datagram that fills the receive buffer, which may have been cut
 		// short: the attempt fails, and the retry uses the same socket.
 		"answer/too-big-udp": {
@@ -1946,6 +1952,41 @@ func closingAgent(t *testing.T) (port uint16, second <-chan error) {
 type uncomparableConn struct {
 	net.Conn
 	onClose func()
+}
+
+// TestEngineUncomparableConn checks a request over a Conn the caller set, of a
+// type == cannot compare, on a loopback socket, without Connect and in place
+// of the connection Connect opened: the agent answers, and Close returns.
+func TestEngineUncomparableConn(t *testing.T) {
+	for name, connect := range map[string]bool{"without Connect": false, "after Connect": true} {
+		t.Run(name, func(t *testing.T) {
+			port, _ := udpAgent(t, func(_ int, req []byte) []byte { return replyTo(req, nil, sysDescr) })
+			caller, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: int(port)})
+			require.NoError(t, err)
+			defer caller.Close()
+			x := &GoSNMP{
+				Target: "127.0.0.1", Port: port, MaxOids: MaxOids,
+				Community: "public", Version: Version2c, Timeout: 10 * time.Second,
+			}
+			if connect {
+				require.NoError(t, x.Connect())
+				defer x.Conn.Close()
+			}
+			x.Conn = uncomparableConn{Conn: caller, onClose: func() {}}
+
+			res, err := x.Get([]string{engineOID})
+			require.NoError(t, err)
+			assert.Equal(t, []SnmpPDU{sysDescr}, res.Variables)
+			closed := make(chan error, 1)
+			go func() { closed <- x.Close() }()
+			select {
+			case err = <-closed:
+				assert.NoError(t, err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("Close blocks")
+			}
+		})
+	}
 }
 
 // TestEngineTCPReconnectUncomparableConn checks that a request over a Conn the
