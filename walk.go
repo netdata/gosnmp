@@ -18,7 +18,7 @@ import (
 //
 
 // BulkWalkAll walks the subtree under rootOid with GETBULK requests (SNMPv2c
-// and SNMPv3; on SNMPv1 it fails before its first request) and returns its
+// and SNMPv3: a request on SNMPv1 fails before it is sent) and returns its
 // values, in the order the agent returns them. An empty or "." rootOid walks
 // .1.3.6.1. The subtree is rootOid and the names under it. The walk ends as
 // net-snmp's snmpbulkwalk ends its walk: at the first name outside the
@@ -42,9 +42,10 @@ func (x *GoSNMP) BulkWalkAll(rootOid string) (results []SnmpPDU, err error) {
 
 // WalkAll walks the subtree under rootOid with GETNEXT requests, one per
 // value, where BulkWalkAll asks for many at a time, and returns its values. It
-// starts, ends and fails as BulkWalkAll does; net-snmp's snmpwalk differs only
-// for a name before rootOid, which fails its increasing check where WalkAll
-// ends (or, as the first answer, gets rootOid).
+// walks SNMPv1 agents too, and otherwise starts, ends and fails as BulkWalkAll
+// does; net-snmp's snmpwalk differs only for a name before rootOid, which fails
+// its increasing check where WalkAll ends (or, as the first answer, gets
+// rootOid).
 func (x *GoSNMP) WalkAll(rootOid string) (results []SnmpPDU, err error) {
 	return x.walk(GetNextRequest, rootOid)
 }

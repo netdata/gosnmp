@@ -126,9 +126,8 @@ type UsmSecurityParameters struct {
 	// advanced), zero while it has none: before an answer, for another engine
 	// ID, after a request answered outside the time window. An
 	// AuthoritativeEngineID set by the caller skips the discovery, and boots
-	// and time set by the caller are a clock that signs read requests and
-	// requests without authentication until an answer replaces it (see the
-	// package documentation, SNMPv3).
+	// and time set by the caller are a clock that signs requests until an
+	// answer replaces it (see the package documentation, SNMPv3).
 	AuthoritativeEngineID    string
 	AuthoritativeEngineBoots uint32
 	AuthoritativeEngineTime  uint32

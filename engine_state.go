@@ -77,10 +77,11 @@ func clockOf(boots, engineTime uint32, now time.Time, source clockSource) source
 // discovery, an unauthenticated answer or the caller signs it as an
 // authenticated clock does; a request without authentication carries the
 // notion too, which no agent checks the time of (net-snmp sends its notion;
-// section 3.1 step 6 c sends zeros). An authenticated request that changes
-// the agent would carry zeros with a clock that is not authenticated, which
-// the agent answers with an authenticated notInTimeWindow Report carrying its
-// own (section 4).
+// section 3.1 step 6 c sends zeros). A request that changes the agent, which
+// the client does not send, would need the rule back: authenticated, it
+// carries zeros with a clock that is not authenticated, which the agent
+// answers with an authenticated notInTimeWindow Report carrying its own
+// (section 4).
 func (c sourcedClock) timeFor(now time.Time) (boots, engineTime uint32) {
 	if !c.known() {
 		return 0, 0

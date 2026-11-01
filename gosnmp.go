@@ -20,9 +20,9 @@ import (
 
 const (
 	// MaxOids is the default of GoSNMP.MaxOids, the maximum number of OIDs in
-	// a Get request. MaxOids too high can cause remote devices to fail
-	// strangely. 60 seems to be a common value that works; set GoSNMP.MaxOids
-	// to change it.
+	// a Get request and in each request of a walk. MaxOids too high can cause
+	// remote devices to fail strangely. 60 seems to be a common value that
+	// works; set GoSNMP.MaxOids to change it.
 	MaxOids = 60
 
 	// defaultMaxRepetitions is the walks' GetBulk max-repetitions unless
