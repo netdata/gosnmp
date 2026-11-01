@@ -781,11 +781,11 @@ type unmarshalView struct {
 	MsgID          uint32
 	PDUType        PDUType
 	RequestID      uint32
-	Error          ErrorStatus
+	ErrorStatus    ErrorStatus
 	ErrorIndex     uint8
 	NonRepeaters   uint8
 	MaxRepetitions uint32
-	Variables      []VarBind
+	VarBinds       []VarBind
 }
 
 func newUnmarshalView(p *Message) unmarshalView {
@@ -795,11 +795,11 @@ func newUnmarshalView(p *Message) unmarshalView {
 		MsgID:          p.MsgID,
 		PDUType:        p.PDUType,
 		RequestID:      p.RequestID,
-		Error:          p.ErrorStatus,
+		ErrorStatus:    p.ErrorStatus,
 		ErrorIndex:     p.ErrorIndex,
 		NonRepeaters:   p.NonRepeaters,
 		MaxRepetitions: p.MaxRepetitions,
-		Variables:      p.VarBinds,
+		VarBinds:       p.VarBinds,
 	}
 }
 

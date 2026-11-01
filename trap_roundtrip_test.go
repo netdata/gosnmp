@@ -161,7 +161,7 @@ type trapView struct {
 	GenericTrap     int
 	SpecificTrap    int
 	Timestamp       uint
-	Variables       []VarBind
+	VarBinds        []VarBind
 }
 
 func newTrapView(p *Message) trapView {
@@ -179,7 +179,7 @@ func newTrapView(p *Message) trapView {
 		GenericTrap:     p.GenericTrap,
 		SpecificTrap:    p.SpecificTrap,
 		Timestamp:       p.Timestamp,
-		Variables:       p.VarBinds,
+		VarBinds:        p.VarBinds,
 	}
 	if sp, ok := p.SecurityParameters.(*UsmSecurityParameters); ok {
 		v.UserName = sp.UserName
@@ -215,12 +215,12 @@ func TestTrapRoundTripV1V2c(t *testing.T) {
 				GenericTrap:  6,
 				SpecificTrap: 42,
 				Timestamp:    12345,
-				Variables:    rtVarbinds[2:],
+				VarBinds:     rtVarbinds[2:],
 			},
 		},
 		"v2c trap": {
 			pkt:  &Message{Version: Version2c, Community: "public", PDUType: SNMPv2Trap, RequestID: 42, VarBinds: rtVarbinds},
-			want: trapView{Version: Version2c, Community: "public", PDUType: SNMPv2Trap, RequestID: 42, Variables: rtVarbinds},
+			want: trapView{Version: Version2c, Community: "public", PDUType: SNMPv2Trap, RequestID: 42, VarBinds: rtVarbinds},
 		},
 		"v2c inform": {
 			pkt: &Message{Version: Version2c, Community: "public", PDUType: InformRequest, RequestID: 42, VarBinds: rtVarbinds},
@@ -230,7 +230,7 @@ func TestTrapRoundTripV1V2c(t *testing.T) {
 				PDUType:   InformRequest,
 				RequestID: 42,
 				IsInform:  true,
-				Variables: rtVarbinds,
+				VarBinds:  rtVarbinds,
 			},
 		},
 	}
@@ -268,7 +268,7 @@ func TestTrapRoundTripV3(t *testing.T) {
 					PDUType:         pduType,
 					RequestID:       42,
 					IsInform:        pduType == InformRequest,
-					Variables:       rtVarbinds,
+					VarBinds:        rtVarbinds,
 				}
 				if pduType == InformRequest {
 					want.MsgFlags |= Reportable
