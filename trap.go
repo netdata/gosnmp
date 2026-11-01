@@ -35,8 +35,8 @@ import (
 // (ErrNotInTimeWindow, see the package documentation). Then the receiver's
 // minimum level applies (ErrUnknownSecurityLevel): a table set or the single
 // user with an authentication protocol accepts only authenticated messages;
-// the single user also requires the level of the client's SecurityLevel, unless
-// useResponseSecurityParameters is set. A table tries all of a user's sets in
+// the single user also requires the level of the client's SecurityLevel, one
+// of the three levels, unless useResponseSecurityParameters is set. A table tries all of a user's sets in
 // the order they were added; when none accepts the message, the error is the
 // one of the set that got furthest through these steps, the first on ties.
 func (x *Client) UnmarshalTrap(trap []byte, useResponseSecurityParameters bool) (*Message, error) {
@@ -119,7 +119,10 @@ func (x *Client) unmarshalTrapBase(trap []byte, useResponseSecurityParameters bo
 	}
 	rule := trapRule{singleUser: true}
 	if !useResponseSecurityParameters {
-		rule.minimum = x.SecurityLevel & AuthPriv
+		if !x.SecurityLevel.valid() {
+			return nil, errInvalidLevel
+		}
+		rule.minimum = x.SecurityLevel
 	}
 	if _, err := decodeTrapV3(trap, w, result, sp, rule); err != nil {
 		return nil, err

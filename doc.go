@@ -279,11 +279,12 @@
 // the security level of msgFlags, not its reportableFlag or reserved bits. A
 // length needs its length octet, takes at most eight long-form ones, and must
 // fit what remains; bytes after the message, the PDU, the varbind list or a
-// varbind's value fail it. As net-snmp does, the decoder reads the SNMPv3 header and a plaintext
-// scoped PDU against the rest of the message (a msgGlobalData declared shorter
-// than its fields, security parameters declared to cover the scoped PDU, and a
-// scoped PDU declared shorter than its content, are read), and decrypts the
-// content an encrypted scoped PDU declares, ignoring octets after it.
+// varbind's value fail it. As net-snmp does, the decoder reads the SNMPv3
+// header and a plaintext scoped PDU against the rest of the message (a
+// msgGlobalData declared shorter than its fields, security parameters declared
+// to cover the scoped PDU, and a scoped PDU declared shorter than its content,
+// are read), and decrypts the content an encrypted scoped PDU declares,
+// ignoring octets after it.
 //
 // It accepts some malformed values, because devices send them: an OctetString
 // may declare one octet more than its varbind holds (seen from MikroTik

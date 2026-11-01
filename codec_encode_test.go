@@ -247,9 +247,10 @@ func classFlags(level SecurityLevel, pdu PDUType) SecurityLevel {
 }
 
 // TestInvalidSecurityLevel checks that a security level other than the three
-// fails: the encoder's check (Message.Encode) and the client's (validate, as
-// Connect, EncodeMessage and DecodeMessage run it), privacy without
-// authentication with its own error.
+// fails: the encoder's check (Message.Encode), the client's (validate, as
+// Connect, EncodeMessage and DecodeMessage run it) and UnmarshalTrap's single
+// path, which requires the client's level unless told to use the message's;
+// privacy without authentication has its own error in the encoder.
 func TestInvalidSecurityLevel(t *testing.T) {
 	const invalid = "validate: SecurityLevel must be populated with an appropriate security level"
 	tests := map[string]struct {
@@ -261,9 +262,19 @@ func TestInvalidSecurityLevel(t *testing.T) {
 		"authNoPriv and another bit":     {level: AuthNoPriv | reportableFlag, encodeErr: "unable to marshal SNMPv3 security level 5: not NoAuthNoPriv, AuthNoPriv or AuthPriv", valid: invalid},
 		"authPriv and another bit":       {level: AuthPriv | 0x80, encodeErr: "unable to marshal SNMPv3 security level 131: not NoAuthNoPriv, AuthNoPriv or AuthPriv", valid: invalid},
 	}
+	trap, err := (&Message{
+		Version: Version3, SecurityLevel: NoAuthNoPriv, SecurityParameters: codecUSM(t, NoAuth, NoPriv),
+		PDUType: SNMPv2Trap, MsgID: 1, RequestID: 1,
+	}).Encode()
+	require.NoError(t, err)
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := (&Message{
+			receiver := &Client{Version: Version3, SecurityLevel: tc.level, SecurityParameters: codecUSM(t, NoAuth, NoPriv)}
+			_, err := receiver.UnmarshalTrap(bytes.Clone(trap), false)
+			require.EqualError(t, err, tc.valid, "UnmarshalTrap")
+			_, err = receiver.UnmarshalTrap(bytes.Clone(trap), true)
+			require.NoError(t, err, "UnmarshalTrap with the message's level")
+			_, err = (&Message{
 				Version: Version3, SecurityLevel: tc.level,
 				SecurityParameters: codecUSM(t, SHA, AES), PDUType: GetRequest, MsgID: 1, RequestID: 1,
 			}).Encode()
