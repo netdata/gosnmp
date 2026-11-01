@@ -61,20 +61,18 @@ type SnmpPacket struct {
 	// Variables are the varbinds.
 	Variables []SnmpPDU
 
-	// SnmpTrap holds what only traps and informs carry.
-	SnmpTrap
-}
-
-// SnmpTrap holds what only traps and informs carry: the SNMPv1 trap header,
-// and whether the packet is an InformRequest.
-type SnmpTrap struct {
 	// IsInform reports that the packet is an InformRequest, which its sender
 	// expects an answer to, not a trap; SNMPv1 has no informs.
 	IsInform bool
 
-	// The SNMPv1 trap header (RFC 1157): the enterprise OID, the agent's IPv4
-	// address, the generic and specific trap numbers and the timestamp in
-	// TimeTicks.
+	// SnmpTrap is the SNMPv1 trap header.
+	SnmpTrap
+}
+
+// SnmpTrap is the SNMPv1 trap header (RFC 1157): the enterprise OID, the
+// agent's IPv4 address, the generic and specific trap numbers and the
+// timestamp in TimeTicks.
+type SnmpTrap struct {
 	Enterprise   string
 	AgentAddress string
 	GenericTrap  int
@@ -85,10 +83,8 @@ type SnmpTrap struct {
 // PDUType is the BER tag of a PDU, which names its type.
 type PDUType byte
 
-// The PDU types (RFC 3416; Trap is SNMPv1's), and Sequence, the tag of a BER
-// SEQUENCE, which is not one.
+// The PDU types (RFC 3416; Trap is SNMPv1's).
 const (
-	Sequence       PDUType = 0x30
 	GetRequest     PDUType = 0xa0
 	GetNextRequest PDUType = 0xa1
 	GetResponse    PDUType = 0xa2

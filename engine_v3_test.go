@@ -356,8 +356,8 @@ func malformedSecondVarbind(m *v3Message) {
 	}
 	scoped := split(m.scoped)        // context engine ID, context name, PDU
 	pdu := split(content(scoped[2])) // request ID, error status, error index, varbinds
-	bad := tlv(byte(Sequence), tlv(byte(ObjectIdentifier), []byte{0x2b, 6, 1}), []byte{byte(Counter32), 5, 1})
-	pdu[3] = tlv(byte(Sequence), content(pdu[3]), bad)
+	bad := tlv(ber.Sequence, tlv(byte(ObjectIdentifier), []byte{0x2b, 6, 1}), []byte{byte(Counter32), 5, 1})
+	pdu[3] = tlv(ber.Sequence, content(pdu[3]), bad)
 	scoped[2] = tlv(scoped[2][0], bytes.Join(pdu, nil))
 	m.scoped = bytes.Join(scoped, nil)
 }
@@ -368,8 +368,8 @@ func withoutScopedPDU(m v3Message) []byte {
 	for i, f := range m.usm {
 		usm = append(usm, tlv(m.usmTags[i], f))
 	}
-	return tlv(byte(Sequence), tlv(byte(Integer), m.version), tlv(byte(Sequence), m.header),
-		tlv(byte(OctetString), tlv(byte(Sequence), usm...)))
+	return tlv(ber.Sequence, tlv(byte(Integer), m.version), tlv(ber.Sequence, m.header),
+		tlv(byte(OctetString), tlv(ber.Sequence, usm...)))
 }
 
 // onRequest scripts the answer to request n only.

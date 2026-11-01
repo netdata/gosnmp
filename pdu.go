@@ -182,7 +182,7 @@ func readVersion(packet []byte) (SnmpVersion, int, error) {
 	if len(packet) < 2 {
 		return 0, 0, errEmptyPacket
 	}
-	if PDUType(packet[0]) != Sequence {
+	if packet[0] != ber.Sequence {
 		return 0, 0, errors.New("invalid packet header")
 	}
 	msg, err := readWhole(packet)
@@ -378,7 +378,7 @@ func unmarshalVBL(packet []byte, response *SnmpPacket) error {
 	if len(packet) == 0 {
 		return errors.New("truncated packet when unmarshalling a VBL")
 	}
-	if PDUType(packet[0]) != Sequence {
+	if packet[0] != ber.Sequence {
 		return fmt.Errorf("expected a sequence when unmarshalling a VBL, got %x", packet[0])
 	}
 	vbl, err := readWhole(packet)
@@ -400,7 +400,7 @@ func unmarshalVBL(packet []byte, response *SnmpPacket) error {
 // readVarbind reads the next varbind: a SEQUENCE of the name (readName) and
 // the value TLV, which must span the rest of it.
 func readVarbind(r *ber.Reader) (SnmpPDU, error) {
-	if tag, _ := r.Peek(); PDUType(tag) != Sequence {
+	if tag, _ := r.Peek(); tag != ber.Sequence {
 		return SnmpPDU{}, fmt.Errorf("expected a sequence when unmarshalling a VB, got %x", tag)
 	}
 	_, vb, err := r.Next()
@@ -451,7 +451,7 @@ func (packet *SnmpPacket) marshalMsg() ([]byte, error) {
 	default:
 		return nil, fmt.Errorf("unable to marshal SNMP version %d: not 1, 2c or 3", packet.Version)
 	}
-	dst, start := ber.Begin(make([]byte, 0, packet.sizeHint()), byte(Sequence))
+	dst, start := ber.Begin(make([]byte, 0, packet.sizeHint()), ber.Sequence)
 	dst = append(dst, byte(Integer), 1, byte(packet.Version))
 	if packet.Version != Version3 {
 		msg, err := packet.appendPDU(appendOctets(dst, OctetString, packet.Community))
@@ -558,7 +558,7 @@ func (packet *SnmpPacket) appendTrapV1Header(dst []byte) ([]byte, error) {
 // appendVBL appends the varbind list: a SEQUENCE of varbinds, each a SEQUENCE
 // of the name's OBJECT IDENTIFIER and the value (see appendValue).
 func (packet *SnmpPacket) appendVBL(dst []byte) ([]byte, error) {
-	dst, start := ber.Begin(dst, byte(Sequence))
+	dst, start := ber.Begin(dst, ber.Sequence)
 	for i := range packet.Variables {
 		var err error
 		if dst, err = appendVarbind(dst, &packet.Variables[i]); err != nil {
@@ -570,7 +570,7 @@ func (packet *SnmpPacket) appendVBL(dst []byte) ([]byte, error) {
 
 // appendVarbind appends one varbind.
 func appendVarbind(dst []byte, pdu *SnmpPDU) ([]byte, error) {
-	dst, start := ber.Begin(dst, byte(Sequence))
+	dst, start := ber.Begin(dst, ber.Sequence)
 	dst, err := appendObjectIdentifier(dst, pdu.Name)
 	if err != nil {
 		return nil, err

@@ -8,7 +8,6 @@ func _() {
 	// An "invalid array index" compiler error signifies that the constant values have changed.
 	// Re-run the stringer command to generate them again.
 	var x [1]struct{}
-	_ = x[Sequence-48]
 	_ = x[GetRequest-160]
 	_ = x[GetNextRequest-161]
 	_ = x[GetResponse-162]
@@ -20,23 +19,14 @@ func _() {
 	_ = x[Report-168]
 }
 
-const (
-	_PDUType_name_0 = "Sequence"
-	_PDUType_name_1 = "GetRequestGetNextRequestGetResponseSetRequestTrapGetBulkRequestInformRequestSNMPv2TrapReport"
-)
+const _PDUType_name = "GetRequestGetNextRequestGetResponseSetRequestTrapGetBulkRequestInformRequestSNMPv2TrapReport"
 
-var (
-	_PDUType_index_1 = [...]uint8{0, 10, 24, 35, 45, 49, 63, 76, 86, 92}
-)
+var _PDUType_index = [...]uint8{0, 10, 24, 35, 45, 49, 63, 76, 86, 92}
 
 func (i PDUType) String() string {
-	switch {
-	case i == 48:
-		return _PDUType_name_0
-	case 160 <= i && i <= 168:
-		i -= 160
-		return _PDUType_name_1[_PDUType_index_1[i]:_PDUType_index_1[i+1]]
-	default:
+	idx := int(i) - 160
+	if i < 160 || idx >= len(_PDUType_index)-1 {
 		return "PDUType(" + strconv.FormatInt(int64(i), 10) + ")"
 	}
+	return _PDUType_name[_PDUType_index[idx]:_PDUType_index[idx+1]]
 }

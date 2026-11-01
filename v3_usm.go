@@ -493,7 +493,7 @@ func (sp *UsmSecurityParameters) decryptPacket(ciphertext []byte) ([]byte, error
 // privacy parameters (the salt, or empty). It also returns the offset of the
 // authentication parameters' content in dst.
 func (sp *UsmSecurityParameters) marshal(dst []byte, flags SnmpV3MsgFlags, salt []byte) ([]byte, int) {
-	dst, start := ber.Begin(dst, byte(Sequence))
+	dst, start := ber.Begin(dst, ber.Sequence)
 	dst = appendOctets(dst, OctetString, sp.AuthoritativeEngineID)
 	dst = appendUint(dst, Integer, uint64(sp.AuthoritativeEngineBoots))
 	dst = appendUint(dst, Integer, uint64(sp.AuthoritativeEngineTime))

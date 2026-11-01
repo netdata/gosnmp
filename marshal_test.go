@@ -1832,7 +1832,7 @@ func TestMarshalVarbindRoundTrip(t *testing.T) {
 			}
 
 			// Verify SEQUENCE tag
-			if result[0] != byte(Sequence) {
+			if result[0] != ber.Sequence {
 				t.Fatalf("expected SEQUENCE tag 0x30, got 0x%02x", result[0])
 			}
 
