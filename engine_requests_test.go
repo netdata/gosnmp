@@ -85,7 +85,7 @@ func bareV3Answer(req []byte, msgID uint32, pduType PDUType, vbs ...VarBind) []b
 		panic(fmt.Sprintf("agent cannot decode the request: %v", err))
 	}
 	out := &Message{
-		Version: Version3, MsgFlags: NoAuthNoPriv, SecurityModel: UserSecurityModel,
+		Version: Version3, SecurityLevel: NoAuthNoPriv, SecurityModel: UserSecurityModel,
 		SecurityParameters: &UsmSecurityParameters{UserName: "public"},
 		PDUType:            pduType, RequestID: in.RequestID, MsgID: msgID,
 		VarBinds: vbs,
@@ -463,7 +463,7 @@ func engineScenarios() map[string]engineScenario {
 		}},
 		"answer/other-version-v3": {
 			agent: answerWith(func(p *Message) {
-				p.Version, p.MsgFlags, p.SecurityModel = Version3, NoAuthNoPriv, UserSecurityModel
+				p.Version, p.SecurityLevel, p.SecurityModel = Version3, NoAuthNoPriv, UserSecurityModel
 				p.SecurityParameters = &UsmSecurityParameters{UserName: "public"}
 			}, sysDescr),
 		},
@@ -1321,7 +1321,7 @@ func TestExchangeAnswers(t *testing.T) {
 	request := func(version Version) *Message {
 		p := &Message{Version: version, PDUType: GetRequest, RequestID: 2, Community: "public"}
 		if version == Version3 {
-			p.MsgID, p.MsgFlags, p.ContextEngineID, p.ContextName = 7, AuthNoPriv|Reportable, "ctx-engine", "ctx"
+			p.MsgID, p.SecurityLevel, p.ContextEngineID, p.ContextName = 7, AuthNoPriv|Reportable, "ctx-engine", "ctx"
 			p.SecurityParameters = &UsmSecurityParameters{UserName: "user", AuthoritativeEngineID: "engine"}
 		}
 		return p
@@ -1329,7 +1329,7 @@ func TestExchangeAnswers(t *testing.T) {
 	// reply is the answer to the current attempt, a copy of its request.
 	reply := func(req *Message) *Message {
 		p := *req
-		p.PDUType, p.MsgFlags, p.VarBinds = Response, req.MsgFlags&AuthPriv, []VarBind{sysDescr}
+		p.PDUType, p.SecurityLevel, p.VarBinds = Response, req.SecurityLevel&AuthPriv, []VarBind{sysDescr}
 		if req.SecurityParameters != nil {
 			p.SecurityParameters = req.SecurityParameters.Copy()
 		}
@@ -1338,7 +1338,7 @@ func TestExchangeAnswers(t *testing.T) {
 	usm := func(p *Message) *UsmSecurityParameters { return p.SecurityParameters.usm() }
 	report := func(counter string) func(p *Message) {
 		return func(p *Message) {
-			p.PDUType, p.RequestID, p.MsgFlags, p.VarBinds = Report, 0, NoAuthNoPriv, []VarBind{{Name: counter, Type: Counter32, Value: uint32(1)}}
+			p.PDUType, p.RequestID, p.SecurityLevel, p.VarBinds = Report, 0, NoAuthNoPriv, []VarBind{{Name: counter, Type: Counter32, Value: uint32(1)}}
 			p.ContextEngineID, p.ContextName = "engine", ""
 		}
 	}
@@ -1357,12 +1357,12 @@ func TestExchangeAnswers(t *testing.T) {
 		"v3/empty, another request ID": {
 			version: Version3, reply: func(p *Message) { p.VarBinds, p.RequestID = nil, 9 }, err: errOtherRequestID,
 		},
-		"v3/reportable":           {version: Version3, reply: func(p *Message) { p.MsgFlags |= Reportable }, answers: true},
-		"v3/not reportable":       {version: Version3, request: func(p *Message) { p.MsgFlags = AuthNoPriv }, reply: func(p *Message) { p.MsgFlags |= Reportable }, answers: true},
-		"v3/noAuthNoPriv":         {version: Version3, reply: func(p *Message) { p.MsgFlags = NoAuthNoPriv }, err: errOtherLevel},
-		"v3/authPriv":             {version: Version3, reply: func(p *Message) { p.MsgFlags = AuthPriv }, err: errOtherLevel},
-		"v3/to noAuthNoPriv":      {version: Version3, request: func(p *Message) { p.MsgFlags = NoAuthNoPriv | Reportable }, err: errOtherLevel},
-		"v3/to authPriv":          {version: Version3, request: func(p *Message) { p.MsgFlags = AuthPriv | Reportable }, err: errOtherLevel},
+		"v3/reportable":           {version: Version3, reply: func(p *Message) { p.SecurityLevel |= Reportable }, answers: true},
+		"v3/not reportable":       {version: Version3, request: func(p *Message) { p.SecurityLevel = AuthNoPriv }, reply: func(p *Message) { p.SecurityLevel |= Reportable }, answers: true},
+		"v3/noAuthNoPriv":         {version: Version3, reply: func(p *Message) { p.SecurityLevel = NoAuthNoPriv }, err: errOtherLevel},
+		"v3/authPriv":             {version: Version3, reply: func(p *Message) { p.SecurityLevel = AuthPriv }, err: errOtherLevel},
+		"v3/to noAuthNoPriv":      {version: Version3, request: func(p *Message) { p.SecurityLevel = NoAuthNoPriv | Reportable }, err: errOtherLevel},
+		"v3/to authPriv":          {version: Version3, request: func(p *Message) { p.SecurityLevel = AuthPriv | Reportable }, err: errOtherLevel},
 		"v3/another user":         {version: Version3, reply: func(p *Message) { usm(p).UserName = "other" }, err: errOtherUser},
 		"v3/the empty user":       {version: Version3, reply: func(p *Message) { usm(p).UserName = "" }, err: errOtherUser},
 		"v3/to the empty user":    {version: Version3, request: func(p *Message) { usm(p).UserName = "" }, err: errOtherUser},

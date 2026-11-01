@@ -254,7 +254,7 @@
 // It writes the request ID as the Integer32 whose two's complement RequestID
 // holds, and the reportable flag of an SNMPv3 message by its PDU type (RFC
 // 3412 section 6.4): set for requests and informs, clear for responses,
-// reports and traps, whatever MsgFlags holds besides the security level.
+// reports and traps, whatever SecurityLevel holds besides the security level.
 //
 // # Decoding
 //

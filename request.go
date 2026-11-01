@@ -22,7 +22,7 @@ func (x *Client) NewMessage(pduType PDUType, varBinds []VarBind, nonRepeaters ui
 	return &Message{
 		Version:            x.Version,
 		Community:          x.Community,
-		MsgFlags:           x.MsgFlags,
+		SecurityLevel:      x.SecurityLevel,
 		SecurityModel:      x.SecurityModel,
 		SecurityParameters: newSecParams,
 		ContextEngineID:    x.ContextEngineID,

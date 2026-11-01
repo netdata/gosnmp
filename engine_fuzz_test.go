@@ -80,12 +80,12 @@ func engineReplyClient(r engineReplyRequest) *Client {
 	x := &Client{Version: Version2c, Community: "public", Timeout: time.Second, MaxOids: MaxOids}
 	if r.user != "" {
 		creds := agentCreds[r.user]
-		x.Version, x.SecurityModel, x.MsgFlags = Version3, UserSecurityModel, NoAuthNoPriv
+		x.Version, x.SecurityModel, x.SecurityLevel = Version3, UserSecurityModel, NoAuthNoPriv
 		switch {
 		case creds.priv > NoPriv:
-			x.MsgFlags = AuthPriv
+			x.SecurityLevel = AuthPriv
 		case creds.auth > NoAuth:
-			x.MsgFlags = AuthNoPriv
+			x.SecurityLevel = AuthNoPriv
 		}
 		sp := &UsmSecurityParameters{
 			UserName:                 r.user,
@@ -147,7 +147,7 @@ func engineReplySeeds(tb testing.TB, r engineReplyRequest) [][]byte {
 	}
 	scripts := []func(int, agentRequest) (agentAnswer, bool){
 		nil,
-		onRequest(1, agentAnswer{report: usmStatsNotInTimeWindows, level: e.packet.MsgFlags & AuthNoPriv}),
+		onRequest(1, agentAnswer{report: usmStatsNotInTimeWindows, level: e.packet.SecurityLevel & AuthNoPriv}),
 		onRequest(1, agentAnswer{report: usmStatsUnknownEngineIDs, level: NoAuthNoPriv}),
 	}
 	if r.discover {

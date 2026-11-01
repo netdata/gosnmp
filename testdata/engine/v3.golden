@@ -2110,7 +2110,7 @@
 20s   hook OnRecv
 20s   hook OnFinish
 20s   result: packet 3 msgID=2004 noAuthNoPriv Response id=1004 context="\x80\x00\x1f\x88\x04codec-agent"/"" usm="codec-md5"/"\x80\x00\x1f\x88\x04codec-agent"/7/1020 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
-20s   client configuration changed: MsgFlags
+20s   client configuration changed: SecurityLevel
 20s   client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
 
 == v3/clock/noauth/engine-boots-max
@@ -2176,7 +2176,7 @@
 10s   hook OnRecv
 10s   hook OnFinish
 10s   result: packet 3 msgID=2003 noAuthNoPriv Response id=1003 context="\x80\x00\x1f\x88\x04codec-agent"/"" usm="codec-md5"/"\x80\x00\x1f\x88\x04codec-agent"/7/1010 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
-10s   client configuration changed: MsgFlags
+10s   client configuration changed: SecurityLevel
 10s   client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1000 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
 
 == v3/clock/noauth/verified-old-time
@@ -2230,7 +2230,7 @@
 21s   hook OnRecv
 21s   hook OnFinish
 21s   result: packet 3 msgID=2005 noAuthNoPriv Response id=1005 context="\x80\x00\x1f\x88\x04codec-agent"/"" usm="codec-md5"/"\x80\x00\x1f\x88\x04codec-agent"/7/1021 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
-21s   client configuration changed: MsgFlags
+21s   client configuration changed: SecurityLevel
 21s   client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1011 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
 
 == v3/clock/resend-answers-outside-window
@@ -4152,7 +4152,7 @@
 1s    hook OnRecv
 1s    hook OnFinish
 1s    result: packet 3 msgID=2003 authNoPriv Response id=1003 context="\x80\x00\x1f\x88\x04codec-agent"/"" usm="codec-md5"/"\x80\x00\x1f\x88\x04codec-agent"/7/1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
-1s    client configuration changed: MsgFlags
+1s    client configuration changed: SecurityLevel
 1s    client after: engine="\x80\x00\x1f\x88\x04codec-agent" boots=7 time=1001 keys=current context engine="\x80\x00\x1f\x88\x04codec-agent"
 
 == v3/hooks/privacy-protocol-changed-on-retry

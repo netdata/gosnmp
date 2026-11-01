@@ -71,9 +71,9 @@ func BenchmarkUSMDecode(b *testing.B) {
 			x := usmDecoder(SHA, "codec-auth-pass", priv, "codec-priv-pass")()
 			x.Version = Version3
 			x.SecurityModel = UserSecurityModel
-			x.MsgFlags = AuthPriv
+			x.SecurityLevel = AuthPriv
 			if priv == NoPriv {
-				x.MsgFlags = AuthNoPriv
+				x.SecurityLevel = AuthNoPriv
 			}
 			sp := x.SecurityParameters.(*UsmSecurityParameters)
 			sp.AuthoritativeEngineID = usmCharEngineID

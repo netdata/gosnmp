@@ -117,11 +117,11 @@ type Client struct {
 	// see https://github.com/gosnmp/gosnmp/issues/100.
 	MaxRepetitions uint32
 
-	// MsgFlags is the SNMPv3 security level: NoAuthNoPriv, AuthNoPriv or
+	// SecurityLevel is the SNMPv3 security level: NoAuthNoPriv, AuthNoPriv or
 	// AuthPriv. The encoder sets the reportable flag of each message by its PDU
 	// type (RFC 3412 section 6.4: set for requests and informs, clear for the
-	// others), whatever MsgFlags holds besides the level.
-	MsgFlags SnmpV3MsgFlags
+	// others), whatever SecurityLevel holds besides the level.
+	SecurityLevel SecurityLevel
 
 	// SecurityModel is the SNMPv3 security model; UserSecurityModel is the
 	// only one.
@@ -328,7 +328,7 @@ func (x *Client) DecodeMessage(data []byte) (*Message, error) {
 		if result.Version == Version3 {
 			// The result returned with the error carries the USM fields
 			// that decoded.
-			_, _ = result.SecurityParameters.usm().receive(result.MsgFlags, &w, false)
+			_, _ = result.SecurityParameters.usm().receive(result.SecurityLevel, &w, false)
 		}
 		return result, fmt.Errorf("unable to decode packet header: %w", err)
 	}

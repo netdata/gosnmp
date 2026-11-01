@@ -98,7 +98,7 @@ func TestEncodeMessageErrors(t *testing.T) {
 func TestEncodeMessageEmptyKey(t *testing.T) {
 	x := &Client{
 		Version:       Version3,
-		MsgFlags:      AuthNoPriv,
+		SecurityLevel: AuthNoPriv,
 		SecurityModel: UserSecurityModel,
 		SecurityParameters: &UsmSecurityParameters{
 			UserName:                 "codec-user",
@@ -123,7 +123,7 @@ func TestRequestAndMsgIDs(t *testing.T) {
 			Target:             "127.0.0.1",
 			Port:               unusedUDPPort(t),
 			Version:            Version3,
-			MsgFlags:           NoAuthNoPriv,
+			SecurityLevel:      NoAuthNoPriv,
 			SecurityModel:      UserSecurityModel,
 			SecurityParameters: &UsmSecurityParameters{UserName: "codec-user"},
 		}

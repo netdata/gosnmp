@@ -102,9 +102,9 @@ func dumpUnmarshalTrap(d *dumpWriter, c decodeCase) {
 	x.SecurityModel = UserSecurityModel
 	switch {
 	case sp.PrivacyProtocol > NoPriv:
-		x.MsgFlags = AuthPriv
+		x.SecurityLevel = AuthPriv
 	case sp.AuthenticationProtocol > NoAuth:
-		x.MsgFlags = AuthNoPriv
+		x.SecurityLevel = AuthNoPriv
 	}
 
 	in := bytes.Clone(c.in)
@@ -140,10 +140,10 @@ func (d *dumpWriter) String() string { return strings.Join(d.lines, "\n") }
 func dumpPacket(d *dumpWriter, p *Message) {
 	d.linef("version: %d (%s)", p.Version, p.Version)
 	d.linef("community: %q", p.Community)
-	if p.Version == Version3 || p.MsgID != 0 || p.MsgMaxSize != 0 || p.MsgFlags != 0 || p.SecurityModel != 0 ||
+	if p.Version == Version3 || p.MsgID != 0 || p.MsgMaxSize != 0 || p.SecurityLevel != 0 || p.SecurityModel != 0 ||
 		p.ContextEngineID != "" || p.ContextName != "" {
 		d.linef("v3: msg-id=%d max-size=%d flags=0x%02x security-model=%d context-engine-id=%x context-name=%q",
-			p.MsgID, p.MsgMaxSize, uint8(p.MsgFlags), uint8(p.SecurityModel), p.ContextEngineID, p.ContextName)
+			p.MsgID, p.MsgMaxSize, uint8(p.SecurityLevel), uint8(p.SecurityModel), p.ContextEngineID, p.ContextName)
 	}
 	switch sp := p.SecurityParameters.(type) {
 	case nil:

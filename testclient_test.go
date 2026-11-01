@@ -22,10 +22,10 @@ func newTestClient() *Client {
 
 // newTestClientV3 returns an unconnected SNMPv3 client of the User-based
 // Security Model with msgFlags and sp.
-func newTestClientV3(msgFlags SnmpV3MsgFlags, sp SnmpV3SecurityParameters) *Client {
+func newTestClientV3(msgFlags SecurityLevel, sp SnmpV3SecurityParameters) *Client {
 	gs := newTestClient()
 	gs.Version = Version3
-	gs.MsgFlags = msgFlags
+	gs.SecurityLevel = msgFlags
 	gs.SecurityModel = UserSecurityModel
 	gs.SecurityParameters = sp
 	return gs

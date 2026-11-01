@@ -35,7 +35,7 @@ func TestEngineV3MaximumBoots(t *testing.T) {
 					sp := userParameters("codec-md5")
 					sp.AuthoritativeEngineID = agentEngineID
 					x := newEngineClientFrom(t, tr, fakePacketTransport{c}, &Client{
-						Version: Version3, MsgFlags: AuthNoPriv, SecurityModel: UserSecurityModel,
+						Version: Version3, SecurityLevel: AuthNoPriv, SecurityModel: UserSecurityModel,
 						SecurityParameters: sp, Timeout: time.Second, Retries: 1,
 					})
 					_, err := x.Get([]string{engineOID})

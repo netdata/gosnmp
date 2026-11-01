@@ -46,10 +46,10 @@ var testsUnmarshalTrap = []struct {
 	{
 		genericV3Trap,
 		&Message{
-			Version:   Version3,
-			PDUType:   SNMPv2Trap,
-			RequestID: 957979745,
-			MsgFlags:  AuthNoPriv,
+			Version:       Version3,
+			PDUType:       SNMPv2Trap,
+			RequestID:     957979745,
+			SecurityLevel: AuthNoPriv,
 			SecurityParameters: &UsmSecurityParameters{
 				UserName:                 "myuser",
 				AuthenticationProtocol:   MD5,
@@ -60,10 +60,10 @@ var testsUnmarshalTrap = []struct {
 	{
 		snmpV3AuthPrivTrap,
 		&Message{
-			Version:   3,
-			PDUType:   SNMPv2Trap,
-			RequestID: 1318065890,
-			MsgFlags:  AuthPriv,
+			Version:       3,
+			PDUType:       SNMPv2Trap,
+			RequestID:     1318065890,
+			SecurityLevel: AuthPriv,
 			SecurityParameters: &UsmSecurityParameters{
 				UserName:                 "myuser2",
 				AuthenticationProtocol:   MD5,
