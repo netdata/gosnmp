@@ -85,13 +85,9 @@ func rtEncodeV3(t *testing.T, sender rtCredentials, pduType PDUType) []byte {
 	if sender.auth != NoAuth {
 		require.NoError(t, sp.InitSecurityKeys())
 	}
-	flags := sender.flags()
-	if pduType == InformRequest {
-		flags |= Reportable
-	}
 	pkt := &Message{
 		Version:            Version3,
-		SecurityLevel:      flags,
+		SecurityLevel:      sender.flags(),
 		SecurityModel:      UserSecurityModel,
 		SecurityParameters: sp,
 		ContextEngineID:    rtEngineID,
@@ -269,9 +265,6 @@ func TestTrapRoundTripV3(t *testing.T) {
 					RequestID:       42,
 					IsInform:        pduType == InformRequest,
 					VarBinds:        rtVarbinds,
-				}
-				if pduType == InformRequest {
-					want.SecurityLevel |= Reportable
 				}
 
 				for _, r := range rtReceivers {

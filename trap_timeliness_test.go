@@ -56,12 +56,13 @@ func encodeTimely(t *testing.T, engineID string, m timelyMessage) []byte {
 		flags = NoAuthNoPriv
 	}
 	require.NoError(t, sp.InitSecurityKeys())
-	pdu := SNMPv2Trap
+	// wire is the msgFlags octet the message carries.
+	pdu, wire := SNMPv2Trap, flags
 	if m.inform {
-		flags, pdu = flags|Reportable, InformRequest
+		pdu, wire = InformRequest, wire|reportableFlag
 	}
 	if m.flipped {
-		flags ^= Reportable
+		wire ^= reportableFlag
 	}
 	data, err := (&Message{
 		Version: Version3, SecurityLevel: flags, SecurityModel: UserSecurityModel, SecurityParameters: sp,
@@ -69,10 +70,10 @@ func encodeTimely(t *testing.T, engineID string, m timelyMessage) []byte {
 	}).Encode()
 	require.NoError(t, err)
 	if m.flipped || m.boots != sp.AuthoritativeEngineBoots || m.time != sp.AuthoritativeEngineTime {
-		data = rewireV3(t, data, sp, flags, m.boots, m.time)
+		data = rewireV3(t, data, sp, wire, m.boots, m.time)
 	}
 	// A flipped message must carry the flag the other way on the wire.
-	require.Equal(t, flags&Reportable, wireFlags(t, data)&Reportable, "the wire's reportable flag")
+	require.Equal(t, wire&reportableFlag, wireFlags(t, data)&reportableFlag, "the wire's reportable flag")
 	return data
 }
 

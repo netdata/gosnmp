@@ -61,7 +61,7 @@ type agentUser struct {
 type agentRequest struct {
 	version, msgID               int64
 	maxSize, model               int64
-	flags                        SecurityLevel
+	flags                        SecurityLevel // the msgFlags octet as sent, the reportableFlag included
 	engineID, user               string
 	boots, engineTime            uint32
 	salt                         []byte // msgPrivacyParameters
@@ -195,7 +195,7 @@ func (a *fakeV3Agent) handle(n int, data []byte) []agentReply {
 		a.tr.addf("agent: #%d decrypts to context=%q/%q %v id=%d %s", n, req.contextEngineID, req.contextName,
 			req.pdu.PDUType, req.pdu.RequestID, describeVarbinds(req.pdu.VarBinds))
 	}
-	if ans.report != "" && req.pdu == nil && req.flags&Reportable == 0 {
+	if ans.report != "" && req.pdu == nil && req.flags&reportableFlag == 0 {
 		ans = agentAnswer{drop: true, why: "no Report: the request is not reportable and its PDU unknown"}
 	}
 	var replies []agentReply
@@ -486,7 +486,7 @@ func describeFlags(f SecurityLevel) string {
 	case f&AuthPriv == usmPrivacyFlag:
 		level = "privOnly"
 	}
-	if f&Reportable != 0 {
+	if f&reportableFlag != 0 {
 		level += "+reportable"
 	}
 	return level

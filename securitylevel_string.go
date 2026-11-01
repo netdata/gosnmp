@@ -11,26 +11,23 @@ func _() {
 	_ = x[NoAuthNoPriv-0]
 	_ = x[AuthNoPriv-1]
 	_ = x[AuthPriv-3]
-	_ = x[Reportable-4]
 }
 
 const (
 	_SecurityLevel_name_0 = "NoAuthNoPrivAuthNoPriv"
-	_SecurityLevel_name_1 = "AuthPrivReportable"
+	_SecurityLevel_name_1 = "AuthPriv"
 )
 
 var (
 	_SecurityLevel_index_0 = [...]uint8{0, 12, 22}
-	_SecurityLevel_index_1 = [...]uint8{0, 8, 18}
 )
 
 func (i SecurityLevel) String() string {
 	switch {
 	case i <= 1:
 		return _SecurityLevel_name_0[_SecurityLevel_index_0[i]:_SecurityLevel_index_0[i+1]]
-	case 3 <= i && i <= 4:
-		i -= 3
-		return _SecurityLevel_name_1[_SecurityLevel_index_1[i]:_SecurityLevel_index_1[i+1]]
+	case i == 3:
+		return _SecurityLevel_name_1
 	default:
 		return "SecurityLevel(" + strconv.FormatInt(int64(i), 10) + ")"
 	}

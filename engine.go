@@ -669,7 +669,7 @@ func (e *exchange) answers(reply *Message, earlier []sentIDs) (bool, error) {
 	p := e.packet
 	got, want := reply.SecurityParameters.usm(), p.SecurityParameters.usm()
 	switch {
-	case reply.SecurityLevel&AuthPriv != p.SecurityLevel&AuthPriv:
+	case reply.SecurityLevel != p.SecurityLevel:
 		return false, errOtherLevel
 	case got.UserName != want.UserName:
 		return false, errOtherUser

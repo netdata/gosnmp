@@ -13,25 +13,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestMsgFlagsPredicates pins the flag each predicate reads: the authFlag and
-// the privFlag bits (RFC 3412 section 6.4), whatever the others hold.
-func TestMsgFlagsPredicates(t *testing.T) {
-	type flags struct{ auth, priv bool }
+// TestSecurityLevelPredicates pins the flag each predicate reads, the authFlag
+// and the privFlag bits (RFC 3412 section 6.4), and the three valid levels.
+func TestSecurityLevelPredicates(t *testing.T) {
+	type flags struct{ auth, priv, valid bool }
 	tests := map[string]struct {
 		in   SecurityLevel
 		want flags
 	}{
-		"noAuthNoPriv":                    {in: NoAuthNoPriv, want: flags{}},
-		"authNoPriv":                      {in: AuthNoPriv, want: flags{auth: true}},
-		"privacy without authentication":  {in: AuthPriv &^ AuthNoPriv, want: flags{priv: true}},
-		"authPriv":                        {in: AuthPriv, want: flags{auth: true, priv: true}},
-		"reportable noAuthNoPriv":         {in: Reportable, want: flags{}},
-		"reportable authPriv":             {in: AuthPriv | Reportable, want: flags{auth: true, priv: true}},
-		"reportable privacy without auth": {in: AuthPriv&^AuthNoPriv | Reportable, want: flags{priv: true}},
+		"noAuthNoPriv":                   {in: NoAuthNoPriv, want: flags{valid: true}},
+		"authNoPriv":                     {in: AuthNoPriv, want: flags{auth: true, valid: true}},
+		"privacy without authentication": {in: AuthPriv &^ AuthNoPriv, want: flags{priv: true}},
+		"authPriv":                       {in: AuthPriv, want: flags{auth: true, priv: true, valid: true}},
+		"the reportableFlag's bit":       {in: reportableFlag, want: flags{}},
+		"authPriv and another bit":       {in: AuthPriv | reportableFlag, want: flags{auth: true, priv: true}},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			assert.Equal(t, tc.want, flags{auth: tc.in.authFlag(), priv: tc.in.privFlag()})
+			assert.Equal(t, tc.want, flags{auth: tc.in.authFlag(), priv: tc.in.privFlag(), valid: tc.in.valid()})
 		})
 	}
 }

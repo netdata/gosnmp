@@ -118,9 +118,9 @@ type Client struct {
 	MaxRepetitions uint32
 
 	// SecurityLevel is the SNMPv3 security level: NoAuthNoPriv, AuthNoPriv or
-	// AuthPriv. The encoder sets the reportable flag of each message by its PDU
-	// type (RFC 3412 section 6.4: set for requests and informs, clear for the
-	// others), whatever SecurityLevel holds besides the level.
+	// AuthPriv; another value fails Connect. The encoder sets the reportable
+	// flag of each message by its PDU type (RFC 3412 section 6.4: set for
+	// requests and informs, clear for the others).
 	SecurityLevel SecurityLevel
 
 	// SecurityModel is the SNMPv3 security model; UserSecurityModel is the

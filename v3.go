@@ -16,18 +16,23 @@ import (
 	"github.com/netdata/gosnmp/internal/usm"
 )
 
-// SecurityLevel is the msgFlags octet of an SNMPv3 message: its security
-// level, authentication and privacy, and whether the receiver must answer an
-// error with a Report.
+// SecurityLevel is the security level of an SNMPv3 message (RFC 3411 section
+// 3.4.3): the authFlag and privFlag of its msgFlags octet (RFC 3412 section
+// 6.4). The encoder sets the octet's reportableFlag itself, by the PDU type,
+// and a decoded message holds the level only.
 type SecurityLevel uint8
 
-// The security levels and the reportable flag.
+// The security levels.
 const (
 	NoAuthNoPriv SecurityLevel = 0x0 // No authentication, and no privacy
 	AuthNoPriv   SecurityLevel = 0x1 // Authentication and no privacy
 	AuthPriv     SecurityLevel = 0x3 // Authentication and privacy
-	Reportable   SecurityLevel = 0x4 // Report PDU must be sent.
 )
+
+// reportableFlag is the reportableFlag of the msgFlags octet (RFC 3412 section
+// 6.4), set for a PDU of the Confirmed Class and clear for the others
+// (appendV3Header).
+const reportableFlag = 0x4
 
 // authFlag reports whether f has the authFlag (bit 0x1, RFC 3412 section 6.4)
 // set: the message asks for authentication. A set flag is a request, not
@@ -38,6 +43,9 @@ func (f SecurityLevel) authFlag() bool { return f&0x1 != 0 }
 // for privacy. Without the authFlag the combination is invalid (RFC 3412
 // section 7.2 step 5 d).
 func (f SecurityLevel) privFlag() bool { return f&0x2 != 0 }
+
+// valid reports whether f is one of the three security levels.
+func (f SecurityLevel) valid() bool { return f == NoAuthNoPriv || f == AuthNoPriv || f == AuthPriv }
 
 //go:generate go tool -modfile=tools/go.mod stringer -type=SecurityLevel
 
@@ -189,8 +197,8 @@ const (
 
 // checkV3Header checks the SNMPv3 header fields of an outgoing message: the
 // User-based Security Model, a msgID of at most 2147483647, a MsgMaxSize of 0
-// (the receive buffer's size) or 484..2147483647, and flags that do not ask for
-// privacy without authentication.
+// (the receive buffer's size) or 484..2147483647, and one of the three
+// security levels (privacy without authentication has its own error).
 func (packet *Message) checkV3Header() error {
 	switch {
 	case packet.SecurityModel != UserSecurityModel:
@@ -201,16 +209,17 @@ func (packet *Message) checkV3Header() error {
 		return fmt.Errorf("unable to marshal SNMPv3 msgMaxSize %d: outside %d..%d", packet.MsgMaxSize, minMsgMaxSize, maxMsgMaxSize)
 	case packet.SecurityLevel.privFlag() && !packet.SecurityLevel.authFlag():
 		return errors.New("unable to marshal SNMPv3 msgFlags: privacy without authentication")
+	case !packet.SecurityLevel.valid():
+		return fmt.Errorf("unable to marshal SNMPv3 security level %d: not NoAuthNoPriv, AuthNoPriv or AuthPriv", packet.SecurityLevel)
 	}
 	return nil
 }
 
 // appendV3Header appends msgGlobalData: the message ID, the maximum message
 // size (rxBufSize unless set), the flags and the security model (3), whose
-// ranges checkV3Header checked. The flags octet holds the security level of
-// SecurityLevel and the reportable flag, set for a PDU of the Confirmed Class and
-// clear for the others (RFC 3412 section 6.4), whatever SecurityLevel holds besides
-// the level.
+// ranges checkV3Header checked. The flags octet holds the security level and
+// the reportableFlag, set for a PDU of the Confirmed Class and clear for the
+// others (RFC 3412 section 6.4).
 func (packet *Message) appendV3Header(dst []byte) []byte {
 	dst, start := ber.Begin(dst, ber.Sequence)
 	dst = appendUint(dst, Integer, uint64(packet.MsgID))
@@ -219,11 +228,11 @@ func (packet *Message) appendV3Header(dst []byte) []byte {
 		maxSize = packet.MsgMaxSize
 	}
 	dst = appendUint(dst, Integer, uint64(maxSize))
-	flags := packet.SecurityLevel & AuthPriv
+	flags := byte(packet.SecurityLevel)
 	if packet.PDUType.confirmed() {
-		flags |= Reportable
+		flags |= reportableFlag
 	}
-	dst = append(dst, byte(OctetString), 1, byte(flags))
+	dst = append(dst, byte(OctetString), 1, flags)
 	dst = append(dst, byte(Integer), 1, byte(UserSecurityModel))
 	return ber.End(dst, start)
 }
@@ -306,7 +315,8 @@ func v3ParseError(err error) error {
 }
 
 // parseV3 reads the SNMPv3 header at packet[cursor:]: the message ID, maximum
-// size, flags and security model into response, and the USM fields and the
+// size, the security level of msgFlags and the security model into response,
+// and the USM fields and the
 // offsets security processing needs into the v3Wire it returns. It takes
 // net-snmp v5.9.4's extents: every declared length must fit what remains; the
 // fields of msgGlobalData are read against the rest of the message, whatever
@@ -359,7 +369,8 @@ func parseV3(packet []byte, cursor int, response *Message) (v3Wire, error) {
 	case len(flags) != 1:
 		return w, errMsgFlags
 	}
-	response.SecurityLevel = SecurityLevel(flags[0])
+	// The level: the reportableFlag and the reserved bits stay on the wire.
+	response.SecurityLevel = SecurityLevel(flags[0]) & AuthPriv
 	model, err := readInt32(&r)
 	if err == nil && model < 1 {
 		err = fmt.Errorf("%d is outside 1..2147483647", model)
