@@ -5,6 +5,7 @@ linters:
     - copyloopvar
     - dogsled
     - dupl
+    - forbidigo
     - gochecknoglobals
     - goconst
     - gocritic
@@ -19,6 +20,14 @@ linters:
     - unparam
     - whitespace
   settings:
+    forbidigo:
+      # The library writes no log or other output and never exits the process:
+      # it reports through results and errors.
+      analyze-types: true
+      forbid:
+        - pattern: ^log\.
+        - pattern: ^os\.(Exit|Stdout|Stderr)$
+        - pattern: ^(fmt\.Print.*|print|println)$
     goconst:
       ignore-tests: true
     gocritic:
@@ -48,6 +57,10 @@ linters:
           - gosec
           - nolintlint
         path: _test.go
+      # Tests, examples and the net-snmp oracle may print, log and exit.
+      - linters:
+          - forbidigo
+        path: (_test\.go$|^examples/|^netsnmp/)
       # Explicit declaration types are what the public API tests assert.
       - linters:
           - staticcheck

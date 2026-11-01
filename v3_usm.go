@@ -117,7 +117,7 @@ func (privProtocol SnmpV3PrivProtocol) spec() usm.Priv {
 // message carries a copy.
 type UsmSecurityParameters struct {
 	// mu serializes key initialization, the client's writes of its engine
-	// state and the logger, Copy and Log.
+	// state, and Copy.
 	mu sync.Mutex
 
 	// The authoritative engine's ID, boots and time (RFC 3414 section 2.2).
@@ -161,9 +161,6 @@ type UsmSecurityParameters struct {
 	// one, and a client cannot take one.
 	SecretKey  []byte
 	PrivacyKey []byte
-
-	// Logger receives Log's output; Connect sets the client's.
-	Logger Logger
 }
 
 func (sp *UsmSecurityParameters) usm() *UsmSecurityParameters {
@@ -171,7 +168,7 @@ func (sp *UsmSecurityParameters) usm() *UsmSecurityParameters {
 }
 
 // Description returns the user name, the engine ID in hex, the protocols and
-// both passphrases. Use SafeString for anything that may be logged.
+// both passphrases.
 func (sp *UsmSecurityParameters) Description() string {
 	var sb strings.Builder
 	sb.WriteString("user=")
@@ -198,29 +195,6 @@ func (sp *UsmSecurityParameters) Description() string {
 	return sb.String()
 }
 
-// SafeString returns a logging safe (no secrets) string of the UsmSecurityParameters
-func (sp *UsmSecurityParameters) SafeString() string {
-	return fmt.Sprintf("AuthoritativeEngineID:%s, AuthoritativeEngineBoots:%d, AuthoritativeEngineTimes:%d, UserName:%s, AuthenticationParameters:%s, PrivacyParameters:%v, AuthenticationProtocol:%s, PrivacyProtocol:%s",
-		sp.AuthoritativeEngineID,
-		sp.AuthoritativeEngineBoots,
-		sp.AuthoritativeEngineTime,
-		sp.UserName,
-		sp.AuthenticationParameters,
-		sp.PrivacyParameters,
-		sp.AuthenticationProtocol,
-		sp.PrivacyProtocol,
-	)
-}
-
-// Log logs SafeString to the parameters' Logger.
-func (sp *UsmSecurityParameters) Log() {
-	sp.mu.Lock()
-	defer sp.mu.Unlock()
-	if sp.Logger.enabled() {
-		sp.Logger.Printf("SECURITY PARAMETERS:%s", sp.SafeString())
-	}
-}
-
 // Copy returns a copy of the parameters. The key and salt slices are shared
 // with the original, not copied.
 func (sp *UsmSecurityParameters) Copy() SnmpV3SecurityParameters {
@@ -239,7 +213,6 @@ func (sp *UsmSecurityParameters) Copy() SnmpV3SecurityParameters {
 		PrivacyPassphrase:        sp.PrivacyPassphrase,
 		SecretKey:                sp.SecretKey,
 		PrivacyKey:               sp.PrivacyKey,
-		Logger:                   sp.Logger,
 	}
 }
 
@@ -458,14 +431,6 @@ func (sp *UsmSecurityParameters) checkKeySources() error {
 	return nil
 }
 
-// setLogger sets the logger of Log.
-func (sp *UsmSecurityParameters) setLogger(log Logger) {
-	sp.mu.Lock()
-	defer sp.mu.Unlock()
-
-	sp.Logger = log
-}
-
 // passwordCache derives the keys of every UsmSecurityParameters.
 var passwordCache = usm.NewCache() //nolint:gochecknoglobals // PasswordCaching turns it on and off
 
@@ -488,14 +453,13 @@ func (sp *UsmSecurityParameters) InitPacket(*SnmpPacket) error {
 // engine's ID, boots and time (RFC 3414 section 4): an unauthenticated Get
 // without variable bindings and with empty security parameters, which the
 // encoder sends reportable as every request.
-func newDiscoveryPacket(logger Logger) *SnmpPacket {
+func newDiscoveryPacket() *SnmpPacket {
 	return &SnmpPacket{
 		Version:            Version3,
 		MsgFlags:           NoAuthNoPriv,
 		SecurityModel:      UserSecurityModel,
-		SecurityParameters: &UsmSecurityParameters{Logger: logger},
+		SecurityParameters: &UsmSecurityParameters{},
 		PDUType:            GetRequest,
-		Logger:             logger,
 	}
 }
 

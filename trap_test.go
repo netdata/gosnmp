@@ -5,8 +5,6 @@
 package gosnmp
 
 import (
-	"io"
-	"log"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -17,7 +15,6 @@ var secParamsList = []*UsmSecurityParameters{
 		UserName:                 "myuser",
 		AuthenticationProtocol:   MD5,
 		AuthenticationPassphrase: "mypassword",
-		Logger:                   NewLogger(log.New(io.Discard, "", 0)),
 	},
 	{
 		UserName:                 "myuser1",
@@ -25,7 +22,6 @@ var secParamsList = []*UsmSecurityParameters{
 		AuthenticationPassphrase: "mypassword1",
 		PrivacyProtocol:          AES,
 		PrivacyPassphrase:        "myprivacy1",
-		Logger:                   NewLogger(log.New(io.Discard, "", 0)),
 	},
 	{
 		UserName:                 "myuser2",
@@ -33,7 +29,6 @@ var secParamsList = []*UsmSecurityParameters{
 		AuthenticationPassphrase: "mypassword2",
 		PrivacyProtocol:          DES,
 		PrivacyPassphrase:        "myprivacy2",
-		Logger:                   NewLogger(log.New(io.Discard, "", 0)),
 	},
 	{
 		UserName:                 "myuser2",
@@ -41,7 +36,6 @@ var secParamsList = []*UsmSecurityParameters{
 		AuthenticationPassphrase: "mypassword2",
 		PrivacyProtocol:          AES,
 		PrivacyPassphrase:        "myprivacy2",
-		Logger:                   NewLogger(log.New(io.Discard, "", 0)),
 	},
 }
 
@@ -60,7 +54,6 @@ var testsUnmarshalTrap = []struct {
 				UserName:                 "myuser",
 				AuthenticationProtocol:   MD5,
 				AuthenticationPassphrase: "mypassword",
-				Logger:                   NewLogger(log.New(io.Discard, "", 0)),
 			},
 		},
 	},
@@ -77,7 +70,6 @@ var testsUnmarshalTrap = []struct {
 				AuthenticationPassphrase: "mypassword2",
 				PrivacyProtocol:          AES,
 				PrivacyPassphrase:        "myprivacy2",
-				Logger:                   NewLogger(log.New(io.Discard, "", 0)),
 			},
 		},
 	},
@@ -112,7 +104,7 @@ SANITY:
 
 func TestUnmarshalTrapWithMultipleUsers(t *testing.T) {
 	useEngineTimes(t)
-	usmMap := NewSnmpV3SecurityParametersTable(NewLogger(log.New(io.Discard, "", 0)))
+	usmMap := NewSnmpV3SecurityParametersTable()
 	for _, sp := range secParamsList {
 		require.NoError(t, usmMap.Add(sp.UserName, sp))
 	}

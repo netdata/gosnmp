@@ -101,7 +101,7 @@ func BenchmarkUSMDecodeTable(b *testing.B) {
 	for _, priv := range usmBenchPrivProtocols {
 		b.Run(priv.String(), func(b *testing.B) {
 			data := usmCharTrap(b, priv, usmCharVarbinds)
-			table := NewSnmpV3SecurityParametersTable(Logger{})
+			table := NewSnmpV3SecurityParametersTable()
 			other := usmDecoder(SHA, "codec-auth-pass", priv, "codec-priv-pass")().SecurityParameters.(*UsmSecurityParameters)
 			if err := table.Add("codec-user", usmKeysOnly(other, usmOtherEngineID)); err != nil {
 				b.Fatal(err)

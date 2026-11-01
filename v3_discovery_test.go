@@ -19,8 +19,6 @@ package gosnmp
 
 import (
 	"fmt"
-	"io"
-	"log"
 	"net"
 	"testing"
 
@@ -49,7 +47,6 @@ type mockAgentUnknownUserNames struct {
 	engineID             string
 	boots                uint32
 	engineTime           uint32
-	logger               Logger
 	done                 chan struct{}
 	errs                 chan error
 	failAuthRequests     bool
@@ -68,7 +65,6 @@ func newMockAgentUnknownUserNames(t *testing.T) *mockAgentUnknownUserNames {
 		engineID:   testDiscoveryEngineID,
 		boots:      testDiscoveryEngineBoots,
 		engineTime: testDiscoveryEngineTime,
-		logger:     NewLogger(log.New(io.Discard, "", 0)),
 		done:       make(chan struct{}),
 		errs:       make(chan error, 16),
 	}
@@ -118,8 +114,7 @@ func (m *mockAgentUnknownUserNames) serve() {
 		}
 
 		req := &SnmpPacket{
-			Logger:             m.logger,
-			SecurityParameters: &UsmSecurityParameters{Logger: m.logger},
+			SecurityParameters: &UsmSecurityParameters{},
 		}
 
 		cursor, w, err := unmarshalHeader(buf[:n], req)
@@ -170,7 +165,6 @@ func (m *mockAgentUnknownUserNames) secParams() *UsmSecurityParameters {
 		AuthoritativeEngineID:    m.engineID,
 		AuthoritativeEngineBoots: m.boots,
 		AuthoritativeEngineTime:  m.engineTime,
-		Logger:                   m.logger,
 	}
 }
 
@@ -193,7 +187,6 @@ func (m *mockAgentUnknownUserNames) marshalUnknownUserNamesReport(req *SnmpPacke
 		PDUType:            Report,
 		MsgID:              req.MsgID,
 		RequestID:          req.RequestID,
-		Logger:             m.logger,
 		Variables: []SnmpPDU{{
 			Name:  usmStatsUnknownUserNames,
 			Value: 1,
@@ -217,7 +210,6 @@ func (m *mockAgentUnknownUserNames) marshalGetResponse(req *SnmpPacket) ([]byte,
 		MsgID:              req.MsgID,
 		RequestID:          req.RequestID,
 		ContextEngineID:    m.engineID,
-		Logger:             m.logger,
 		Variables: []SnmpPDU{{
 			Name:  ".1.3.6.1.2.1.1.1.0",
 			Value: "mock sysDescr",

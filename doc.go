@@ -4,7 +4,9 @@
 
 // Package gosnmp is an SNMP client: it sends Get requests and walks subtrees
 // with GetNext or GetBulk requests over UDP, with SNMPv1, SNMPv2c and SNMPv3
-// (the User-based Security Model), and decodes received traps and informs.
+// (the User-based Security Model), and decodes received traps and informs. It
+// writes no log or other output and never exits the process: its functions
+// report through their results and errors.
 //
 // # Lifecycle
 //
@@ -17,14 +19,13 @@
 // closes it, and so does a Connect that replaces it; a connection the caller or
 // a hook replaces in Conn is the caller's again. Connect may be called again
 // after Close. A request reads the client's configuration when it starts and
-// does not change it: a change a hook or the Logger makes applies from the next
-// request. Exceptions: the Logger itself is used as it is set, the SNMPv3
-// engine state the client learns during a request serves the rest of it (see
-// SNMPv3), and each attempt uses the connection Conn holds when it starts. A
-// request resolves no name: Connect looks up Target, and a request writes to
-// the peer of the connection it uses. The request IDs and msgIDs start at a
-// random value on first use unless [GoSNMP.SetRequestID] and [GoSNMP.SetMsgID]
-// set them, and Connect does not reset them.
+// does not change it: a change a hook makes applies from the next request.
+// Exceptions: the SNMPv3 engine state the client learns during a request serves
+// the rest of it (see SNMPv3), and each attempt uses the connection Conn holds
+// when it starts. A request resolves no name: Connect looks up Target, and a
+// request writes to the peer of the connection it uses. The request IDs and
+// msgIDs start at a random value on first use unless [GoSNMP.SetRequestID] and
+// [GoSNMP.SetMsgID] set them, and Connect does not reset them.
 //
 // # Concurrency
 //
@@ -87,13 +88,12 @@
 // it starts.
 //
 // A panic in the code a request runs on its own goroutine ends the request: in
-// a hook, in the Logger, or in a method of a Conn or Context the caller gave
-// that the request calls. The request returns no packet and an error whose text
-// starts with "request panicked: " and that wraps the panic's value when it is
-// an error, so that [errors.Is] and [errors.As] reach it (a [runtime.Error]
-// included); the client stays usable. Other panics are not recovered: they
-// reach the caller, or end the process when they run on a goroutine of their
-// own. That is a panic in the Logger when a walk logs between its requests;
+// a hook, or in a method of a Conn or Context the caller gave that the request
+// calls. The request returns no packet and an error whose text starts with
+// "request panicked: " and that wraps the panic's value when it is an error, so
+// that [errors.Is] and [errors.As] reach it (a [runtime.Error] included); the
+// client stays usable. Other panics are not recovered: they reach the caller,
+// or end the process when they run on a goroutine of their own. That is a panic
 // in a Conn's SetDeadline when Close or a done Context interrupts an attempt;
 // in a Context's methods that the context package calls on goroutines of its
 // own; and in Connect and Close.
@@ -132,15 +132,15 @@
 // engine ID unless the caller sets one. The boots and time fields show the
 // latest values received, not the advancing ones. The client writes a field
 // only while it holds what the client last wrote or read there. A field the
-// caller changed, also from a hook or the Logger during a request, is the
-// caller's from the next request on: an engine ID (empty: discover again;
-// another one has no clock until an answer gives one), boots and time (a clock
-// received then, as an unauthenticated one; zeros: none), a key, which must be
-// localized to the engine ID (empty: derive), a context engine ID (empty: the
-// engine ID again). Another SecurityParameters value is the caller's whole, and
-// a changed protocol or passphrase derives the keys the client derived again.
-// A value the caller sets that equals the client's is the client's; a
-// SecurityParameters value serves one client.
+// caller changed, also from a hook during a request, is the caller's from the
+// next request on: an engine ID (empty: discover again; another one has no
+// clock until an answer gives one), boots and time (a clock received then, as
+// an unauthenticated one; zeros: none), a key, which must be localized to the
+// engine ID (empty: derive), a context engine ID (empty: the engine ID again).
+// Another SecurityParameters value is the caller's whole, and a changed
+// protocol or passphrase derives the keys the client derived again. A value the
+// caller sets that equals the client's is the client's; a SecurityParameters
+// value serves one client.
 //
 // A reply whose msgID names none of the request's attempts is discarded before
 // security processing. A reply then goes through the security processing of RFC

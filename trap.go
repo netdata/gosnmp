@@ -115,7 +115,7 @@ func (x *GoSNMP) unmarshalTrapBase(trap []byte, useResponseSecurityParameters bo
 	if result.SecurityParameters != nil {
 		sp = result.SecurityParameters.usm()
 	} else {
-		sp = &UsmSecurityParameters{Logger: x.Logger}
+		sp = &UsmSecurityParameters{}
 	}
 	rule := trapRule{singleUser: true}
 	if !useResponseSecurityParameters {

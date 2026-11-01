@@ -262,29 +262,6 @@ func withoutEngineID(p *SnmpPacket) {
 	p.ContextEngineID = ""
 }
 
-// onLogging runs a Get with a Logger that calls do the first time it is
-// given msg: user code that changes the client or panics inside the engine.
-func onLogging(msg string, do func(x *GoSNMP)) func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
-	return func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
-		done := false
-		x.Logger = NewLogger(funcLogger(func(s string) {
-			if s == msg && !done {
-				done = true
-				a.tr.addf("Logger is given %q", msg)
-				do(x)
-			}
-		}))
-		return x.Get([]string{engineOID})
-	}
-}
-
-// funcLogger is a LoggerInterface that hands each line to a function.
-type funcLogger func(string)
-
-func (l funcLogger) Print(v ...any) { l(fmt.Sprint(v...)) }
-
-func (l funcLogger) Printf(format string, v ...any) { l(fmt.Sprintf(format, v...)) }
-
 // fromOtherEngine makes an answer come from the agent's other engine ID.
 func fromOtherEngine(p *SnmpPacket) {
 	p.SecurityParameters.usm().AuthoritativeEngineID = agentOtherEngineID
@@ -847,20 +824,6 @@ func v3Scenarios() map[string]v3Scenario {
 				}
 				return x.Get([]string{engineOID})
 			},
-		},
-		"hooks/logger-panics-after-failed-retransmission": {
-			user: "codec-noauth", script: func(n int, _ agentRequest) (agentAnswer, bool) {
-				switch n {
-				case 2:
-					return agentAnswer{report: usmStatsNotInTimeWindows, why: "not in time window"}, true
-				case 3:
-					return agentAnswer{report: usmStatsUnknownUserNames, why: "unknown user"}, true
-				}
-				return agentAnswer{}, false
-			},
-			run: onLogging("ERROR out-of-time-window retransmit error: unknown username", func(*GoSNMP) {
-				panic("logger failure")
-			}),
 		},
 		"hooks/onrecv-lowers-msg-flags": {
 			user: "codec-md5", script: onRequest(2, agentAnswer{

@@ -372,7 +372,7 @@ func newEngineClientFrom(tb testing.TB, tr *engineTranscript, conn net.Conn, x *
 }
 
 // configOf returns the client's configuration a request must not write: its
-// exported fields, but for the hooks and the Logger (user code), Conn (the
+// exported fields, but for the hooks (user code), Conn (the
 // connection) and the SNMPv3 engine state the client learns
 // (SecurityParameters, ContextEngineID).
 func configOf(x *GoSNMP) map[string]any {
@@ -385,7 +385,7 @@ func configOf(x *GoSNMP) map[string]any {
 			continue
 		}
 		switch f.Name {
-		case "Logger", "Conn", "SecurityParameters", "ContextEngineID":
+		case "Conn", "SecurityParameters", "ContextEngineID":
 			continue
 		}
 		cfg[f.Name] = v.Field(i).Interface()

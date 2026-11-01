@@ -11,14 +11,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"maps"
 	"net"
 	"os"
 	"os/exec"
 	"runtime"
 	"slices"
-	"strings"
 	"syscall"
 	"testing"
 	"testing/synctest"
@@ -773,16 +771,6 @@ func engineScenarios() map[string]engineScenario {
 		"hook-panics/onfinish": {agent: answer(sysDescr), run: getAfterPanic, setup: func(x *GoSNMP, c *fakeTransport) {
 			panicOnce(c, "OnFinish", &x.OnFinish, panicWithError)
 		}},
-		"hook-panics/logger": {agent: answer(sysDescr), run: getAfterPanic, setup: func(x *GoSNMP, c *fakeTransport) {
-			armed := true
-			x.Logger = NewLogger(funcLogger(func(s string) {
-				if armed && strings.HasPrefix(s, "GET RESPONSE OK") {
-					armed = false
-					c.tr.addf("Logger panics at %q", "GET RESPONSE OK")
-					panicWithError()
-				}
-			}))
-		}},
 		"hook-panics/conn-read": {agent: answer(sysDescr), run: getAfterPanic, setup: func(_ *GoSNMP, c *fakeTransport) {
 			c.failRead = func(n int) error {
 				if n == 1 {
@@ -1194,18 +1182,6 @@ func TestEngineRequestTimeoutError(t *testing.T) {
 	var ne net.Error
 	assert.Equal(t, classified{text: "request timeout (after 1 retries)", deadline: true, timeoutNetError: true},
 		classified{err.Error(), errors.Is(err, os.ErrDeadlineExceeded), errors.As(err, &ne) && ne.Timeout()})
-}
-
-// TestEngineReplyLogger pins that a reply carries the client's Logger.
-func TestEngineReplyLogger(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		c := newFakeTransport(nil, answer(sysDescr))
-		x := newEngineClient(t, nil, Version2c, c)
-		x.Logger = NewLogger(log.New(io.Discard, "", 0))
-		res, err := x.Get([]string{engineOID})
-		require.NoError(t, err)
-		assert.Equal(t, x.Logger, res.Logger)
-	})
 }
 
 // BenchmarkSendOneRequest measures one SNMPv2c Get through the request engine
