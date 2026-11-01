@@ -193,6 +193,69 @@ func TestRequestResolvesNoName(t *testing.T) {
 	assert.Equal(t, int32(0), lookups.Load(), "lookups")
 }
 
+// TestRetryUsesConnReplacedByHook checks that each attempt of a request uses
+// the connection Conn holds when it starts: after the first attempt times out
+// on agent A, which never answers, OnRetry sets Conn to a socket connected to
+// agent B, which answers the retry.
+func TestRetryUsesConnReplacedByHook(t *testing.T) {
+	portA, _ := udpAgent(t, func(int, []byte) []byte { return nil })
+	portB, _ := udpAgent(t, func(_ int, req []byte) []byte { return replyTo(req, nil, sysDescr) })
+	x := &GoSNMP{
+		Target: "127.0.0.1", Port: portA, Version: Version2c, Community: "public",
+		Timeout: 200 * time.Millisecond, Retries: 1,
+	}
+	require.NoError(t, x.Connect())
+	first := x.Conn
+	defer first.Close()
+	defer x.Close()
+	x.OnRetry = func(x *GoSNMP) {
+		x.OnRetry = nil
+		conn, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: int(portB)})
+		require.NoError(t, err)
+		x.Conn = conn
+	}
+
+	res, err := x.Get([]string{engineOID})
+	require.NoError(t, err)
+	assert.Equal(t, []SnmpPDU{sysDescr}, res.Variables)
+}
+
+// TestConnectIPv6Target checks a request to an agent on the IPv6 loopback
+// address: Connect dials Target "::1" over IPv6, and the agent answers.
+func TestConnectIPv6Target(t *testing.T) {
+	agent, err := net.ListenUDP("udp6", &net.UDPAddr{IP: net.IPv6loopback})
+	if err != nil {
+		t.Skipf("no IPv6 loopback: %v", err)
+	}
+	served := make(chan struct{})
+	go func() {
+		defer close(served)
+		buf := make([]byte, 2048)
+		for {
+			n, from, readErr := agent.ReadFromUDP(buf)
+			if readErr != nil {
+				return
+			}
+			_, _ = agent.WriteToUDP(replyTo(buf[:n], nil, sysDescr), from)
+		}
+	}()
+	defer func() {
+		_ = agent.Close()
+		<-served
+	}()
+	x := &GoSNMP{
+		Target: "::1", Port: uint16(agent.LocalAddr().(*net.UDPAddr).Port), //nolint:gosec // a UDP port
+		Version: Version2c, Community: "public", Timeout: 500 * time.Millisecond,
+	}
+	require.NoError(t, x.Connect())
+	defer x.Close()
+	assert.True(t, x.Conn.RemoteAddr().(*net.UDPAddr).IP.Equal(net.IPv6loopback), "remote %v", x.Conn.RemoteAddr())
+
+	res, err := x.Get([]string{engineOID})
+	require.NoError(t, err)
+	assert.Equal(t, []SnmpPDU{sysDescr}, res.Variables)
+}
+
 // TestConnectedSocketOtherSource checks that the socket Connect dials takes
 // replies from the agent's address only: replies sent from another socket do
 // not reach the request, which times out.

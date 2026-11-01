@@ -1551,11 +1551,13 @@ func TestExchangeEndErrors(t *testing.T) {
 			wantText: "request timeout (after 1 retries): last discarded reply: out of window",
 			wantIs:   []error{os.ErrDeadlineExceeded, ErrNotInTimeWindow},
 		},
-		"agent closed after a discard": {
+		"transport error after a discard": {
 			discarded: reason,
-			end:       func(e *exchange) error { return e.attemptsError("max retries (1) exceeded", io.EOF) },
-			wantText:  "max retries (1) exceeded: last discarded reply: out of window",
-			wantIs:    []error{io.EOF, ErrNotInTimeWindow},
+			end: func(e *exchange) error {
+				e.cfg.ctx = context.Background()
+				return e.endErr(0, attemptOutcome{kind: attemptTransportError, err: errEngineWrite})
+			},
+			wantText: errEngineWrite.Error(), same: errEngineWrite, wantNotIs: []error{ErrNotInTimeWindow},
 		},
 		"deadline": {
 			end:      func(e *exchange) error { return e.unanswered(context.DeadlineExceeded) },
