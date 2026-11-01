@@ -308,7 +308,7 @@ func TestTrapEncodedReplay(t *testing.T) {
 func TestPDUTypeConfirmed(t *testing.T) {
 	want := map[PDUType]bool{
 		GetRequest: true, GetNextRequest: true, GetBulkRequest: true, SetRequest: true, InformRequest: true,
-		GetResponse: false, Trap: false, SNMPv2Trap: false, Report: false, Sequence: false,
+		GetResponse: false, Trap: false, SNMPv2Trap: false, Report: false, ber.Sequence: false,
 	}
 	got := make(map[PDUType]bool, len(want))
 	for pdu := range want {

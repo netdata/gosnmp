@@ -212,7 +212,7 @@ func (packet *SnmpPacket) checkV3Header() error {
 // clear for the others (RFC 3412 section 6.4), whatever MsgFlags holds besides
 // the level.
 func (packet *SnmpPacket) appendV3Header(dst []byte) []byte {
-	dst, start := ber.Begin(dst, byte(Sequence))
+	dst, start := ber.Begin(dst, ber.Sequence)
 	dst = appendUint(dst, Integer, uint64(packet.MsgID))
 	maxSize := uint32(rxBufSize)
 	if packet.MsgMaxSize != 0 {
@@ -233,7 +233,7 @@ func (packet *SnmpPacket) appendV3Header(dst []byte) []byte {
 // when there is one (appendV3 draws it when the flags ask for privacy).
 func (packet *SnmpPacket) appendV3ScopedPDU(dst []byte, sp *UsmSecurityParameters, salt []byte) ([]byte, error) {
 	scoped := len(dst)
-	dst, start := ber.Begin(dst, byte(Sequence))
+	dst, start := ber.Begin(dst, ber.Sequence)
 	dst = appendOctets(dst, OctetString, packet.ContextEngineID)
 	dst = appendOctets(dst, OctetString, packet.ContextName)
 	dst, err := packet.appendPDU(dst)
@@ -324,7 +324,7 @@ func v3ParseError(err error) error {
 // and derives no key.
 func parseV3(packet []byte, cursor int, response *SnmpPacket) (v3Wire, error) {
 	w := v3Wire{authOff: -1}
-	if PDUType(packet[cursor]) != Sequence {
+	if packet[cursor] != ber.Sequence {
 		return w, errors.New("invalid SNMPV3 Header")
 	}
 	start, _, err := tlvAt(packet, cursor, len(packet))
@@ -388,7 +388,7 @@ func parseV3(packet []byte, cursor int, response *SnmpPacket) (v3Wire, error) {
 	if params == paramsEnd {
 		return w, errors.New("error parsing SNMPV3 User Security Model parameters: end of packet")
 	}
-	if PDUType(packet[params]) != Sequence {
+	if packet[params] != ber.Sequence {
 		return w, errors.New("error parsing SNMPV3 User Security Model parameters")
 	}
 	usmStart, usmEnd, err := tlvAt(packet, params, paramsEnd)
@@ -488,11 +488,11 @@ func unmarshalScopedPDU(packet []byte, cursor int, response *SnmpPacket, encrypt
 	}
 
 	var r ber.Reader
-	tag := PDUType(packet[cursor])
-	if encrypted != (tag == PDUType(OctetString)) {
+	tag := packet[cursor]
+	if encrypted != (tag == byte(OctetString)) {
 		return nil, 0, errScopedPDUType
 	}
-	if tag != Sequence && tag != PDUType(OctetString) {
+	if tag != ber.Sequence && tag != byte(OctetString) {
 		return nil, 0, inCategory(ErrInvalidMsgs, errors.New("error parsing SNMPV3 scoped PDU"))
 	}
 	start, stop, err := tlvAt(packet, cursor, len(packet))
@@ -510,7 +510,7 @@ func unmarshalScopedPDU(packet []byte, cursor int, response *SnmpPacket, encrypt
 		}
 		pr := ber.NewReader(plaintext)
 		tag, content, err := pr.Next()
-		if err == nil && PDUType(tag) != Sequence {
+		if err == nil && tag != ber.Sequence {
 			err = fmt.Errorf("tag %#x, not a SEQUENCE", tag)
 		}
 		if err != nil {
