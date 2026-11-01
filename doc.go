@@ -89,7 +89,7 @@
 //
 // A panic in the code a request runs on its own goroutine ends the request: in
 // a hook, or in a method of a Conn or Context the caller gave that the request
-// calls. The request returns no packet and an error whose text starts with
+// calls. The request returns no message and an error whose text starts with
 // "request panicked: " and that wraps the panic's value when it is an error, so
 // that [errors.Is] and [errors.As] reach it (a [runtime.Error] included); the
 // client stays usable. Other panics are not recovered: they reach the caller,
@@ -337,7 +337,7 @@
 // checked); decoding a reply derives none, while discovery and, without
 // authentication, an answer the client takes or a lent Report localize the
 // client's keys to the engine ID it names. The SecurityParameters of a
-// request's packet and answer share the client's keys: do not write into them.
+// request's message and answer share the client's keys: do not write into them.
 // Deriving a key starts with hashing a megabyte of the passphrase (RFC 3414
 // appendix A.2.1). The package caches that result for every client, by
 // passphrase and hash, until [PasswordCaching] turns the cache off; it holds

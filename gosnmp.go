@@ -275,7 +275,7 @@ func (x *Client) prepare() error {
 }
 
 // EncodeMessage encodes a request or trap, for another transport or for
-// tests: it prepares the client as Connect does, builds the packet with
+// tests: it prepares the client as Connect does, builds the message with
 // NewMessage and numbers it with the next request ID and, for SNMPv3, the
 // next msgID, as a request's attempt does. It runs no engine discovery and
 // derives no keys: an authenticated or private SNMPv3 message needs the keys
