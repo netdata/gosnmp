@@ -46,8 +46,8 @@ func FuzzEngineReply(f *testing.F) {
 		x := engineReplyClient(engineReplyRequests[int(which)%len(engineReplyRequests)])
 		// One read per exchange (the discovery, the request, a resend), each
 		// followed by the attempt's timeout.
-		exchange := []streamRead{{data: reply}, {err: os.ErrDeadlineExceeded}}
-		x.Conn = &replyConn{streamConn{reads: slices.Concat(exchange, exchange, exchange)}}
+		exchange := []scriptedRead{{data: reply}, {err: os.ErrDeadlineExceeded}}
+		x.Conn = &replyConn{scriptedConn{reads: slices.Concat(exchange, exchange, exchange)}}
 		packet, err := x.oidRequest(GetRequest, []string{engineOID}, 0, 0)
 		if err != nil {
 			t.Fatal(err)
@@ -66,7 +66,7 @@ func TestEngineReplySeeds(t *testing.T) {
 		}
 		for i, reply := range seeds {
 			e := engineReplyExchange(t, r)
-			e.x.Conn = &replyConn{streamConn{reads: []streamRead{{data: reply}, {err: os.ErrDeadlineExceeded}}}}
+			e.x.Conn = &replyConn{scriptedConn{reads: []scriptedRead{{data: reply}, {err: os.ErrDeadlineExceeded}}}}
 			if out := e.attempt(nil); out.kind != attemptReply || out.packet == nil {
 				t.Errorf("%+v seed %d: the attempt ended as %d, %v, not with an answer", r, i, out.kind, out.err)
 			}
@@ -77,7 +77,7 @@ func TestEngineReplySeeds(t *testing.T) {
 // engineReplyClient returns a client for r whose next request ID and msgID
 // are 1001 and 2001, without a Conn.
 func engineReplyClient(r engineReplyRequest) *GoSNMP {
-	x := &GoSNMP{Version: Version2c, Community: "public", Transport: udp, Timeout: time.Second, MaxOids: MaxOids}
+	x := &GoSNMP{Version: Version2c, Community: "public", Timeout: time.Second, MaxOids: MaxOids}
 	if r.user != "" {
 		creds := agentCreds[r.user]
 		x.Version, x.SecurityModel, x.MsgFlags = Version3, UserSecurityModel, NoAuthNoPriv
@@ -165,11 +165,10 @@ func engineReplySeeds(tb testing.TB, r engineReplyRequest) [][]byte {
 	return seeds
 }
 
-// replyConn is a Conn the caller set under Transport "udp", read with Read,
-// one message per read: its reads are a streamConn's; writes and deadlines
-// succeed.
+// replyConn is a Conn the caller set, read with Read, one message per read:
+// its reads are a scriptedConn's; writes and deadlines succeed.
 type replyConn struct {
-	streamConn
+	scriptedConn
 }
 
 func (c *replyConn) Write(b []byte) (int, error) { return len(b), nil }

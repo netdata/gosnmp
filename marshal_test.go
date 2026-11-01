@@ -6,12 +6,10 @@ package gosnmp
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
-	"os"
 	"reflect"
 	"runtime"
 	"strings"
@@ -1581,99 +1579,6 @@ func TestSendOneRequest_dups(t *testing.T) {
 	if err != nil {
 		t.Errorf("error: %s", err)
 		return
-	}
-}
-
-func TestSendOneRequest_TCP_EOF_Reconnect(t *testing.T) {
-	listen, err := net.Listen("tcp", "127.0.0.1:0") // dynamic port
-	if err != nil {
-		t.Fatalf("failed to set up test listener: %v", err)
-	}
-	defer listen.Close()
-	port := listen.Addr().(*net.TCPAddr).Port
-
-	// Start mock SNMP server in goroutine
-	go func() {
-		conn, acceptErr := listen.Accept()
-		if acceptErr != nil {
-			return
-		}
-		defer conn.Close()
-
-		buf := make([]byte, 2048)
-		_, _ = conn.Read(buf) // Read request
-		// simulate EOF by closing immediately
-	}()
-
-	params := &GoSNMP{
-		Target:    "127.0.0.1",
-		Port:      uint16(port),
-		Transport: "tcp",
-		Community: "public",
-		Version:   Version2c,
-		Timeout:   time.Second,
-		Retries:   1,
-		Logger:    NewLogger(log.New(io.Discard, "", 0)),
-	}
-
-	err = params.Connect()
-	if err != nil {
-		t.Fatalf("Connect failed: %v", err)
-	}
-	defer params.Conn.Close()
-
-	// Use an arbitrary OID
-	_, err = params.Get([]string{".1.3.6.1.2.1.1.1.0"})
-
-	if err == nil {
-		t.Fatal("expected error due to EOF, got nil")
-	}
-	// The reconnected attempt times out or meets EOF again.
-	if !errors.Is(err, os.ErrDeadlineExceeded) && !errors.Is(err, io.EOF) {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestUnconnectedSocket_fail(t *testing.T) {
-	withUnconnectedSocket(t, false)
-}
-
-func TestUnconnectedSocket_success(t *testing.T) {
-	withUnconnectedSocket(t, true)
-}
-
-func withUnconnectedSocket(t *testing.T, enable bool) {
-	srvr, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
-	if err != nil {
-		t.Fatalf("udp error listening: %s", err)
-	}
-	defer srvr.Close()
-
-	x := &GoSNMP{
-		Version:                 Version2c,
-		Target:                  srvr.LocalAddr().(*net.UDPAddr).IP.String(),
-		Port:                    uint16(srvr.LocalAddr().(*net.UDPAddr).Port),
-		Timeout:                 time.Millisecond * 100,
-		Retries:                 2,
-		UseUnconnectedUDPSocket: enable,
-		LocalAddr:               "0.0.0.0:",
-	}
-	if err = x.Connect(); err != nil {
-		t.Fatalf("error connecting: %s", err)
-	}
-	defer x.Conn.Close()
-
-	go serveGetResponses(t, srvr, x, sendFromNewSocket)
-
-	pdus := []SnmpPDU{{Name: ".1.2", Type: Null}}
-	// This is not actually a GetResponse, but we need something our test server can unmarshal.
-	reqPkt := x.MkSnmpPacket(GetResponse, pdus, 0, 0)
-
-	_, _, err = x.sendOneRequest(new(x.prepareRequest()), reqPkt, false, sourcedClock{})
-	if err != nil && enable {
-		t.Errorf("with unconnected socket enabled got unexpected error: %v", err)
-	} else if err == nil && !enable {
-		t.Errorf("with unconnected socket disabled didn't get an error")
 	}
 }
 

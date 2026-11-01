@@ -124,34 +124,6 @@ func (mr *MockHandlerMockRecorder) Connect() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Connect", reflect.TypeOf((*MockHandler)(nil).Connect))
 }
 
-// ConnectIPv4 mocks base method.
-func (m *MockHandler) ConnectIPv4() error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ConnectIPv4")
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// ConnectIPv4 indicates an expected call of ConnectIPv4.
-func (mr *MockHandlerMockRecorder) ConnectIPv4() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConnectIPv4", reflect.TypeOf((*MockHandler)(nil).ConnectIPv4))
-}
-
-// ConnectIPv6 mocks base method.
-func (m *MockHandler) ConnectIPv6() error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ConnectIPv6")
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// ConnectIPv6 indicates an expected call of ConnectIPv6.
-func (mr *MockHandlerMockRecorder) ConnectIPv6() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ConnectIPv6", reflect.TypeOf((*MockHandler)(nil).ConnectIPv6))
-}
-
 // ContextEngineID mocks base method.
 func (m *MockHandler) ContextEngineID() string {
 	m.ctrl.T.Helper()

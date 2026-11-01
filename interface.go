@@ -23,12 +23,6 @@ type Handler interface {
 	// Connect: see GoSNMP.Connect.
 	Connect() error
 
-	// ConnectIPv4: see GoSNMP.ConnectIPv4.
-	ConnectIPv4() error
-
-	// ConnectIPv6: see GoSNMP.ConnectIPv6.
-	ConnectIPv6() error
-
 	// Get: see GoSNMP.Get.
 	Get(oids []string) (result *SnmpPacket, err error)
 
@@ -159,8 +153,8 @@ type snmpHandler struct {
 }
 
 // NewHandler returns a Handler backed by a new GoSNMP with the Port,
-// Community, Version, Timeout, Retries and MaxOids of Default; Transport and
-// ExponentialTimeout stay unset.
+// Community, Version, Timeout, Retries and MaxOids of Default;
+// ExponentialTimeout stays unset.
 func NewHandler() Handler {
 	return &snmpHandler{
 		GoSNMP{

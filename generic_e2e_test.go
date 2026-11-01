@@ -15,7 +15,6 @@ package gosnmp
 
 import (
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -50,21 +49,6 @@ func connectToTarget(t *testing.T, gs *GoSNMP) {
 	gs.Port = port
 
 	err := gs.Connect()
-	if err != nil {
-		if len(target) > 0 {
-			t.Fatalf("Connection failed. Is snmpd reachable on %s:%d?\n(err: %v)",
-				target, port, err)
-		}
-	}
-}
-
-func connectToTargetIPv4(t *testing.T, gs *GoSNMP) {
-	target, port := getTarget(t)
-
-	gs.Target = target
-	gs.Port = port
-
-	err := gs.ConnectIPv4()
 	if err != nil {
 		if len(target) > 0 {
 			t.Fatalf("Connection failed. Is snmpd reachable on %s:%d?\n(err: %v)",
@@ -129,36 +113,6 @@ func TestClose_Concurrent(t *testing.T) {
 	}
 }
 
-/*
-TODO work out ipv6 networking, etc
-
-func setupConnectionIPv6(t *testing.T) *GoSNMP {
-	envTarget := os.Getenv("GOSNMP_TARGET_IPV6")
-	envPort := os.Getenv("GOSNMP_PORT_IPV6")
-	gs := newTestGoSNMP()
-
-	if envTarget == "" {
-		t.Error("environment variable not set: GOSNMP_TARGET_IPV6")
-	}
-	gs.Target = envTarget
-
-	if envPort == "" {
-		t.Error("environment variable not set: GOSNMP_PORT_IPV6")
-	}
-	port, _ := strconv.ParseUint(envPort, 10, 16)
-	gs.Port = uint16(port)
-
-	err := gs.ConnectIPv6()
-	if err != nil {
-		if len(envTarget) > 0 {
-			t.Fatalf("Connection failed. Is snmpd reachable on %s:%s?\n(err: %v)",
-				envTarget, envPort, err)
-		}
-	}
-	return gs
-}
-*/
-
 func TestGenericBasicGet(t *testing.T) {
 	gs := newTestGoSNMP()
 	connectToTarget(t, gs)
@@ -179,49 +133,6 @@ func TestGenericBasicGet(t *testing.T) {
 		t.Fatalf("Got a zero length sysDescr")
 	}
 }
-
-func TestGenericBasicGetIPv4Only(t *testing.T) {
-	gs := newTestGoSNMP()
-	connectToTargetIPv4(t, gs)
-	defer gs.Conn.Close()
-
-	result, err := gs.Get([]string{".1.3.6.1.2.1.1.1.0"}) // SNMP MIB-2 sysDescr
-	if err != nil {
-		t.Fatalf("Get() failed with error => %v", err)
-	}
-	if len(result.Variables) != 1 {
-		t.Fatalf("Expected result of size 1")
-	}
-	if result.Variables[0].Type != OctetString {
-		t.Fatalf("Expected sysDescr to be OctetString")
-	}
-	sysDescr := result.Variables[0].Value.([]byte)
-	if len(sysDescr) == 0 {
-		t.Fatalf("Got a zero length sysDescr")
-	}
-}
-
-/*
-func TestGenericBasicGetIPv6Only(t *testing.T) {
-	gs := setupConnectionIPv6(t)
-	defer gs.Conn.Close()
-
-	result, err := gs.Get([]string{".1.3.6.1.2.1.1.1.0"}) // SNMP MIB-2 sysDescr
-	if err != nil {
-		t.Fatalf("Get() failed with error => %v", err)
-	}
-	if len(result.Variables) != 1 {
-		t.Fatalf("Expected result of size 1")
-	}
-	if result.Variables[0].Type != OctetString {
-		t.Fatalf("Expected sysDescr to be OctetString")
-	}
-	sysDescr := result.Variables[0].Value.([]byte)
-	if len(sysDescr) == 0 {
-		t.Fatalf("Got a zero length sysDescr")
-	}
-}
-*/
 
 func TestGenericMultiGet(t *testing.T) {
 	gs := newTestGoSNMP()
@@ -289,49 +200,6 @@ func TestGenericBulkWalk(t *testing.T) {
 	}
 	if len(result) <= 1 {
 		t.Fatalf("Expected multiple values, got %d", len(result))
-	}
-}
-
-// TestGenericBulkWalkTCP walks the agent's MIB over TCP and checks that it
-// finds the names a walk over UDP finds. It runs when GOSNMP_TARGET_TCP and
-// GOSNMP_PORT_TCP name the agent's TCP address.
-func TestGenericBulkWalkTCP(t *testing.T) {
-	target, envPort := os.Getenv("GOSNMP_TARGET_TCP"), os.Getenv("GOSNMP_PORT_TCP")
-	if target == "" || envPort == "" {
-		t.Skip("environment variables not set: GOSNMP_TARGET_TCP, GOSNMP_PORT_TCP")
-	}
-	port, err := strconv.ParseUint(envPort, 10, 16)
-	if err != nil {
-		t.Fatalf("invalid port number %q: %v", envPort, err)
-	}
-
-	names := func(gs *GoSNMP) []string {
-		t.Helper()
-		defer gs.Close()
-		result, err := gs.BulkWalkAll("")
-		if err != nil {
-			t.Fatalf("BulkWalkAll() over %s failed with error => %v", gs.Transport, err)
-		}
-		out := make([]string, 0, len(result))
-		for _, pdu := range result {
-			out = append(out, pdu.Name)
-		}
-		return out
-	}
-
-	gsUDP := newTestGoSNMP()
-	connectToTarget(t, gsUDP)
-	want := names(gsUDP)
-
-	gsTCP := newTestGoSNMP()
-	gsTCP.Transport, gsTCP.Target, gsTCP.Port = "tcp", target, uint16(port)
-	if err := gsTCP.Connect(); err != nil {
-		t.Fatalf("Connection failed. Is snmpd listening on TCP %s:%d?\n(err: %v)", target, port, err)
-	}
-	got := names(gsTCP)
-
-	if len(got) <= 1 || !slices.Equal(got, want) {
-		t.Fatalf("names over TCP (%d) differ from those over UDP (%d):\ntcp %v\nudp %v", len(got), len(want), got, want)
 	}
 }
 

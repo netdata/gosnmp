@@ -14,7 +14,6 @@ import (
 func newTestGoSNMP() *GoSNMP {
 	return &GoSNMP{
 		Port:               161,
-		Transport:          udp,
 		Community:          "public",
 		Version:            Version2c,
 		Timeout:            2 * time.Second,

@@ -12,8 +12,8 @@ gosnmp
 
 GoSNMP is an SNMP client library written in Go. It sends Get, GetNext, GetBulk and Set requests, walks subtrees, and
 decodes received traps and informs, over __SNMPv1__, __SNMPv2c__ and __SNMPv3__ (the User-based Security Model), on IPv4
-and IPv6, over UDP or TCP. Tests run on Linux (amd64 and 386), macOS and Windows, and CI builds for every platform the
-Netdata Agent ships its Go plugins on.
+and IPv6, over UDP. Tests run on Linux (amd64 and 386), macOS and Windows, and CI builds for every platform the Netdata
+Agent ships its Go plugins on.
 
 # About
 
@@ -122,10 +122,8 @@ More examples, each a program under `examples/`:
   each request
 * `example3` - SNMPv3 at authPriv
 * `example4` - Set
-* `walkexample` and `walktcpexample` - BulkWalk over UDP and TCP, where the agent may close the connection between
-  walks
+* `walkexample` - BulkWalk
 * `Hex-String` - OctetString values that are not text, printed octet by octet in decimal
-* `linux_vrf` - a socket bound to a Linux VRF device with `Control`
 * `logger` - logging turned on and off
 
 # MIB Parser
@@ -195,8 +193,6 @@ or, against another agent:
 ```shell
 export GOSNMP_TARGET=192.0.2.1
 export GOSNMP_PORT=161
-export GOSNMP_TARGET_IPV6='2001:db8::1'
-export GOSNMP_PORT_IPV6=161
 go test -v -tags end2end ./...
 ```
 

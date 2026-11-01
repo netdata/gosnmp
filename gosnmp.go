@@ -15,7 +15,6 @@ import (
 	"net"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 )
 
@@ -33,10 +32,6 @@ const (
 	// defaultMaxRepetitions is the walks' GetBulk max-repetitions unless
 	// GoSNMP.MaxRepetitions is set; Java SNMP uses 50, net-snmp 10.
 	defaultMaxRepetitions = 50
-
-	// "udp" and "tcp" are used regularly, prevent 'goconst' complaints
-	udp = "udp"
-	tcp = "tcp"
 )
 
 // GoSNMP is an SNMP client: its exported fields configure it, Connect opens
@@ -45,38 +40,24 @@ const (
 // buffer and deadline, so run one request at a time, or give each goroutine
 // its own GoSNMP.
 type GoSNMP struct {
-	// Conn is the connection to the agent, opened by Connect, or set by the
-	// caller in its place: the client then lacks Connect's defaults and checks,
-	// so the caller sets the fields it needs (MaxOids, for one); a request
-	// supplies its Context default, receive buffer and IDs, a TCP reopen
-	// opens it again with the request's Transport, Target, Port, LocalAddr and
-	// Control, and with UseUnconnectedUDPSocket a request writes to the
-	// agent's address the last successful Connect in that mode resolved (see
-	// UseUnconnectedUDPSocket). The client owns the connection Conn holds:
-	// Close and a later Connect close it; a connection the caller or a hook
-	// replaces in Conn is the caller's again. Each attempt of a request uses
-	// the connection Conn holds when it starts, which Close interrupts even
-	// after a hook replaced it. Set Conn only while no Close runs. Two values
-	// of a type == cannot compare count as one connection: what the client
-	// keeps for one (the lost mark, the octets of a TCP stream read past a
-	// message) holds for the other, so replace such a Conn by a value of
-	// another type, or by Close and Connect.
+	// Conn is the connection to the agent, the UDP socket Connect opened, or
+	// set by the caller in its place: the client then lacks Connect's defaults
+	// and checks, so the caller sets the fields it needs (MaxOids, for one); a
+	// request supplies its Context default, receive buffer and IDs. A request
+	// writes each message with Write and reads each reply, one per read, with
+	// ReadFrom when Conn is a net.PacketConn and with Read otherwise. The
+	// client owns the connection Conn holds: Close and a later Connect close
+	// it; a connection the caller or a hook replaces in Conn is the caller's
+	// again. Each attempt of a request uses the connection Conn holds when it
+	// starts, which Close interrupts even after a hook replaced it. Set Conn
+	// only while no Close runs.
 	Conn net.Conn
 
-	// Target is the agent's host name or IP address.
+	// Target is the agent's host name or IP address, which Connect dials.
 	Target string
 
 	// Port is the agent's port, usually 161; it has no default.
 	Port uint16
-
-	// Transport is the network: "udp" (when empty) or "tcp", or either with
-	// "4" or "6" for IPv4 or IPv6 only. Connect fills in "udp" when it is empty
-	// and connects over it narrowed to IPv4 for an IPv4 LocalAddr, ConnectIPv4
-	// and ConnectIPv6 over it with the suffix; it does not change Transport
-	// otherwise. Over TCP, also on a Conn the caller set, the client reads
-	// replies from the stream by their BER length; on other networks, one
-	// reply per read (see the package documentation).
-	Transport string
 
 	// Community is the community of SNMPv1 and SNMPv2c messages.
 	Community string
@@ -84,17 +65,17 @@ type GoSNMP struct {
 	// Version is the SNMP version: Version1, Version2c or Version3.
 	Version SnmpVersion
 
-	// Context, when set, bounds Connect (its name lookups and dial) and every
-	// request: no attempt starts once it is done, and its cancellation or
-	// deadline ends a running attempt at once. Connect sets
+	// Context, when set, bounds Connect (its lookup of Target and its dial)
+	// and every request: no attempt starts once it is done, and its
+	// cancellation or deadline ends a running attempt at once. Connect sets
 	// context.Background() when it is nil, and a request without one uses
 	// context.Background().
 	Context context.Context
 
 	// Timeout is how long each attempt of a request waits for its answer, and
-	// how long Connect, and a TCP reopen, may take to look up names and dial.
-	// It has no default: a zero Timeout times out every attempt at once, and
-	// leaves Connect without a time limit.
+	// how long Connect may take to look up Target and dial. It has no default:
+	// a zero Timeout times out every attempt at once, and leaves Connect
+	// without a time limit.
 	Timeout time.Duration
 
 	// Retries is the number of attempts after the first; a negative value
@@ -156,26 +137,6 @@ type GoSNMP struct {
 	// Deprecated: GetBulk takes the non-repeaters as an argument.
 	NonRepeaters int
 
-	// UseUnconnectedUDPSocket makes a UDP client send from an unconnected
-	// socket, with sendto and recvfrom, for agents that answer from another
-	// address than the one the request went to, as some multi-homed devices
-	// do. Replies are then read from any address. A Conn the caller sets is
-	// then written to the agent's address the last successful Connect in
-	// this mode resolved, which Close keeps and a Connect in connected mode
-	// clears: a request resolves no name; without such a Connect there is
-	// none.
-	UseUnconnectedUDPSocket bool
-
-	// Control, when set, is the Control function of Connect's net.Dialer: it
-	// is called after the socket is created and before it connects, for
-	// example to set socket options. An unconnected UDP socket is not dialed,
-	// so it does not get it.
-	Control func(network, address string, c syscall.RawConn) error
-
-	// LocalAddr is the local address of a UDP or TCP connection, "host:port";
-	// an empty host or port, or port 0, lets the system choose.
-	LocalAddr string
-
 	// AppOpts holds net-snmp application options (snmpwalk -C). Only "c" is
 	// used: when the key is present, whatever its value, Walk and BulkWalk do
 	// not check that the names they receive increase, so the caller must end a
@@ -227,25 +188,14 @@ type GoSNMP struct {
 	// engine is the SNMPv3 engine state requests read and commit.
 	engine engineState
 
-	// mu guards Conn, opened, closed, lost, attempt and unconnectedAddr against
-	// Close, which may run on any goroutine: Connect, Close and a TCP reopen
-	// change them under it, each attempt reads them and registers itself under
-	// it.
+	// mu guards Conn, closed and attempt against Close, which may run on any
+	// goroutine: Connect and Close change them under it, each attempt reads
+	// them and registers itself under it.
 	mu sync.Mutex
-	// opened is the connection the client opened (Connect or a TCP reopen),
-	// while Conn holds it.
-	opened connection
 	// closed reports that Close ran since the last successful Connect.
 	closed bool
-	// lost is the TCP connection an attempt found failed: while Conn holds
-	// it, the next attempt opens it again.
-	lost net.Conn
 	// attempt is the running attempt, which Close and the Context interrupt.
 	attempt runningAttempt
-	// unconnectedAddr is the agent's address the last successful Connect
-	// resolved for an unconnected UDP socket, nil after one in connected mode;
-	// Close keeps it. A Conn the caller sets in unconnected mode writes to it.
-	unconnectedAddr *net.UDPAddr
 }
 
 // Default is a client with default settings, used by the examples. Like any
@@ -254,7 +204,6 @@ type GoSNMP struct {
 //nolint:gochecknoglobals
 var Default = &GoSNMP{
 	Port:               161,
-	Transport:          udp,
 	Community:          "public",
 	Version:            Version2c,
 	Timeout:            time.Duration(2) * time.Second,
@@ -345,15 +294,11 @@ const (
 )
 
 // prepare readies the client for Connect, SnmpEncodePacket and
-// SnmpDecodePacket, which call it each time: it fills in the defaults (the UDP
-// transport, MaxOids, a background Context), rejects a negative MaxOids and,
-// for SNMPv3, checks the security model and parameters and hands the client's
-// Logger to the security parameters.
+// SnmpDecodePacket, which call it each time: it fills in the defaults (MaxOids,
+// a background Context), rejects a negative MaxOids and, for SNMPv3, checks
+// the security model and parameters and hands the client's Logger to the
+// security parameters.
 func (x *GoSNMP) prepare() error {
-	if x.Transport == "" {
-		x.Transport = udp
-	}
-
 	if x.MaxOids == 0 {
 		x.MaxOids = MaxOids
 	} else if x.MaxOids < 0 {
