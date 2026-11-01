@@ -261,9 +261,6 @@ encode: 30818402010330100202109202047fffffff040104020103042c302a041180001f880463
 == v3/no-auth-no-priv/max-size-2^31
 encode: error
 
-== v3/no-auth-no-priv/security-model-200
-encode: error
-
 == v3/no-auth-no-priv/engine-boots-and-time-2^31
 encode: error
 

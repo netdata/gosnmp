@@ -66,7 +66,6 @@ func TestMarshalLongOctetStringFields(t *testing.T) {
 			if want.community == "" {
 				packet.Version = Version3
 				packet.SecurityLevel = NoAuthNoPriv
-				packet.SecurityModel = UserSecurityModel
 				packet.MsgID = 1
 				packet.SecurityParameters = &UsmSecurityParameters{AuthoritativeEngineID: want.engineID, UserName: want.userName}
 			}
@@ -207,7 +206,7 @@ func TestEncodeReportableFlag(t *testing.T) {
 		for _, level := range []SecurityLevel{NoAuthNoPriv, AuthNoPriv} {
 			t.Run(fmt.Sprintf("Encode/%v/%v", pdu, level), func(t *testing.T) {
 				msg, err := (&Message{
-					Version: Version3, SecurityLevel: level, SecurityModel: UserSecurityModel,
+					Version: Version3, SecurityLevel: level,
 					SecurityParameters: codecUSM(t, levelAuth(level), NoPriv),
 					PDUType:            pdu, MsgID: 1, RequestID: 1, TrapV1Header: trap, VarBinds: vars,
 				}).Encode()
@@ -223,7 +222,7 @@ func TestEncodeReportableFlag(t *testing.T) {
 			}
 			t.Run(fmt.Sprintf("EncodeMessage/%v/%v", pdu, level), func(t *testing.T) {
 				x := &Client{
-					Version: Version3, SecurityLevel: level, SecurityModel: UserSecurityModel,
+					Version: Version3, SecurityLevel: level,
 					SecurityParameters: codecUSM(t, levelAuth(level), NoPriv),
 				}
 				msg, err := x.EncodeMessage(pdu, vars, 0, 0)
@@ -265,12 +264,12 @@ func TestInvalidSecurityLevel(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			_, err := (&Message{
-				Version: Version3, SecurityLevel: tc.level, SecurityModel: UserSecurityModel,
+				Version: Version3, SecurityLevel: tc.level,
 				SecurityParameters: codecUSM(t, SHA, AES), PDUType: GetRequest, MsgID: 1, RequestID: 1,
 			}).Encode()
 			require.EqualError(t, err, tc.encodeErr)
 			x := &Client{
-				Version: Version3, SecurityLevel: tc.level, SecurityModel: UserSecurityModel,
+				Version: Version3, SecurityLevel: tc.level,
 				SecurityParameters: codecUSM(t, SHA, AES),
 			}
 			_, err = x.EncodeMessage(GetRequest, nil, 0, 0)
@@ -564,9 +563,9 @@ func encodeCases(t *testing.T) ([]encodeCase, map[string]bool) {
 	}
 	v3 := func(flags SecurityLevel, pduType PDUType, sp *UsmSecurityParameters) *Message {
 		return &Message{
-			Version:            Version3,
-			SecurityLevel:      flags,
-			SecurityModel:      UserSecurityModel,
+			Version:       Version3,
+			SecurityLevel: flags,
+
 			SecurityParameters: sp,
 			ContextEngineID:    "\x80\x00\x1f\x88\x04codec-engine",
 			ContextName:        "codec-context",
@@ -718,7 +717,6 @@ func encodeCases(t *testing.T) ([]encodeCase, map[string]bool) {
 		{"v3/no-auth-no-priv/max-size-1500", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *Message) { p.MsgMaxSize = 1500 }))},
 		{"v3/no-auth-no-priv/max-size-max-int32", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *Message) { p.MsgMaxSize = math.MaxInt32 }))},
 		{"v3/no-auth-no-priv/max-size-2^31", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *Message) { p.MsgMaxSize = 1 << 31 }))},
-		{"v3/no-auth-no-priv/security-model-200", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *Message) { p.SecurityModel = 200 }))},
 		{"v3/no-auth-no-priv/engine-boots-and-time-2^31", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *Message) {
 			sp := p.SecurityParameters.(*UsmSecurityParameters)
 			sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = 1<<31, 1<<31+1
@@ -780,9 +778,9 @@ func encodeCases(t *testing.T) ([]encodeCase, map[string]bool) {
 		}},
 		{"encode-packet/v3/auth-no-priv/sha", func() ([]byte, error) {
 			x := fixedIDs(&Client{
-				Version:            Version3,
-				SecurityLevel:      AuthNoPriv,
-				SecurityModel:      UserSecurityModel,
+				Version:       Version3,
+				SecurityLevel: AuthNoPriv,
+
 				SecurityParameters: codecUSM(t, SHA, NoPriv),
 				ContextName:        "codec-context",
 			})
@@ -790,9 +788,9 @@ func encodeCases(t *testing.T) ([]encodeCase, map[string]bool) {
 		}},
 		{"encode-packet/v3/auth-priv/sha-aes", func() ([]byte, error) {
 			x := fixedIDs(&Client{
-				Version:            Version3,
-				SecurityLevel:      AuthPriv,
-				SecurityModel:      UserSecurityModel,
+				Version:       Version3,
+				SecurityLevel: AuthPriv,
+
 				SecurityParameters: codecUSM(t, SHA, AES),
 				ContextName:        "codec-context",
 			})

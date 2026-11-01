@@ -92,12 +92,6 @@ type Handler interface {
 	// SetSecurityLevel sets the SecurityLevel
 	SetSecurityLevel(securityLevel SecurityLevel)
 
-	// SecurityModel gets the SecurityModel
-	SecurityModel() SnmpV3SecurityModel
-
-	// SetSecurityModel sets the SecurityModel
-	SetSecurityModel(securityModel SnmpV3SecurityModel)
-
 	// SecurityParameters gets the SecurityParameters
 	SecurityParameters() SnmpV3SecurityParameters
 
@@ -210,14 +204,6 @@ func (x *snmpHandler) SecurityLevel() SecurityLevel {
 
 func (x *snmpHandler) SetSecurityLevel(securityLevel SecurityLevel) {
 	x.Client.SecurityLevel = securityLevel
-}
-
-func (x *snmpHandler) SecurityModel() SnmpV3SecurityModel {
-	return x.Client.SecurityModel
-}
-
-func (x *snmpHandler) SetSecurityModel(securityModel SnmpV3SecurityModel) {
-	x.Client.SecurityModel = securityModel
 }
 
 func (x *snmpHandler) SecurityParameters() SnmpV3SecurityParameters {

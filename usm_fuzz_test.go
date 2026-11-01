@@ -116,7 +116,7 @@ func FuzzDecodeV3(f *testing.F) {
 				return err
 			}},
 			{fuzzSingle, func(data []byte) error {
-				x := &Client{Version: Version3, SecurityLevel: p.flags(), SecurityModel: UserSecurityModel, SecurityParameters: p.usm()}
+				x := &Client{Version: Version3, SecurityLevel: p.flags(), SecurityParameters: p.usm()}
 				_, err := x.UnmarshalTrap(data, false)
 				return err
 			}},

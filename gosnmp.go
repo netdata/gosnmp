@@ -123,10 +123,6 @@ type Client struct {
 	// requests and informs, clear for the others).
 	SecurityLevel SecurityLevel
 
-	// SecurityModel is the SNMPv3 security model; UserSecurityModel is the
-	// only one.
-	SecurityModel SnmpV3SecurityModel
-
 	// SecurityParameters are the SNMPv3 security parameters, a
 	// *UsmSecurityParameters, one value per client. The client keeps what it
 	// learns of the agent's engine to itself and shows it in their engine ID,

@@ -211,20 +211,6 @@ func (mr *MockHandlerMockRecorder) SecurityLevel() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SecurityLevel", reflect.TypeOf((*MockHandler)(nil).SecurityLevel))
 }
 
-// SecurityModel mocks base method.
-func (m *MockHandler) SecurityModel() gosnmp.SnmpV3SecurityModel {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SecurityModel")
-	ret0, _ := ret[0].(gosnmp.SnmpV3SecurityModel)
-	return ret0
-}
-
-// SecurityModel indicates an expected call of SecurityModel.
-func (mr *MockHandlerMockRecorder) SecurityModel() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SecurityModel", reflect.TypeOf((*MockHandler)(nil).SecurityModel))
-}
-
 // SecurityParameters mocks base method.
 func (m *MockHandler) SecurityParameters() gosnmp.SnmpV3SecurityParameters {
 	m.ctrl.T.Helper()
@@ -333,18 +319,6 @@ func (m *MockHandler) SetSecurityLevel(securityLevel gosnmp.SecurityLevel) {
 func (mr *MockHandlerMockRecorder) SetSecurityLevel(securityLevel any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSecurityLevel", reflect.TypeOf((*MockHandler)(nil).SetSecurityLevel), securityLevel)
-}
-
-// SetSecurityModel mocks base method.
-func (m *MockHandler) SetSecurityModel(securityModel gosnmp.SnmpV3SecurityModel) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetSecurityModel", securityModel)
-}
-
-// SetSecurityModel indicates an expected call of SetSecurityModel.
-func (mr *MockHandlerMockRecorder) SetSecurityModel(securityModel any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSecurityModel", reflect.TypeOf((*MockHandler)(nil).SetSecurityModel), securityModel)
 }
 
 // SetSecurityParameters mocks base method.

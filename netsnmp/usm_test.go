@@ -230,9 +230,9 @@ func (c usmCase) packet() *gosnmp.Message {
 	sp.AuthoritativeEngineBoots = usmBoots
 	sp.AuthoritativeEngineTime = usmTime
 	return &gosnmp.Message{
-		Version:            gosnmp.Version3,
-		SecurityLevel:      c.flags(),
-		SecurityModel:      gosnmp.UserSecurityModel,
+		Version:       gosnmp.Version3,
+		SecurityLevel: c.flags(),
+
 		SecurityParameters: sp,
 		ContextEngineID:    c.engineID,
 		ContextName:        usmContextName,
@@ -247,9 +247,9 @@ func (c usmCase) packet() *gosnmp.Message {
 // localized to the sender's engine ID when the trap arrives.
 func (c usmCase) receiver() *gosnmp.Client {
 	return &gosnmp.Client{
-		Version:            gosnmp.Version3,
-		SecurityLevel:      c.flags(),
-		SecurityModel:      gosnmp.UserSecurityModel,
+		Version:       gosnmp.Version3,
+		SecurityLevel: c.flags(),
+
 		SecurityParameters: c.usm(),
 	}
 }

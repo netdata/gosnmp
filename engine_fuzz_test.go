@@ -80,7 +80,7 @@ func engineReplyClient(r engineReplyRequest) *Client {
 	x := &Client{Version: Version2c, Community: "public", Timeout: time.Second, MaxOids: MaxOids}
 	if r.user != "" {
 		creds := agentCreds[r.user]
-		x.Version, x.SecurityModel, x.SecurityLevel = Version3, UserSecurityModel, NoAuthNoPriv
+		x.Version, x.SecurityLevel = Version3, NoAuthNoPriv
 		switch {
 		case creds.priv > NoPriv:
 			x.SecurityLevel = AuthPriv

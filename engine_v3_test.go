@@ -648,21 +648,6 @@ func v3Scenarios() map[string]v3Scenario {
 				return x.Get([]string{engineOID})
 			},
 		},
-		"unauthenticated-report/security-model-changed-by-hook": {
-			user:   "codec-md5",
-			script: onRequest(2, agentAnswer{report: usmStatsNotInTimeWindows, why: "not in time window, unauthenticated"}),
-			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				onRecv := x.OnRecv
-				x.OnRecv = func(x *Client) {
-					onRecv(x)
-					if a.counters[usmStatsNotInTimeWindows] == 1 && x.SecurityModel == UserSecurityModel {
-						x.SecurityModel = 2
-						a.tr.addf("hook OnRecv sets the client's security model to 2")
-					}
-				}
-				return x.Get([]string{engineOID})
-			},
-		},
 		// A Report another agent with the same credentials sent, for another
 		// message or with the request's msgID, followed by two Gets.
 		"answer/other-agent-report/other-message": {user: "codec-md5", run: getThrice(nil), script: onRequest(2, agentAnswer{
@@ -753,10 +738,6 @@ func v3Scenarios() map[string]v3Scenario {
 		// The discovery's first PreSend, the first hook of a request, changes
 		// the client: the request keeps the values its packet took at its
 		// start.
-		"hooks/discovery-presend-changes-security-model": {
-			user: "codec-md5",
-			run:  onFirstPreSend("sets the client's security model to 2", func(x *Client) { x.SecurityModel = 2 }),
-		},
 		"hooks/discovery-presend-changes-version": {
 			user: "codec-md5",
 			run:  onFirstPreSend("sets the client's version to 2c", func(x *Client) { x.Version = Version2c }),
@@ -887,21 +868,6 @@ func v3Scenarios() map[string]v3Scenario {
 					if calls++; calls == 3 {
 						a.tr.addf("hook PreSend panics in the retransmission")
 						panic("hook failure")
-					}
-				}
-				return x.Get([]string{engineOID})
-			},
-		},
-		"resync/security-model-changed-by-hook": {
-			user:   "codec-md5",
-			script: onRequest(2, agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "not in time window"}),
-			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				onFinish, calls := x.OnFinish, 0
-				x.OnFinish = func(x *Client) {
-					onFinish(x)
-					if calls++; calls == 2 {
-						x.SecurityModel = 2
-						a.tr.addf("hook OnFinish sets the client's security model to 2")
 					}
 				}
 				return x.Get([]string{engineOID})
@@ -1775,7 +1741,7 @@ func runV3Polls(t *testing.T, setup func(a *fakeV3Agent)) string {
 	x := newEngineClientFrom(t, nil, fakePacketTransport{c}, &Client{
 		Version:       Version3,
 		SecurityLevel: AuthNoPriv,
-		SecurityModel: UserSecurityModel,
+
 		SecurityParameters: &UsmSecurityParameters{
 			UserName:                 "codec-md5",
 			AuthenticationProtocol:   creds.auth,
@@ -1852,9 +1818,9 @@ func runV3Scenario(t *testing.T, sc v3Scenario) string {
 		flags = AuthNoPriv
 	}
 	x := &Client{
-		Version:            Version3,
-		SecurityLevel:      flags,
-		SecurityModel:      UserSecurityModel,
+		Version:       Version3,
+		SecurityLevel: flags,
+
 		SecurityParameters: sp,
 		Timeout:            time.Second,
 		Retries:            2,
@@ -1923,7 +1889,7 @@ func BenchmarkGetV3(b *testing.B) {
 	x := newEngineClientFrom(b, nil, fakePacketTransport{c}, &Client{
 		Version:       Version3,
 		SecurityLevel: AuthNoPriv,
-		SecurityModel: UserSecurityModel,
+
 		SecurityParameters: &UsmSecurityParameters{
 			UserName:                 "codec-md5",
 			AuthenticationProtocol:   creds.auth,
