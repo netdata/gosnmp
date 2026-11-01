@@ -179,16 +179,10 @@ func (x *GoSNMP) connection() (net.Conn, error) {
 }
 
 // dial opens a UDP socket connected to address, "host:port", within ctx and
-// timeout, which bound the dial and its lookup of the host's name together.
+// timeout, which bound the dial and its lookup of the host's name together; a
+// zero timeout sets no limit.
 func dial(ctx context.Context, timeout time.Duration, address string) (net.Conn, error) {
-	// One deadline for the whole opening: a Dialer's Timeout would bound the
-	// dial only. A zero timeout sets none, as a zero Dialer.Timeout does.
-	if timeout != 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
-	}
-	var dialer net.Dialer
+	dialer := net.Dialer{Timeout: timeout}
 	return dialer.DialContext(ctx, "udp", address)
 }
 

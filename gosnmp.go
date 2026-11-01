@@ -109,9 +109,8 @@ type GoSNMP struct {
 	OnRecv func(*GoSNMP)
 
 	// OnRetry is called before each retry: after an attempt that failed in a
-	// way another attempt may cure (a timeout, another write or read error
-	// than a closed connection, a TCP connection the agent closed, which the
-	// next attempt opens again), when another attempt follows. It is not
+	// way another attempt may cure (a timeout, or another write or read error
+	// than a closed connection), when another attempt follows. It is not
 	// called after the last attempt, nor when the Context is done.
 	OnRetry func(*GoSNMP)
 

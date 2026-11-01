@@ -161,9 +161,8 @@
 // engine ID, context engine ID and context name (RFC 3412 section 7.2 step 12
 // b; one that differs leaves the request outstanding, as in net-snmp). A reply
 // that fails is discarded like one that does not decode; the error of a request
-// that then times out, loses its TCP connection or ends at the Context's
-// deadline also matches the step's, [ErrNotInTimeWindow] for the time window
-// (see Attempts and timeouts).
+// that then times out or ends at the Context's deadline also matches the
+// step's, [ErrNotInTimeWindow] for the time window (see Attempts and timeouts).
 //
 // The client takes the engine ID of each answer whose digest it checked and of
 // each GetResponse, which name the request's (security processing, the rule
@@ -392,10 +391,9 @@
 // level too. A decode error also unwraps to [ErrInvalidPacketLength] when a
 // length caused it, besides its category: after a wrong privacy key, a
 // decrypted scoped PDU whose length runs past its plaintext matches both
-// [ErrDecryption] and [ErrInvalidPacketLength]. A request that times out,
-// loses its TCP connection or ends at the Context's deadline after discarded
-// replies fails with an error that also matches the reason of the one that
-// came closest to answering it (see Attempts and timeouts), so it matches
+// [ErrDecryption] and [ErrInvalidPacketLength]. A request that times out or
+// ends at the Context's deadline after discarded replies fails with an error
+// that also matches the reason of the one that came closest to answering it (see Attempts and timeouts), so it matches
 // these errors without a Report. A local failure, such as a key that does not
 // fit its protocol, matches none of them.
 package gosnmp
