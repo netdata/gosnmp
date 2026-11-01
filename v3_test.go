@@ -80,15 +80,11 @@ func TestNilSecurityParameters(t *testing.T) {
 			return err
 		}, want: "ok"},
 		"table Add": {run: func(*GoSNMP) error {
-			return NewSnmpV3SecurityParametersTable(Logger{}).Add("user", (*UsmSecurityParameters)(nil))
+			return NewSnmpV3SecurityParametersTable().Add("user", (*UsmSecurityParameters)(nil))
 		}, want: errNoneToAdd},
 		"table Add of a nil interface": {run: func(*GoSNMP) error {
-			return NewSnmpV3SecurityParametersTable(Logger{}).Add("user", nil)
+			return NewSnmpV3SecurityParametersTable().Add("user", nil)
 		}, want: errNoneToAdd},
-		"packet SafeString": {run: func(*GoSNMP) error {
-			_ = (&SnmpPacket{SecurityParameters: (*UsmSecurityParameters)(nil)}).SafeString()
-			return nil
-		}, want: "ok"},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {

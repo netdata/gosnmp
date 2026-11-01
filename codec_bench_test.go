@@ -5,15 +5,12 @@
 package gosnmp
 
 import (
-	"io"
-	"log"
 	"slices"
 	"strconv"
 	"testing"
 )
 
-// BenchmarkDecode measures SnmpDecodePacket on recorded packets, without a
-// logger (the default) and with a logger that discards its output.
+// BenchmarkDecode measures SnmpDecodePacket on recorded packets.
 func BenchmarkDecode(b *testing.B) {
 	inputs := []struct {
 		name string
@@ -28,27 +25,17 @@ func BenchmarkDecode(b *testing.B) {
 		{"getBulkResponse50", getBulkResponse50},
 		{"snmpv2Trap20", snmpv2Trap20},
 	}
-	loggers := []struct {
-		name   string
-		logger Logger
-	}{
-		{"no-logger", Logger{}},
-		{"discard-logger", NewLogger(log.New(io.Discard, "", 0))},
-	}
-
 	for _, in := range inputs {
-		for _, l := range loggers {
-			b.Run(in.name+"/"+l.name, func(b *testing.B) {
-				data := in.in()
-				x := &GoSNMP{Logger: l.logger}
-				b.ReportAllocs()
-				for b.Loop() {
-					if _, err := x.SnmpDecodePacket(data); err != nil {
-						b.Fatal(err)
-					}
+		b.Run(in.name, func(b *testing.B) {
+			data := in.in()
+			x := &GoSNMP{}
+			b.ReportAllocs()
+			for b.Loop() {
+				if _, err := x.SnmpDecodePacket(data); err != nil {
+					b.Fatal(err)
 				}
-			})
-		}
+			}
+		})
 	}
 }
 

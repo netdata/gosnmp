@@ -35,9 +35,6 @@ type Handler interface {
 	// UnmarshalTrap: see GoSNMP.UnmarshalTrap.
 	UnmarshalTrap(trap []byte, useResponseSecurityParameters bool) (result *SnmpPacket, err error)
 
-	// Check: see GoSNMP.Check.
-	Check(err error)
-
 	// Close: see GoSNMP.Close.
 	Close() error
 
@@ -76,12 +73,6 @@ type Handler interface {
 
 	// SetRetries sets the Retries
 	SetRetries(retries int)
-
-	// Logger gets the Logger
-	Logger() Logger
-
-	// SetLogger sets the Logger
-	SetLogger(logger Logger)
 
 	// MaxOids gets the MaxOids
 	MaxOids() int
@@ -194,14 +185,6 @@ func (x *snmpHandler) Retries() int {
 
 func (x *snmpHandler) SetRetries(retries int) {
 	x.GoSNMP.Retries = retries
-}
-
-func (x *snmpHandler) Logger() Logger {
-	return x.GoSNMP.Logger
-}
-
-func (x *snmpHandler) SetLogger(logger Logger) {
-	x.GoSNMP.Logger = logger
 }
 
 func (x *snmpHandler) MaxOids() int {

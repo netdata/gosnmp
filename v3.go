@@ -55,10 +55,8 @@ const (
 // Its only implementation is *UsmSecurityParameters, for the User-based
 // Security Model, which documents the methods.
 type SnmpV3SecurityParameters interface {
-	Log()
 	Copy() SnmpV3SecurityParameters
 	Description() string
-	SafeString() string
 	InitPacket(packet *SnmpPacket) error
 	InitSecurityKeys() error
 

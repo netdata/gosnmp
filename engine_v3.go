@@ -24,7 +24,7 @@ func (x *GoSNMP) negotiateInitialSecurityParameters(cfg *requestConfig, packetOu
 // discovery request, whose answer the attempt commits into the engine state
 // (exchange.settle), and gives packetOut the engine state.
 func (x *GoSNMP) discoverEngine(cfg *requestConfig, packetOut *SnmpPacket) error {
-	discoveryPacket := newDiscoveryPacket(packetOut.SecurityParameters.usm().Logger)
+	discoveryPacket := newDiscoveryPacket()
 	discoveryPacket.ContextName = packetOut.ContextName
 	_, committed, err := x.sendOneRequest(cfg, discoveryPacket, true, sourcedClock{})
 	if !committed {
@@ -93,9 +93,6 @@ func (e *exchange) settle(out attemptOutcome) (attemptOutcome, error) {
 	boots, engineTime := from.AuthoritativeEngineBoots, from.AuthoritativeEngineTime
 	// Recovery relaxes clock ordering, never the terminal maximum-boots rule.
 	if out.verified && boots == maxEngineValue {
-		if x.Logger.enabled() {
-			x.Logger.Print("ERROR the reply carries exhausted engine boots")
-		}
 		return attemptOutcome{}, errReplyNotInTime
 	}
 	next, err := x.engine.withEngine(from.AuthoritativeEngineID)
@@ -121,9 +118,6 @@ func (e *exchange) settle(out attemptOutcome) (attemptOutcome, error) {
 		clock, _ = clock.update(boots, engineTime, now, true)
 		if !clock.inWindow(boots, engineTime, now) {
 			if !e.resetsClock(boots, engineTime, now) {
-				if x.Logger.enabled() {
-					x.Logger.Printf("ERROR the reply is not in the time window: boots %d, time %d", boots, engineTime)
-				}
 				return attemptOutcome{}, errReplyNotInTime
 			}
 			clock = engineClock{boots: boots, latest: engineTime, received: now}
@@ -132,9 +126,6 @@ func (e *exchange) settle(out attemptOutcome) (attemptOutcome, error) {
 	}
 	x.commitEngine(next)
 	out.committed = true
-	if x.Logger.enabled() {
-		x.Logger.Printf("SEND STORE SECURITY PARAMS from result: %s", reply.SecurityParameters.SafeString())
-	}
 	return out, nil
 }
 
@@ -153,9 +144,6 @@ func (x *GoSNMP) forgetEngineTime() {
 	next := x.engine
 	next.clock = sourcedClock{}
 	x.commitEngine(next)
-	if x.Logger.enabled() {
-		x.Logger.Print("WARNING the agent's answers are outside the time window: the engine time is dropped")
-	}
 }
 
 // resetsClock reports whether a verified reply with engine boots and time

@@ -14,18 +14,13 @@ import (
 // name. It is safe for concurrent use.
 type SnmpV3SecurityParametersTable struct {
 	table map[string][]SnmpV3SecurityParameters
-	// Logger receives a line for each Add, and goes to the added parameters
-	// that have no Logger.
-	Logger Logger
-	mu     sync.RWMutex
+	mu    sync.RWMutex
 }
 
-// NewSnmpV3SecurityParametersTable returns an empty table that logs to
-// logger.
-func NewSnmpV3SecurityParametersTable(logger Logger) *SnmpV3SecurityParametersTable {
+// NewSnmpV3SecurityParametersTable returns an empty table.
+func NewSnmpV3SecurityParametersTable() *SnmpV3SecurityParametersTable {
 	return &SnmpV3SecurityParametersTable{
-		table:  make(map[string][]SnmpV3SecurityParameters),
-		Logger: logger,
+		table: make(map[string][]SnmpV3SecurityParameters),
 	}
 }
 
@@ -34,8 +29,7 @@ func NewSnmpV3SecurityParametersTable(logger Logger) *SnmpV3SecurityParametersTa
 // tries a user's sets in the order they were added. Without parameters (nil,
 // or a nil *UsmSecurityParameters) it fails.
 func (spm *SnmpV3SecurityParametersTable) Add(key string, sp SnmpV3SecurityParameters) error {
-	usp := usmOf(sp)
-	if usp == nil {
+	if usmOf(sp) == nil {
 		return fmt.Errorf("no security parameters to add for the key %s", key)
 	}
 	spm.mu.Lock()
@@ -45,16 +39,7 @@ func (spm *SnmpV3SecurityParametersTable) Add(key string, sp SnmpV3SecurityParam
 		return err
 	}
 
-	// If no logger is set for the security params (empty struct), use the one from the table
-	if (Logger{}) == usp.Logger {
-		usp.Logger = spm.Logger
-	}
-
 	spm.table[key] = append(spm.table[key], sp)
-	if spm.Logger.enabled() {
-		spm.Logger.Printf("Added security parameters %s for key: %s", sp.SafeString(), key)
-	}
-
 	return nil
 }
 

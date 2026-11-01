@@ -10,8 +10,6 @@ package gosnmp
 
 import (
 	"errors"
-	"log"
-	"os"
 
 	"github.com/netdata/gosnmp/internal/ber"
 )
@@ -34,33 +32,6 @@ var (
 	ErrZeroByteBuffer          = errors.New("zero byte buffer")
 	ErrZeroLenInteger          = ber.ErrZeroLenInteger
 )
-
-// Check logs a non-nil err to the client's Logger and exits the process with
-// status 1. It is meant for examples; a program should handle the error.
-func (x *GoSNMP) Check(err error) {
-	if err != nil {
-		x.Logger.Printf("Check: %v\n", err)
-		os.Exit(1)
-	}
-}
-
-// Check logs a non-nil err to the packet's Logger and exits the process with
-// status 1. It is meant for examples; a program should handle the error.
-func (packet *SnmpPacket) Check(err error) {
-	if err != nil {
-		packet.Logger.Printf("Check: %v\n", err)
-		os.Exit(1)
-	}
-}
-
-// Check logs a non-nil err with the standard logger and exits the process
-// with status 1 (log.Fatalf). It is meant for examples; a program should
-// handle the error.
-func Check(err error) {
-	if err != nil {
-		log.Fatalf("Check: %v\n", err)
-	}
-}
 
 // BitStringValue is an ASN.1 BIT STRING: the bits packed into bytes, the
 // first bit in the high bit of the first byte, and the number of valid bits;

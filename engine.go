@@ -17,11 +17,10 @@ import (
 // send runs the request packetOut (request) and ends one that panics with no
 // result and requestPanicked's error. The library prevents panics of its own:
 // the recover is for the caller's code the request runs on its goroutine (a
-// hook, the Logger, the methods of a Conn or Context it calls) and for bugs,
-// which would otherwise end the process of a caller that runs requests on a
-// goroutine without a recover. A flag, not recover's value, tells that the
-// request panicked: under GODEBUG=panicnil=1, recover returns nil for
-// panic(nil).
+// hook, the methods of a Conn or Context it calls) and for bugs, which would
+// otherwise end the process of a caller that runs requests on a goroutine
+// without a recover. A flag, not recover's value, tells that the request
+// panicked: under GODEBUG=panicnil=1, recover returns nil for panic(nil).
 //
 // packetOut is a request of the Read Class (RFC 3411 section 2.8.1), a Get,
 // GetNext or GetBulk, as every request the client sends: the SNMPv3 engine
@@ -55,29 +54,17 @@ func (x *GoSNMP) request(packetOut *SnmpPacket) (result *SnmpPacket, err error) 
 			return &SnmpPacket{}, err
 		}
 	}
-	if x.Logger.enabled() {
-		x.Logger.Print("SEND INIT")
-	}
 	// clock is the engine clock the attempts carry.
 	var clock sourcedClock
 	if packetOut.Version == Version3 {
-		if x.Logger.enabled() {
-			x.Logger.Print("SEND INIT NEGOTIATE SECURITY PARAMS")
-		}
 		if err = x.negotiateInitialSecurityParameters(&cfg, packetOut); err != nil {
 			return &SnmpPacket{}, err
-		}
-		if x.Logger.enabled() {
-			x.Logger.Print("SEND END NEGOTIATE SECURITY PARAMS")
 		}
 		clock = x.engine.clock
 	}
 
 	var stored bool
 	result, stored, err = x.sendOneRequest(&cfg, packetOut, false, clock)
-	if err != nil {
-		x.Logger.Printf("SEND Error on the first Request Error: %s", err)
-	}
 	kind := resyncKindOf(result)
 	if !kind.resync {
 		return result, err
@@ -89,22 +76,15 @@ func (x *GoSNMP) request(packetOut *SnmpPacket) (result *SnmpPacket, err error) 
 	// answer brings the agent's, which the client commits. A Report that
 	// cannot resynchronize the request ends it with its error, and so does a
 	// resync Report answering the retransmission.
-	if x.Logger.enabled() {
-		x.Logger.Print("WARNING detected " + kind.name + " ERROR")
-	}
 	if stored {
 		x.engine.stamp(packetOut)
 		clock = x.engine.clock
 	} else if !mayLend(packetOut, result, kind) {
 		return result, kind.err
 	} else if clock, err = x.lendEngineParameters(packetOut, result, kind); err != nil {
-		x.Logger.Printf("ERROR lendEngineParameters error: %s", err)
 		return result, err
 	}
 	result, _, err = x.sendOneRequest(&cfg, packetOut, false, clock)
-	if err != nil && x.Logger.enabled() {
-		x.Logger.Printf("ERROR "+kind.name+" retransmit error: %s", err)
-	}
 	if kind = resyncKindOf(result); kind.resync {
 		return result, kind.err
 	}
@@ -133,11 +113,11 @@ func resyncKindOf(result *SnmpPacket) reportKind {
 }
 
 // requestConfig is the client's configuration as a request reads it, once, at
-// its start: a change a hook or the Logger makes to the client applies from
-// the next request. The packet carries the rest (version, security level and
-// model, context), and the SNMPv3 engine state takes the caller's changes to
-// its fields at the same time (reconcileEngine). Not part of it: the Logger,
-// and the connection, which each attempt takes from the client (connection).
+// its start: a change a hook makes to the client applies from the next
+// request. The packet carries the rest (version, security level and model,
+// context), and the SNMPv3 engine state takes the caller's changes to its
+// fields at the same time (reconcileEngine). Not part of it: the connection,
+// which each attempt takes from the client (connection).
 type requestConfig struct {
 	ctx                                        context.Context
 	timeout                                    time.Duration
@@ -333,7 +313,9 @@ func (x *GoSNMP) sendOneRequest(cfg *requestConfig, packetOut *SnmpPacket, disco
 		if err := e.endErr(n, out); err != nil {
 			return nil, false, e.unanswered(err)
 		}
-		e.beforeRetry(n+1, out.err)
+		if cfg.onRetry != nil {
+			cfg.onRetry(x)
+		}
 	}
 }
 
@@ -384,16 +366,6 @@ func (e *exchange) unanswered(err error) error {
 	return err
 }
 
-// beforeRetry readies retry n, which follows an attempt that failed with
-// lastErr: it runs OnRetry and logs the retry.
-func (e *exchange) beforeRetry(n int, lastErr error) {
-	x := e.x
-	if e.cfg.onRetry != nil {
-		e.cfg.onRetry(x)
-	}
-	x.Logger.Printf("Retry number %d. Last error was: %v", n, lastErr)
-}
-
 // attempt sends the request once, on the client's connection, and reads until
 // a reply answers it, the attempt's deadline passes or the Context is done. A
 // reply to an earlier attempt, one of earlier, answers it too.
@@ -426,9 +398,6 @@ func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
 
 	if e.cfg.preSend != nil {
 		e.cfg.preSend(x)
-	}
-	if x.Logger.enabled() {
-		x.Logger.Printf("SENDING PACKET: %s", e.packet.SafeString())
 	}
 	if _, err = conn.Write(outBuf); err != nil {
 		return ioFailure(err)
@@ -463,7 +432,6 @@ func (e *exchange) encode() ([]byte, error) {
 		if sp := usmOf(p.SecurityParameters); sp != nil {
 			sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = e.clock.timeFor(time.Now())
 		}
-		p.SecurityParameters.Log()
 	}
 	out, err := p.marshalMsg()
 	if err != nil {
@@ -474,24 +442,17 @@ func (e *exchange) encode() ([]byte, error) {
 
 // await reads replies on conn until one answers the request. A message that does
 // not decode or authenticate (decode), does not answer the request (answers)
-// or that the commit rejects is discarded and logged, its reason recorded
-// (discard), and the read goes on until the attempt's deadline (RFC 3412
-// section 7.2).
+// or that the commit rejects is discarded, its reason recorded (discard), and
+// the read goes on until the attempt's deadline (RFC 3412 section 7.2).
 func (e *exchange) await(conn net.Conn, earlier []sentIDs) attemptOutcome {
 	x := e.x
 	for {
-		if x.Logger.enabled() {
-			x.Logger.Print("WAITING RESPONSE...")
-		}
 		resp, err := receive(conn, x.rx)
 		if err != nil {
 			return ioFailure(err)
 		}
 		if e.cfg.onRecv != nil {
 			e.cfg.onRecv(x)
-		}
-		if x.Logger.enabled() {
-			x.Logger.Printf("GET RESPONSE OK: %+v", resp)
 		}
 
 		reply, verified, err := e.decode(resp, earlier)
@@ -500,9 +461,6 @@ func (e *exchange) await(conn net.Conn, earlier []sentIDs) attemptOutcome {
 			answered, err = e.answers(reply, earlier)
 		}
 		if !answered {
-			if x.Logger.enabled() {
-				x.Logger.Printf("ERROR the reply is discarded: %v", err)
-			}
 			e.discard(err, e.rankOf(reply, verified, earlier))
 			continue
 		}
@@ -591,7 +549,7 @@ func (e *exchange) named(reply *SnmpPacket, earlier []sentIDs) bool {
 // names. With an error it returns the message as far as it read it when it
 // read the ID that names the request's attempts (rankOf), else nil.
 func (e *exchange) decode(resp []byte, earlier []sentIDs) (_ *SnmpPacket, verified bool, _ error) {
-	reply := &SnmpPacket{Logger: e.x.Logger}
+	reply := &SnmpPacket{}
 	var sp *UsmSecurityParameters
 	if e.packet.SecurityParameters != nil {
 		sp = e.packet.SecurityParameters.Copy().usm()
@@ -770,17 +728,15 @@ type reportKind struct {
 	// timeWindow marks the Report that says the request's engine boots and
 	// time are outside the time window (RFC 3414 section 3.2 step 7 b).
 	timeWindow bool
-	// name names a resync Report in log lines.
-	name string
 }
 
 // reportKinds are the counters of the USM (RFC 3414) and of message processing
 // (RFC 3412) a Report can carry, by the counter's OID (reportCounter).
 var reportKinds = map[string]reportKind{ //nolint:gochecknoglobals // a read-only table
 	reportCounter(usmStatsUnsupportedSecLevels): {err: ErrUnknownSecurityLevel},
-	reportCounter(usmStatsNotInTimeWindows):     {err: ErrNotInTimeWindow, resync: true, timeWindow: true, name: "out-of-time-window"},
+	reportCounter(usmStatsNotInTimeWindows):     {err: ErrNotInTimeWindow, resync: true, timeWindow: true},
 	reportCounter(usmStatsUnknownUserNames):     {err: ErrUnknownUsername},
-	reportCounter(usmStatsUnknownEngineIDs):     {err: ErrUnknownEngineID, resync: true, namesEngine: true, name: "unknown engine id"},
+	reportCounter(usmStatsUnknownEngineIDs):     {err: ErrUnknownEngineID, resync: true, namesEngine: true},
 	reportCounter(usmStatsWrongDigests):         {err: ErrWrongDigest},
 	reportCounter(usmStatsDecryptionErrors):     {err: ErrDecryption},
 	reportCounter(snmpUnknownSecurityModels):    {err: ErrUnknownSecurityModels},

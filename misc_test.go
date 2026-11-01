@@ -6,7 +6,6 @@ package gosnmp
 
 import (
 	"fmt"
-	"log"
 	"math"
 	"math/big"
 	"strconv"
@@ -180,26 +179,6 @@ func TestMarshalTimeticks(t *testing.T) {
 */
 
 // ---------------------------------------------------------------------
-
-// TestNewLoggerNilPointer checks that NewLogger given a nil pointer, a nil
-// *log.Logger, disables logging as a nil logger does: a table's Add, which
-// logs to an enabled Logger, succeeds.
-func TestNewLoggerNilPointer(t *testing.T) {
-	tests := map[string]struct {
-		logger LoggerInterface
-		want   string
-	}{
-		"nil":             {logger: nil, want: "ok"},
-		"nil *log.Logger": {logger: (*log.Logger)(nil), want: "ok"},
-	}
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			table := NewSnmpV3SecurityParametersTable(NewLogger(tc.logger))
-			got := outcomeOf(func() error { return table.Add("user", &UsmSecurityParameters{UserName: "user"}) })
-			assert.Equal(t, tc.want, got)
-		})
-	}
-}
 
 // ---------------------------------------------------------------------
 

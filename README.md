@@ -34,27 +34,15 @@ GoSNMP has the following SNMP functions:
 * **UnmarshalTrap** - decodes received traps and informs; the library does not listen for them.
 * **SnmpEncodePacket** and **SnmpDecodePacket** - encode and decode messages for other transports and for tests.
 
+The library writes no log or other output and never exits the process: every function reports through its results and
+errors.
+
 GoSNMP has the following **helper** functions:
 
 * **ToBigInt** - treat returned integer values as `*big.Int`
 
 The [package documentation](https://pkg.go.dev/github.com/netdata/gosnmp) describes request attempts and timeouts,
 hooks, SNMPv3 engine discovery and Reports, the Go type of each value type, and how messages are decoded.
-
-## Logging
-
-A client writes debug output only when its `Logger` is set to `gosnmp.NewLogger(l)`, where `l` has the `Print` and
-`Printf` methods of the standard `*log.Logger` (`gosnmp.LoggerInterface`):
-
-```go
-g := &gosnmp.GoSNMP{
-    ...
-    Logger: gosnmp.NewLogger(log.New(os.Stdout, "", 0)),
-}
-```
-
-The encoder and decoder write nothing to the `Logger`, and without a logger the request path does not format log
-messages.
 
 # Installation
 
@@ -120,11 +108,10 @@ Run against an agent, it prints, for example:
 
 More examples, each a program under `examples/`:
 
-* `example2` - verbose logging and hooks that time each request
+* `example2` - hooks that time each request
 * `example3` - SNMPv3 at authPriv
 * `walkexample` - BulkWalkAll
 * `Hex-String` - OctetString values that are not text, printed octet by octet in decimal
-* `logger` - logging turned on and off
 
 # MIB Parser
 

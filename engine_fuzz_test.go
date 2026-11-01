@@ -119,7 +119,7 @@ func engineReplyExchange(tb testing.TB, r engineReplyRequest) *exchange {
 			tb.Fatal(err)
 		}
 		if r.discover {
-			packet = newDiscoveryPacket(x.Logger)
+			packet = newDiscoveryPacket()
 		} else {
 			x.engine.stamp(packet)
 		}

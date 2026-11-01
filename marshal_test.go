@@ -7,8 +7,6 @@ package gosnmp
 import (
 	"bytes"
 	"fmt"
-	"io"
-	"log"
 	"net"
 	"reflect"
 	"runtime"
@@ -327,7 +325,7 @@ func TestEnmarshalMsg(t *testing.T) {
 		}
 		checkByteEquality(t, test, testBytes, 0, test.finish)
 		t.Run(fmt.Sprintf("TestEnmarshalMsgUnmarshal/PDU[%v]/RequestID[%v]", test.requestType, test.requestid), func(t *testing.T) {
-			vhandle := GoSNMP{Logger: NewLogger(log.New(io.Discard, "", 0))}
+			vhandle := GoSNMP{}
 			result, err := vhandle.SnmpDecodePacket(testBytes)
 			if err != nil {
 				t.Errorf("#%s: SnmpDecodePacket() err returned: %v", test.funcName, err)
@@ -765,7 +763,7 @@ func TestUnmarshalErrors(t *testing.T) {
 		splitedFuncName := strings.Split(funcName, ".")
 		funcName = splitedFuncName[len(splitedFuncName)-1]
 		t.Run(fmt.Sprintf("%v-%v", i, funcName), func(t *testing.T) {
-			vhandle := GoSNMP{Logger: NewLogger(log.New(io.Discard, "", 0))}
+			vhandle := GoSNMP{}
 			testBytes := test.in()
 			_, err := vhandle.SnmpDecodePacket(testBytes)
 			if err == nil {
@@ -811,7 +809,7 @@ func TestUnmarshal(t *testing.T) {
 		splitedFuncName := strings.Split(funcName, ".")
 		funcName = splitedFuncName[len(splitedFuncName)-1]
 		t.Run(fmt.Sprintf("%v-%v", i, funcName), func(t *testing.T) {
-			vhandle := GoSNMP{Logger: NewLogger(log.New(io.Discard, "", 0))}
+			vhandle := GoSNMP{}
 			testBytes := test.in()
 			res, err := vhandle.SnmpDecodePacket(testBytes)
 			if err != nil {
@@ -1529,13 +1527,12 @@ func TestUnmarshalEmptyPanic(t *testing.T) {
 }
 
 func TestV3USMInitialPacket(t *testing.T) {
-	logger := NewLogger(log.New(io.Discard, "", 0))
-	blankPacket := newDiscoveryPacket(logger)
+	blankPacket := newDiscoveryPacket()
 	iBytes, err := blankPacket.marshalMsg()
 	if err != nil {
 		t.Errorf("#TestV3USMInitialPacket: marshalMsg() err returned: %v", err)
 	}
-	engine := GoSNMP{Logger: logger}
+	engine := GoSNMP{}
 	pktNew, errDecode := engine.SnmpDecodePacket(iBytes)
 	if errDecode != nil {
 		t.Logf("-->Bytes=%v", iBytes)

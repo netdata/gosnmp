@@ -78,13 +78,6 @@ type GoSNMP struct {
 	// counts as 0.
 	Retries int
 
-	// Logger receives the client's debug output; the zero Logger disables it.
-	// A Logger that panics during a request ends the request (see the package
-	// documentation, Hooks). For verbose logging to stdout:
-	//
-	//	x.Logger = NewLogger(log.New(os.Stdout, "", 0))
-	Logger Logger
-
 	// The message hooks are called at points of a request, each with the
 	// client, for example to time requests, count them or trace them. The
 	// package documentation gives their order. A request calls the hooks set
@@ -261,8 +254,7 @@ const (
 // prepare readies the client for Connect, SnmpEncodePacket and
 // SnmpDecodePacket, which call it each time: it fills in the defaults (MaxOids,
 // a background Context), rejects a negative MaxOids and, for SNMPv3, checks
-// the security model and parameters and hands the client's Logger to the
-// security parameters.
+// the security model and parameters.
 func (x *GoSNMP) prepare() error {
 	if x.MaxOids == 0 {
 		x.MaxOids = MaxOids
@@ -274,7 +266,6 @@ func (x *GoSNMP) prepare() error {
 		if err := x.validateParametersV3(); err != nil {
 			return err
 		}
-		x.SecurityParameters.usm().setLogger(x.Logger)
 	}
 
 	if x.Context == nil {
@@ -324,14 +315,13 @@ func (x *GoSNMP) SnmpDecodePacket(resp []byte) (*SnmpPacket, error) {
 	if err := x.prepare(); err != nil {
 		return result, err
 	}
-	result.Logger = x.Logger
 	if sp := usmOf(x.SecurityParameters); sp != nil {
 		result.SecurityParameters = sp.Copy()
 	}
 
 	cursor, w, err := unmarshalHeader(resp, result)
 	if result.Version == Version3 && result.SecurityParameters == nil {
-		result.SecurityParameters = &UsmSecurityParameters{Logger: x.Logger}
+		result.SecurityParameters = &UsmSecurityParameters{}
 	}
 	if err != nil {
 		if result.Version == Version3 {

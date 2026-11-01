@@ -12,8 +12,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
-	"log"
 	"strings"
 	"testing"
 
@@ -81,7 +79,6 @@ func TestTrapOtherUser(t *testing.T) {
 		PrivacyPassphrase:        "",
 		SecretKey:                nil,
 		PrivacyKey:               nil,
-		Logger:                   NewLogger(log.New(io.Discard, "", 0)),
 	}
 
 	sp.SecretKey, err = passwordCache.LocalizedKey(sp.AuthenticationProtocol.HashType(),
@@ -118,7 +115,6 @@ func TestAuthenticationSHA224(t *testing.T) {
 		AuthenticationPassphrase: "authkey1",
 		PrivacyPassphrase:        "",
 		SecretKey:                nil,
-		Logger:                   NewLogger(log.New(io.Discard, "", 0)),
 		PrivacyKey:               nil,
 	}
 
@@ -152,7 +148,6 @@ func TestIsAuthenticSHA224(t *testing.T) {
 		PrivacyPassphrase:        "",
 		SecretKey:                nil,
 		PrivacyKey:               nil,
-		Logger:                   NewLogger(log.New(io.Discard, "", 0)),
 	}
 
 	sp.SecretKey, err = passwordCache.LocalizedKey(sp.AuthenticationProtocol.HashType(),
@@ -209,7 +204,6 @@ func TestAuthenticationSHA512(t *testing.T) {
 		PrivacyPassphrase:        "",
 		SecretKey:                nil,
 		PrivacyKey:               nil,
-		Logger:                   NewLogger(log.New(io.Discard, "", 0)),
 	}
 
 	sp.SecretKey, err = passwordCache.LocalizedKey(sp.AuthenticationProtocol.HashType(),
@@ -241,7 +235,6 @@ func TestIsAuthenticSHA512(t *testing.T) {
 		AuthenticationPassphrase: "authkey1",
 		PrivacyPassphrase:        "",
 		SecretKey:                nil,
-		Logger:                   NewLogger(log.New(io.Discard, "", 0)),
 		PrivacyKey:               nil,
 	}
 
@@ -335,7 +328,7 @@ func TestUSMUnsupportedProtocols(t *testing.T) {
 				assert.EqualError(t, params(tc.auth, tc.priv).InitSecurityKeys(), tc.wantErr)
 			})
 			t.Run("table", func(t *testing.T) {
-				table := NewSnmpV3SecurityParametersTable(Logger{})
+				table := NewSnmpV3SecurityParametersTable()
 				assert.EqualError(t, table.Add("codec-user", params(tc.auth, tc.priv)), tc.wantErr)
 			})
 			t.Run("encode", func(t *testing.T) {
@@ -354,7 +347,7 @@ func TestUSMUnsupportedProtocols(t *testing.T) {
 			t.Run("decode", func(t *testing.T) {
 				data := usmCharTrap(t, AES, usmCharVarbinds)
 				sp := params(SHA, AES)
-				table := NewSnmpV3SecurityParametersTable(Logger{})
+				table := NewSnmpV3SecurityParametersTable()
 				require.NoError(t, table.Add("codec-user", sp))
 				sp.AuthenticationProtocol, sp.PrivacyProtocol = tc.auth, tc.priv
 				x := &GoSNMP{Version: Version3, TrapSecurityParametersTable: table}
@@ -521,7 +514,7 @@ func TestUSMTrapTableAttempts(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			tb := NewSnmpV3SecurityParametersTable(Logger{})
+			tb := NewSnmpV3SecurityParametersTable()
 			for _, set := range tc.sets {
 				set(tb)
 			}
@@ -598,7 +591,7 @@ func TestUSMTrapMistypedFields(t *testing.T) {
 			return &GoSNMP{Version: Version3, SecurityModel: UserSecurityModel, SecurityParameters: &UsmSecurityParameters{UserName: "secret-user"}}
 		},
 		"table": func() *GoSNMP {
-			tb := NewSnmpV3SecurityParametersTable(Logger{})
+			tb := NewSnmpV3SecurityParametersTable()
 			require.NoError(t, tb.Add("secret-user", &UsmSecurityParameters{UserName: "secret-user"}))
 			return &GoSNMP{Version: Version3, TrapSecurityParametersTable: tb}
 		},
@@ -641,7 +634,7 @@ func TestUSMTrapTableSkipsV1V2c(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			tb := NewSnmpV3SecurityParametersTable(Logger{})
+			tb := NewSnmpV3SecurityParametersTable()
 			require.NoError(t, tb.Add("codec-user", &UsmSecurityParameters{UserName: "codec-user"}))
 			x := &GoSNMP{Version: Version3, TrapSecurityParametersTable: tb}
 			var res *SnmpPacket
@@ -801,7 +794,7 @@ func TestUSMFIPS140OnlyDecrypt(t *testing.T) {
 			paths := map[string]func() error{
 				"single": func() error { _, err := client().UnmarshalTrap(bytes.Clone(trap), false); return err },
 				"table": func() error {
-					tb := NewSnmpV3SecurityParametersTable(Logger{})
+					tb := NewSnmpV3SecurityParametersTable()
 					require.NoError(t, tb.Add("codec-user", sp.Copy()))
 					_, err := (&GoSNMP{Version: Version3, TrapSecurityParametersTable: tb}).UnmarshalTrap(bytes.Clone(trap), false)
 					return err
@@ -947,7 +940,7 @@ func TestUSMKeyLengths(t *testing.T) {
 				}
 			}
 			initErr := sp().InitSecurityKeys()
-			addErr := NewSnmpV3SecurityParametersTable(Logger{}).Add("codec-user", sp())
+			addErr := NewSnmpV3SecurityParametersTable().Add("codec-user", sp())
 			got := [2]string{}
 			for i, err := range []error{initErr, addErr} {
 				if err != nil {
