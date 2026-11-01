@@ -750,9 +750,9 @@ func v3Scenarios() map[string]v3Scenario {
 			}),
 		},
 
-		// A hook in the discovery's first attempt, the earliest caller code in
-		// a request, changes the client: the request keeps the values its
-		// packet took at its start.
+		// The discovery's first PreSend, the first hook of a request, changes
+		// the client: the request keeps the values its packet took at its
+		// start.
 		"hooks/discovery-presend-changes-security-model": {
 			user: "codec-md5",
 			run:  onFirstPreSend("sets the client's security model to 2", func(x *GoSNMP) { x.SecurityModel = 2 }),

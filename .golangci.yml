@@ -25,9 +25,13 @@ linters:
       # it reports through results and errors.
       analyze-types: true
       forbid:
-        - pattern: ^log\.
+        - pattern: ^.*$
+          pkg: ^log(/.*)?$
+          msg: the library does not log
         - pattern: ^os\.(Exit|Stdout|Stderr)$
+          msg: the library writes no output and never exits the process
         - pattern: ^(fmt\.Print.*|print|println)$
+          msg: the library writes no output
     goconst:
       ignore-tests: true
     gocritic:
