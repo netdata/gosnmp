@@ -132,7 +132,7 @@ reencode: identical
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=91040642 max-size=65507 flags=0x00 security-model=3 context-engine-id= context-name="foreignformats/linux"
+v3: msg-id=91040642 max-size=65507 flags=0x00 context-engine-id= context-name="foreignformats/linux"
 usm: engine-id= boots=0 time=0 user="" auth-params= priv-params=
 pdu: 0xa0 (GetRequest) request-id=1157240545 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 0
@@ -142,7 +142,7 @@ reencode: identical
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=91040642 max-size=65507 flags=0x00 security-model=3 context-engine-id=80004fb8054445534b544f502d4a3732533245343ab63bc8 context-name="foreignformats/linux"
+v3: msg-id=91040642 max-size=65507 flags=0x00 context-engine-id=80004fb8054445534b544f502d4a3732533245343ab63bc8 context-name="foreignformats/linux"
 usm: engine-id=80004fb8054445534b544f502d4a3732533245343ab63bc8 boots=2 time=50298 user="" auth-params= priv-params=
 pdu: 0xa8 (Report) request-id=1157240545 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
@@ -277,7 +277,7 @@ decode: error (ErrInvalidPacketLength)
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=4242 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
+v3: msg-id=4242 max-size=65507 flags=0x01 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=1154402d7e48d7e3eeefd168 priv-params=
 pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -290,7 +290,7 @@ unmarshal-trap: ok
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=4242 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
+v3: msg-id=4242 max-size=65507 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=3b68db890b9ab44ebb8cd718 priv-params=0000000000000001
 pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -303,7 +303,7 @@ unmarshal-trap: ok
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=4242 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
+v3: msg-id=4242 max-size=65507 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=74db1c45023e69078ae0cc77 priv-params=0000000700000001
 pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -316,7 +316,7 @@ unmarshal-trap: ok
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=4242 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
+v3: msg-id=4242 max-size=65507 flags=0x01 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=c80d165de740913804ce5886 priv-params=
 pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -329,7 +329,7 @@ unmarshal-trap: ok
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=4242 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
+v3: msg-id=4242 max-size=65507 flags=0x01 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=fcf61f262134fa3c911049016d89a090 priv-params=
 pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -342,7 +342,7 @@ unmarshal-trap: ok
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=4242 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
+v3: msg-id=4242 max-size=65507 flags=0x01 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=307c1e97c620111e5ebdc21007b1271df911388f95f2ebe5 priv-params=
 pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -355,7 +355,7 @@ unmarshal-trap: ok
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=4242 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
+v3: msg-id=4242 max-size=65507 flags=0x01 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=9455c83f9f6742b448b51d7f0ae761d522809c79d329f7093acc8dd18d8dc812 priv-params=
 pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -368,7 +368,7 @@ unmarshal-trap: ok
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=4242 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
+v3: msg-id=4242 max-size=65507 flags=0x01 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=4b4cbcb73771a64a01869451863f2da738abfab179be611e72da2fe9437734fe7dadf119eac0b90336c589cc7b1799f1 priv-params=
 pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -381,7 +381,7 @@ unmarshal-trap: ok
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=4242 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
+v3: msg-id=4242 max-size=65507 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=57106f4372af877a899fc8c4fbdf7ce752e77dbdc5d8a021 priv-params=0000000000000001
 pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -394,7 +394,7 @@ unmarshal-trap: ok
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=4242 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
+v3: msg-id=4242 max-size=65507 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=dd204b253ce4ae9d001c83dd1dd86dfdb03bed93221671d991433bfba0d46ab7271d284f6fc9ab3bf73dc0cf0bf282d5 priv-params=0000000700000001
 pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -407,7 +407,7 @@ unmarshal-trap: ok
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=4242 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
+v3: msg-id=4242 max-size=65507 flags=0x00 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
 pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 20
@@ -438,7 +438,7 @@ unmarshal-trap: ok
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=4242 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
+v3: msg-id=4242 max-size=65507 flags=0x01 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=eabeb49e32f5cfc9f624a2ff priv-params=
 pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 20
@@ -469,7 +469,7 @@ unmarshal-trap: ok
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=4242 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
+v3: msg-id=4242 max-size=65507 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=a592ad7567bfa5f69550daff priv-params=0000000000000001
 pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 4
@@ -484,7 +484,7 @@ unmarshal-trap: ok
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=4242 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
+v3: msg-id=4242 max-size=65507 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=29d727b83d33ffbed3d8823a priv-params=0000000000000001
 pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 20
@@ -515,7 +515,7 @@ unmarshal-trap: ok
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=4242 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
+v3: msg-id=4242 max-size=65507 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=8272fa62ec3c65f3b9f6f1e6 priv-params=0000000700000001
 pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 20
@@ -546,7 +546,7 @@ unmarshal-trap: ok
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=4242 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
+v3: msg-id=4242 max-size=65507 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=8adadfef3510a12fb3aef738bf16fd41c04ad66dbe741838f04c93ca56fa4ec7359206a877aa79f24ed85d70554ab2d7 priv-params=0000000000000001
 pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 20
@@ -1943,7 +1943,7 @@ reencode: identical
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=42 max-size=65507 flags=0x00 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
 pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
@@ -1975,7 +1975,7 @@ decode: error (ErrInvalidMsgs)
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=2147483647 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=2147483647 max-size=65507 flags=0x00 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
 pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
@@ -1992,7 +1992,7 @@ decode: error (ErrInvalidMsgs)
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=42 max-size=484 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=42 max-size=484 flags=0x00 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
 pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
@@ -2003,7 +2003,7 @@ reencode: identical
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=42 max-size=2147483647 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=42 max-size=2147483647 flags=0x00 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
 pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
@@ -2029,7 +2029,7 @@ decode: error (ErrInvalidMsgs)
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=42 max-size=65507 flags=0x00 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=6161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161 boots=7 time=1234 user="codec-user" auth-params= priv-params=
 pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
@@ -2043,7 +2043,7 @@ decode: error (ErrInvalidMsgs)
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=42 max-size=65507 flags=0x00 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" auth-params= priv-params=
 pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
@@ -2057,7 +2057,7 @@ decode: error (ErrInvalidMsgs)
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=42 max-size=65507 flags=0x00 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id= boots=0 time=0 user="" auth-params= priv-params=
 pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
@@ -2077,7 +2077,7 @@ decode: error (ErrInvalidPacketLength, ErrInvalidMsgs)
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=42 max-size=65507 flags=0x00 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
 pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
@@ -2114,7 +2114,7 @@ unmarshal-trap: error (ErrInvalidMsgs)
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=4242 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
+v3: msg-id=4242 max-size=65507 flags=0x01 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=1154402d7e48d7e3eeefd168 priv-params=
 pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -2138,7 +2138,7 @@ unmarshal-trap: error (ErrUnknownSecurityLevel)
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=4242 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
+v3: msg-id=4242 max-size=65507 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=3b68db890b9ab44ebb8cd718 priv-params=0000000000000001
 pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -2155,7 +2155,7 @@ unmarshal-trap: ok
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=4242 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
+v3: msg-id=4242 max-size=65507 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=74db1c45023e69078ae0cc77 priv-params=0000000700000001
 pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -2172,7 +2172,7 @@ unmarshal-trap: ok
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=4242 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
+v3: msg-id=4242 max-size=65507 flags=0x01 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=1154402d7e48d7e3eeefd168 priv-params=
 pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -2214,7 +2214,7 @@ unmarshal-trap: error (ErrInvalidMsgs)
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=42 max-size=65507 flags=0x00 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
 pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
@@ -2231,7 +2231,7 @@ decode: error (ErrInvalidMsgs)
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=42 max-size=65507 flags=0x00 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
 pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
@@ -2257,7 +2257,7 @@ decode: error (ErrInvalidPacketLength, ErrInvalidMsgs)
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=42 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=42 max-size=65507 flags=0x01 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=2fdb2102f8239dec900468a5 priv-params=
 pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
@@ -2269,7 +2269,7 @@ unmarshal-trap: ok
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=42 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=42 max-size=65507 flags=0x01 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=673f2311ea9ad6ea140784 priv-params=
 pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
@@ -2281,7 +2281,7 @@ unmarshal-trap: error (ErrWrongDigest)
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=42 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=42 max-size=65507 flags=0x01 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=44bfbc11437ba415af3403b200 priv-params=
 pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
@@ -2293,7 +2293,7 @@ unmarshal-trap: error (ErrWrongDigest)
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=42 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=42 max-size=65507 flags=0x01 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
 pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
@@ -2305,7 +2305,7 @@ unmarshal-trap: error (ErrWrongDigest)
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=42 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=42 max-size=65507 flags=0x01 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=d8e942bfd89f14914a8ce923 priv-params=
 pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
@@ -2317,7 +2317,7 @@ unmarshal-trap: ok
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=42 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=42 max-size=65507 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=4950d0f2b8200b4dd30d9164 priv-params=0000000000000001
 pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
@@ -2337,7 +2337,7 @@ unmarshal-trap: error (ErrInvalidPacketLength, ErrDecryption)
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=42 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=42 max-size=65507 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=7c249a518b70267f2b549d26 priv-params=0000000000000001
 pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1

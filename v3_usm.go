@@ -457,7 +457,6 @@ func newDiscoveryPacket() *Message {
 	return &Message{
 		Version:            Version3,
 		SecurityLevel:      NoAuthNoPriv,
-		SecurityModel:      UserSecurityModel,
 		SecurityParameters: &UsmSecurityParameters{},
 		PDUType:            GetRequest,
 	}

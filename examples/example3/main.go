@@ -14,10 +14,10 @@ import (
 
 func main() {
 	params := &g.Client{
-		Target:        "192.168.91.20",
-		Port:          161,
-		Version:       g.Version3,
-		SecurityModel: g.UserSecurityModel,
+		Target:  "192.168.91.20",
+		Port:    161,
+		Version: g.Version3,
+
 		SecurityLevel: g.AuthPriv,
 		Timeout:       time.Duration(30) * time.Second,
 		SecurityParameters: &g.UsmSecurityParameters{

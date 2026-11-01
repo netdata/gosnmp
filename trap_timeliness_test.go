@@ -65,7 +65,7 @@ func encodeTimely(t *testing.T, engineID string, m timelyMessage) []byte {
 		wire ^= reportableFlag
 	}
 	data, err := (&Message{
-		Version: Version3, SecurityLevel: flags, SecurityModel: UserSecurityModel, SecurityParameters: sp,
+		Version: Version3, SecurityLevel: flags, SecurityParameters: sp,
 		PDUType: pdu, RequestID: 1, VarBinds: usmPlainVars,
 	}).Encode()
 	require.NoError(t, err)
@@ -112,7 +112,7 @@ var timelyReceivers = []struct {
 	}, []string{"", "codec-user", "other-user", "plain-user"}},
 	{"single", func(*testing.T) *Client {
 		x := usmDecoder(SHA, "codec-auth-pass", AES, "codec-priv-pass")()
-		x.Version, x.SecurityLevel, x.SecurityModel = Version3, AuthPriv, UserSecurityModel
+		x.Version, x.SecurityLevel = Version3, AuthPriv
 		return x
 	}, []string{"", "codec-user"}},
 }
@@ -286,10 +286,10 @@ func TestTrapEncodedReplay(t *testing.T) {
 		t.Run(path, func(t *testing.T) {
 			advance := useEngineTimes(t)
 			sp := signedTestUSM(t, SHA256, AES, usmCharEngineID, "codec-user")
-			sender := &Client{Version: Version3, SecurityLevel: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy()}
+			sender := &Client{Version: Version3, SecurityLevel: AuthPriv, SecurityParameters: sp.Copy()}
 			wire, err := sender.EncodeMessage(SNMPv2Trap, usmPlainVars, 0, 0)
 			require.NoError(t, err)
-			receiver := &Client{Version: Version3, SecurityLevel: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy()}
+			receiver := &Client{Version: Version3, SecurityLevel: AuthPriv, SecurityParameters: sp.Copy()}
 			if path == "table" {
 				receiver.TrapSecurityParametersTable = NewSnmpV3SecurityParametersTable()
 				require.NoError(t, receiver.TrapSecurityParametersTable.Add("codec-user", sp.Copy()))

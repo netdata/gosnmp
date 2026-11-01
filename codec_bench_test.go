@@ -66,9 +66,9 @@ func BenchmarkEncode(b *testing.B) {
 			}
 		}
 		return &Message{
-			Version:            Version3,
-			SecurityLevel:      flags,
-			SecurityModel:      UserSecurityModel,
+			Version:       Version3,
+			SecurityLevel: flags,
+
 			SecurityParameters: sp,
 			PDUType:            GetRequest,
 			MsgID:              4242,

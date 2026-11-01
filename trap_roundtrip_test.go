@@ -86,9 +86,9 @@ func rtEncodeV3(t *testing.T, sender rtCredentials, pduType PDUType) []byte {
 		require.NoError(t, sp.InitSecurityKeys())
 	}
 	pkt := &Message{
-		Version:            Version3,
-		SecurityLevel:      sender.flags(),
-		SecurityModel:      UserSecurityModel,
+		Version:       Version3,
+		SecurityLevel: sender.flags(),
+
 		SecurityParameters: sp,
 		ContextEngineID:    rtEngineID,
 		ContextName:        "trap-context",
@@ -111,9 +111,9 @@ func rtSingleUser(t *testing.T, creds ...rtCredentials) *Client {
 	t.Helper()
 	require.Len(t, creds, 1)
 	return &Client{
-		Version:            Version3,
-		SecurityLevel:      creds[0].flags(),
-		SecurityModel:      UserSecurityModel,
+		Version:       Version3,
+		SecurityLevel: creds[0].flags(),
+
 		SecurityParameters: creds[0].usm(""),
 	}
 }

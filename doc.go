@@ -247,13 +247,13 @@
 // The encoder also checks the message's fields: SNMPv1, SNMPv2c or SNMPv3; a
 // PDU type the package knows; max-repetitions up to 2147483647; an SNMPv1
 // trap's agent address an IPv4 address and its timestamp up to 4294967295; for
-// SNMPv3, the User-based Security Model, a msgID up to 2147483647, a
-// MsgMaxSize of 0 or 484..2147483647, one of the three security levels,
-// engine boots and time up to 2147483647 and a user name of at most 32 octets
-// (RFC 3412 section 6, RFC 3414 section 2.4). It writes the request ID as the
-// Integer32 whose two's complement RequestID holds, and the reportable flag of
-// an SNMPv3 message by its PDU type (RFC 3412 section 6.4): set for requests
-// and informs, clear for responses, reports and traps.
+// SNMPv3, a msgID up to 2147483647, a MsgMaxSize of 0 or 484..2147483647, one
+// of the three security levels, engine boots and time up to 2147483647 and a
+// user name of at most 32 octets (RFC 3412 section 6, RFC 3414 section 2.4).
+// It writes the request ID as the Integer32 whose two's complement RequestID
+// holds, the security model of an SNMPv3 message as the User-based Security
+// Model's (3), and its reportable flag by its PDU type (RFC 3412 section 6.4):
+// set for requests and informs, clear for responses, reports and traps.
 //
 // # Decoding
 //

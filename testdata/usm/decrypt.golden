@@ -4,7 +4,7 @@
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=21 max-size=65535 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=21 max-size=65535 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=3 time=77 user="codec-user" auth-params=dfebd5a8c3f5326285fc14cd priv-params=000000030a0b0c0d
 pdu: 0xa7 (SNMPv2Trap) request-id=42 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -65,7 +65,7 @@ unmarshal-trap: error
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=21 max-size=65535 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=21 max-size=65535 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=3 time=77 user="codec-user" auth-params=dfebd5a8c3f5326285fc14cd priv-params=000000030a0b0c0d
 pdu: 0xa7 (SNMPv2Trap) request-id=42 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -78,7 +78,7 @@ unmarshal-trap: ok
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=21 max-size=65535 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=21 max-size=65535 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=3 time=77 user="codec-user" auth-params=dfebd5a8c3f5326285fc14cd priv-params=000000030a0b0c0d
 pdu: 0xa7 (SNMPv2Trap) request-id=42 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -95,7 +95,7 @@ unmarshal-trap: error (ErrUnknownUsername)
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=21 max-size=65535 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=21 max-size=65535 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=3 time=77 user="codec-user" auth-params=6b1792824bec01a91fd7955a priv-params=1122334455667788
 pdu: 0xa7 (SNMPv2Trap) request-id=42 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -156,7 +156,7 @@ unmarshal-trap: error
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=21 max-size=65535 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=21 max-size=65535 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=3 time=77 user="codec-user" auth-params=6b1792824bec01a91fd7955a priv-params=1122334455667788
 pdu: 0xa7 (SNMPv2Trap) request-id=42 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -169,7 +169,7 @@ unmarshal-trap: ok
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=21 max-size=65535 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=21 max-size=65535 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=3 time=77 user="codec-user" auth-params=6b1792824bec01a91fd7955a priv-params=1122334455667788
 pdu: 0xa7 (SNMPv2Trap) request-id=42 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -186,7 +186,7 @@ unmarshal-trap: error (ErrUnknownUsername)
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=21 max-size=65535 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=21 max-size=65535 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=3 time=77 user="codec-user" auth-params=a2a3f5c98be9c3ace51ee3a0 priv-params=1122334455667788
 pdu: 0xa7 (SNMPv2Trap) request-id=42 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -247,7 +247,7 @@ unmarshal-trap: error
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=21 max-size=65535 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=21 max-size=65535 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=3 time=77 user="codec-user" auth-params=a2a3f5c98be9c3ace51ee3a0 priv-params=1122334455667788
 pdu: 0xa7 (SNMPv2Trap) request-id=42 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -260,7 +260,7 @@ unmarshal-trap: ok
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=21 max-size=65535 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=21 max-size=65535 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=3 time=77 user="codec-user" auth-params=a2a3f5c98be9c3ace51ee3a0 priv-params=1122334455667788
 pdu: 0xa7 (SNMPv2Trap) request-id=42 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -277,7 +277,7 @@ unmarshal-trap: error (ErrUnknownUsername)
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=21 max-size=65535 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=21 max-size=65535 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=3 time=77 user="codec-user" auth-params=69d982111c444afc1252aac3 priv-params=1122334455667788
 pdu: 0xa7 (SNMPv2Trap) request-id=42 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -338,7 +338,7 @@ unmarshal-trap: error
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=21 max-size=65535 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=21 max-size=65535 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=3 time=77 user="codec-user" auth-params=69d982111c444afc1252aac3 priv-params=1122334455667788
 pdu: 0xa7 (SNMPv2Trap) request-id=42 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -351,7 +351,7 @@ unmarshal-trap: ok
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=21 max-size=65535 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=21 max-size=65535 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=3 time=77 user="codec-user" auth-params=69d982111c444afc1252aac3 priv-params=1122334455667788
 pdu: 0xa7 (SNMPv2Trap) request-id=42 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -368,7 +368,7 @@ unmarshal-trap: error (ErrUnknownUsername)
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=21 max-size=65535 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=21 max-size=65535 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=3 time=77 user="codec-user" auth-params=eaa69fb06604e157f3bf5c26 priv-params=1122334455667788
 pdu: 0xa7 (SNMPv2Trap) request-id=42 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -429,7 +429,7 @@ unmarshal-trap: error
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=21 max-size=65535 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=21 max-size=65535 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=3 time=77 user="codec-user" auth-params=eaa69fb06604e157f3bf5c26 priv-params=1122334455667788
 pdu: 0xa7 (SNMPv2Trap) request-id=42 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -442,7 +442,7 @@ unmarshal-trap: ok
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=21 max-size=65535 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=21 max-size=65535 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=3 time=77 user="codec-user" auth-params=eaa69fb06604e157f3bf5c26 priv-params=1122334455667788
 pdu: 0xa7 (SNMPv2Trap) request-id=42 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -459,7 +459,7 @@ unmarshal-trap: error (ErrUnknownUsername)
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=21 max-size=65535 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=21 max-size=65535 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=3 time=77 user="codec-user" auth-params=85cfdf8dedfc9c282e6f50cb priv-params=1122334455667788
 pdu: 0xa7 (SNMPv2Trap) request-id=42 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -520,7 +520,7 @@ unmarshal-trap: error
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=21 max-size=65535 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=21 max-size=65535 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=3 time=77 user="codec-user" auth-params=85cfdf8dedfc9c282e6f50cb priv-params=1122334455667788
 pdu: 0xa7 (SNMPv2Trap) request-id=42 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
@@ -533,7 +533,7 @@ unmarshal-trap: ok
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=21 max-size=65535 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
+v3: msg-id=21 max-size=65535 flags=0x03 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=3 time=77 user="codec-user" auth-params=85cfdf8dedfc9c282e6f50cb priv-params=1122334455667788
 pdu: 0xa7 (SNMPv2Trap) request-id=42 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2

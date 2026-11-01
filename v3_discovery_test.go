@@ -180,9 +180,9 @@ func (m *mockAgentUnknownUserNames) marshalUnknownUserNamesReport(req *Message) 
 	}
 	secParams.UserName = m.reportUserName
 	pkt := &Message{
-		Version:            Version3,
-		SecurityLevel:      NoAuthNoPriv,
-		SecurityModel:      UserSecurityModel,
+		Version:       Version3,
+		SecurityLevel: NoAuthNoPriv,
+
 		SecurityParameters: secParams,
 		PDUType:            Report,
 		MsgID:              req.MsgID,
@@ -202,9 +202,9 @@ func (m *mockAgentUnknownUserNames) marshalResponse(req *Message) ([]byte, error
 	secParams := m.secParams()
 	secParams.UserName = req.SecurityParameters.usm().UserName
 	pkt := &Message{
-		Version:            Version3,
-		SecurityLevel:      NoAuthNoPriv,
-		SecurityModel:      UserSecurityModel,
+		Version:       Version3,
+		SecurityLevel: NoAuthNoPriv,
+
 		SecurityParameters: secParams,
 		PDUType:            Response,
 		MsgID:              req.MsgID,

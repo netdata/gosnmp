@@ -26,7 +26,6 @@ func newTestClientV3(msgFlags SecurityLevel, sp SnmpV3SecurityParameters) *Clien
 	gs := newTestClient()
 	gs.Version = Version3
 	gs.SecurityLevel = msgFlags
-	gs.SecurityModel = UserSecurityModel
 	gs.SecurityParameters = sp
 	return gs
 }

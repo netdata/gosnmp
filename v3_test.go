@@ -89,7 +89,7 @@ func TestNilSecurityParameters(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			x := &Client{
 				Target: "127.0.0.1", Port: 161, Version: tc.version, Community: "public", Timeout: 10 * time.Millisecond,
-				MaxOids: MaxOids, SecurityModel: UserSecurityModel, SecurityLevel: NoAuthNoPriv,
+				MaxOids: MaxOids, SecurityLevel: NoAuthNoPriv,
 				SecurityParameters: (*UsmSecurityParameters)(nil), Conn: fakePacketTransport{newFakeTransport(nil, nil)},
 			}
 			assert.Equal(t, tc.want, outcomeOf(func() error { return tc.run(x) }))

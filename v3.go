@@ -49,15 +49,10 @@ func (f SecurityLevel) valid() bool { return f == NoAuthNoPriv || f == AuthNoPri
 
 //go:generate go tool -modfile=tools/go.mod stringer -type=SecurityLevel
 
-// SnmpV3SecurityModel is the security model of an SNMPv3 message.
-type SnmpV3SecurityModel uint8
-
-// UserSecurityModel is the only SnmpV3SecurityModel currently implemented.
-const (
-	UserSecurityModel SnmpV3SecurityModel = 3
-)
-
-//go:generate go tool -modfile=tools/go.mod stringer -type=SnmpV3SecurityModel
+// usmSecurityModel is the msgSecurityModel of the User-based Security Model
+// (RFC 3414), the only security model the package implements: the encoder
+// writes it, and the decoder accepts no other (RFC 3412 section 7.2 step 4).
+const usmSecurityModel = 3
 
 // SnmpV3SecurityParameters holds the parameters of an SNMPv3 security model.
 // Its only implementation is *UsmSecurityParameters, for the User-based
@@ -82,13 +77,9 @@ func usmOf(sp SnmpV3SecurityParameters) *UsmSecurityParameters {
 	return sp.usm()
 }
 
-// validateParametersV3 checks the client's SNMPv3 configuration: the
-// User-based Security Model, and parameters that fit SecurityLevel.
+// validateParametersV3 checks the client's SNMPv3 configuration: parameters
+// that fit SecurityLevel.
 func (x *Client) validateParametersV3() error {
-	// update following code if you implement a new security model
-	if x.SecurityModel != UserSecurityModel {
-		return errors.New("the SNMPV3 User Security Model is the only SNMPV3 security model currently implemented")
-	}
 	sp := usmOf(x.SecurityParameters)
 	if sp == nil {
 		return errors.New("SNMPV3 SecurityParameters must be set")
@@ -195,14 +186,12 @@ const (
 	maxUserNameLen = 32 // msgUserName octets (RFC 3414 section 2.4)
 )
 
-// checkV3Header checks the SNMPv3 header fields of an outgoing message: the
-// User-based Security Model, a msgID of at most 2147483647, a MsgMaxSize of 0
-// (the receive buffer's size) or 484..2147483647, and one of the three
-// security levels (privacy without authentication has its own error).
+// checkV3Header checks the SNMPv3 header fields of an outgoing message: a
+// msgID of at most 2147483647, a MsgMaxSize of 0 (the receive buffer's size) or
+// 484..2147483647, and one of the three security levels (privacy without
+// authentication has its own error).
 func (packet *Message) checkV3Header() error {
 	switch {
-	case packet.SecurityModel != UserSecurityModel:
-		return fmt.Errorf("unable to marshal SNMPv3 security model %d: not the User-based Security Model", packet.SecurityModel)
 	case packet.MsgID > maxMsgID:
 		return fmt.Errorf("unable to marshal SNMPv3 msgID %d: more than %d", packet.MsgID, maxMsgID)
 	case packet.MsgMaxSize != 0 && (packet.MsgMaxSize < minMsgMaxSize || packet.MsgMaxSize > maxMsgMaxSize):
@@ -233,7 +222,7 @@ func (packet *Message) appendV3Header(dst []byte) []byte {
 		flags |= reportableFlag
 	}
 	dst = append(dst, byte(OctetString), 1, flags)
-	dst = append(dst, byte(Integer), 1, byte(UserSecurityModel))
+	dst = append(dst, byte(Integer), 1, usmSecurityModel)
 	return ber.End(dst, start)
 }
 
@@ -378,7 +367,7 @@ func parseV3(packet []byte, cursor int, response *Message) (v3Wire, error) {
 	if err != nil {
 		return w, fmt.Errorf("error parsing SNMPV3 msgSecModel: %w", err)
 	}
-	if model != int32(UserSecurityModel) {
+	if model != usmSecurityModel {
 		return w, errNotUSM
 	}
 	if response.SecurityLevel.privFlag() && !response.SecurityLevel.authFlag() {
@@ -387,7 +376,6 @@ func parseV3(packet []byte, cursor int, response *Message) (v3Wire, error) {
 	if r.Len() == 0 {
 		return w, errors.New("error parsing SNMPV3: nothing after the security model")
 	}
-	response.SecurityModel = UserSecurityModel
 
 	if PDUType(packet[len(packet)-r.Len()]) != PDUType(OctetString) {
 		return w, errors.New("invalid SNMPV3 Security Parameters")

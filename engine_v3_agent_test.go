@@ -305,7 +305,7 @@ func (req agentRequest) discarded() string {
 		return fmt.Sprintf("msgID %d", req.msgID)
 	case req.maxSize < agentMinMaxSize || req.maxSize > agentMaxInt:
 		return fmt.Sprintf("msgMaxSize %d", req.maxSize)
-	case req.model != int64(UserSecurityModel):
+	case req.model != usmSecurityModel:
 		return fmt.Sprintf("security model %d", req.model)
 	case req.flags&AuthPriv == usmPrivacyFlag:
 		return "privacy without authentication"
@@ -365,9 +365,9 @@ func (a *fakeV3Agent) answer(req agentRequest, ans agentAnswer) *Message {
 		}
 	}
 	out := &Message{
-		Version:            Version3,
-		SecurityLevel:      ans.level,
-		SecurityModel:      UserSecurityModel,
+		Version:       Version3,
+		SecurityLevel: ans.level,
+
 		SecurityParameters: sp,
 		ContextEngineID:    req.contextEngineID,
 		ContextName:        req.contextName,
@@ -498,7 +498,7 @@ func describeAgentRequest(req agentRequest) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "msgID=%d %s user=%q engine=%q boots=%d time=%d", req.msgID, describeFlags(req.flags), req.user,
 		req.engineID, req.boots, req.engineTime)
-	if req.model != int64(UserSecurityModel) {
+	if req.model != usmSecurityModel {
 		fmt.Fprintf(&sb, " model=%d", req.model)
 	}
 	if req.maxSize != rxBufSize {

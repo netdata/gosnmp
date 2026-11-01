@@ -26,9 +26,9 @@ type Message struct {
 	// Version is the SNMP version.
 	Version Version
 
-	// The SNMPv3 header: the flags, the security model and its parameters.
+	// The SNMPv3 header: the security level and the User-based Security
+	// Model's parameters.
 	SecurityLevel      SecurityLevel
-	SecurityModel      SnmpV3SecurityModel
 	SecurityParameters SnmpV3SecurityParameters
 
 	// The SNMPv3 context of the scoped PDU.

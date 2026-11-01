@@ -85,7 +85,7 @@ func bareV3Answer(req []byte, msgID uint32, pduType PDUType, vbs ...VarBind) []b
 		panic(fmt.Sprintf("agent cannot decode the request: %v", err))
 	}
 	out := &Message{
-		Version: Version3, SecurityLevel: NoAuthNoPriv, SecurityModel: UserSecurityModel,
+		Version: Version3, SecurityLevel: NoAuthNoPriv,
 		SecurityParameters: &UsmSecurityParameters{UserName: "public"},
 		PDUType:            pduType, RequestID: in.RequestID, MsgID: msgID,
 		VarBinds: vbs,
@@ -463,7 +463,7 @@ func engineScenarios() map[string]engineScenario {
 		}},
 		"answer/other-version-v3": {
 			agent: answerWith(func(p *Message) {
-				p.Version, p.SecurityLevel, p.SecurityModel = Version3, NoAuthNoPriv, UserSecurityModel
+				p.Version, p.SecurityLevel = Version3, NoAuthNoPriv
 				p.SecurityParameters = &UsmSecurityParameters{UserName: "public"}
 			}, sysDescr),
 		},
