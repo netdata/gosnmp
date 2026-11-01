@@ -44,10 +44,10 @@ type engineTimes struct {
 }
 
 // engineTimeKey identifies the records of one engine for one credential: the
-// SHA-256 of the authentication protocol, the engine ID and the
-// authentication key localized to it. Parameter sets sharing a passphrase
-// share a record; another credential, which may authenticate any engine ID,
-// cannot change it.
+// SHA-256 of the authentication protocol, the engine ID and the authentication
+// key localized to it. Users sharing a protocol and a passphrase share a
+// record; another credential, which may authenticate any engine ID, cannot
+// change it.
 type engineTimeKey [sha256.Size]byte
 
 // engineTimeRecord is the receiver's notion of the time of an engine, for one
