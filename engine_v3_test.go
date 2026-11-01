@@ -119,16 +119,11 @@ func userParameters(user string) *UsmSecurityParameters {
 	}
 }
 
-// setEngineOID sets engineOID: a request that changes the agent.
-func setEngineOID(x *GoSNMP) (*SnmpPacket, error) {
-	return x.Set([]SnmpPDU{{Name: engineOID, Type: OctetString, Value: "codec"}})
-}
-
 // sendOIDs sends a request of pduType for oids, with maxRepetitions for a
 // GetBulk, as the walks send their GetNext and GetBulk requests.
 func sendOIDs(pduType PDUType, oids []string, maxRepetitions uint32) func(x *GoSNMP) (*SnmpPacket, error) {
 	return func(x *GoSNMP) (*SnmpPacket, error) {
-		packetOut, err := x.oidRequest(pduType, oids, 0, maxRepetitions)
+		packetOut, err := x.oidRequest(pduType, oids, maxRepetitions)
 		if err != nil {
 			return nil, err
 		}
@@ -549,15 +544,6 @@ func v3Scenarios() map[string]v3Scenario {
 			timeJump(a)
 			unauthenticatedTimeWindow(a, nil)
 		}, sendOIDs(GetBulkRequest, []string{engineOID}, 2))},
-		"unauthenticated-report/time-jump/set": {user: "codec-md5", run: getThen(func(a *fakeV3Agent) {
-			timeJump(a)
-			unauthenticatedTimeWindow(a, nil)
-		}, setEngineOID)},
-		"unauthenticated-report/noauth-set": {user: "codec-noauth", script: onRequest(2, agentAnswer{
-			report: usmStatsNotInTimeWindows, why: "not in time window", edit: func(p *SnmpPacket) {
-				p.SecurityParameters.usm().AuthoritativeEngineTime += 7
-			},
-		}), run: func(x *GoSNMP, _ *fakeV3Agent) (*SnmpPacket, error) { return setEngineOID(x) }},
 		// A notInTimeWindow Report lends its time only, not the other engine
 		// ID it names.
 		"unauthenticated-report/noauth-other-engine": {user: "codec-noauth", script: onRequest(2, agentAnswer{
@@ -566,7 +552,6 @@ func v3Scenarios() map[string]v3Scenario {
 				p.SecurityParameters.usm().AuthoritativeEngineTime += 7
 			},
 		})},
-		"reboot/set": {user: "codec-md5", run: getThen(func(a *fakeV3Agent) { a.reboot() }, setEngineOID)},
 		"unauthenticated-report/engine-id-differs": {user: "codec-md5", run: getTwice(func(a *fakeV3Agent) {
 			timeJump(a)
 			unauthenticatedTimeWindow(a, fromOtherEngine)
@@ -1273,12 +1258,6 @@ func v3Scenarios() map[string]v3Scenario {
 				return agentAnswer{}, false
 			},
 		},
-		"clock/set-after-authenticated-answer": {
-			user: "codec-md5", run: getThen(func(*fakeV3Agent) {}, setEngineOID),
-		},
-		"clock/set-after-discovery": {
-			user: "codec-md5", run: func(x *GoSNMP, _ *fakeV3Agent) (*SnmpPacket, error) { return setEngineOID(x) },
-		},
 		// The resend an unauthenticated notInTimeWindow Report lends its boots
 		// and time to is lost twice, then answered.
 		"clock/lent-clock-retries": {
@@ -1297,20 +1276,8 @@ func v3Scenarios() map[string]v3Scenario {
 				}
 			}),
 		},
-		// The caller sets the engine boots and time, with and without the
-		// engine ID.
-		"clock/caller-clock/known-engine": {
-			user: "codec-md5", setup: func(_ *GoSNMP, sp *UsmSecurityParameters) {
-				sp.AuthoritativeEngineID, sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = agentEngineID, agentBoots, agentTimeBase
-			},
-			run: getThen(func(*fakeV3Agent) {}, setEngineOID),
-		},
-		"clock/caller-clock/known-engine/set-first": {
-			user: "codec-md5", setup: func(_ *GoSNMP, sp *UsmSecurityParameters) {
-				sp.AuthoritativeEngineID, sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = agentEngineID, agentBoots, agentTimeBase
-			},
-			run: func(x *GoSNMP, _ *fakeV3Agent) (*SnmpPacket, error) { return setEngineOID(x) },
-		},
+		// The caller sets the engine boots and time without the engine ID
+		// (with it: known-engine/time-known).
 		"clock/caller-clock/no-engine-id": {
 			user: "codec-md5", setup: func(_ *GoSNMP, sp *UsmSecurityParameters) {
 				sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = agentBoots, agentTimeBase-500
@@ -1429,14 +1396,6 @@ func v3Scenarios() map[string]v3Scenario {
 		},
 		"answer/reflected-request/md5": {
 			user: "codec-md5", script: onRequest(2, agentAnswer{reflect: true, why: "the request sent back"}),
-		},
-		"answer/reflected-request/md5-set": {
-			user: "codec-md5", script: onRequest(2, agentAnswer{reflect: true, why: "the request sent back"}),
-			run: func(x *GoSNMP, _ *fakeV3Agent) (*SnmpPacket, error) { return setEngineOID(x) },
-		},
-		"answer/reflected-request/sha-aes-set": {
-			user: "codec-sha-aes", script: onRequest(2, agentAnswer{reflect: true, why: "the request sent back"}),
-			run: func(x *GoSNMP, _ *fakeV3Agent) (*SnmpPacket, error) { return setEngineOID(x) },
 		},
 		// An SNMPv2c message whose body reads as a scoped PDU, with the
 		// request's request ID, does not answer an SNMPv3 request.

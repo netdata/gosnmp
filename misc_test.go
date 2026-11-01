@@ -15,57 +15,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// -----------------------------------------------------------------------------
-
-// -----------------------------------------------------------------------------
-
-var testsPartition = []struct {
-	currentPosition int
-	partitionSize   int
-	sliceLength     int
-	ok              bool
-}{
-	{-1, 3, 8, false}, // test out of range
-	{8, 3, 8, false},  // test out of range
-	{0, 3, 8, false},  // test 0-7/3 per doco
-	{1, 3, 8, false},
-	{2, 3, 8, true},
-	{3, 3, 8, false},
-	{4, 3, 8, false},
-	{5, 3, 8, true},
-	{6, 3, 8, false},
-	{7, 3, 8, true},
-	{-1, 1, 3, false}, // partition size of one
-	{0, 1, 3, true},
-	{1, 1, 3, true},
-	{2, 1, 3, true},
-	{3, 1, 3, false},
-	{0, 5, 3, false}, // partition size above the slice length: one partition
-	{1, 5, 3, false},
-	{2, 5, 3, true},
-	{0, 0, 3, false}, // partition size of 0: one partition
-	{1, 0, 3, false},
-	{2, 0, 3, true},
-	{-1, 0, 3, false}, // out of range
-	{3, 0, 3, false},
-	{0, -1, 3, false}, // negative partition size: one partition
-	{1, -1, 3, false},
-	{2, -1, 3, true},
-	{0, -3, 4, false},
-	{2, -3, 4, false},
-	{3, -3, 4, true},
-	{3, -1, 3, false}, // out of range
-}
-
-func TestPartition(t *testing.T) {
-	for i, test := range testsPartition {
-		ok := Partition(test.currentPosition, test.partitionSize, test.sliceLength)
-		if ok != test.ok {
-			t.Errorf("#%d: Bad result: %v (expected %v)", i, ok, test.ok)
-		}
-	}
-}
-
 // ---------------------------------------------------------------------
 
 var testsToBigInt = []struct {

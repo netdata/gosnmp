@@ -5,7 +5,6 @@
 package gosnmp
 
 import (
-	"encoding/asn1"
 	"fmt"
 )
 
@@ -76,10 +75,6 @@ type SnmpPacket struct {
 // SnmpTrap holds what only traps and informs carry: the SNMPv1 trap header,
 // and whether the packet is an InformRequest.
 type SnmpTrap struct {
-	// Variables is not used: SnmpPacket.Variables, which hides it, holds the
-	// varbinds of traps too.
-	Variables []SnmpPDU
-
 	// IsInform reports that the packet is an InformRequest, which its sender
 	// expects an answer to, not a trap; SNMPv1 has no informs.
 	IsInform bool
@@ -92,13 +87,6 @@ type SnmpTrap struct {
 	GenericTrap  int
 	SpecificTrap int
 	Timestamp    uint
-}
-
-// VarBind is a varbind in encoding/asn1 types. The library does not use it:
-// SnmpPDU is its varbind.
-type VarBind struct {
-	Name  asn1.ObjectIdentifier
-	Value asn1.RawValue
 }
 
 // PDUType is the BER tag of a PDU, which names its type.
@@ -136,16 +124,6 @@ func (t PDUType) known() bool {
 func (t PDUType) confirmed() bool {
 	switch t {
 	case GetRequest, GetNextRequest, GetBulkRequest, SetRequest, InformRequest:
-		return true
-	}
-	return false
-}
-
-// read reports whether t is a PDU of the Read Class (RFC 3411 section 2.8.1):
-// a request that changes nothing at its receiver.
-func (t PDUType) read() bool {
-	switch t {
-	case GetRequest, GetNextRequest, GetBulkRequest:
 		return true
 	}
 	return false

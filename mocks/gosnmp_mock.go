@@ -41,20 +41,6 @@ func (m *MockHandler) EXPECT() *MockHandlerMockRecorder {
 	return m.recorder
 }
 
-// BulkWalk mocks base method.
-func (m *MockHandler) BulkWalk(rootOid string, walkFn gosnmp.WalkFunc) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "BulkWalk", rootOid, walkFn)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// BulkWalk indicates an expected call of BulkWalk.
-func (mr *MockHandlerMockRecorder) BulkWalk(rootOid, walkFn any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BulkWalk", reflect.TypeOf((*MockHandler)(nil).BulkWalk), rootOid, walkFn)
-}
-
 // BulkWalkAll mocks base method.
 func (m *MockHandler) BulkWalkAll(rootOid string) ([]gosnmp.SnmpPDU, error) {
 	m.ctrl.T.Helper()
@@ -165,50 +151,6 @@ func (m *MockHandler) Get(oids []string) (*gosnmp.SnmpPacket, error) {
 func (mr *MockHandlerMockRecorder) Get(oids any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockHandler)(nil).Get), oids)
-}
-
-// GetBulk mocks base method.
-func (m *MockHandler) GetBulk(oids []string, nonRepeaters uint8, maxRepetitions uint32) (*gosnmp.SnmpPacket, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetBulk", oids, nonRepeaters, maxRepetitions)
-	ret0, _ := ret[0].(*gosnmp.SnmpPacket)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetBulk indicates an expected call of GetBulk.
-func (mr *MockHandlerMockRecorder) GetBulk(oids, nonRepeaters, maxRepetitions any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetBulk", reflect.TypeOf((*MockHandler)(nil).GetBulk), oids, nonRepeaters, maxRepetitions)
-}
-
-// GetExponentialTimeout mocks base method.
-func (m *MockHandler) GetExponentialTimeout() bool {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetExponentialTimeout")
-	ret0, _ := ret[0].(bool)
-	return ret0
-}
-
-// GetExponentialTimeout indicates an expected call of GetExponentialTimeout.
-func (mr *MockHandlerMockRecorder) GetExponentialTimeout() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetExponentialTimeout", reflect.TypeOf((*MockHandler)(nil).GetExponentialTimeout))
-}
-
-// GetNext mocks base method.
-func (m *MockHandler) GetNext(oids []string) (*gosnmp.SnmpPacket, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetNext", oids)
-	ret0, _ := ret[0].(*gosnmp.SnmpPacket)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetNext indicates an expected call of GetNext.
-func (mr *MockHandlerMockRecorder) GetNext(oids any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNext", reflect.TypeOf((*MockHandler)(nil).GetNext), oids)
 }
 
 // Logger mocks base method.
@@ -323,21 +265,6 @@ func (mr *MockHandlerMockRecorder) SecurityParameters() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SecurityParameters", reflect.TypeOf((*MockHandler)(nil).SecurityParameters))
 }
 
-// Set mocks base method.
-func (m *MockHandler) Set(pdus []gosnmp.SnmpPDU) (*gosnmp.SnmpPacket, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Set", pdus)
-	ret0, _ := ret[0].(*gosnmp.SnmpPacket)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// Set indicates an expected call of Set.
-func (mr *MockHandlerMockRecorder) Set(pdus any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Set", reflect.TypeOf((*MockHandler)(nil).Set), pdus)
-}
-
 // SetCommunity mocks base method.
 func (m *MockHandler) SetCommunity(community string) {
 	m.ctrl.T.Helper()
@@ -372,18 +299,6 @@ func (m *MockHandler) SetContextName(contextName string) {
 func (mr *MockHandlerMockRecorder) SetContextName(contextName any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetContextName", reflect.TypeOf((*MockHandler)(nil).SetContextName), contextName)
-}
-
-// SetExponentialTimeout mocks base method.
-func (m *MockHandler) SetExponentialTimeout(value bool) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetExponentialTimeout", value)
-}
-
-// SetExponentialTimeout indicates an expected call of SetExponentialTimeout.
-func (mr *MockHandlerMockRecorder) SetExponentialTimeout(value any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetExponentialTimeout", reflect.TypeOf((*MockHandler)(nil).SetExponentialTimeout), value)
 }
 
 // SetLogger mocks base method.
@@ -573,20 +488,6 @@ func (m *MockHandler) Version() gosnmp.SnmpVersion {
 func (mr *MockHandlerMockRecorder) Version() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Version", reflect.TypeOf((*MockHandler)(nil).Version))
-}
-
-// Walk mocks base method.
-func (m *MockHandler) Walk(rootOid string, walkFn gosnmp.WalkFunc) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Walk", rootOid, walkFn)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// Walk indicates an expected call of Walk.
-func (mr *MockHandlerMockRecorder) Walk(rootOid, walkFn any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Walk", reflect.TypeOf((*MockHandler)(nil).Walk), rootOid, walkFn)
 }
 
 // WalkAll mocks base method.

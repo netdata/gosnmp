@@ -48,7 +48,7 @@ func FuzzEngineReply(f *testing.F) {
 		// followed by the attempt's timeout.
 		exchange := []scriptedRead{{data: reply}, {err: os.ErrDeadlineExceeded}}
 		x.Conn = &replyConn{scriptedConn{reads: slices.Concat(exchange, exchange, exchange)}}
-		packet, err := x.oidRequest(GetRequest, []string{engineOID}, 0, 0)
+		packet, err := x.oidRequest(GetRequest, []string{engineOID}, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -110,7 +110,7 @@ func engineReplyClient(r engineReplyRequest) *GoSNMP {
 func engineReplyExchange(tb testing.TB, r engineReplyRequest) *exchange {
 	tb.Helper()
 	x := engineReplyClient(r)
-	packet, err := x.oidRequest(GetRequest, []string{engineOID}, 0, 0)
+	packet, err := x.oidRequest(GetRequest, []string{engineOID}, 0)
 	if err != nil {
 		tb.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func engineReplyExchange(tb testing.TB, r engineReplyRequest) *exchange {
 		}
 	}
 	cfg := x.prepareRequest()
-	return &exchange{x: x, packet: packet, cfg: cfg, timeout: cfg.timeout, discovery: r.discover, clock: x.engine.clock}
+	return &exchange{x: x, packet: packet, cfg: cfg, discovery: r.discover, clock: x.engine.clock}
 }
 
 // engineReplySeeds returns replies to the first exchange of r's request

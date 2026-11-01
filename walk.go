@@ -6,6 +6,7 @@ package gosnmp
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -16,85 +17,66 @@ import (
 // SNMP Walk functions - Analogous to net-snmp's snmpwalk commands
 //
 
-// WalkFunc is called for each value a walk visits; an error it returns ends
-// the walk with that error.
-type WalkFunc func(dataUnit SnmpPDU) error
-
-// BulkWalk walks the subtree under rootOid with GETBULK requests (SNMPv2c and
-// SNMPv3), calling walkFn for each value in it, in the order the agent
-// returns them. An empty or "." rootOid walks .1.3.6.1. The subtree is
-// rootOid and the names under it. The walk ends as net-snmp's snmpbulkwalk
-// ends its walk: at the first name outside the subtree or exception value
-// (NoSuchObject, NoSuchInstance, EndOfMibView), and at an answer whose Error
-// is NoSuchName, the end of an SNMPv1 MIB, without an error. When the walk's
-// first answer ends it with NoSuchName or with a first name outside the
-// subtree, rootOid is taken for a leaf and fetched with one Get, whose first
-// value walkFn gets when it names rootOid and is not an exception value. An
-// exception value in the subtree ends the walk without that Get, also in the
-// first answer: a leaf rootOid that is the agent's last object answers
-// EndOfMibView and is not fetched. The walk returns at once the error of a
-// failed request or of walkFn, and an error for a name in the subtree,
-// rootOid included, that is not after the requested one: each name of an
-// answer is compared with the requested one, and AppOpts "c" turns this check
-// off. Known bugs: an empty answer, or one whose Error is another of TooBig
-// through InconsistentName, ends the walk without an error; another Error is
-// ignored.
-func (x *GoSNMP) BulkWalk(rootOid string, walkFn WalkFunc) error {
-	return x.walk(GetBulkRequest, rootOid, walkFn)
-}
-
-// BulkWalkAll is similar to BulkWalk but returns a filled array of all values
-// rather than using a callback function to stream results. Caution: when
-// AppOpts has "c", BulkWalkAll may loop until memory runs out; use BulkWalk
-// instead.
+// BulkWalkAll walks the subtree under rootOid with GETBULK requests (SNMPv2c
+// and SNMPv3; on SNMPv1 it fails before its first request) and returns its
+// values, in the order the agent returns them. An empty or "." rootOid walks
+// .1.3.6.1. The subtree is rootOid and the names under it. The walk ends as
+// net-snmp's snmpbulkwalk ends its walk: at the first name outside the
+// subtree or exception value (NoSuchObject, NoSuchInstance, EndOfMibView),
+// and at an answer whose Error is NoSuchName, the end of an SNMPv1 MIB,
+// without an error. When the walk's first answer ends it with NoSuchName or
+// with a first name outside the subtree, rootOid is taken for a leaf and
+// fetched with one Get, whose first value is returned when it names rootOid
+// and is not an exception value. An exception value in the subtree ends the
+// walk without that Get, also in the first answer: a leaf rootOid that is the
+// agent's last object answers EndOfMibView and is not fetched. The walk ends
+// at once with the error of a failed request, and with an error for a name in
+// the subtree, rootOid included, that is not after the requested one (each
+// name of an answer is compared with the requested one); it returns the values
+// before the error with it. Known bugs: an empty answer, or one whose Error is
+// another of TooBig through InconsistentName, ends the walk without an error;
+// another Error is ignored.
 func (x *GoSNMP) BulkWalkAll(rootOid string) (results []SnmpPDU, err error) {
-	return x.walkAll(GetBulkRequest, rootOid)
+	return x.walk(GetBulkRequest, rootOid)
 }
 
-// Walk walks the subtree under rootOid with GETNEXT requests, one per value,
-// where BulkWalk asks for many at a time, calling walkFn for each value in it.
-// It starts, ends and fails as BulkWalk does; net-snmp's snmpwalk differs only
-// for a name before rootOid, which fails its increasing check where Walk ends
-// (or, as the first answer, gets rootOid).
-func (x *GoSNMP) Walk(rootOid string, walkFn WalkFunc) error {
-	return x.walk(GetNextRequest, rootOid, walkFn)
-}
-
-// WalkAll is similar to Walk but returns a filled array of all values rather
-// than using a callback function to stream results. Caution: when AppOpts
-// has "c", WalkAll may loop until memory runs out; use Walk instead.
+// WalkAll walks the subtree under rootOid with GETNEXT requests, one per
+// value, where BulkWalkAll asks for many at a time, and returns its values. It
+// starts, ends and fails as BulkWalkAll does; net-snmp's snmpwalk differs only
+// for a name before rootOid, which fails its increasing check where WalkAll
+// ends (or, as the first answer, gets rootOid).
 func (x *GoSNMP) WalkAll(rootOid string) (results []SnmpPDU, err error) {
-	return x.walkAll(GetNextRequest, rootOid)
+	return x.walk(GetNextRequest, rootOid)
 }
 
-// walk visits the subtree under rootOid: it asks the agent for the objects
-// after the root, then after the last name it received, with getRequestType
-// (GetNext or GetBulk), and passes each object in the subtree to walkFn until
-// an answer ends the walk (visit's rule). When that answer shows the root to
-// be a leaf, the walk gets it once (getRoot).
-func (x *GoSNMP) walk(getRequestType PDUType, rootOid string, walkFn WalkFunc) error {
+// walk returns the values of the subtree under rootOid: it asks the agent for
+// the objects after the root, then after the last name it received, with
+// requestType (GetNext or GetBulk), and collects the objects in the subtree
+// until an answer ends the walk (visit's rule). When that answer shows the
+// root to be a leaf, the walk gets it once (getRoot). An error ends the walk
+// with the values collected before it.
+func (x *GoSNMP) walk(requestType PDUType, rootOid string) (results []SnmpPDU, err error) {
 	root, err := walkRoot(rootOid)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	// AppOpt 'c': do not check that returned OIDs increase.
-	_, unchecked := x.AppOpts["c"]
 	w := walker{
-		x:               x,
-		root:            root,
-		maxReps:         cmp.Or(x.MaxRepetitions, defaultMaxRepetitions),
-		checkIncreasing: !unchecked,
+		x:           x,
+		requestType: requestType,
+		root:        root,
+		maxReps:     cmp.Or(x.MaxRepetitions, defaultMaxRepetitions),
 	}
 
 	oid := w.root
 	for requests := 1; ; requests++ {
-		response, err := w.request(getRequestType, oid)
+		response, err := w.request(oid)
 		if err != nil {
-			return err
+			return results, err
 		}
-		next, err := w.visit(response, oid, requests == 1, walkFn)
+		var next walkStep
+		results, next, err = w.visit(response, oid, requests == 1, results)
 		if err != nil {
-			return err
+			return results, err
 		}
 		switch next {
 		case walkContinue:
@@ -102,26 +84,25 @@ func (x *GoSNMP) walk(getRequestType PDUType, rootOid string, walkFn WalkFunc) e
 			continue
 		case walkGetRoot:
 			requests++
-			if err := w.getRoot(walkFn); err != nil {
-				return err
+			if results, err = w.getRoot(results); err != nil {
+				return results, err
 			}
 		}
 		if x.Logger.enabled() {
 			x.Logger.Printf("Walk completed in %d requests", requests)
 		}
-		return nil
+		return results, nil
 	}
 }
 
-// walker holds what a walk fixes at its start. walkFn is not one of its
-// fields: it would escape to the heap with the client, and with it WalkAll's
-// closure and results.
+// walker holds what a walk fixes at its start.
 type walker struct {
-	x    *GoSNMP
-	root string
+	x *GoSNMP
+	// requestType is GetNextRequest or GetBulkRequest.
+	requestType PDUType
+	root        string
 	// maxReps is the GetBulk max-repetitions.
-	maxReps         uint32
-	checkIncreasing bool
+	maxReps uint32
 }
 
 // walkStep is what a walk does after an answer.
@@ -156,25 +137,31 @@ func walkRoot(rootOid string) (string, error) {
 	return ber.OID(content)
 }
 
-// request asks the agent for the objects after oid.
-func (w *walker) request(requestType PDUType, oid string) (*SnmpPacket, error) {
-	switch requestType {
-	case GetBulkRequest:
-		return w.x.GetBulk([]string{oid}, 0, w.maxReps)
-	case GetNextRequest:
-		return w.x.GetNext([]string{oid})
+// request asks the agent for the objects after oid, with the walk's
+// max-repetitions for a GetBulk, which SNMPv1 does not have.
+func (w *walker) request(oid string) (*SnmpPacket, error) {
+	var maxReps uint32
+	if w.requestType == GetBulkRequest {
+		if w.x.Version == Version1 {
+			return nil, errors.New("GETBULK not supported in SNMPv1")
+		}
+		maxReps = w.maxReps
 	}
-	return nil, fmt.Errorf("unsupported request type: %d", requestType)
+	packetOut, err := w.x.oidRequest(w.requestType, []string{oid}, maxReps)
+	if err != nil {
+		return nil, err
+	}
+	return w.x.send(packetOut)
 }
 
 // visit applies the walk's end rule, net-snmp's (apps/snmpwalk.c and
-// apps/snmpbulkwalk.c at v5.9.4), to response: it passes the values of
-// response that lie in the subtree to walkFn, in order, and returns what the
-// walk does next. oid is the name the request asked for; firstAnswer marks the
-// walk's first answer: a walk goes on only after an answer whose values all
-// went to walkFn, so only the first answer can end a walk that found nothing,
-// the case in which net-snmp gets the root.
-func (w *walker) visit(response *SnmpPacket, oid string, firstAnswer bool, walkFn WalkFunc) (walkStep, error) {
+// apps/snmpbulkwalk.c at v5.9.4), to response: it appends the values of
+// response that lie in the subtree to results, in order, and returns them and
+// what the walk does next. oid is the name the request asked for; firstAnswer
+// marks the walk's first answer: a walk goes on only after an answer whose
+// values it all collected, so only the first answer can end a walk that found
+// nothing, the case in which net-snmp gets the root.
+func (w *walker) visit(response *SnmpPacket, oid string, firstAnswer bool, results []SnmpPDU) ([]SnmpPDU, walkStep, error) {
 	x := w.x
 	// The error statuses tooBig to inconsistentName (RFC 3416) end the walk.
 	// noSuchName is the end of an SNMPv1 MIB: as the first answer, the root may
@@ -186,13 +173,13 @@ func (w *walker) visit(response *SnmpPacket, oid string, firstAnswer bool, walkF
 			x.Logger.Print("Walk terminated with " + status.String())
 		}
 		if status == NoSuchName && firstAnswer {
-			return walkGetRoot, nil
+			return results, walkGetRoot, nil
 		}
-		return walkDone, nil
+		return results, walkDone, nil
 	}
 	// Known bug: an empty answer ends the walk with a nil error.
 	if len(response.Variables) == 0 {
-		return walkDone, nil
+		return results, walkDone, nil
 	}
 
 	for i, pdu := range response.Variables {
@@ -200,9 +187,9 @@ func (w *walker) visit(response *SnmpPacket, oid string, firstAnswer bool, walkF
 		// it shows the root to be a leaf (gosnmp/gosnmp#78).
 		if !inSubtree(pdu.Name, w.root) {
 			if firstAnswer && i == 0 {
-				return walkGetRoot, nil
+				return results, walkGetRoot, nil
 			}
-			return walkDone, nil
+			return results, walkDone, nil
 		}
 		// An exception value (RFC 3416 section 4.2) ends the walk, also as its
 		// first value, without the leaf Get, as in net-snmp's snmpwalk: a leaf
@@ -212,38 +199,36 @@ func (w *walker) visit(response *SnmpPacket, oid string, firstAnswer bool, walkF
 			if x.Logger.enabled() {
 				x.Logger.Print("Walk terminated with " + pdu.Type.String())
 			}
-			return walkDone, nil
+			return results, walkDone, nil
 		}
 		// Each name is compared with the request's, as net-snmp's
 		// snmpbulkwalk does: a name equal to the root fails too.
-		if w.checkIncreasing && oidCompare(oid, pdu.Name) >= 0 {
-			return walkDone, fmt.Errorf("OID not increasing: %s >= %s", oid, pdu.Name)
+		if oidCompare(oid, pdu.Name) >= 0 {
+			return results, walkDone, fmt.Errorf("OID not increasing: %s >= %s", oid, pdu.Name)
 		}
-		if err := walkFn(pdu); err != nil {
-			return walkDone, err
-		}
+		results = append(results, pdu)
 	}
-	return walkContinue, nil
+	return results, walkContinue, nil
 }
 
 // getRoot gets the root, which the walk found to be a leaf, as net-snmp's
-// snmpwalk does after a walk that printed nothing, and passes walkFn the
-// answer's first value when it names the root and is not an exception value
+// snmpwalk does after a walk that printed nothing, and appends the answer's
+// first value to results when it names the root and is not an exception value
 // (a Get of one name is answered by its first varbind). Statuses read as in
-// visit: an error status passes nothing on (known bug: one the RFC does not
-// name is ignored).
-func (w *walker) getRoot(walkFn WalkFunc) error {
+// visit: an error status adds nothing (known bug: one the RFC does not name is
+// ignored).
+func (w *walker) getRoot(results []SnmpPDU) ([]SnmpPDU, error) {
 	response, err := w.x.Get([]string{w.root})
 	if err != nil {
-		return err
+		return results, err
 	}
 	if rfcError(response.Error) || len(response.Variables) == 0 {
-		return nil
+		return results, nil
 	}
 	if pdu := response.Variables[0]; pdu.Name == w.root && !isException(pdu.Type) {
-		return walkFn(pdu)
+		return append(results, pdu), nil
 	}
-	return nil
+	return results, nil
 }
 
 // inSubtree reports whether name is root or one of the names under it: it
@@ -266,14 +251,6 @@ func rfcError(status SNMPError) bool {
 // 4.2: noSuchObject, noSuchInstance or endOfMibView.
 func isException(t Asn1BER) bool {
 	return t == NoSuchObject || t == NoSuchInstance || t == EndOfMibView
-}
-
-func (x *GoSNMP) walkAll(getRequestType PDUType, rootOid string) (results []SnmpPDU, err error) {
-	err = x.walk(getRequestType, rootOid, func(dataUnit SnmpPDU) error {
-		results = append(results, dataUnit)
-		return nil
-	})
-	return results, err
 }
 
 // oidCompare compares two OID strings lexicographically.

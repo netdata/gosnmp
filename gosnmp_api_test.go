@@ -30,58 +30,27 @@ func TestAPIConfigTypes(_ *testing.T) {
 	g.Retries = 0
 	g.MaxOids = 0
 	g.MaxRepetitions = 0
-	g.NonRepeaters = 0
 	g.Logger = gosnmp.NewLogger(log.New(io.Discard, "", 0))
 	var c net.Conn = g.Conn
 	_ = c
 }
 
-func TestAPIDefault(_ *testing.T) {
-	var g *gosnmp.GoSNMP = gosnmp.Default
-	_ = g
-}
-
 func TestAPIConnectMethodSignature(_ *testing.T) {
-	var f func() error = gosnmp.Default.Connect
+	var f func() error = (&gosnmp.GoSNMP{}).Connect
 	_ = f
 }
 
 func TestAPIGetMethodSignature(_ *testing.T) {
-	var f func([]string) (*gosnmp.SnmpPacket, error) = gosnmp.Default.Get
-	_ = f
-}
-
-func TestAPISetMethodSignature(_ *testing.T) {
-	var f func([]gosnmp.SnmpPDU) (*gosnmp.SnmpPacket, error) = gosnmp.Default.Set
-	_ = f
-}
-
-func TestAPIGetNextMethodSignature(_ *testing.T) {
-	var f func([]string) (*gosnmp.SnmpPacket, error) = gosnmp.Default.GetNext
-	_ = f
-}
-
-func TestAPIBulkWalkMethodSignature(_ *testing.T) {
-	var f func(string, gosnmp.WalkFunc) error = gosnmp.Default.BulkWalk
+	var f func([]string) (*gosnmp.SnmpPacket, error) = (&gosnmp.GoSNMP{}).Get
 	_ = f
 }
 
 func TestAPIBulkWalkAllMethodSignature(_ *testing.T) {
-	var f func(string) ([]gosnmp.SnmpPDU, error) = gosnmp.Default.BulkWalkAll
-	_ = f
-}
-
-func TestAPIWalkMethodSignature(_ *testing.T) {
-	var f func(string, gosnmp.WalkFunc) error = gosnmp.Default.Walk
+	var f func(string) ([]gosnmp.SnmpPDU, error) = (&gosnmp.GoSNMP{}).BulkWalkAll
 	_ = f
 }
 
 func TestAPIWalkAllMethodSignature(_ *testing.T) {
-	var f func(string) ([]gosnmp.SnmpPDU, error) = gosnmp.Default.WalkAll
-	_ = f
-}
-
-func TestAPIWalkFuncSignature(_ *testing.T) {
-	var f gosnmp.WalkFunc = func(_ gosnmp.SnmpPDU) (err error) { return err }
+	var f func(string) ([]gosnmp.SnmpPDU, error) = (&gosnmp.GoSNMP{}).WalkAll
 	_ = f
 }

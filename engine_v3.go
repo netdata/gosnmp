@@ -181,9 +181,9 @@ func (e *exchange) resetsClock(boots, engineTime uint32, now time.Time) bool {
 // without authentication carries no signature to misuse. An authenticated
 // request is signed with what the Report names, so it takes only the engine
 // boots and time of a Report that names the request's engine ID (RFC 3414
-// section 3.2 checks the engine ID before the time window), and only as a
-// read request, whose copy an on-path sender could replay only as that read
-// later (step 7 a accepts a time within 150 s of the agent's): the rule of
+// section 3.2 checks the engine ID before the time window): it is a read
+// request (send), whose copy an on-path sender could replay only as that read
+// later (step 7 a accepts a time within 150 s of the agent's), the rule of
 // every unauthenticated clock (sourcedClock.timeFor). It never takes an engine
 // ID: the request would be signed for another engine with the same
 // credentials (section 1.5.2).
@@ -191,7 +191,7 @@ func mayLend(packetOut, report *SnmpPacket, kind reportKind) bool {
 	if !packetOut.MsgFlags.authFlag() {
 		return true
 	}
-	if !packetOut.PDUType.read() || kind.namesEngine {
+	if kind.namesEngine {
 		return false
 	}
 	return report.SecurityParameters.usm().AuthoritativeEngineID == packetOut.SecurityParameters.usm().AuthoritativeEngineID

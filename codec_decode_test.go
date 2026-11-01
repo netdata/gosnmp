@@ -163,9 +163,6 @@ func dumpPacket(d *dumpWriter, p *SnmpPacket) {
 	if p.IsInform {
 		d.line("inform: true")
 	}
-	if p.SnmpTrap.Variables != nil {
-		d.linef("trap-variables: %d", len(p.SnmpTrap.Variables))
-	}
 	if p.Variables == nil {
 		d.line("varbinds: nil")
 	} else {

@@ -621,32 +621,25 @@ func TestEngineClockStep7(t *testing.T) {
 }
 
 // TestEngineTimeFor pins the engine boots and time an attempt carries
-// (sourcedClock.timeFor): an authenticated clock's for every request, another
-// clock's for read requests and requests without authentication, else zeros.
+// (sourcedClock.timeFor): any known clock's, whatever its source, since every
+// request is a read request; zeros without a clock.
 func TestEngineTimeFor(t *testing.T) {
 	received := time.Unix(1_000_000_000, 0)
 	now := received.Add(10 * time.Second)
 	clock := func(source clockSource) sourcedClock { return clockOf(7, 1000, received, source) }
 	tests := map[string]struct {
 		clock sourcedClock
-		flags SnmpV3MsgFlags
-		pdu   PDUType
 		want  [2]uint32
 	}{
-		"authenticated, Set":                      {clock: clock(fromAuthenticated), flags: AuthNoPriv, pdu: SetRequest, want: [2]uint32{7, 1010}},
-		"authenticated, Get":                      {clock: clock(fromAuthenticated), flags: AuthPriv, pdu: GetRequest, want: [2]uint32{7, 1010}},
-		"unauthenticated, Get":                    {clock: clock(fromUnauthenticated), flags: AuthNoPriv, pdu: GetRequest, want: [2]uint32{7, 1010}},
-		"unauthenticated, GetNext":                {clock: clock(fromUnauthenticated), flags: AuthNoPriv, pdu: GetNextRequest, want: [2]uint32{7, 1010}},
-		"unauthenticated, GetBulk":                {clock: clock(fromUnauthenticated), flags: AuthPriv, pdu: GetBulkRequest, want: [2]uint32{7, 1010}},
-		"unauthenticated, Set":                    {clock: clock(fromUnauthenticated), flags: AuthNoPriv, pdu: SetRequest},
-		"unauthenticated, Set, no authentication": {clock: clock(fromUnauthenticated), flags: NoAuthNoPriv, pdu: SetRequest, want: [2]uint32{7, 1010}},
-		"lent by a Report, Set":                   {clock: clock(fromTimeWindowReport), flags: AuthNoPriv, pdu: SetRequest},
-		"lent by a Report, Get":                   {clock: clock(fromTimeWindowReport), flags: AuthNoPriv, pdu: GetRequest, want: [2]uint32{7, 1010}},
-		"no clock":                                {flags: NoAuthNoPriv, pdu: GetRequest},
+		"authenticated":      {clock: clock(fromAuthenticated), want: [2]uint32{7, 1010}},
+		"unauthenticated":    {clock: clock(fromUnauthenticated), want: [2]uint32{7, 1010}},
+		"lent by a Report":   {clock: clock(fromTimeWindowReport), want: [2]uint32{7, 1010}},
+		"no clock":           {},
+		"no clock, a source": {clock: sourcedClock{source: fromAuthenticated}},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			boots, engineTime := tc.clock.timeFor(&SnmpPacket{MsgFlags: tc.flags, PDUType: tc.pdu}, now)
+			boots, engineTime := tc.clock.timeFor(now)
 			assert.Equal(t, tc.want, [2]uint32{boots, engineTime})
 		})
 	}

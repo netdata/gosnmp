@@ -70,16 +70,19 @@ func clockOf(boots, engineTime uint32, now time.Time, source clockSource) source
 	return sourcedClock{engineClock{boots: boots, latest: engineTime, received: now}, source}
 }
 
-// timeFor returns the engine boots and time packet, a request, carries when
-// it is sent at now (RFC 3414 section 3.1 step 6): c's notion of them when c
-// is authenticated, when the request asks for no authentication, which no
-// agent checks the time of (net-snmp sends its notion too; section 3.1 step 6
-// c sends zeros), or when it is a read request, which an on-path sender could
-// replay only as itself; else zeros, as without a clock, which an agent
-// answers with an authenticated notInTimeWindow Report carrying its own
-// (section 4).
-func (c sourcedClock) timeFor(packet *SnmpPacket, now time.Time) (boots, engineTime uint32) {
-	if !c.known() || c.source != fromAuthenticated && packet.MsgFlags.authFlag() && !packet.PDUType.read() {
+// timeFor returns the engine boots and time a request carries when it is sent
+// at now (RFC 3414 section 3.1 step 6): c's notion of them, whatever c's
+// source, or zeros without a clock. Every request is a read request (send),
+// which an on-path sender could replay only as itself, so a clock from
+// discovery, an unauthenticated answer or the caller signs it as an
+// authenticated clock does; a request without authentication carries the
+// notion too, which no agent checks the time of (net-snmp sends its notion;
+// section 3.1 step 6 c sends zeros). An authenticated request that changes
+// the agent would carry zeros with a clock that is not authenticated, which
+// the agent answers with an authenticated notInTimeWindow Report carrying its
+// own (section 4).
+func (c sourcedClock) timeFor(now time.Time) (boots, engineTime uint32) {
+	if !c.known() {
 		return 0, 0
 	}
 	return c.at(now)

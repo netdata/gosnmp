@@ -157,24 +157,6 @@ func TestGenericMultiGet(t *testing.T) {
 	}
 }
 
-func TestGenericGetNext(t *testing.T) {
-	gs := newTestGoSNMP()
-	connectToTarget(t, gs)
-	defer gs.Conn.Close()
-
-	sysDescrOid := ".1.3.6.1.2.1.1.1.0" // SNMP MIB-2 sysDescr
-	result, err := gs.GetNext([]string{sysDescrOid})
-	if err != nil {
-		t.Fatalf("GetNext() failed with error => %v", err)
-	}
-	if len(result.Variables) != 1 {
-		t.Fatalf("Expected result of size 1")
-	}
-	if result.Variables[0].Name == sysDescrOid {
-		t.Fatalf("Expected next OID")
-	}
-}
-
 func TestGenericWalk(t *testing.T) {
 	gs := newTestGoSNMP()
 	connectToTarget(t, gs)
@@ -233,20 +215,6 @@ func TestMaxOids(t *testing.T) {
 	errString := "oid count (2) is greater than MaxOids (1)"
 
 	_, err = gs.Get(oids)
-	if err == nil {
-		t.Fatalf("Expected too many oids failure. Got nil")
-	} else if err.Error() != errString {
-		t.Fatalf("Expected too many oids failure. Got => %v", err)
-	}
-
-	_, err = gs.GetNext(oids)
-	if err == nil {
-		t.Fatalf("Expected too many oids failure. Got nil")
-	} else if err.Error() != errString {
-		t.Fatalf("Expected too many oids failure. Got => %v", err)
-	}
-
-	_, err = gs.GetBulk(oids, 0, 0)
 	if err == nil {
 		t.Fatalf("Expected too many oids failure. Got nil")
 	} else if err.Error() != errString {

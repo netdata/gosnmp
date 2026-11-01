@@ -22,6 +22,11 @@ import (
 // goroutine without a recover. A flag, not recover's value, tells that the
 // request panicked: under GODEBUG=panicnil=1, recover returns nil for
 // panic(nil).
+//
+// packetOut is a request of the Read Class (RFC 3411 section 2.8.1), a Get,
+// GetNext or GetBulk, as every request the client sends: the SNMPv3 engine
+// clock signs it whatever the clock's source (sourcedClock.timeFor, mayLend),
+// which a request that changes the agent must not take.
 func (x *GoSNMP) send(packetOut *SnmpPacket) (result *SnmpPacket, err error) {
 	completed := false
 	defer func() {
@@ -137,7 +142,6 @@ type requestConfig struct {
 	ctx                                        context.Context
 	timeout                                    time.Duration
 	retries                                    int
-	exponentialTimeout                         bool
 	preSend, onSent, onRecv, onRetry, onFinish func(*GoSNMP)
 }
 
@@ -153,15 +157,14 @@ func (x *GoSNMP) prepareRequest() requestConfig {
 		ctx = context.Background()
 	}
 	return requestConfig{
-		ctx:                ctx,
-		timeout:            x.Timeout,
-		retries:            max(x.Retries, 0),
-		exponentialTimeout: x.ExponentialTimeout,
-		preSend:            x.PreSend,
-		onSent:             x.OnSent,
-		onRecv:             x.OnRecv,
-		onRetry:            x.OnRetry,
-		onFinish:           x.OnFinish,
+		ctx:      ctx,
+		timeout:  x.Timeout,
+		retries:  max(x.Retries, 0),
+		preSend:  x.PreSend,
+		onSent:   x.OnSent,
+		onRecv:   x.OnRecv,
+		onRetry:  x.OnRetry,
+		onFinish: x.OnFinish,
 	}
 }
 
@@ -175,9 +178,6 @@ type exchange struct {
 	// configuration to the heap.
 	cfg requestConfig
 
-	// timeout is the current attempt's timeout; ExponentialTimeout doubles it
-	// before each retry.
-	timeout time.Duration
 	// contextDeadline is set when the context's deadline ends the current
 	// attempt, at or before its timeout: endErr then reports
 	// context.DeadlineExceeded whether or not the Context reports its
@@ -307,7 +307,7 @@ type sentIDs struct {
 // that ends without a reply ends the request with net.ErrClosed, whatever else
 // ended it. An exchange that ends without an answer goes through unanswered.
 func (x *GoSNMP) sendOneRequest(cfg *requestConfig, packetOut *SnmpPacket, discovery bool, clock sourcedClock) (*SnmpPacket, bool, error) {
-	e := exchange{x: x, packet: packetOut, cfg: *cfg, timeout: cfg.timeout, discovery: discovery, clock: clock}
+	e := exchange{x: x, packet: packetOut, cfg: *cfg, discovery: discovery, clock: clock}
 	// The IDs of the attempts before the current one, in a local array, not a
 	// field of exchange, so that eight of them stay on the stack: a field
 	// would always escape to the heap, and a slice made for cfg.retries+1 of
@@ -385,18 +385,13 @@ func (e *exchange) unanswered(err error) error {
 }
 
 // beforeRetry readies retry n, which follows an attempt that failed with
-// lastErr: it runs OnRetry, logs the retry and, with ExponentialTimeout,
-// doubles the timeout.
+// lastErr: it runs OnRetry and logs the retry.
 func (e *exchange) beforeRetry(n int, lastErr error) {
 	x := e.x
 	if e.cfg.onRetry != nil {
 		e.cfg.onRetry(x)
 	}
 	x.Logger.Printf("Retry number %d. Last error was: %v", n, lastErr)
-	if e.cfg.exponentialTimeout {
-		// https://www.webnms.com/snmp/help/snmpapi/snmpv3/v1/timeout.html
-		e.timeout *= 2
-	}
 }
 
 // attempt sends the request once, on the client's connection, and reads until
@@ -412,7 +407,7 @@ func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
 		return attemptOutcome{kind: attemptFailed, err: err}
 	}
 	var deadline time.Time
-	deadline, e.contextDeadline = attemptDeadline(e.cfg.ctx, e.timeout)
+	deadline, e.contextDeadline = attemptDeadline(e.cfg.ctx, e.cfg.timeout)
 	if err = conn.SetDeadline(deadline); err != nil {
 		return attemptOutcome{kind: attemptFailed, err: err}
 	}
@@ -466,7 +461,7 @@ func (e *exchange) encode() ([]byte, error) {
 	if p.Version == Version3 {
 		p.MsgID = x.nextMsgID()
 		if sp := usmOf(p.SecurityParameters); sp != nil {
-			sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = e.clock.timeFor(p, time.Now())
+			sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = e.clock.timeFor(time.Now())
 		}
 		p.SecurityParameters.Log()
 	}

@@ -103,8 +103,8 @@ func TestVarbindValueAliasesInput(t *testing.T) {
 			want:  []byte{0x01, 0x02},
 		},
 		"Opaque with another extension tag": {
-			value: []byte{byte(Opaque), 0x04, AsnExtensionTag, 0x76, 0x01, 0x05},
-			want:  []byte{AsnExtensionTag, 0x76, 0x01, 0x05},
+			value: []byte{byte(Opaque), 0x04, opaqueExtensionTag, 0x76, 0x01, 0x05},
+			want:  []byte{opaqueExtensionTag, 0x76, 0x01, 0x05},
 		},
 	}
 

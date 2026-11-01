@@ -2,7 +2,7 @@
 // source code is governed by a BSD-style license that can be found in the
 // LICENSE file.
 
-// This program demonstrates BulkWalk.
+// This program demonstrates BulkWalkAll.
 package main
 
 import (
@@ -39,24 +39,32 @@ func main() {
 		oid = flag.Args()[1]
 	}
 
-	gosnmp.Default.Target = target
-	gosnmp.Default.Community = community
-	gosnmp.Default.Timeout = 10 * time.Second // Timeout better suited to walking
-	err := gosnmp.Default.Connect()
+	client := &gosnmp.GoSNMP{
+		Target:    target,
+		Port:      161,
+		Community: community,
+		Version:   gosnmp.Version2c,
+		Timeout:   10 * time.Second, // Timeout better suited to walking
+		Retries:   3,
+	}
+	err := client.Connect()
 	if err != nil {
 		fmt.Printf("Connect err: %v\n", err)
 		os.Exit(1)
 	}
-	defer gosnmp.Default.Close()
+	defer client.Close()
 
-	err = gosnmp.Default.BulkWalk(oid, printValue)
+	values, err := client.BulkWalkAll(oid)
+	for _, pdu := range values {
+		printValue(pdu)
+	}
 	if err != nil {
 		fmt.Printf("Walk Error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func printValue(pdu gosnmp.SnmpPDU) error {
+func printValue(pdu gosnmp.SnmpPDU) {
 	fmt.Printf("%s = ", pdu.Name)
 
 	switch pdu.Type {
@@ -66,5 +74,4 @@ func printValue(pdu gosnmp.SnmpPDU) error {
 	default:
 		fmt.Printf("TYPE %d: %d\n", pdu.Type, gosnmp.ToBigInt(pdu.Value))
 	}
-	return nil
 }

@@ -5,7 +5,6 @@
 package gosnmp
 
 import (
-	"errors"
 	"fmt"
 	"math"
 )
@@ -40,50 +39,7 @@ func (x *GoSNMP) MkSnmpPacket(pdutype PDUType, pdus []SnmpPDU, nonRepeaters uint
 // Get sends a GET request for oids, at most MaxOids of them, and returns the
 // answer.
 func (x *GoSNMP) Get(oids []string) (result *SnmpPacket, err error) {
-	packetOut, err := x.oidRequest(GetRequest, oids, 0, 0)
-	if err != nil {
-		return nil, err
-	}
-	return x.send(packetOut)
-}
-
-// Set sends a SET request with pdus, at least one, and returns the answer. It
-// takes the types Integer, OctetString, Opaque, Gauge32, IPAddress,
-// ObjectIdentifier, Counter32, Counter64, Null, TimeTicks, Uinteger32,
-// OpaqueFloat and OpaqueDouble, with the Go values the package documentation
-// lists, and checks every varbind's type before sending; MaxOids does not
-// apply.
-func (x *GoSNMP) Set(pdus []SnmpPDU) (result *SnmpPacket, err error) {
-	if len(pdus) == 0 {
-		return nil, errors.New("no varbinds to set")
-	}
-	for i := range pdus {
-		if !valueRules[pdus[i].Type].settable {
-			return nil, fmt.Errorf("cannot set varbind %d of type %v", i, pdus[i].Type)
-		}
-	}
-	return x.send(x.MkSnmpPacket(SetRequest, pdus, 0, 0))
-}
-
-// GetNext sends a GETNEXT request for oids, at most MaxOids of them, and
-// returns the answer: the objects that follow them.
-func (x *GoSNMP) GetNext(oids []string) (result *SnmpPacket, err error) {
-	packetOut, err := x.oidRequest(GetNextRequest, oids, 0, 0)
-	if err != nil {
-		return nil, err
-	}
-	return x.send(packetOut)
-}
-
-// GetBulk sends a GETBULK request (SNMPv2c and SNMPv3) for oids, at most
-// MaxOids of them, and returns the answer: for the first nonRepeaters OIDs
-// the object that follows each, for the others up to maxRepetitions objects
-// that follow each. maxRepetitions is sent with its top bit cleared.
-func (x *GoSNMP) GetBulk(oids []string, nonRepeaters uint8, maxRepetitions uint32) (result *SnmpPacket, err error) {
-	if x.Version == Version1 {
-		return nil, fmt.Errorf("GETBULK not supported in SNMPv1")
-	}
-	packetOut, err := x.oidRequest(GetBulkRequest, oids, nonRepeaters, maxRepetitions)
+	packetOut, err := x.oidRequest(GetRequest, oids, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -91,8 +47,9 @@ func (x *GoSNMP) GetBulk(oids []string, nonRepeaters uint8, maxRepetitions uint3
 }
 
 // oidRequest builds the request packet of pdutype for oids, each as a Null
-// varbind, after checking their count against MaxOids.
-func (x *GoSNMP) oidRequest(pdutype PDUType, oids []string, nonRepeaters uint8, maxRepetitions uint32) (*SnmpPacket, error) {
+// varbind, with maxRepetitions for a GetBulk, after checking their count
+// against MaxOids: Get's, and each of a walk's GetNext and GetBulk requests.
+func (x *GoSNMP) oidRequest(pdutype PDUType, oids []string, maxRepetitions uint32) (*SnmpPacket, error) {
 	if len(oids) > x.MaxOids {
 		return nil, fmt.Errorf("oid count (%d) is greater than MaxOids (%d)", len(oids), x.MaxOids)
 	}
@@ -100,5 +57,5 @@ func (x *GoSNMP) oidRequest(pdutype PDUType, oids []string, nonRepeaters uint8, 
 	for _, oid := range oids {
 		pdus = append(pdus, SnmpPDU{Name: oid, Type: Null, Value: nil})
 	}
-	return x.MkSnmpPacket(pdutype, pdus, nonRepeaters, maxRepetitions), nil
+	return x.MkSnmpPacket(pdutype, pdus, 0, maxRepetitions), nil
 }

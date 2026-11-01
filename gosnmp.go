@@ -20,14 +20,10 @@ import (
 
 const (
 	// MaxOids is the default of GoSNMP.MaxOids, the maximum number of OIDs in
-	// a Get, GetNext or GetBulk request. MaxOids too high can cause remote
-	// devices to fail strangely. 60 seems to be a common value that works;
-	// set GoSNMP.MaxOids to change it.
+	// a Get request. MaxOids too high can cause remote devices to fail
+	// strangely. 60 seems to be a common value that works; set GoSNMP.MaxOids
+	// to change it.
 	MaxOids = 60
-
-	// MaxObjectSubIdentifierValue is the largest OID sub-identifier (RFC
-	// 2578 section 7.1.3). The library does not use it.
-	MaxObjectSubIdentifierValue = 4294967295
 
 	// defaultMaxRepetitions is the walks' GetBulk max-repetitions unless
 	// GoSNMP.MaxRepetitions is set; Java SNMP uses 50, net-snmp 10.
@@ -82,9 +78,6 @@ type GoSNMP struct {
 	// counts as 0.
 	Retries int
 
-	// ExponentialTimeout doubles the timeout for each retry.
-	ExponentialTimeout bool
-
 	// Logger receives the client's debug output; the zero Logger disables it.
 	// A Logger that panics during a request ends the request (see the package
 	// documentation, Hooks). For verbose logging to stdout:
@@ -121,28 +114,15 @@ type GoSNMP struct {
 	// exchange fails.
 	OnFinish func(*GoSNMP)
 
-	// MaxOids is the maximum number of OIDs in a Get, GetNext or GetBulk
-	// request; Set does not check it. Connect replaces zero with the MaxOids
-	// constant.
+	// MaxOids is the maximum number of OIDs in a Get request, and in each
+	// request of a walk, which carries one. Connect replaces zero with the
+	// MaxOids constant.
 	MaxOids int
 
-	// MaxRepetitions is the GETBULK max-repetitions of BulkWalk and
-	// BulkWalkAll, sent with its top bit cleared; zero means 50. Some devices
-	// fail with large values; see https://github.com/gosnmp/gosnmp/issues/100.
+	// MaxRepetitions is the GETBULK max-repetitions of BulkWalkAll, sent with
+	// its top bit cleared; zero means 50. Some devices fail with large values;
+	// see https://github.com/gosnmp/gosnmp/issues/100.
 	MaxRepetitions uint32
-
-	// NonRepeaters is not used.
-	//
-	// Deprecated: GetBulk takes the non-repeaters as an argument.
-	NonRepeaters int
-
-	// AppOpts holds net-snmp application options (snmpwalk -C). Only "c" is
-	// used: when the key is present, whatever its value, Walk and BulkWalk do
-	// not check that the names they receive increase, so the caller must end a
-	// walk that loops.
-	//
-	//	x.AppOpts = map[string]any{"c": true}
-	AppOpts map[string]any
 
 	// MsgFlags is the SNMPv3 security level: NoAuthNoPriv, AuthNoPriv or
 	// AuthPriv. The encoder sets the reportable flag of each message by its PDU
@@ -197,26 +177,12 @@ type GoSNMP struct {
 	attempt runningAttempt
 }
 
-// Default is a client with default settings, used by the examples. Like any
-// GoSNMP, it is not safe for concurrent use.
-//
-//nolint:gochecknoglobals
-var Default = &GoSNMP{
-	Port:               161,
-	Community:          "public",
-	Version:            Version2c,
-	Timeout:            time.Duration(2) * time.Second,
-	Retries:            3,
-	ExponentialTimeout: true,
-	MaxOids:            MaxOids,
-}
-
 // SnmpPDU is a variable binding (varbind): the name of an object, and the
 // type and value of its value. Requests, answers and traps carry them in
 // SnmpPacket.Variables.
 type SnmpPDU struct {
 	// Value is the value, whose Go type depends on Type (see the package
-	// documentation). Get, GetNext and GetBulk send nil.
+	// documentation). The requests of Get and the walks send nil.
 	Value any
 
 	// Name is the object's OID in dotted form, such as ".1.3.6.1.2.1.1.1.0":
@@ -388,26 +354,6 @@ func (x *GoSNMP) SnmpDecodePacket(resp []byte) (*SnmpPacket, error) {
 		return result, fmt.Errorf("unable to decode packet body: %w", err)
 	}
 	return result, nil
-}
-
-// Partition reports whether currentPosition ends a partition when a slice of
-// sliceLength items is cut into partitions of partitionSize, the last one
-// possibly shorter: a loop over many OIDs can send a Get each time it reports
-// true. A position outside the slice reports false. A partitionSize below 1
-// makes the whole slice one partition: only its last position reports true.
-//
-// For a slice of 8 items in partitions of 3, it reports true at 2, 5 and 7:
-//
-//	0  1  2  3  4  5  6  7
-//	      T        T     T
-func Partition(currentPosition, partitionSize, sliceLength int) bool {
-	if currentPosition < 0 || currentPosition >= sliceLength {
-		return false
-	}
-	if currentPosition == sliceLength-1 {
-		return true
-	}
-	return partitionSize > 0 && currentPosition%partitionSize == partitionSize-1
 }
 
 // ToBigInt converts an integer varbind value (an int, int8, int16, int32,

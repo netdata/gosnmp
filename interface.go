@@ -26,29 +26,14 @@ type Handler interface {
 	// Get: see GoSNMP.Get.
 	Get(oids []string) (result *SnmpPacket, err error)
 
-	// GetBulk: see GoSNMP.GetBulk.
-	GetBulk(oids []string, nonRepeaters uint8, maxRepetitions uint32) (result *SnmpPacket, err error)
-
-	// GetNext: see GoSNMP.GetNext.
-	GetNext(oids []string) (result *SnmpPacket, err error)
-
-	// Walk: see GoSNMP.Walk.
-	Walk(rootOid string, walkFn WalkFunc) error
-
 	// WalkAll: see GoSNMP.WalkAll.
 	WalkAll(rootOid string) (results []SnmpPDU, err error)
-
-	// BulkWalk: see GoSNMP.BulkWalk.
-	BulkWalk(rootOid string, walkFn WalkFunc) error
 
 	// BulkWalkAll: see GoSNMP.BulkWalkAll.
 	BulkWalkAll(rootOid string) (results []SnmpPDU, err error)
 
 	// UnmarshalTrap: see GoSNMP.UnmarshalTrap.
 	UnmarshalTrap(trap []byte, useResponseSecurityParameters bool) (result *SnmpPacket, err error)
-
-	// Set: see GoSNMP.Set.
-	Set(pdus []SnmpPDU) (result *SnmpPacket, err error)
 
 	// Check: see GoSNMP.Check.
 	Check(err error)
@@ -91,12 +76,6 @@ type Handler interface {
 
 	// SetRetries sets the Retries
 	SetRetries(retries int)
-
-	// GetExponentialTimeout gets the ExponentialTimeout
-	GetExponentialTimeout() bool
-
-	// SetExponentialTimeout sets the ExponentialTimeout
-	SetExponentialTimeout(value bool)
 
 	// Logger gets the Logger
 	Logger() Logger
@@ -152,18 +131,18 @@ type snmpHandler struct {
 	GoSNMP
 }
 
-// NewHandler returns a Handler backed by a new GoSNMP with the Port,
-// Community, Version, Timeout, Retries and MaxOids of Default;
-// ExponentialTimeout stays unset.
+// NewHandler returns a Handler backed by a new GoSNMP with Port 161,
+// Community "public", Version2c, a Timeout of 2 seconds, 3 Retries and
+// MaxOids at the MaxOids constant.
 func NewHandler() Handler {
 	return &snmpHandler{
 		GoSNMP{
-			Port:      Default.Port,
-			Community: Default.Community,
-			Version:   Default.Version,
-			Timeout:   Default.Timeout,
-			Retries:   Default.Retries,
-			MaxOids:   Default.MaxOids,
+			Port:      161,
+			Community: "public",
+			Version:   Version2c,
+			Timeout:   2 * time.Second,
+			Retries:   3,
+			MaxOids:   MaxOids,
 		},
 	}
 }
@@ -215,14 +194,6 @@ func (x *snmpHandler) Retries() int {
 
 func (x *snmpHandler) SetRetries(retries int) {
 	x.GoSNMP.Retries = retries
-}
-
-func (x *snmpHandler) GetExponentialTimeout() bool {
-	return x.ExponentialTimeout
-}
-
-func (x *snmpHandler) SetExponentialTimeout(value bool) {
-	x.ExponentialTimeout = value
 }
 
 func (x *snmpHandler) Logger() Logger {

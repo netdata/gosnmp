@@ -116,7 +116,7 @@ func readTimestamp(r *ber.Reader) (uint32, error) {
 	switch {
 	case !ok:
 		return 0, errNoField
-	case valueRules[tag].kind != kindUnsigned32:
+	case valueKinds[tag] != kindUnsigned32:
 		return 0, errors.New("not TimeTicks or another unsigned type")
 	}
 	_, content, err := r.Next()

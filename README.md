@@ -10,9 +10,9 @@ gosnmp
 [![Build Status](https://github.com/netdata/gosnmp/actions/workflows/ci.yml/badge.svg)](https://github.com/netdata/gosnmp/actions/workflows/ci.yml)
 [![PkgGoDev](https://pkg.go.dev/badge/github.com/netdata/gosnmp)](https://pkg.go.dev/github.com/netdata/gosnmp)
 
-GoSNMP is an SNMP client library written in Go. It sends Get, GetNext, GetBulk and Set requests, walks subtrees, and
-decodes received traps and informs, over __SNMPv1__, __SNMPv2c__ and __SNMPv3__ (the User-based Security Model), on IPv4
-and IPv6, over UDP. Tests run on Linux (amd64 and 386), macOS and Windows, and CI builds for every platform the Netdata
+GoSNMP is an SNMP client library written in Go. It sends Get requests, walks subtrees with GetNext or GetBulk requests,
+and decodes received traps and informs, over __SNMPv1__, __SNMPv2c__ and __SNMPv3__ (the User-based Security Model), on
+IPv4 and IPv6, over UDP. Tests run on Linux (amd64 and 386), macOS and Windows, and CI builds for every platform the Netdata
 Agent ships its Go plugins on.
 
 # About
@@ -28,20 +28,15 @@ For support and help with this fork, open an [issue](https://github.com/netdata/
 
 GoSNMP has the following SNMP functions:
 
-* **Get** and **GetNext** - one or more OIDs, up to `MaxOids` (60 by default).
-* **GetBulk** (SNMPv2c and SNMPv3 only).
-* **Walk** and **WalkAll** - retrieve a subtree of values using GETNEXT.
-* **BulkWalk** and **BulkWalkAll** - retrieve a subtree of values using GETBULK (SNMPv2c and SNMPv3 only). The `All`
-  variants return the values in a slice rather than passing each to a callback.
-* **Set** - Integer, OctetString, Opaque, Gauge32, IPAddress, ObjectIdentifier, Counter32, Counter64, Null, TimeTicks,
-  Uinteger32, OpaqueFloat and OpaqueDouble values.
+* **Get** - one or more OIDs, up to `MaxOids` (60 by default).
+* **WalkAll** - retrieve a subtree of values using GETNEXT.
+* **BulkWalkAll** - retrieve a subtree of values using GETBULK (SNMPv2c and SNMPv3 only).
 * **UnmarshalTrap** - decodes received traps and informs; the library does not listen for them.
 * **SnmpEncodePacket** and **SnmpDecodePacket** - encode and decode messages for other transports and for tests.
 
 GoSNMP has the following **helper** functions:
 
 * **ToBigInt** - treat returned integer values as `*big.Int`
-* **Partition** - facilitates dividing up large slices of OIDs
 
 The [package documentation](https://pkg.go.dev/github.com/netdata/gosnmp) describes request attempts and timeouts,
 hooks, SNMPv3 engine discovery and Reports, the Go type of each value type, and how messages are decoded.
@@ -76,17 +71,24 @@ https://pkg.go.dev/github.com/netdata/gosnmp
 Here is the body of `examples/example/main.go`, which imports the package as `g`:
 
 ```go
-// Default is a pointer to a GoSNMP struct that contains sensible defaults
-// eg port 161, community public, etc
-g.Default.Target = "192.168.1.10"
-err := g.Default.Connect()
+// A GoSNMP literal configures the client: SNMPv2c to port 161 with the
+// community "public"; Connect fills in MaxOids (60).
+client := &g.GoSNMP{
+    Target:    "192.168.1.10",
+    Port:      161,
+    Community: "public",
+    Version:   g.Version2c,
+    Timeout:   2 * time.Second,
+    Retries:   3,
+}
+err := client.Connect()
 if err != nil {
     log.Fatalf("Connect() err: %v", err)
 }
-defer g.Default.Close()
+defer client.Close()
 
 oids := []string{"1.3.6.1.2.1.1.4.0", "1.3.6.1.2.1.1.7.0"}
-result, err2 := g.Default.Get(oids) // Get accepts up to MaxOids OIDs (60 by default)
+result, err2 := client.Get(oids) // Get accepts up to MaxOids OIDs (60 by default)
 if err2 != nil {
     log.Fatalf("Get() err: %v", err2)
 }
@@ -118,11 +120,9 @@ Run against an agent, it prints, for example:
 
 More examples, each a program under `examples/`:
 
-* `example2` - a client built as a `GoSNMP` literal rather than `g.Default`, with verbose logging and hooks that time
-  each request
+* `example2` - verbose logging and hooks that time each request
 * `example3` - SNMPv3 at authPriv
-* `example4` - Set
-* `walkexample` - BulkWalk
+* `walkexample` - BulkWalkAll
 * `Hex-String` - OctetString values that are not text, printed octet by octet in decimal
 * `logger` - logging turned on and off
 

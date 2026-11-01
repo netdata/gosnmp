@@ -9,22 +9,30 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"time"
 
 	g "github.com/netdata/gosnmp"
 )
 
 func main() {
-	// Default is a pointer to a GoSNMP struct that contains sensible defaults
-	// eg port 161, community public, etc
-	g.Default.Target = "192.168.1.10"
-	err := g.Default.Connect()
+	// A GoSNMP literal configures the client: SNMPv2c to port 161 with the
+	// community "public"; Connect fills in MaxOids (60).
+	client := &g.GoSNMP{
+		Target:    "192.168.1.10",
+		Port:      161,
+		Community: "public",
+		Version:   g.Version2c,
+		Timeout:   2 * time.Second,
+		Retries:   3,
+	}
+	err := client.Connect()
 	if err != nil {
 		log.Fatalf("Connect() err: %v", err)
 	}
-	defer g.Default.Close()
+	defer client.Close()
 
 	oids := []string{"1.3.6.1.2.1.1.4.0", "1.3.6.1.2.1.1.7.0"}
-	result, err2 := g.Default.Get(oids) // Get accepts up to MaxOids OIDs (60 by default)
+	result, err2 := client.Get(oids) // Get accepts up to MaxOids OIDs (60 by default)
 	if err2 != nil {
 		log.Fatalf("Get() err: %v", err2)
 	}

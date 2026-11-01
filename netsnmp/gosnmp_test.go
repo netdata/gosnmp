@@ -98,8 +98,7 @@ func TestPDU(t *testing.T) {
 		}
 	}
 
-	sess := gosnmp.Default
-	sess.Version = gosnmp.Version2c
+	sess := &gosnmp.GoSNMP{Community: "public", Version: gosnmp.Version2c}
 
 	for i, tc := range pduCases {
 		tstpdu := tc.pdu

@@ -13,14 +13,13 @@ import (
 // newTestGoSNMP returns an unconnected SNMPv2c client that discards its log.
 func newTestGoSNMP() *GoSNMP {
 	return &GoSNMP{
-		Port:               161,
-		Community:          "public",
-		Version:            Version2c,
-		Timeout:            2 * time.Second,
-		Retries:            3,
-		ExponentialTimeout: true,
-		MaxOids:            MaxOids,
-		Logger:             NewLogger(log.New(io.Discard, "", 0)),
+		Port:      161,
+		Community: "public",
+		Version:   Version2c,
+		Timeout:   2 * time.Second,
+		Retries:   3,
+		MaxOids:   MaxOids,
+		Logger:    NewLogger(log.New(io.Discard, "", 0)),
 	}
 }
 

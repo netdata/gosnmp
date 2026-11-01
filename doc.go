@@ -2,29 +2,29 @@
 // source code is governed by a BSD-style license that can be found in the
 // LICENSE file.
 
-// Package gosnmp is an SNMP client: it sends Get, GetNext, GetBulk and Set
-// requests and walks subtrees over UDP, with SNMPv1, SNMPv2c and SNMPv3 (the
-// User-based Security Model), and decodes received traps and informs.
+// Package gosnmp is an SNMP client: it sends Get requests and walks subtrees
+// with GetNext or GetBulk requests over UDP, with SNMPv1, SNMPv2c and SNMPv3
+// (the User-based Security Model), and decodes received traps and informs.
 //
 // # Lifecycle
 //
-// A client is a [GoSNMP] whose exported fields configure it: a literal, the
-// shared [Default], or [NewHandler] for code that takes the [Handler]
-// interface. [GoSNMP.Connect] fills in defaults ([MaxOids], a background
-// Context), checks the SNMPv3 configuration and opens the connection, a UDP
-// socket connected to Target and Port, which replaces the client's (a failed
-// Connect keeps it); a client may instead be given a Conn. The client owns its
-// connection: [GoSNMP.Close] closes it, and so does a Connect that replaces it;
-// a connection the caller or a hook replaces in Conn is the caller's again.
-// Connect may be called again after Close. A request reads the client's
-// configuration when it starts and does not change it: a change a hook or the
-// Logger makes applies from the next request. Exceptions: the Logger itself is
-// used as it is set, the SNMPv3 engine state the client learns during a request
-// serves the rest of it (see SNMPv3), and each attempt uses the connection Conn
-// holds when it starts. A request resolves no name: Connect looks up Target,
-// and a request writes to the peer of the connection it uses. The request IDs
-// and msgIDs start at a random value on first use unless [GoSNMP.SetRequestID]
-// and [GoSNMP.SetMsgID] set them, and Connect does not reset them.
+// A client is a [GoSNMP] whose exported fields configure it: a literal, or
+// [NewHandler] for code that takes the [Handler] interface. [GoSNMP.Connect]
+// fills in defaults ([MaxOids], a background Context), checks the SNMPv3
+// configuration and opens the connection, a UDP socket connected to Target and
+// Port, which replaces the client's (a failed Connect keeps it); a client may
+// instead be given a Conn. The client owns its connection: [GoSNMP.Close]
+// closes it, and so does a Connect that replaces it; a connection the caller or
+// a hook replaces in Conn is the caller's again. Connect may be called again
+// after Close. A request reads the client's configuration when it starts and
+// does not change it: a change a hook or the Logger makes applies from the next
+// request. Exceptions: the Logger itself is used as it is set, the SNMPv3
+// engine state the client learns during a request serves the rest of it (see
+// SNMPv3), and each attempt uses the connection Conn holds when it starts. A
+// request resolves no name: Connect looks up Target, and a request writes to
+// the peer of the connection it uses. The request IDs and msgIDs start at a
+// random value on first use unless [GoSNMP.SetRequestID] and [GoSNMP.SetMsgID]
+// set them, and Connect does not reset them.
 //
 // # Concurrency
 //
@@ -44,38 +44,37 @@
 //
 // A request makes up to Retries+1 attempts. Each sends the request with a new
 // request ID (and SNMPv3 msgID) and waits up to Timeout for an answer, or until
-// the Context's deadline when that comes first; ExponentialTimeout doubles the
-// timeout before each retry. An answer is a GetResponse of the request's SNMP
-// version with the request ID of one of its attempts, or an SNMPv3 Report (see
-// SNMPv3 below): an answer to any earlier attempt of the same request answers
-// it too. A message read that does not decode or authenticate, or that is no
-// answer, is discarded, and the attempt goes on waiting (RFC 3412 section 7.2).
-// The client reads one message per datagram, and one per read from a Conn the
-// caller set that is not a [net.PacketConn]. A message takes less than 65535
-// octets, the msgMaxSize SNMPv3 requests advertise: a datagram that fills them
-// may have been cut short, and fails the attempt with "response buffer too
-// small". A timeout (a write or read error matching [os.ErrDeadlineExceeded])
-// and another write or read error (except [net.ErrClosed]) start the next
-// attempt, unless the Context is done, which ends the request with the
-// Context's error, or the attempt timed out at the Context's deadline, which
-// ends it with [context.DeadlineExceeded] even before the Context reports its
-// deadline. A Context that is done during an attempt ends its write or wait at
-// once. An answer ends the request, and so do a connection closed under it
-// ([net.ErrClosed]), a client closed by Close, an encoding error, a Context
-// that is done before an attempt starts and a failure to set the deadline. When
-// the attempts run out, the request fails with the last attempt's error, except
-// that after a timeout the error's text is "request timeout (after N retries)",
-// which matches the attempt's reason with [errors.Is] and [errors.As] (the
-// timeout, a [net.Error]). When the request discarded messages, such an error,
-// and one at the Context's deadline, also matches the reason of the one that
-// came closest to answering it (the last authentic reply naming the request, by
-// its SNMPv3 msgID, else the last naming it, by that msgID or as an SNMPv1 or
-// SNMPv2c GetResponse with one of its request IDs, else the last one whose ID
-// could not be read, as one of another SNMP version; messages to other requests
-// do not count), and its text ends with ": last discarded reply: " and that
-// reason's text. An answer's error status ([SnmpPacket].Error) is not an error
-// of the request. Connect uses Timeout and the Context too, for its lookup of
-// Target and its dial together.
+// the Context's deadline when that comes first. An answer is a GetResponse of
+// the request's SNMP version with the request ID of one of its attempts, or an
+// SNMPv3 Report (see SNMPv3 below): an answer to any earlier attempt of the
+// same request answers it too. A message read that does not decode or
+// authenticate, or that is no answer, is discarded, and the attempt goes on
+// waiting (RFC 3412 section 7.2). The client reads one message per datagram,
+// and one per read from a Conn the caller set that is not a [net.PacketConn]. A
+// message takes less than 65535 octets, the msgMaxSize SNMPv3 requests
+// advertise: a datagram that fills them may have been cut short, and fails the
+// attempt with "response buffer too small". A timeout (a write or read error
+// matching [os.ErrDeadlineExceeded]) and another write or read error (except
+// [net.ErrClosed]) start the next attempt, unless the Context is done, which
+// ends the request with the Context's error, or the attempt timed out at the
+// Context's deadline, which ends it with [context.DeadlineExceeded] even before
+// the Context reports its deadline. A Context that is done during an attempt
+// ends its write or wait at once. An answer ends the request, and so do a
+// connection closed under it ([net.ErrClosed]), a client closed by Close, an
+// encoding error, a Context that is done before an attempt starts and a failure
+// to set the deadline. When the attempts run out, the request fails with the
+// last attempt's error, except that after a timeout the error's text is
+// "request timeout (after N retries)", which matches the attempt's reason with
+// [errors.Is] and [errors.As] (the timeout, a [net.Error]). When the request
+// discarded messages, such an error, and one at the Context's deadline, also
+// matches the reason of the one that came closest to answering it (the last
+// authentic reply naming the request, by its SNMPv3 msgID, else the last naming
+// it, by that msgID or as an SNMPv1 or SNMPv2c GetResponse with one of its
+// request IDs, else the last one whose ID could not be read, as one of another
+// SNMP version; messages to other requests do not count), and its text ends
+// with ": last discarded reply: " and that reason's text. An answer's error
+// status ([SnmpPacket].Error) is not an error of the request. Connect uses
+// Timeout and the Context too, for its lookup of Target and its dial together.
 //
 // # Hooks
 //
@@ -94,10 +93,10 @@
 // an error, so that [errors.Is] and [errors.As] reach it (a [runtime.Error]
 // included); the client stays usable. Other panics are not recovered: they
 // reach the caller, or end the process when they run on a goroutine of their
-// own. That is a panic in a [WalkFunc], or in the Logger when a walk logs
-// between its requests; in a Conn's SetDeadline when Close or a done Context
-// interrupts an attempt; in a Context's methods that the context package calls
-// on goroutines of its own; and in Connect and Close.
+// own. That is a panic in the Logger when a walk logs between its requests;
+// in a Conn's SetDeadline when Close or a done Context interrupts an attempt;
+// in a Context's methods that the context package calls on goroutines of its
+// own; and in Connect and Close.
 //
 // # SNMPv3
 //
@@ -121,14 +120,12 @@
 // The engine boots and time are a clock: the latest values received and when,
 // advancing with the local clock (RFC 3414 section 2.3); each attempt of a
 // request carries its current values, wrapping into the next boots past
-// 2147483647. A clock from an authenticated answer signs every request; one
-// from discovery, an unauthenticated answer or the caller signs read requests
-// (Get, GetNext, GetBulk) and requests without authentication only, and an
-// authenticated write then carries boots and time zero, which the agent
-// answers with an authenticated usmStatsNotInTimeWindows Report carrying its
-// own (RFC 3414 section 4: one more round trip; net-snmp signs writes with
-// unauthenticated time too). A request without authentication carries the
-// clock's values (as net-snmp; RFC 3414 section 3.1 step 6 c sends zeros).
+// 2147483647. Every request the client sends is a read request (Get, GetNext,
+// GetBulk), which a copy replayed on path could only repeat, so any clock signs
+// it: one from an authenticated answer, discovery, an unauthenticated answer or
+// the caller (net-snmp signs with unauthenticated time too). A request without
+// authentication carries the clock's values (as net-snmp; RFC 3414 section 3.1
+// step 6 c sends zeros).
 //
 // The engine state shows in the client's fields: the engine ID, boots, time and
 // keys of SecurityParameters, and ContextEngineID, which requests take from the
@@ -218,9 +215,8 @@
 //
 // # Walks
 //
-// [GoSNMP.Walk] and [GoSNMP.BulkWalk] pass each value of a subtree to a
-// function, in order; [GoSNMP.WalkAll] and [GoSNMP.BulkWalkAll] collect them.
-// Their docs say how a walk starts and ends.
+// [GoSNMP.WalkAll] and [GoSNMP.BulkWalkAll] return the values of a subtree, in
+// order. Their docs say how a walk starts and ends.
 //
 // # Values
 //

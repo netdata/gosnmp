@@ -285,10 +285,6 @@ func getOIDs(oids ...string) func(x *GoSNMP) (*SnmpPacket, error) {
 	return func(x *GoSNMP) (*SnmpPacket, error) { return x.Get(oids) }
 }
 
-func setVarbinds(vbs ...SnmpPDU) func(x *GoSNMP) (*SnmpPacket, error) {
-	return func(x *GoSNMP) (*SnmpPacket, error) { return x.Set(vbs) }
-}
-
 // engineScenarios are the request scenarios of TestEngineRequestCharacterization.
 func engineScenarios() map[string]engineScenario {
 	twoGets := func(x *GoSNMP) (*SnmpPacket, error) {
@@ -300,45 +296,19 @@ func engineScenarios() map[string]engineScenario {
 	maxOIDs2 := func(x *GoSNMP, _ *fakeTransport) { x.MaxOids = 2 }
 	twoOIDs := []string{engineOID, ".1.3.6.1.2.1.1.3.0"}
 	threeOIDs := []string{engineOID, ".1.3.6.1.2.1.1.3.0", ".1.3.6.1.2.1.1.5.0"}
-	const setOID = ".1.3.6.1.2.1.1.5.0"
 
 	scenarios := map[string]engineScenario{
 		// Operations.
-		"get":     {agent: answer(sysDescr)},
-		"get/v1":  {v1: true, agent: answer(sysDescr)},
-		"getnext": {agent: answer(sysDescr), run: func(x *GoSNMP) (*SnmpPacket, error) { return x.GetNext([]string{".1.3.6.1.2.1.1"}) }},
-		"getbulk": {agent: answer(sysDescr), run: func(x *GoSNMP) (*SnmpPacket, error) {
-			return x.GetBulk([]string{".1.3.6.1.2.1.1"}, 1, 10)
-		}},
-		"getbulk/v1": {v1: true, agent: answer(sysDescr), run: func(x *GoSNMP) (*SnmpPacket, error) {
-			return x.GetBulk([]string{".1.3.6.1.2.1.1"}, 0, 10)
-		}},
+		"get":    {agent: answer(sysDescr)},
+		"get/v1": {v1: true, agent: answer(sysDescr)},
 		"mk-snmp-packet": {agent: answer(sysDescr), run: func(x *GoSNMP) (*SnmpPacket, error) {
 			return x.send(x.MkSnmpPacket(GetBulkRequest, []SnmpPDU{{Name: ".1.3.6.1.2.1.1", Type: Null}}, 2, 7))
 		}},
-		"set/unsupported-type": {agent: answer(), run: setVarbinds(SnmpPDU{Name: setOID, Type: Boolean, Value: true})},
-		"set/second-varbind-unsupported": {
-			agent: answer(), run: setVarbinds(SnmpPDU{Name: setOID, Type: Integer, Value: 1}, SnmpPDU{Name: setOID, Type: Boolean, Value: true}),
-		},
-		"set/integer-with-text": {agent: answer(), run: setVarbinds(SnmpPDU{Name: setOID, Type: Integer, Value: "five"})},
-		"set/opaque":            {agent: answer(), run: setVarbinds(SnmpPDU{Name: setOID, Type: Opaque, Value: []byte{1, 2}})},
-		"set/no-such-object":    {agent: answer(), run: setVarbinds(SnmpPDU{Name: setOID, Type: NoSuchObject})},
-		"set/second-varbind-opaque": {
-			agent: answer(), run: setVarbinds(SnmpPDU{Name: setOID, Type: Integer, Value: 1}, SnmpPDU{Name: setOID, Type: Opaque, Value: []byte{1, 2}}),
-		},
-		"set/no-varbinds": {agent: answer(), run: setVarbinds()},
 		"get/invalid-oid": {agent: answer(), run: getOIDs(".1.3.6.1.x")},
 
 		// The MaxOids limit, at 2.
-		"get/max-oids/at-limit":       {agent: answer(sysDescr), setup: maxOIDs2, run: getOIDs(twoOIDs...)},
-		"get/max-oids/over-limit":     {agent: answer(sysDescr), setup: maxOIDs2, run: getOIDs(threeOIDs...)},
-		"getnext/max-oids/at-limit":   {agent: answer(sysDescr), setup: maxOIDs2, run: func(x *GoSNMP) (*SnmpPacket, error) { return x.GetNext(twoOIDs) }},
-		"getnext/max-oids/over-limit": {agent: answer(sysDescr), setup: maxOIDs2, run: func(x *GoSNMP) (*SnmpPacket, error) { return x.GetNext(threeOIDs) }},
-		"getbulk/max-oids/at-limit":   {agent: answer(sysDescr), setup: maxOIDs2, run: func(x *GoSNMP) (*SnmpPacket, error) { return x.GetBulk(twoOIDs, 0, 5) }},
-		"getbulk/max-oids/over-limit": {agent: answer(sysDescr), setup: maxOIDs2, run: func(x *GoSNMP) (*SnmpPacket, error) { return x.GetBulk(threeOIDs, 0, 5) }},
-		"set/max-oids/over-limit": {agent: answer(), setup: maxOIDs2, run: setVarbinds(
-			SnmpPDU{Name: setOID, Type: Integer, Value: 1}, SnmpPDU{Name: setOID, Type: Integer, Value: 2}, SnmpPDU{Name: setOID, Type: Integer, Value: 3},
-		)},
+		"get/max-oids/at-limit":   {agent: answer(sysDescr), setup: maxOIDs2, run: getOIDs(twoOIDs...)},
+		"get/max-oids/over-limit": {agent: answer(sysDescr), setup: maxOIDs2, run: getOIDs(threeOIDs...)},
 
 		// The client.
 		"get/no-conn": {agent: answer(sysDescr), setup: func(x *GoSNMP, _ *fakeTransport) { x.Conn = nil }},
@@ -354,7 +324,6 @@ func engineScenarios() map[string]engineScenario {
 
 		// Timeouts and retries.
 		"timeout":                  {},
-		"timeout/exponential":      {setup: func(x *GoSNMP, _ *fakeTransport) { x.ExponentialTimeout = true }},
 		"timeout/no-retries":       {setup: func(x *GoSNMP, _ *fakeTransport) { x.Retries = 0 }},
 		"timeout/negative-retries": {setup: func(x *GoSNMP, _ *fakeTransport) { x.Retries = -3 }},
 
@@ -365,14 +334,6 @@ func engineScenarios() map[string]engineScenario {
 				onRetry(x)
 				c.tr.addf("hook OnRetry sets Retries to 0")
 				x.Retries = 0
-			}
-		}},
-		"hooks/retry-sets-exponential-timeout": {setup: func(x *GoSNMP, c *fakeTransport) {
-			onRetry := x.OnRetry
-			x.OnRetry = func(x *GoSNMP) {
-				onRetry(x)
-				c.tr.addf("hook OnRetry sets ExponentialTimeout")
-				x.ExponentialTimeout = true
 			}
 		}},
 		"hooks/retry-cancels-context": {setup: func(x *GoSNMP, c *fakeTransport) {
@@ -833,24 +794,6 @@ func engineScenarios() map[string]engineScenario {
 		}},
 	}
 
-	// A Set of each value type it supports.
-	for _, vb := range []SnmpPDU{
-		{Type: Integer, Value: 5},
-		{Type: OctetString, Value: "codec"},
-		{Type: Gauge32, Value: uint32(6)},
-		{Type: IPAddress, Value: "192.0.2.1"},
-		{Type: ObjectIdentifier, Value: ".1.3.6.1.4.1.8072"},
-		{Type: Counter32, Value: uint32(7)},
-		{Type: Counter64, Value: uint64(8)},
-		{Type: Null},
-		{Type: TimeTicks, Value: uint32(9)},
-		{Type: Uinteger32, Value: uint32(10)},
-		{Type: OpaqueFloat, Value: float32(1.5)},
-		{Type: OpaqueDouble, Value: 2.5},
-	} {
-		vb.Name = setOID
-		scenarios["set/"+vb.Type.String()] = engineScenario{agent: answer(vb), run: setVarbinds(vb)}
-	}
 	return scenarios
 }
 
@@ -902,7 +845,7 @@ func runEngineScenario(t *testing.T, sc engineScenario) string {
 		run = getOIDs(engineOID)
 	}
 
-	tr.addf("client: %v timeout=%s retries=%d exponential=%t", x.Version, x.Timeout, x.Retries, x.ExponentialTimeout)
+	tr.addf("client: %v timeout=%s retries=%d", x.Version, x.Timeout, x.Retries)
 	var res *SnmpPacket
 	var err error
 	before := configOf(x)

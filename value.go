@@ -14,7 +14,7 @@ import (
 )
 
 // decodeValue decodes the content octets of a varbind value with the given tag
-// into the type and Go value of the varbind, by the tag's rule (valueRules):
+// into the type and Go value of the varbind, by the tag's kind (valueKinds):
 //
 //   - Integer: int, an INTEGER of one to eight octets cut to 32 bits
 //     (int32Value)
@@ -36,7 +36,7 @@ import (
 // UnknownType with a nil value, so that one bad counter does not fail the
 // message, and allocates nothing. The other types' failures are errors.
 func decodeValue(tag Asn1BER, content []byte) (Asn1BER, any, error) {
-	switch valueRules[tag].kind {
+	switch valueKinds[tag] {
 	case kindInteger:
 		v, err := int32Value(content)
 		if err != nil {
@@ -109,15 +109,11 @@ func unsigned32(content []byte) (v uint32, ok bool) {
 	return uint32(u), err == nil //nolint:gosec // the cut
 }
 
-// The identifier octet of the floats net-snmp wraps in an Opaque (an
-// OpaqueFloat or OpaqueDouble value): AsnExtensionTag, a context-specific
-// (AsnContext) tag in the high-tag-number form (AsnExtensionID), whose number,
-// OpaqueFloat or OpaqueDouble, follows in the next octet.
-const (
-	AsnContext      = 0x80
-	AsnExtensionID  = 0x1F
-	AsnExtensionTag = (AsnContext | AsnExtensionID) // 0x9F
-)
+// opaqueExtensionTag is the identifier octet of the floats net-snmp wraps in
+// an Opaque (an OpaqueFloat or OpaqueDouble value; net-snmp's ASN_OPAQUE_TAG1):
+// a context-specific tag (0x80) in the high-tag-number form (0x1f), whose
+// number, OpaqueFloat or OpaqueDouble, follows in the next octet.
+const opaqueExtensionTag = 0x80 | 0x1f
 
 // decodeOpaque decodes the content of an Opaque value. net-snmp wraps floats
 // and doubles in an Opaque as a TLV whose identifier is the extension octet
@@ -126,7 +122,7 @@ const (
 // up to two octets, empty included, is never such a TLV; anything else is a
 // raw Opaque.
 func decodeOpaque(content []byte) (Asn1BER, any, error) {
-	if len(content) <= 2 || content[0] != AsnExtensionTag {
+	if len(content) <= 2 || content[0] != opaqueExtensionTag {
 		return Opaque, content, nil
 	}
 	tag := Asn1BER(content[1])
@@ -167,36 +163,30 @@ const (
 	kindOpaqueFloat                  // OpaqueFloat and OpaqueDouble, wrapped in an Opaque
 )
 
-// valueRule is the rule of a value type: its kind, and whether Set takes it.
-type valueRule struct {
-	kind     valueKind
-	settable bool
-}
-
-// valueRules holds the rule of each value tag; a tag without one has
+// valueKinds holds the kind of each value tag; a tag without one has
 // kindNone. BitString has none: it is not an SMIv2 type (RFC 2578 section
 // 7.1.4 encodes BITS as an OCTET STRING).
-var valueRules = [256]valueRule{ //nolint:gochecknoglobals // a read-only table
-	Null:             {kindNull, true},
-	NoSuchObject:     {kindNull, false},
-	NoSuchInstance:   {kindNull, false},
-	EndOfMibView:     {kindNull, false},
-	Integer:          {kindInteger, true},
-	Counter32:        {kindUnsigned32, true},
-	Gauge32:          {kindUnsigned32, true},
-	TimeTicks:        {kindUnsigned32, true},
-	Uinteger32:       {kindUnsigned32, true},
-	Counter64:        {kindCounter64, true},
-	OctetString:      {kindOctets, true},
-	Opaque:           {kindOctets, true},
-	ObjectIdentifier: {kindOID, true},
-	IPAddress:        {kindIPAddress, true},
-	OpaqueFloat:      {kindOpaqueFloat, true},
-	OpaqueDouble:     {kindOpaqueFloat, true},
+var valueKinds = [256]valueKind{ //nolint:gochecknoglobals // a read-only table
+	Null:             kindNull,
+	NoSuchObject:     kindNull,
+	NoSuchInstance:   kindNull,
+	EndOfMibView:     kindNull,
+	Integer:          kindInteger,
+	Counter32:        kindUnsigned32,
+	Gauge32:          kindUnsigned32,
+	TimeTicks:        kindUnsigned32,
+	Uinteger32:       kindUnsigned32,
+	Counter64:        kindCounter64,
+	OctetString:      kindOctets,
+	Opaque:           kindOctets,
+	ObjectIdentifier: kindOID,
+	IPAddress:        kindIPAddress,
+	OpaqueFloat:      kindOpaqueFloat,
+	OpaqueDouble:     kindOpaqueFloat,
 }
 
 // appendValue appends the TLV of a varbind value with the given tag, by the
-// tag's rule (valueRules). The Go types it accepts per tag:
+// tag's kind (valueKinds). The Go types it accepts per tag:
 //
 //   - Integer: int within the int32 range
 //   - Counter32, Gauge32, TimeTicks, Uinteger32: uint32, or uint up to
@@ -212,7 +202,7 @@ var valueRules = [256]valueRule{ //nolint:gochecknoglobals // a read-only table
 //
 // Other tags, BitString included, and types are errors.
 func appendValue(dst []byte, tag Asn1BER, value any) ([]byte, error) {
-	switch valueRules[tag].kind {
+	switch valueKinds[tag] {
 	case kindNull:
 		return append(dst, byte(tag), 0), nil
 	case kindInteger:
@@ -319,7 +309,7 @@ func appendUint(dst []byte, tag Asn1BER, v uint64) []byte {
 // 0x9f followed by the OpaqueFloat or OpaqueDouble tag (see decodeOpaque).
 func appendOpaqueFloat(dst []byte, tag Asn1BER, value any) ([]byte, error) {
 	dst, start := ber.Begin(dst, byte(Opaque))
-	dst = append(dst, AsnExtensionTag)
+	dst = append(dst, opaqueExtensionTag)
 	switch v := value.(type) {
 	case float32:
 		if tag != OpaqueFloat {

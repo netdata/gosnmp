@@ -5,7 +5,6 @@
 package gosnmp
 
 import (
-	"errors"
 	"fmt"
 	"maps"
 	"reflect"
@@ -164,13 +163,6 @@ type walkScenario struct {
 	// onFinish, when set, is the OnFinish hook, run after each of the
 	// walk's requests: user code that changes the client during the walk.
 	onFinish func(x *GoSNMP, tr *engineTranscript)
-	// stopAfter, when set, runs Walk or BulkWalk with a walkFn that returns
-	// an error on that value.
-	stopAfter int
-	// onValue, when set, runs Walk or BulkWalk with a walkFn that calls it
-	// at the n-th value, as user code that changes the client during the
-	// walk.
-	onValue  func(x *GoSNMP, n int)
 	knownBug string
 }
 
@@ -197,8 +189,6 @@ func varbinds(vbs ...SnmpPDU) func(req, out *SnmpPacket) {
 	return func(_, out *SnmpPacket) { out.Variables = vbs }
 }
 
-var errWalkFn = errors.New("codec walkFn stop")
-
 // walkScenarios are the scenarios of TestEngineWalkCharacterization.
 func walkScenarios() map[string]walkScenario {
 	ifDescr := func(i int) SnmpPDU { return walkMIB[3+i] }
@@ -221,8 +211,6 @@ func walkScenarios() map[string]walkScenario {
 		"max-repetitions/two":   {root: walkIfDescr, bulk: true, setup: func(x *GoSNMP) { x.MaxRepetitions = 2 }},
 		"max-repetitions/one":   {root: walkSystem, bulk: true, setup: func(x *GoSNMP) { x.MaxRepetitions = 1 }},
 		"v1-bulk":               {root: walkSystem, bulk: true, v1: true},
-		"walkfn-error":          {root: walkSystem, stopAfter: 2},
-		"walkfn-error/bulk":     {root: walkSystem, bulk: true, stopAfter: 2},
 		// A root the codec cannot encode fails the walk before any request,
 		// naming the root as given.
 		"root-invalid": {root: "1.3.6.x"},
@@ -232,7 +220,6 @@ func walkScenarios() map[string]walkScenario {
 		"leaf":                  {root: ".1.3.6.1.2.1.1.5.0"},
 		"leaf/bulk":             {root: ".1.3.6.1.2.1.1.5.0", bulk: true},
 		"leaf/v1":               {root: ".1.3.6.1.2.1.1.5.0", v1: true},
-		"leaf/walkfn-error":     {root: ".1.3.6.1.2.1.1.5.0", stopAfter: 1},
 		"leaf/no-such-instance": {root: ".1.3.6.1.2.1.1.5.1"},
 		"leaf/no-such-object":   {root: ".1.3.6.1.2.1.1.7.0"},
 		"leaf/v1-no-such-name":  {root: ".1.3.6.1.2.1.1.5.1", v1: true},
@@ -297,23 +284,6 @@ func walkScenarios() map[string]walkScenario {
 		"not-increasing/bulk-inside-response": {
 			root: walkIfDescr, bulk: true, script: onWalkRequest(1, varbinds(ifDescr(1), ifDescr(0), ifDescr(2))),
 		},
-		"not-increasing/app-opts-c": {
-			root: walkIfDescr, setup: func(x *GoSNMP) { x.AppOpts = map[string]any{"c": true} },
-			script: onWalkRequest(3, varbinds(ifDescr(0))),
-		},
-		// The option counts by its key: a nil value turns the check off too.
-		"not-increasing/app-opts-c-nil": {
-			root: walkIfDescr, setup: func(x *GoSNMP) { x.AppOpts = map[string]any{"c": nil} },
-			script: onWalkRequest(3, varbinds(ifDescr(0))),
-		},
-		"not-increasing/app-opts-c-bulk": {
-			root: walkIfDescr, bulk: true,
-			setup: func(x *GoSNMP) {
-				x.AppOpts = map[string]any{"c": true}
-				x.MaxRepetitions = 1
-			},
-			script: onWalkRequest(2, varbinds(ifDescr(0))),
-		},
 		"exception/no-such-object": {
 			root: walkSystem, script: onWalkRequest(2, varbinds(SnmpPDU{Name: walkMIB[1].Name, Type: NoSuchObject})),
 		},
@@ -329,18 +299,13 @@ func walkScenarios() map[string]walkScenario {
 			script: onWalkRequest(1, varbinds(SnmpPDU{Name: ifDescr(0).Name, Type: NoSuchObject})),
 		},
 		// A name equal to the root lies in the subtree and fails the
-		// increasing check; under "c" it is walked and the walk goes on from
-		// it, as net-snmp's snmpwalk -Cc does.
+		// increasing check.
 		"root-in-bulk-response": {
 			root: walkSystem, bulk: true,
 			script: onWalkRequest(1, varbinds(walkMIB[0], SnmpPDU{Name: walkSystem, Type: Integer, Value: 1}, walkMIB[1])),
 		},
 		"root-in-response": {
 			root:   walkSystem,
-			script: onWalkRequest(2, varbinds(SnmpPDU{Name: walkSystem, Type: Integer, Value: 1})),
-		},
-		"not-increasing/app-opts-c-root": {
-			root: walkSystem, setup: func(x *GoSNMP) { x.AppOpts = map[string]any{"c": true} },
 			script: onWalkRequest(2, varbinds(SnmpPDU{Name: walkSystem, Type: Integer, Value: 1})),
 		},
 		// A name before the root lies outside the subtree.
@@ -361,21 +326,13 @@ func walkScenarios() map[string]walkScenario {
 		},
 
 		// User code changing the client during a walk: the walk keeps the
-		// max-repetitions and the AppOpts it started with.
-		"user-code/walkfn-sets-max-repetitions": {
-			root: walkIfDescr, bulk: true, setup: func(x *GoSNMP) { x.MaxRepetitions = 1 },
-			onValue: func(x *GoSNMP, _ int) { x.MaxRepetitions = 2 },
-		},
+		// max-repetitions it started with.
 		"user-code/hook-sets-max-repetitions": {
 			root: walkIfDescr, bulk: true, setup: func(x *GoSNMP) { x.MaxRepetitions = 1 },
 			onFinish: func(x *GoSNMP, tr *engineTranscript) {
 				tr.addf("hook OnFinish sets MaxRepetitions to 2")
 				x.MaxRepetitions = 2
 			},
-		},
-		"user-code/walkfn-sets-app-opts-c": {
-			root: walkIfDescr, script: onWalkRequest(3, varbinds(ifDescr(0))),
-			onValue: func(x *GoSNMP, _ int) { x.AppOpts = map[string]any{"c": true} },
 		},
 	}
 
@@ -417,10 +374,10 @@ func walkScenarios() map[string]walkScenario {
 	return scenarios
 }
 
-// TestEngineWalkCharacterization pins what Walk, BulkWalk, WalkAll and
-// BulkWalkAll request and return, known bugs included: the subtree walked,
-// the leaf fallback to a Get, the end of the MIB, error statuses, exception
-// values, the increasing check and walkFn errors.
+// TestEngineWalkCharacterization pins what WalkAll and BulkWalkAll request
+// and return, known bugs included: the subtree walked, the leaf fallback to a
+// Get, the end of the MIB, error statuses, exception values and the
+// increasing check.
 // testdata/engine/walk.golden holds the transcripts.
 func TestEngineWalkCharacterization(t *testing.T) {
 	scenarios := walkScenarios()
@@ -466,7 +423,7 @@ func TestEngineWalkRootSpellings(t *testing.T) {
 		{name: "last-leaf-v2", root: walkMIB[6].Name, version: Version2c},
 		{name: "equal-root", root: walkIfDescr, version: Version2c, equal: true},
 	}
-	for _, api := range []string{"Walk", "WalkAll", "BulkWalk", "BulkWalkAll"} {
+	for _, api := range []string{"WalkAll", "BulkWalkAll"} {
 		for _, tc := range cases {
 			if tc.version == Version1 && strings.HasPrefix(api, "Bulk") {
 				continue // GetBulk is not supported by SNMPv1.
@@ -491,22 +448,11 @@ func TestEngineWalkRootSpellings(t *testing.T) {
 						}}
 						x := newEngineClient(t, nil, tc.version, fakePacketTransport{newFakeTransport(nil, agent.handle)})
 						root := spelling.root(tc.root)
-						var got []SnmpPDU
-						var err error
-						visit := func(vb SnmpPDU) error {
-							got = append(got, vb)
-							return nil
+						walk := x.WalkAll
+						if api == "BulkWalkAll" {
+							walk = x.BulkWalkAll
 						}
-						switch api {
-						case "Walk":
-							err = x.Walk(root, visit)
-						case "WalkAll":
-							got, err = x.WalkAll(root)
-						case "BulkWalk":
-							err = x.BulkWalk(root, visit)
-						case "BulkWalkAll":
-							got, err = x.BulkWalkAll(root)
-						}
+						got, err := walk(root)
 						if tc.equal {
 							if err == nil || !strings.Contains(err.Error(), "OID not increasing") {
 								t.Errorf("error = %v, want OID not increasing", err)
@@ -546,36 +492,15 @@ func runWalkScenario(t *testing.T, sc walkScenario) string {
 	}
 
 	tr.addf("client: %v root=%q bulk=%t max-repetitions=%d", x.Version, sc.root, sc.bulk, x.MaxRepetitions)
+	walk := x.WalkAll
+	if sc.bulk {
+		walk = x.BulkWalkAll
+	}
 	var err error
 	run := func() {
-		switch {
-		case sc.stopAfter == 0 && sc.onValue == nil && sc.bulk:
-			var vbs []SnmpPDU
-			vbs, err = x.BulkWalkAll(sc.root)
-			tr.addf("values: %s", describeVarbinds(vbs))
-		case sc.stopAfter == 0 && sc.onValue == nil:
-			var vbs []SnmpPDU
-			vbs, err = x.WalkAll(sc.root)
-			tr.addf("values: %s", describeVarbinds(vbs))
-		default:
-			values := 0
-			walkFn := func(vb SnmpPDU) error {
-				values++
-				tr.addf("walkFn: %s", describeVarbinds([]SnmpPDU{vb}))
-				if sc.onValue != nil {
-					sc.onValue(x, values)
-				}
-				if values == sc.stopAfter {
-					return errWalkFn
-				}
-				return nil
-			}
-			if sc.bulk {
-				err = x.BulkWalk(sc.root, walkFn)
-			} else {
-				err = x.Walk(sc.root, walkFn)
-			}
-		}
+		var vbs []SnmpPDU
+		vbs, err = walk(sc.root)
+		tr.addf("values: %s", describeVarbinds(vbs))
 	}
 	if v, _ := recoverPanic(run); v != nil {
 		tr.addf("panic: %v", v)

@@ -102,15 +102,12 @@ func TestMarshalUnencodableValues(t *testing.T) {
 	}
 	trap := func(agentAddress string) *SnmpPacket {
 		return &SnmpPacket{
-			Version:   Version1,
-			Community: "public",
-			PDUType:   Trap,
-			SnmpTrap: SnmpTrap{
-				Enterprise:   ".1.3.6.1.4.1.20372",
-				AgentAddress: agentAddress,
-				GenericTrap:  6,
-				Variables:    []SnmpPDU{{Name: ".1.3.6.1.2.1.1.5.0", Type: Null}},
-			},
+			Version:      Version1,
+			Community:    "public",
+			PDUType:      Trap,
+			Enterprise:   ".1.3.6.1.4.1.20372",
+			AgentAddress: agentAddress,
+			GenericTrap:  6,
 		}
 	}
 	tests := map[string]*SnmpPacket{
@@ -250,13 +247,10 @@ func classFlags(level SnmpV3MsgFlags, pdu PDUType) SnmpV3MsgFlags {
 	return level
 }
 
-// TestValueRules checks the value rules: a type with a rule encodes and one
-// without does not, the decoder reads each kind's boundary values as the
-// encoder writes them back to the same type and a value that encodes the same,
-// and Set takes exactly the value types a manager writes: those with a rule but
-// the exceptions (noSuchObject, noSuchInstance, endOfMibView), which only
-// responses carry (RFC 3416 section 4.2.1).
-func TestValueRules(t *testing.T) {
+// TestValueKinds checks the value kinds: a type with a kind encodes and one
+// without does not, and the decoder reads each kind's boundary values as the
+// encoder writes them back to the same type and a value that encodes the same.
+func TestValueKinds(t *testing.T) {
 	maxOID := ".2.4294967295" + strings.Repeat(".4294967295", 126) // 128 arcs, each the largest
 	samples := map[valueKind][]any{
 		kindNone:       {nil},
@@ -269,8 +263,8 @@ func TestValueRules(t *testing.T) {
 		kindIPAddress:  {"192.0.2.1", []byte{192, 0, 2, 1}, "2001:db8::1", make([]byte, 16)},
 	}
 	for tag := range 256 {
-		rule := valueRules[tag]
-		values := samples[rule.kind]
+		kind := valueKinds[tag]
+		values := samples[kind]
 		switch Asn1BER(tag) {
 		case OpaqueFloat:
 			values = []any{float32(1), float32(-0.5), float32(math.MaxFloat32)}
@@ -280,9 +274,9 @@ func TestValueRules(t *testing.T) {
 		for _, value := range values {
 			out, err := appendValue(nil, Asn1BER(tag), value)
 			switch {
-			case rule.kind == kindNone && err == nil:
-				t.Errorf("%v: encodes without a rule", Asn1BER(tag))
-			case rule.kind != kindNone && err != nil:
+			case kind == kindNone && err == nil:
+				t.Errorf("%v: encodes without a kind", Asn1BER(tag))
+			case kind != kindNone && err != nil:
 				t.Errorf("%v %#v: %v", Asn1BER(tag), value, err)
 			case err == nil:
 				r := ber.NewReader(out)
@@ -299,10 +293,6 @@ func TestValueRules(t *testing.T) {
 					t.Errorf("%v %#v: decodes as %v %#v, which encodes as %x (%v), not %x", Asn1BER(tag), value, typ, decoded, again, err, out)
 				}
 			}
-		}
-		wantSettable := rule.kind != kindNone && (rule.kind != kindNull || Asn1BER(tag) == Null)
-		if rule.settable != wantSettable {
-			t.Errorf("%v: settable %v, want %v", Asn1BER(tag), rule.settable, wantSettable)
 		}
 	}
 }

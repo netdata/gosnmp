@@ -40,7 +40,6 @@ func main() {
 	}
 	port, _ := strconv.ParseUint(envPort, 10, 16)
 
-	// Build our own GoSNMP struct, rather than using g.Default.
 	// Do verbose logging of packets.
 	params := &g.GoSNMP{
 		Target:    envTarget,
