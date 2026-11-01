@@ -132,7 +132,7 @@ reencode: identical
 decode: ok
 version: 3 (3)
 community: ""
-v3: msg-id=91040642 max-size=65507 flags=0x04 security-model=3 context-engine-id= context-name="foreignformats/linux"
+v3: msg-id=91040642 max-size=65507 flags=0x00 security-model=3 context-engine-id= context-name="foreignformats/linux"
 usm: engine-id= boots=0 time=0 user="" auth-params= priv-params=
 pdu: 0xa0 (GetRequest) request-id=1157240545 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 0

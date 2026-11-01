@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/netdata/gosnmp/internal/ber"
 	"github.com/netdata/gosnmp/internal/usm"
 )
@@ -192,8 +194,8 @@ func TestEncodeValueTypesCharacterization(t *testing.T) {
 
 // TestEncodeReportableFlag checks the msgFlags octet of SNMPv3 messages: the
 // security level, and the reportable flag set exactly for a PDU of the
-// Confirmed Class (RFC 3412 section 6.4), whatever the packet's or client's
-// flags hold besides the level, through Message.Encode and EncodeMessage.
+// Confirmed Class (RFC 3412 section 6.4), through Message.Encode and
+// EncodeMessage.
 func TestEncodeReportableFlag(t *testing.T) {
 	pduTypes := []PDUType{
 		GetRequest, GetNextRequest, GetBulkRequest, SetRequest, InformRequest, Response, SNMPv2Trap, Report, Trap,
@@ -203,21 +205,19 @@ func TestEncodeReportableFlag(t *testing.T) {
 
 	for _, pdu := range pduTypes {
 		for _, level := range []SecurityLevel{NoAuthNoPriv, AuthNoPriv} {
-			for _, flags := range []SecurityLevel{level, level | Reportable} {
-				t.Run(fmt.Sprintf("Encode/%v/%v", pdu, flags), func(t *testing.T) {
-					msg, err := (&Message{
-						Version: Version3, SecurityLevel: flags, SecurityModel: UserSecurityModel,
-						SecurityParameters: codecUSM(t, levelAuth(level), NoPriv),
-						PDUType:            pdu, MsgID: 1, RequestID: 1, TrapV1Header: trap, VarBinds: vars,
-					}).Encode()
-					if err != nil {
-						t.Fatalf("Encode: %v", err)
-					}
-					if got, want := wireFlags(t, msg), classFlags(level, pdu); got != want {
-						t.Errorf("msgFlags %v, want %v", got, want)
-					}
-				})
-			}
+			t.Run(fmt.Sprintf("Encode/%v/%v", pdu, level), func(t *testing.T) {
+				msg, err := (&Message{
+					Version: Version3, SecurityLevel: level, SecurityModel: UserSecurityModel,
+					SecurityParameters: codecUSM(t, levelAuth(level), NoPriv),
+					PDUType:            pdu, MsgID: 1, RequestID: 1, TrapV1Header: trap, VarBinds: vars,
+				}).Encode()
+				if err != nil {
+					t.Fatalf("Encode: %v", err)
+				}
+				if got, want := wireFlags(t, msg), classFlags(level, pdu); got != want {
+					t.Errorf("msgFlags %v, want %v", got, want)
+				}
+			})
 			if pdu == Trap {
 				continue // EncodeMessage has no SNMPv1 trap fields
 			}
@@ -238,13 +238,45 @@ func TestEncodeReportableFlag(t *testing.T) {
 	}
 }
 
-// classFlags is the msgFlags octet of a message of level and pdu: Reportable
-// for a PDU of the Confirmed Class.
+// classFlags is the msgFlags octet of a message of level and pdu: the
+// reportableFlag for a PDU of the Confirmed Class.
 func classFlags(level SecurityLevel, pdu PDUType) SecurityLevel {
 	if pdu.confirmed() {
-		return level | Reportable
+		return level | reportableFlag
 	}
 	return level
+}
+
+// TestInvalidSecurityLevel checks that a security level other than the three
+// fails: the encoder's check (Message.Encode) and the client's (validate, as
+// Connect, EncodeMessage and DecodeMessage run it), privacy without
+// authentication with its own error.
+func TestInvalidSecurityLevel(t *testing.T) {
+	const invalid = "validate: SecurityLevel must be populated with an appropriate security level"
+	tests := map[string]struct {
+		level            SecurityLevel
+		encodeErr, valid string
+	}{
+		"privacy without authentication": {level: AuthPriv &^ AuthNoPriv, encodeErr: "unable to marshal SNMPv3 msgFlags: privacy without authentication", valid: invalid},
+		"the reportableFlag's bit":       {level: reportableFlag, encodeErr: "unable to marshal SNMPv3 security level 4: not NoAuthNoPriv, AuthNoPriv or AuthPriv", valid: invalid},
+		"authNoPriv and another bit":     {level: AuthNoPriv | reportableFlag, encodeErr: "unable to marshal SNMPv3 security level 5: not NoAuthNoPriv, AuthNoPriv or AuthPriv", valid: invalid},
+		"authPriv and another bit":       {level: AuthPriv | 0x80, encodeErr: "unable to marshal SNMPv3 security level 131: not NoAuthNoPriv, AuthNoPriv or AuthPriv", valid: invalid},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := (&Message{
+				Version: Version3, SecurityLevel: tc.level, SecurityModel: UserSecurityModel,
+				SecurityParameters: codecUSM(t, SHA, AES), PDUType: GetRequest, MsgID: 1, RequestID: 1,
+			}).Encode()
+			require.EqualError(t, err, tc.encodeErr)
+			x := &Client{
+				Version: Version3, SecurityLevel: tc.level, SecurityModel: UserSecurityModel,
+				SecurityParameters: codecUSM(t, SHA, AES),
+			}
+			_, err = x.EncodeMessage(GetRequest, nil, 0, 0)
+			require.EqualError(t, err, tc.valid)
+		})
+	}
 }
 
 // TestValueKinds checks the value kinds: a type with a kind encodes and one
@@ -651,7 +683,7 @@ func encodeCases(t *testing.T) ([]encodeCase, map[string]bool) {
 		{"v1-trap/in-v2c-message", marshal(edit(v1Trap(func(*TrapV1Header) {}), func(p *Message) { p.Version = Version2c }))},
 
 		// SNMPv3.
-		{"v3/no-auth-no-priv/discovery", marshal(edit(v3(Reportable|NoAuthNoPriv, GetRequest, &UsmSecurityParameters{}), func(p *Message) {
+		{"v3/no-auth-no-priv/discovery", marshal(edit(v3(NoAuthNoPriv, GetRequest, &UsmSecurityParameters{}), func(p *Message) {
 			p.ContextEngineID, p.ContextName, p.VarBinds = "", "", nil
 		}))},
 		{"v3/no-auth-no-priv/get-request", marshal(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)))},

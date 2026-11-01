@@ -801,7 +801,7 @@ func TestUSMFIPS140OnlyDecrypt(t *testing.T) {
 				},
 				"raw": func() error { _, err := client().DecodeMessage(bytes.Clone(trap)); return err },
 				"reply": func() error {
-					req := &Message{Version: Version3, SecurityLevel: AuthPriv | Reportable, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy(), MsgID: 7}
+					req := &Message{Version: Version3, SecurityLevel: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy(), MsgID: 7}
 					_, _, err := (&exchange{x: client(), packet: req}).decode(reply, nil)
 					return err
 				},

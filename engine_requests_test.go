@@ -1321,7 +1321,7 @@ func TestExchangeAnswers(t *testing.T) {
 	request := func(version Version) *Message {
 		p := &Message{Version: version, PDUType: GetRequest, RequestID: 2, Community: "public"}
 		if version == Version3 {
-			p.MsgID, p.SecurityLevel, p.ContextEngineID, p.ContextName = 7, AuthNoPriv|Reportable, "ctx-engine", "ctx"
+			p.MsgID, p.SecurityLevel, p.ContextEngineID, p.ContextName = 7, AuthNoPriv, "ctx-engine", "ctx"
 			p.SecurityParameters = &UsmSecurityParameters{UserName: "user", AuthoritativeEngineID: "engine"}
 		}
 		return p
@@ -1357,12 +1357,10 @@ func TestExchangeAnswers(t *testing.T) {
 		"v3/empty, another request ID": {
 			version: Version3, reply: func(p *Message) { p.VarBinds, p.RequestID = nil, 9 }, err: errOtherRequestID,
 		},
-		"v3/reportable":           {version: Version3, reply: func(p *Message) { p.SecurityLevel |= Reportable }, answers: true},
-		"v3/not reportable":       {version: Version3, request: func(p *Message) { p.SecurityLevel = AuthNoPriv }, reply: func(p *Message) { p.SecurityLevel |= Reportable }, answers: true},
 		"v3/noAuthNoPriv":         {version: Version3, reply: func(p *Message) { p.SecurityLevel = NoAuthNoPriv }, err: errOtherLevel},
 		"v3/authPriv":             {version: Version3, reply: func(p *Message) { p.SecurityLevel = AuthPriv }, err: errOtherLevel},
-		"v3/to noAuthNoPriv":      {version: Version3, request: func(p *Message) { p.SecurityLevel = NoAuthNoPriv | Reportable }, err: errOtherLevel},
-		"v3/to authPriv":          {version: Version3, request: func(p *Message) { p.SecurityLevel = AuthPriv | Reportable }, err: errOtherLevel},
+		"v3/to noAuthNoPriv":      {version: Version3, request: func(p *Message) { p.SecurityLevel = NoAuthNoPriv }, err: errOtherLevel},
+		"v3/to authPriv":          {version: Version3, request: func(p *Message) { p.SecurityLevel = AuthPriv }, err: errOtherLevel},
 		"v3/another user":         {version: Version3, reply: func(p *Message) { usm(p).UserName = "other" }, err: errOtherUser},
 		"v3/the empty user":       {version: Version3, reply: func(p *Message) { usm(p).UserName = "" }, err: errOtherUser},
 		"v3/to the empty user":    {version: Version3, request: func(p *Message) { usm(p).UserName = "" }, err: errOtherUser},

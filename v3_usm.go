@@ -389,7 +389,7 @@ func (sp *UsmSecurityParameters) validate(flags SecurityLevel) error {
 		return err
 	}
 
-	if flags.privFlag() && !flags.authFlag() {
+	if !flags.valid() {
 		return fmt.Errorf("validate: SecurityLevel must be populated with an appropriate security level")
 	}
 	if err := sp.checkLevel(flags); err != nil {
