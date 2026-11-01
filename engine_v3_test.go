@@ -1812,8 +1812,7 @@ func runV3Polls(t *testing.T, setup func(a *fakeV3Agent)) string {
 		}
 		time.Sleep(10 * time.Second)
 	}
-	usp := x.SecurityParameters.usm()
-	tr.addf("client after: boots=%d time=%d", usp.AuthoritativeEngineBoots, usp.AuthoritativeEngineTime)
+	tr.addf("client after: boots=%d time=%d", x.engine.clock.boots, x.engine.clock.latest)
 	return tr.text()
 }
 
@@ -1900,10 +1899,25 @@ func runV3Scenario(t *testing.T, sc v3Scenario) string {
 		tr.addf("result: %s", describeEngineResult(res, err))
 	}
 	tr.addConfigChanges(before, x)
-	usp := x.SecurityParameters.usm()
-	tr.addf("client after: engine=%q boots=%d time=%d keys=%s context engine=%q", usp.AuthoritativeEngineID,
-		usp.AuthoritativeEngineBoots, usp.AuthoritativeEngineTime, describeKeys(usp), x.ContextEngineID)
+	tr.addf("client after: %s", describeEngineState(&x.engine))
 	return tr.text()
+}
+
+// describeEngineState describes the client's engine state: its engine ID,
+// the latest engine boots and time it received, the engine ID its keys are
+// localized to and the context engine ID of its requests.
+func describeEngineState(s *engineState) string {
+	keys := &UsmSecurityParameters{
+		AuthoritativeEngineID:    s.engineID,
+		AuthenticationProtocol:   s.cred.authProtocol,
+		AuthenticationPassphrase: s.cred.authPassphrase,
+		PrivacyProtocol:          s.cred.privProtocol,
+		PrivacyPassphrase:        s.cred.privPassphrase,
+		SecretKey:                s.authKey,
+		PrivacyKey:               s.privKey,
+	}
+	return fmt.Sprintf("engine=%q boots=%d time=%d keys=%s context engine=%q", s.engineID, s.clock.boots,
+		s.clock.latest, describeKeys(keys), s.contextEngineID())
 }
 
 // describeKeys names the engine ID the keys of sp are localized to: "current"
