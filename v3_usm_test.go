@@ -586,6 +586,25 @@ func TestUSMFIPS140OnlyDigest(t *testing.T) {
 	}
 }
 
+// TestUSMFIPS140OnlyEncodeNoAuth pins that Message.Encode derives no key a
+// message's level does not use: in FIPS 140-only mode, which refuses MD5 and
+// SHA-1 keys, a user of those protocols encodes a noAuthNoPriv message.
+func TestUSMFIPS140OnlyEncodeNoAuth(t *testing.T) {
+	if !fips140.Enforced() {
+		t.Skip("run with GODEBUG=fips140=only")
+	}
+	for _, auth := range []AuthProtocol{MD5, SHA} {
+		t.Run(auth.String(), func(t *testing.T) {
+			user := User{Name: "codec-user", AuthProtocol: auth, AuthPassphrase: "codec-auth-pass"}
+			_, err := (&Message{
+				Version: Version3, SecurityLevel: NoAuthNoPriv, PDUType: SNMPv2Trap,
+				SecurityParameters: SecurityParameters{AuthoritativeEngineID: []byte(usmCharEngineID), UserName: "codec-user"},
+			}).Encode(&user)
+			require.NoError(t, err)
+		})
+	}
+}
+
 // TestUSMFIPS140OnlyDecrypt checks, when run with GODEBUG=fips140=only, that
 // a receiver whose privacy cipher the mode refuses (DES, AES-CFB) rejects an
 // authPriv message made with enforcement off with the refusal, a local

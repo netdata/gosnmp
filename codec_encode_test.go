@@ -286,6 +286,44 @@ func TestInvalidSecurityLevel(t *testing.T) {
 	}
 }
 
+// TestEncodeDerivesLevelKeys pins that Message.Encode derives only the keys
+// the message's security level uses, after checking the user's protocols: a
+// key the level needs that does not derive fails the signer or the cipher, one
+// it does not need is not derived.
+func TestEncodeDerivesLevelKeys(t *testing.T) {
+	sha := usmUser(SHA, "codec-auth-pass", NoPriv, "")
+	shaAES := usmUser(SHA, "codec-auth-pass", AES, "")
+	tests := map[string]struct {
+		level   SecurityLevel
+		user    User
+		wantErr string
+	}{
+		"noAuthNoPriv, an authentication protocol without a passphrase": {level: NoAuthNoPriv, user: User{Name: "codec-user", AuthProtocol: SHA}},
+		"noAuthNoPriv, an unsupported protocol": {
+			level: NoAuthNoPriv, user: User{Name: "codec-user", AuthProtocol: 99}, wantErr: "User.AuthProtocol AuthProtocol(99) is not supported",
+		},
+		"authNoPriv": {level: AuthNoPriv, user: sha},
+		"authNoPriv, a privacy protocol without a passphrase": {level: AuthNoPriv, user: shaAES},
+		"authNoPriv, no authentication passphrase": {
+			level: AuthNoPriv, user: User{Name: "codec-user", AuthProtocol: SHA}, wantErr: "usm: no authentication key, want 20 octets",
+		},
+		"authPriv, no privacy passphrase": {level: AuthPriv, user: shaAES, wantErr: "usm: encrypting: no privacy key, want 16 octets"},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := (&Message{
+				Version: Version3, SecurityLevel: tc.level, SecurityParameters: codecHeader(),
+				PDUType: SNMPv2Trap, MsgID: 1, RequestID: 1,
+			}).Encode(&tc.user)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.EqualError(t, err, tc.wantErr)
+			}
+		})
+	}
+}
+
 // TestValueKinds checks the value kinds: a type with a kind encodes and one
 // without does not, and the decoder reads each kind's boundary values as the
 // encoder writes them back to the same type and a value that encodes the same.

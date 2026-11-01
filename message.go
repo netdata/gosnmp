@@ -119,17 +119,17 @@ func (t PDUType) confirmed() bool {
 // Encode encodes the message as it is, ready for the wire. An SNMPv3
 // message is encrypted and signed when its security level asks for it, with
 // user's keys localized to its engine ID (SecurityParameters'
-// AuthoritativeEngineID), which the level requires; each encrypted message
-// gets a new salt, whatever PrivacyParameters holds. The message names its
-// user itself (SecurityParameters' UserName). SNMPv1 and SNMPv2c messages
-// take no user (nil), and an SNMPv3 message at NoAuthNoPriv takes nil or a
-// user whose keys derive. Encode draws no new msgID (Client.EncodeMessage
-// does).
+// AuthoritativeEngineID), which the level requires; Encode derives only the
+// keys the level uses. Each encrypted message gets a new salt, whatever
+// PrivacyParameters holds. The message names its user itself
+// (SecurityParameters' UserName). SNMPv1 and SNMPv2c messages take no user
+// (nil), and an SNMPv3 message at NoAuthNoPriv takes nil or any user with valid
+// protocols. Encode draws no new msgID (Client.EncodeMessage does).
 func (packet *Message) Encode(user *User) ([]byte, error) {
 	var keys usmKeys
 	if packet.Version == Version3 && user != nil {
 		var err error
-		if keys, err = user.localize(packet.SecurityParameters.AuthoritativeEngineID); err != nil {
+		if keys, err = user.keysAt(packet.SecurityLevel, packet.SecurityParameters.AuthoritativeEngineID); err != nil {
 			return nil, err
 		}
 	}
