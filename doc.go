@@ -334,7 +334,10 @@
 // message carries keys or passphrases. Deriving a key starts with hashing a
 // megabyte of the passphrase (RFC 3414 appendix A.2.1). The package caches that
 // result for every client and receiver, by passphrase and hash, for the life of
-// the process; it holds the passphrases in memory meanwhile.
+// the process; it holds the passphrases in memory meanwhile. The Reeder key
+// extension (AES192C, AES256C) hashes the localized key the same way, so it
+// adds a result per user and engine ID, and DecodeMessage, which decrypts
+// without checking the digest, one per engine ID its messages name.
 //
 // # Traps
 //

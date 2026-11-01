@@ -212,6 +212,9 @@ func TestV3ReceiverRules(t *testing.T) {
 		}},
 		{"authNoPriv, long-form digest field length", func() []byte { return signedAuthField([]byte{0x04, 0x81, 0x0c}, 12) }},
 		{"authNoPriv, another user", func() []byte { return signedTestTrap(t, SHA, NoPriv, usmCharEngineID, "other-user", nil) }},
+		{"SNMPv2c", func() []byte {
+			return mustMarshal(&Message{Version: Version2c, Community: "public", PDUType: SNMPv2Trap, RequestID: 1})
+		}},
 	}
 	sets := []struct {
 		name string
@@ -221,6 +224,7 @@ func TestV3ReceiverRules(t *testing.T) {
 		{"SHA", usmUser(SHA, "codec-auth-pass", NoPriv, "")},
 		{"SHA-AES", usmUser(SHA, "codec-auth-pass", AES, "codec-priv-pass")},
 		{"unknown authentication protocol", User{Name: "codec-user", AuthProtocol: 99, AuthPassphrase: "codec-auth-pass"}},
+		{"SHA without a passphrase", User{Name: "codec-user", AuthProtocol: SHA}},
 	}
 	type path struct {
 		name   string
