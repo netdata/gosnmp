@@ -25,7 +25,7 @@ type snmpUser struct {
 }
 
 // msgFlags is the security level of u's requests.
-func (u snmpUser) msgFlags() SnmpV3MsgFlags {
+func (u snmpUser) msgFlags() SecurityLevel {
 	switch {
 	case u.priv > NoPriv:
 		return AuthPriv

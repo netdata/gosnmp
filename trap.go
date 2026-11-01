@@ -35,7 +35,7 @@ import (
 // (ErrNotInTimeWindow, see the package documentation). Then the receiver's
 // minimum level applies (ErrUnknownSecurityLevel): a table set or the single
 // user with an authentication protocol accepts only authenticated messages;
-// the single user also requires the level of the client's MsgFlags, unless
+// the single user also requires the level of the client's SecurityLevel, unless
 // useResponseSecurityParameters is set. A table tries all of a user's sets in
 // the order they were added; when none accepts the message, the error is the
 // one of the set that got furthest through these steps, the first on ties.
@@ -119,7 +119,7 @@ func (x *Client) unmarshalTrapBase(trap []byte, useResponseSecurityParameters bo
 	}
 	rule := trapRule{singleUser: true}
 	if !useResponseSecurityParameters {
-		rule.minimum = x.MsgFlags & AuthPriv
+		rule.minimum = x.SecurityLevel & AuthPriv
 	}
 	if _, err := decodeTrapV3(trap, w, result, sp, rule); err != nil {
 		return nil, err
@@ -147,8 +147,8 @@ type trapRule struct {
 	// receiver's (the table looks the user up by name).
 	singleUser bool
 	// minimum is the security level the receiver requires besides its
-	// parameters' (the client's MsgFlags on the single path).
-	minimum SnmpV3MsgFlags
+	// parameters' (the client's SecurityLevel on the single path).
+	minimum SecurityLevel
 }
 
 // trapStep is how far an SNMPv3 trap got through decodeTrapV3 with one set:
@@ -185,7 +185,7 @@ func decodeTrapV3(trap []byte, w v3Wire, result *Message, sp *UsmSecurityParamet
 		}
 		return stepUser, err
 	}
-	flags := result.MsgFlags
+	flags := result.SecurityLevel
 	if flags.authFlag() {
 		if err = in.verify(); err != nil {
 			return stepDigest, err

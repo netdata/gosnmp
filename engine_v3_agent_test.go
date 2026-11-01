@@ -61,7 +61,7 @@ type agentUser struct {
 type agentRequest struct {
 	version, msgID               int64
 	maxSize, model               int64
-	flags                        SnmpV3MsgFlags
+	flags                        SecurityLevel
 	engineID, user               string
 	boots, engineTime            uint32
 	salt                         []byte // msgPrivacyParameters
@@ -71,8 +71,8 @@ type agentRequest struct {
 
 // agentAnswer is the answer of the fake agent to one request.
 type agentAnswer struct {
-	report string         // the Report's counter OID, or "" for a Response
-	level  SnmpV3MsgFlags // the security level of the answer
+	report string        // the Report's counter OID, or "" for a Response
+	level  SecurityLevel // the security level of the answer
 	edit   func(*Message)
 	raw    func(*v3Message)       // edits the encoded answer, after edit
 	encode func(v3Message) []byte // encodes the answer after raw, instead of v3Message.bytes
@@ -232,7 +232,7 @@ func (a *fakeV3Agent) handle(n int, data []byte) []agentReply {
 // encodeAnswer encodes ans to req, the n-th request.
 func (a *fakeV3Agent) encodeAnswer(n int, req agentRequest, ans agentAnswer) []byte {
 	out := a.answer(req, ans)
-	a.tr.addf("agent: answers #%d with %s at %s (%s)", n, describeAnswerPDU(out), describeFlags(out.MsgFlags), ans.why)
+	a.tr.addf("agent: answers #%d with %s at %s (%s)", n, describeAnswerPDU(out), describeFlags(out.SecurityLevel), ans.why)
 	b, err := out.Encode()
 	if err != nil {
 		panic(fmt.Sprintf("agent cannot encode its answer: %v", err))
@@ -366,7 +366,7 @@ func (a *fakeV3Agent) answer(req agentRequest, ans agentAnswer) *Message {
 	}
 	out := &Message{
 		Version:            Version3,
-		MsgFlags:           ans.level,
+		SecurityLevel:      ans.level,
 		SecurityModel:      UserSecurityModel,
 		SecurityParameters: sp,
 		ContextEngineID:    req.contextEngineID,
@@ -436,7 +436,7 @@ func readAgentRequest(m v3Message) (agentRequest, error) {
 		return req, fmt.Errorf("engine time: %w", err)
 	}
 	req.version, req.msgID, req.maxSize, req.model = version, msgID, maxSize, model
-	req.flags = SnmpV3MsgFlags(header[2][0])
+	req.flags = SecurityLevel(header[2][0])
 	req.engineID, req.user = string(m.usm[0]), string(m.usm[3])
 	req.boots, req.engineTime = uint32(boots), uint32(engineTime) //nolint:gosec // a test message
 	req.salt = m.usm[5]
@@ -476,7 +476,7 @@ func absDiff(a, b uint32) uint32 {
 	return b - a
 }
 
-func describeFlags(f SnmpV3MsgFlags) string {
+func describeFlags(f SecurityLevel) string {
 	level := "noAuthNoPriv"
 	switch {
 	case f&AuthPriv == AuthPriv:

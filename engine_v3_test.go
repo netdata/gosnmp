@@ -160,10 +160,10 @@ func getThrice(between func(a *fakeV3Agent)) func(x *Client, a *fakeV3Agent) (*M
 	}
 }
 
-// getsAt runs one Get per level, 10 s apart, the client's MsgFlags set to the
+// getsAt runs one Get per level, 10 s apart, the client's SecurityLevel set to the
 // level before each: a client whose requests change level. It records each
 // Get's result but the last, which it returns.
-func getsAt(levels ...SnmpV3MsgFlags) func(x *Client, a *fakeV3Agent) (*Message, error) {
+func getsAt(levels ...SecurityLevel) func(x *Client, a *fakeV3Agent) (*Message, error) {
 	return func(x *Client, a *fakeV3Agent) (*Message, error) {
 		var res *Message
 		var err error
@@ -172,7 +172,7 @@ func getsAt(levels ...SnmpV3MsgFlags) func(x *Client, a *fakeV3Agent) (*Message,
 				a.tr.addf("Get %d: %s", i, describeEngineResult(res, err))
 				time.Sleep(10 * time.Second)
 			}
-			x.MsgFlags = level
+			x.SecurityLevel = level
 			res, err = x.Get([]string{engineOID})
 		}
 		return res, err
@@ -195,7 +195,7 @@ func otherAuthKey(p *Message) {
 // protocol the user does not have.
 func encryptedForAuthNoPriv(p *Message) {
 	usp := p.SecurityParameters.usm()
-	p.MsgFlags = AuthPriv
+	p.SecurityLevel = AuthPriv
 	usp.PrivacyProtocol, usp.PrivacyKey = AES, bytes.Repeat([]byte{0x5a}, 16)
 }
 
@@ -701,7 +701,7 @@ func v3Scenarios() map[string]v3Scenario {
 		// A client with authentication keys that sends at noAuthNoPriv does
 		// not check the digest of an authNoPriv answer.
 		"report-later/noauth-request-authenticated-report": {
-			user: "codec-md5", setup: func(x *Client, _ *UsmSecurityParameters) { x.MsgFlags = NoAuthNoPriv },
+			user: "codec-md5", setup: func(x *Client, _ *UsmSecurityParameters) { x.SecurityLevel = NoAuthNoPriv },
 			run: getTwice(nil), script: onRequest(3, agentAnswer{
 				report: usmStatsUnknownUserNames, level: AuthNoPriv, why: "authNoPriv Report from another engine ID 10 s later",
 				edit: fromOtherEngine,
@@ -834,7 +834,7 @@ func v3Scenarios() map[string]v3Scenario {
 				x.OnRecv = func(x *Client) {
 					onRecv(x)
 					if calls++; calls == 2 {
-						x.MsgFlags = NoAuthNoPriv
+						x.SecurityLevel = NoAuthNoPriv
 						a.tr.addf("hook OnRecv sets the client's msgFlags to noAuthNoPriv")
 					}
 				}
@@ -1129,7 +1129,7 @@ func v3Scenarios() map[string]v3Scenario {
 		"noauth/keys-only-answer-from-other-engine": {
 			user: "codec-md5", setup: func(x *Client, sp *UsmSecurityParameters) {
 				configuredKeys(agentEngineID)(x, sp)
-				x.MsgFlags = NoAuthNoPriv
+				x.SecurityLevel = NoAuthNoPriv
 			},
 			script: onRequest(1, agentAnswer{why: "Response from the other engine", edit: fromOtherEngine}),
 		},
@@ -1145,7 +1145,7 @@ func v3Scenarios() map[string]v3Scenario {
 		// it, and answers nothing, at another level than the request's: the
 		// resend times out with that reason.
 		"noauth/lent-engine-authenticated-answer": {
-			user: "codec-md5", setup: func(x *Client, _ *UsmSecurityParameters) { x.MsgFlags = NoAuthNoPriv },
+			user: "codec-md5", setup: func(x *Client, _ *UsmSecurityParameters) { x.SecurityLevel = NoAuthNoPriv },
 			script: func(n int, _ agentRequest) (agentAnswer, bool) {
 				switch {
 				case n == 2:
@@ -1584,7 +1584,7 @@ func v3Scenarios() map[string]v3Scenario {
 			level: AuthNoPriv, why: "Response without encryption", then: true,
 		})},
 		"discard/authenticated-to-noauth-then-answer": {
-			user: "codec-md5", setup: func(x *Client, _ *UsmSecurityParameters) { x.MsgFlags = NoAuthNoPriv },
+			user: "codec-md5", setup: func(x *Client, _ *UsmSecurityParameters) { x.SecurityLevel = NoAuthNoPriv },
 			script: onRequest(2, agentAnswer{level: AuthNoPriv, why: "authNoPriv Response", then: true}),
 		},
 		"discard/other-engine-then-answer": {user: "codec-noauth", script: onRequest(2, agentAnswer{
@@ -1774,7 +1774,7 @@ func runV3Polls(t *testing.T, setup func(a *fakeV3Agent)) string {
 	creds := agentCreds["codec-md5"]
 	x := newEngineClientFrom(t, nil, fakePacketTransport{c}, &Client{
 		Version:       Version3,
-		MsgFlags:      AuthNoPriv,
+		SecurityLevel: AuthNoPriv,
 		SecurityModel: UserSecurityModel,
 		SecurityParameters: &UsmSecurityParameters{
 			UserName:                 "codec-md5",
@@ -1853,7 +1853,7 @@ func runV3Scenario(t *testing.T, sc v3Scenario) string {
 	}
 	x := &Client{
 		Version:            Version3,
-		MsgFlags:           flags,
+		SecurityLevel:      flags,
 		SecurityModel:      UserSecurityModel,
 		SecurityParameters: sp,
 		Timeout:            time.Second,
@@ -1868,7 +1868,7 @@ func runV3Scenario(t *testing.T, sc v3Scenario) string {
 		run = func(x *Client, _ *fakeV3Agent) (*Message, error) { return x.Get([]string{engineOID}) }
 	}
 
-	tr.addf("client: user=%q %s timeout=%s retries=%d", sc.user, describeFlags(x.MsgFlags), x.Timeout, x.Retries)
+	tr.addf("client: user=%q %s timeout=%s retries=%d", sc.user, describeFlags(x.SecurityLevel), x.Timeout, x.Retries)
 	var res *Message
 	var err error
 	before := configOf(x)
@@ -1922,7 +1922,7 @@ func BenchmarkGetV3(b *testing.B) {
 	creds := agentCreds["codec-md5"]
 	x := newEngineClientFrom(b, nil, fakePacketTransport{c}, &Client{
 		Version:       Version3,
-		MsgFlags:      AuthNoPriv,
+		SecurityLevel: AuthNoPriv,
 		SecurityModel: UserSecurityModel,
 		SecurityParameters: &UsmSecurityParameters{
 			UserName:                 "codec-md5",

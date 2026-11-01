@@ -31,7 +31,7 @@ func (p usmFuzzPair) usm() *UsmSecurityParameters {
 	return usmDecoder(p.auth, "codec-auth-pass", p.priv, "codec-priv-pass")().SecurityParameters.(*UsmSecurityParameters)
 }
 
-func (p usmFuzzPair) flags() SnmpV3MsgFlags {
+func (p usmFuzzPair) flags() SecurityLevel {
 	switch {
 	case p.priv != NoPriv:
 		return AuthPriv
@@ -74,7 +74,7 @@ func FuzzDecodeV3(f *testing.F) {
 		sp.AuthenticationProtocol = p.auth
 		sp.SecretKey, sp.PrivacyKey = nil, nil
 		if p.auth == NoAuth {
-			pkt.MsgFlags = NoAuthNoPriv
+			pkt.SecurityLevel = NoAuthNoPriv
 		}
 		if err := sp.InitSecurityKeys(); err != nil {
 			f.Fatal(err)
@@ -116,7 +116,7 @@ func FuzzDecodeV3(f *testing.F) {
 				return err
 			}},
 			{fuzzSingle, func(data []byte) error {
-				x := &Client{Version: Version3, MsgFlags: p.flags(), SecurityModel: UserSecurityModel, SecurityParameters: p.usm()}
+				x := &Client{Version: Version3, SecurityLevel: p.flags(), SecurityModel: UserSecurityModel, SecurityParameters: p.usm()}
 				_, err := x.UnmarshalTrap(data, false)
 				return err
 			}},

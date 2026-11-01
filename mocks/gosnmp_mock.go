@@ -169,20 +169,6 @@ func (mr *MockHandlerMockRecorder) MaxRepetitions() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MaxRepetitions", reflect.TypeOf((*MockHandler)(nil).MaxRepetitions))
 }
 
-// MsgFlags mocks base method.
-func (m *MockHandler) MsgFlags() gosnmp.SnmpV3MsgFlags {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MsgFlags")
-	ret0, _ := ret[0].(gosnmp.SnmpV3MsgFlags)
-	return ret0
-}
-
-// MsgFlags indicates an expected call of MsgFlags.
-func (mr *MockHandlerMockRecorder) MsgFlags() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MsgFlags", reflect.TypeOf((*MockHandler)(nil).MsgFlags))
-}
-
 // Port mocks base method.
 func (m *MockHandler) Port() uint16 {
 	m.ctrl.T.Helper()
@@ -209,6 +195,20 @@ func (m *MockHandler) Retries() int {
 func (mr *MockHandlerMockRecorder) Retries() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Retries", reflect.TypeOf((*MockHandler)(nil).Retries))
+}
+
+// SecurityLevel mocks base method.
+func (m *MockHandler) SecurityLevel() gosnmp.SecurityLevel {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SecurityLevel")
+	ret0, _ := ret[0].(gosnmp.SecurityLevel)
+	return ret0
+}
+
+// SecurityLevel indicates an expected call of SecurityLevel.
+func (mr *MockHandlerMockRecorder) SecurityLevel() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SecurityLevel", reflect.TypeOf((*MockHandler)(nil).SecurityLevel))
 }
 
 // SecurityModel mocks base method.
@@ -299,18 +299,6 @@ func (mr *MockHandlerMockRecorder) SetMaxRepetitions(maxRepetitions any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetMaxRepetitions", reflect.TypeOf((*MockHandler)(nil).SetMaxRepetitions), maxRepetitions)
 }
 
-// SetMsgFlags mocks base method.
-func (m *MockHandler) SetMsgFlags(msgFlags gosnmp.SnmpV3MsgFlags) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetMsgFlags", msgFlags)
-}
-
-// SetMsgFlags indicates an expected call of SetMsgFlags.
-func (mr *MockHandlerMockRecorder) SetMsgFlags(msgFlags any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetMsgFlags", reflect.TypeOf((*MockHandler)(nil).SetMsgFlags), msgFlags)
-}
-
 // SetPort mocks base method.
 func (m *MockHandler) SetPort(port uint16) {
 	m.ctrl.T.Helper()
@@ -333,6 +321,18 @@ func (m *MockHandler) SetRetries(retries int) {
 func (mr *MockHandlerMockRecorder) SetRetries(retries any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetRetries", reflect.TypeOf((*MockHandler)(nil).SetRetries), retries)
+}
+
+// SetSecurityLevel mocks base method.
+func (m *MockHandler) SetSecurityLevel(securityLevel gosnmp.SecurityLevel) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetSecurityLevel", securityLevel)
+}
+
+// SetSecurityLevel indicates an expected call of SetSecurityLevel.
+func (mr *MockHandlerMockRecorder) SetSecurityLevel(securityLevel any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSecurityLevel", reflect.TypeOf((*MockHandler)(nil).SetSecurityLevel), securityLevel)
 }
 
 // SetSecurityModel mocks base method.

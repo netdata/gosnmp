@@ -199,7 +199,7 @@ func (c usmCase) salt() []byte {
 	}
 }
 
-func (c usmCase) flags() gosnmp.SnmpV3MsgFlags {
+func (c usmCase) flags() gosnmp.SecurityLevel {
 	if c.priv == gosnmp.NoPriv {
 		return gosnmp.AuthNoPriv
 	}
@@ -231,7 +231,7 @@ func (c usmCase) packet() *gosnmp.Message {
 	sp.AuthoritativeEngineTime = usmTime
 	return &gosnmp.Message{
 		Version:            gosnmp.Version3,
-		MsgFlags:           c.flags(),
+		SecurityLevel:      c.flags(),
 		SecurityModel:      gosnmp.UserSecurityModel,
 		SecurityParameters: sp,
 		ContextEngineID:    c.engineID,
@@ -248,7 +248,7 @@ func (c usmCase) packet() *gosnmp.Message {
 func (c usmCase) receiver() *gosnmp.Client {
 	return &gosnmp.Client{
 		Version:            gosnmp.Version3,
-		MsgFlags:           c.flags(),
+		SecurityLevel:      c.flags(),
 		SecurityModel:      gosnmp.UserSecurityModel,
 		SecurityParameters: c.usm(),
 	}
@@ -312,9 +312,9 @@ func (c usmCase) secureWithNetSnmp() (usmRecording, error) {
 }
 
 // marshal encodes the case's trap with gosnmp at the given security level.
-func (c usmCase) marshal(flags gosnmp.SnmpV3MsgFlags) ([]byte, error) {
+func (c usmCase) marshal(flags gosnmp.SecurityLevel) ([]byte, error) {
 	pkt := c.packet()
-	pkt.MsgFlags = flags
+	pkt.SecurityLevel = flags
 	if err := pkt.SecurityParameters.InitSecurityKeys(); err != nil {
 		return nil, err
 	}

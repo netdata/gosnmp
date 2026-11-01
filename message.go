@@ -27,7 +27,7 @@ type Message struct {
 	Version Version
 
 	// The SNMPv3 header: the flags, the security model and its parameters.
-	MsgFlags           SnmpV3MsgFlags
+	SecurityLevel      SecurityLevel
 	SecurityModel      SnmpV3SecurityModel
 	SecurityParameters SnmpV3SecurityParameters
 

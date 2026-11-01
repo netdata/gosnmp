@@ -140,7 +140,7 @@ func TestEngineV3FIPS140OnlyDiscoveryPreflight(t *testing.T) {
 					flags = AuthPriv
 				}
 				x := newEngineClientFrom(t, tr, fakePacketTransport{c}, &Client{
-					Version: Version3, MsgFlags: flags, SecurityModel: UserSecurityModel,
+					Version: Version3, SecurityLevel: flags, SecurityModel: UserSecurityModel,
 					SecurityParameters: sp, ContextEngineID: "codec-context", Timeout: time.Second, Retries: 2,
 				})
 				before := sp.Copy().usm()

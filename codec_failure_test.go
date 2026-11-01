@@ -16,7 +16,7 @@ type decodedFields struct {
 	version                      Version
 	community                    string
 	msgID, msgMaxSize            uint32
-	msgFlags                     SnmpV3MsgFlags
+	msgFlags                     SecurityLevel
 	securityModel                SnmpV3SecurityModel
 	usmEngineID, usmUser         string
 	usmBoots, usmTime            uint32
@@ -38,7 +38,7 @@ func fieldsOf(p *Message) decodedFields {
 		community:       p.Community,
 		msgID:           p.MsgID,
 		msgMaxSize:      p.MsgMaxSize,
-		msgFlags:        p.MsgFlags,
+		msgFlags:        p.SecurityLevel,
 		securityModel:   p.SecurityModel,
 		contextEngineID: p.ContextEngineID,
 		contextName:     p.ContextName,

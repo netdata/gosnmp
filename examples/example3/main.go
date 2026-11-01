@@ -18,7 +18,7 @@ func main() {
 		Port:          161,
 		Version:       g.Version3,
 		SecurityModel: g.UserSecurityModel,
-		MsgFlags:      g.AuthPriv,
+		SecurityLevel: g.AuthPriv,
 		Timeout:       time.Duration(30) * time.Second,
 		SecurityParameters: &g.UsmSecurityParameters{
 			UserName:                 "user",

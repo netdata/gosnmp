@@ -119,7 +119,7 @@ func (m *mockAgentUnknownUserNames) serve() {
 
 		cursor, w, err := unmarshalHeader(buf[:n], req)
 		if err == nil {
-			_, err = req.SecurityParameters.usm().receive(req.MsgFlags, &w, false)
+			_, err = req.SecurityParameters.usm().receive(req.SecurityLevel, &w, false)
 		}
 		if err != nil {
 			m.sendErr(fmt.Errorf("unmarshalHeader: %w", err))
@@ -128,7 +128,7 @@ func (m *mockAgentUnknownUserNames) serve() {
 
 		// decryptPacket advances the cursor past the ScopedPDU wrapper and
 		// context fields, leaving it at the PDU type byte.
-		pkt, cursor, err := unmarshalScopedPDU(buf[:n], cursor, req, req.MsgFlags.privFlag())
+		pkt, cursor, err := unmarshalScopedPDU(buf[:n], cursor, req, req.SecurityLevel.privFlag())
 		if err != nil {
 			m.sendErr(fmt.Errorf("decryptPacket: %w", err))
 			continue
@@ -181,7 +181,7 @@ func (m *mockAgentUnknownUserNames) marshalUnknownUserNamesReport(req *Message) 
 	secParams.UserName = m.reportUserName
 	pkt := &Message{
 		Version:            Version3,
-		MsgFlags:           NoAuthNoPriv,
+		SecurityLevel:      NoAuthNoPriv,
 		SecurityModel:      UserSecurityModel,
 		SecurityParameters: secParams,
 		PDUType:            Report,
@@ -203,7 +203,7 @@ func (m *mockAgentUnknownUserNames) marshalResponse(req *Message) ([]byte, error
 	secParams.UserName = req.SecurityParameters.usm().UserName
 	pkt := &Message{
 		Version:            Version3,
-		MsgFlags:           NoAuthNoPriv,
+		SecurityLevel:      NoAuthNoPriv,
 		SecurityModel:      UserSecurityModel,
 		SecurityParameters: secParams,
 		PDUType:            Response,

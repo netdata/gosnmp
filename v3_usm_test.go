@@ -305,7 +305,7 @@ func TestUSMUnsupportedProtocols(t *testing.T) {
 	tests := map[string]struct {
 		auth    AuthProtocol
 		priv    PrivProtocol
-		flags   SnmpV3MsgFlags
+		flags   SecurityLevel
 		wantErr string
 	}{
 		"authentication": {auth: AuthProtocol(8), priv: NoPriv, flags: AuthNoPriv, wantErr: authErr},
@@ -316,7 +316,7 @@ func TestUSMUnsupportedProtocols(t *testing.T) {
 			t.Run("validate", func(t *testing.T) {
 				x := &Client{
 					Version:            Version3,
-					MsgFlags:           tc.flags,
+					SecurityLevel:      tc.flags,
 					SecurityModel:      UserSecurityModel,
 					SecurityParameters: params(tc.auth, tc.priv),
 				}
@@ -334,7 +334,7 @@ func TestUSMUnsupportedProtocols(t *testing.T) {
 			t.Run("encode", func(t *testing.T) {
 				pkt := &Message{
 					Version:            Version3,
-					MsgFlags:           tc.flags,
+					SecurityLevel:      tc.flags,
 					SecurityModel:      UserSecurityModel,
 					SecurityParameters: params(tc.auth, tc.priv),
 					PDUType:            SNMPv2Trap,
@@ -369,7 +369,7 @@ func TestUSMEncodeSecurityLevel(t *testing.T) {
 	)
 
 	tests := map[string]struct {
-		flags   SnmpV3MsgFlags
+		flags   SecurityLevel
 		auth    AuthProtocol
 		priv    PrivProtocol
 		wantErr string
@@ -396,7 +396,7 @@ func TestUSMEncodeSecurityLevel(t *testing.T) {
 			require.NoError(t, sp.InitSecurityKeys())
 			pkt := &Message{
 				Version:            Version3,
-				MsgFlags:           tc.flags,
+				SecurityLevel:      tc.flags,
 				SecurityModel:      UserSecurityModel,
 				SecurityParameters: sp,
 				PDUType:            SNMPv2Trap,
@@ -657,7 +657,7 @@ func TestUSMReceiverAuthenticationWithoutProtocol(t *testing.T) {
 	useEngineTimes(t)
 	sender := &Message{
 		Version:            Version3,
-		MsgFlags:           NoAuthNoPriv,
+		SecurityLevel:      NoAuthNoPriv,
 		SecurityModel:      UserSecurityModel,
 		SecurityParameters: &UsmSecurityParameters{UserName: "codec-user", AuthoritativeEngineID: usmCharEngineID},
 		PDUType:            SNMPv2Trap,
@@ -695,7 +695,7 @@ func TestUSMReceiverAuthenticationWithoutProtocol(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			x := &Client{
 				Version:            Version3,
-				MsgFlags:           AuthNoPriv,
+				SecurityLevel:      AuthNoPriv,
 				SecurityModel:      UserSecurityModel,
 				SecurityParameters: tc.receiver,
 			}
@@ -726,7 +726,7 @@ func TestUSMFIPS140OnlyDigest(t *testing.T) {
 			trap := func() *Message {
 				return &Message{
 					Version:            Version3,
-					MsgFlags:           AuthNoPriv,
+					SecurityLevel:      AuthNoPriv,
 					SecurityModel:      UserSecurityModel,
 					SecurityParameters: sp.Copy(),
 					PDUType:            SNMPv2Trap,
@@ -748,7 +748,7 @@ func TestUSMFIPS140OnlyDigest(t *testing.T) {
 			assert.ErrorContains(t, err, "not allowed in FIPS 140-only mode")
 
 			// The receiver has the keys, so decoding derives none.
-			x := &Client{Version: Version3, MsgFlags: AuthNoPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy()}
+			x := &Client{Version: Version3, SecurityLevel: AuthNoPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy()}
 			require.NotPanics(t, func() { _, err = x.UnmarshalTrap(bytes.Clone(data), false) })
 			assert.ErrorContains(t, err, "not allowed in FIPS 140-only mode")
 		})
@@ -778,18 +778,18 @@ func TestUSMFIPS140OnlyDecrypt(t *testing.T) {
 				require.NoError(t, sp.InitSecurityKeys())
 				var err error
 				trap, err = (&Message{
-					Version: Version3, MsgFlags: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy(),
+					Version: Version3, SecurityLevel: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy(),
 					PDUType: SNMPv2Trap, VarBinds: usmCharVarbinds,
 				}).Encode()
 				require.NoError(t, err)
 				reply, err = (&Message{
-					Version: Version3, MsgFlags: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy(),
+					Version: Version3, SecurityLevel: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy(),
 					MsgID: 7, PDUType: Response, RequestID: 1, VarBinds: usmCharVarbinds,
 				}).Encode()
 				require.NoError(t, err)
 			})
 			client := func() *Client {
-				return &Client{Version: Version3, MsgFlags: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy()}
+				return &Client{Version: Version3, SecurityLevel: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy()}
 			}
 			paths := map[string]func() error{
 				"single": func() error { _, err := client().UnmarshalTrap(bytes.Clone(trap), false); return err },
@@ -801,7 +801,7 @@ func TestUSMFIPS140OnlyDecrypt(t *testing.T) {
 				},
 				"raw": func() error { _, err := client().DecodeMessage(bytes.Clone(trap)); return err },
 				"reply": func() error {
-					req := &Message{Version: Version3, MsgFlags: AuthPriv | Reportable, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy(), MsgID: 7}
+					req := &Message{Version: Version3, SecurityLevel: AuthPriv | Reportable, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy(), MsgID: 7}
 					_, _, err := (&exchange{x: client(), packet: req}).decode(reply, nil)
 					return err
 				},
@@ -840,7 +840,7 @@ func TestUSMFIPS140OnlyShortSHA2Key(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			pkt := &Message{
 				Version:       Version3,
-				MsgFlags:      AuthNoPriv,
+				SecurityLevel: AuthNoPriv,
 				SecurityModel: UserSecurityModel,
 				SecurityParameters: &UsmSecurityParameters{
 					UserName:               "codec-user",
@@ -1073,7 +1073,7 @@ func TestSignDigestOffset(t *testing.T) {
 					mac.Write(unsigned)
 					assert.Equal(t, mac.Sum(nil)[:auth.spec().MACLen], digest, "the field holds the digest")
 
-					x := &Client{Version: Version3, MsgFlags: signedTestFlags(priv), SecurityModel: UserSecurityModel, SecurityParameters: sp}
+					x := &Client{Version: Version3, SecurityLevel: signedTestFlags(priv), SecurityModel: UserSecurityModel, SecurityParameters: sp}
 					res, err := x.UnmarshalTrap(bytes.Clone(data), false)
 					require.NoError(t, err)
 					usp := res.SecurityParameters.usm()
@@ -1126,7 +1126,7 @@ func signedTestUSM(t *testing.T, auth AuthProtocol, priv PrivProtocol, engineID,
 }
 
 // signedTestFlags is authPriv with a privacy protocol, authNoPriv without.
-func signedTestFlags(priv PrivProtocol) SnmpV3MsgFlags {
+func signedTestFlags(priv PrivProtocol) SecurityLevel {
 	if priv > NoPriv {
 		return AuthPriv
 	}
@@ -1142,7 +1142,7 @@ func signedTestTrap(t *testing.T, auth AuthProtocol, priv PrivProtocol, engineID
 		variables = usmPlainVars
 	}
 	data, err := (&Message{
-		Version: Version3, MsgFlags: signedTestFlags(priv), SecurityModel: UserSecurityModel,
+		Version: Version3, SecurityLevel: signedTestFlags(priv), SecurityModel: UserSecurityModel,
 		SecurityParameters: signedTestUSM(t, auth, priv, engineID, user), PDUType: SNMPv2Trap, VarBinds: variables,
 	}).Encode()
 	require.NoError(t, err)

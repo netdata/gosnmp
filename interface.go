@@ -86,11 +86,11 @@ type Handler interface {
 	// SetMaxRepetitions sets the MaxRepetitions, with its top bit cleared
 	SetMaxRepetitions(maxRepetitions uint32)
 
-	// MsgFlags gets the MsgFlags
-	MsgFlags() SnmpV3MsgFlags
+	// SecurityLevel gets the SecurityLevel
+	SecurityLevel() SecurityLevel
 
-	// SetMsgFlags sets the MsgFlags
-	SetMsgFlags(msgFlags SnmpV3MsgFlags)
+	// SetSecurityLevel sets the SecurityLevel
+	SetSecurityLevel(securityLevel SecurityLevel)
 
 	// SecurityModel gets the SecurityModel
 	SecurityModel() SnmpV3SecurityModel
@@ -204,12 +204,12 @@ func (x *snmpHandler) SetMaxRepetitions(maxRepetitions uint32) {
 	x.Client.MaxRepetitions = maxRepetitions & math.MaxInt32
 }
 
-func (x *snmpHandler) MsgFlags() SnmpV3MsgFlags {
-	return x.Client.MsgFlags
+func (x *snmpHandler) SecurityLevel() SecurityLevel {
+	return x.Client.SecurityLevel
 }
 
-func (x *snmpHandler) SetMsgFlags(msgFlags SnmpV3MsgFlags) {
-	x.Client.MsgFlags = msgFlags
+func (x *snmpHandler) SetSecurityLevel(securityLevel SecurityLevel) {
+	x.Client.SecurityLevel = securityLevel
 }
 
 func (x *snmpHandler) SecurityModel() SnmpV3SecurityModel {

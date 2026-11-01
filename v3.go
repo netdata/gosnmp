@@ -16,30 +16,30 @@ import (
 	"github.com/netdata/gosnmp/internal/usm"
 )
 
-// SnmpV3MsgFlags is the msgFlags octet of an SNMPv3 message: its security
+// SecurityLevel is the msgFlags octet of an SNMPv3 message: its security
 // level, authentication and privacy, and whether the receiver must answer an
 // error with a Report.
-type SnmpV3MsgFlags uint8
+type SecurityLevel uint8
 
 // The security levels and the reportable flag.
 const (
-	NoAuthNoPriv SnmpV3MsgFlags = 0x0 // No authentication, and no privacy
-	AuthNoPriv   SnmpV3MsgFlags = 0x1 // Authentication and no privacy
-	AuthPriv     SnmpV3MsgFlags = 0x3 // Authentication and privacy
-	Reportable   SnmpV3MsgFlags = 0x4 // Report PDU must be sent.
+	NoAuthNoPriv SecurityLevel = 0x0 // No authentication, and no privacy
+	AuthNoPriv   SecurityLevel = 0x1 // Authentication and no privacy
+	AuthPriv     SecurityLevel = 0x3 // Authentication and privacy
+	Reportable   SecurityLevel = 0x4 // Report PDU must be sent.
 )
 
 // authFlag reports whether f has the authFlag (bit 0x1, RFC 3412 section 6.4)
 // set: the message asks for authentication. A set flag is a request, not
 // proof that the message was authenticated.
-func (f SnmpV3MsgFlags) authFlag() bool { return f&0x1 != 0 }
+func (f SecurityLevel) authFlag() bool { return f&0x1 != 0 }
 
 // privFlag reports whether f has the privFlag (bit 0x2) set: the message asks
 // for privacy. Without the authFlag the combination is invalid (RFC 3412
 // section 7.2 step 5 d).
-func (f SnmpV3MsgFlags) privFlag() bool { return f&0x2 != 0 }
+func (f SecurityLevel) privFlag() bool { return f&0x2 != 0 }
 
-//go:generate go tool -modfile=tools/go.mod stringer -type=SnmpV3MsgFlags
+//go:generate go tool -modfile=tools/go.mod stringer -type=SecurityLevel
 
 // SnmpV3SecurityModel is the security model of an SNMPv3 message.
 type SnmpV3SecurityModel uint8
@@ -75,7 +75,7 @@ func usmOf(sp SnmpV3SecurityParameters) *UsmSecurityParameters {
 }
 
 // validateParametersV3 checks the client's SNMPv3 configuration: the
-// User-based Security Model, and parameters that fit MsgFlags.
+// User-based Security Model, and parameters that fit SecurityLevel.
 func (x *Client) validateParametersV3() error {
 	// update following code if you implement a new security model
 	if x.SecurityModel != UserSecurityModel {
@@ -86,7 +86,7 @@ func (x *Client) validateParametersV3() error {
 		return errors.New("SNMPV3 SecurityParameters must be set")
 	}
 
-	return sp.validate(x.MsgFlags)
+	return sp.validate(x.SecurityLevel)
 }
 
 // sign writes the digest of the marshalled SNMPv3 message msg into the
@@ -94,7 +94,7 @@ func (x *Client) validateParametersV3() error {
 // ask for authentication; a key that does not fit the protocol is an error
 // (usm.Auth.CheckKey).
 func (packet *Message) sign(msg []byte, auth int) ([]byte, error) {
-	if packet.MsgFlags.authFlag() {
+	if packet.SecurityLevel.authFlag() {
 		if err := packet.SecurityParameters.usm().sign(msg, auth); err != nil {
 			return nil, err
 		}
@@ -160,20 +160,20 @@ func (packet *Message) appendV3(dst []byte) ([]byte, int, error) {
 	if err := sp.checkProtocols(); err != nil {
 		return nil, 0, err
 	}
-	if err := sp.checkLevel(packet.MsgFlags); err != nil {
+	if err := sp.checkLevel(packet.SecurityLevel); err != nil {
 		return nil, 0, err
 	}
 	if err := sp.checkWireFields(); err != nil {
 		return nil, 0, err
 	}
 	var salt []byte
-	if packet.MsgFlags.privFlag() {
+	if packet.SecurityLevel.privFlag() {
 		next := usm.Salts.Next()
 		salt = next[:]
 	}
 	dst = packet.appendV3Header(dst)
 	dst, start := ber.Begin(dst, byte(OctetString))
-	dst, auth := sp.marshal(dst, packet.MsgFlags, salt)
+	dst, auth := sp.marshal(dst, packet.SecurityLevel, salt)
 	dst, auth = ber.EndMoving(dst, start, auth)
 	dst, err := packet.appendV3ScopedPDU(dst, sp, salt)
 	return dst, auth, err
@@ -199,7 +199,7 @@ func (packet *Message) checkV3Header() error {
 		return fmt.Errorf("unable to marshal SNMPv3 msgID %d: more than %d", packet.MsgID, maxMsgID)
 	case packet.MsgMaxSize != 0 && (packet.MsgMaxSize < minMsgMaxSize || packet.MsgMaxSize > maxMsgMaxSize):
 		return fmt.Errorf("unable to marshal SNMPv3 msgMaxSize %d: outside %d..%d", packet.MsgMaxSize, minMsgMaxSize, maxMsgMaxSize)
-	case packet.MsgFlags.privFlag() && !packet.MsgFlags.authFlag():
+	case packet.SecurityLevel.privFlag() && !packet.SecurityLevel.authFlag():
 		return errors.New("unable to marshal SNMPv3 msgFlags: privacy without authentication")
 	}
 	return nil
@@ -208,8 +208,8 @@ func (packet *Message) checkV3Header() error {
 // appendV3Header appends msgGlobalData: the message ID, the maximum message
 // size (rxBufSize unless set), the flags and the security model (3), whose
 // ranges checkV3Header checked. The flags octet holds the security level of
-// MsgFlags and the reportable flag, set for a PDU of the Confirmed Class and
-// clear for the others (RFC 3412 section 6.4), whatever MsgFlags holds besides
+// SecurityLevel and the reportable flag, set for a PDU of the Confirmed Class and
+// clear for the others (RFC 3412 section 6.4), whatever SecurityLevel holds besides
 // the level.
 func (packet *Message) appendV3Header(dst []byte) []byte {
 	dst, start := ber.Begin(dst, ber.Sequence)
@@ -219,7 +219,7 @@ func (packet *Message) appendV3Header(dst []byte) []byte {
 		maxSize = packet.MsgMaxSize
 	}
 	dst = appendUint(dst, Integer, uint64(maxSize))
-	flags := packet.MsgFlags & AuthPriv
+	flags := packet.SecurityLevel & AuthPriv
 	if packet.PDUType.confirmed() {
 		flags |= Reportable
 	}
@@ -359,7 +359,7 @@ func parseV3(packet []byte, cursor int, response *Message) (v3Wire, error) {
 	case len(flags) != 1:
 		return w, errMsgFlags
 	}
-	response.MsgFlags = SnmpV3MsgFlags(flags[0])
+	response.SecurityLevel = SecurityLevel(flags[0])
 	model, err := readInt32(&r)
 	if err == nil && model < 1 {
 		err = fmt.Errorf("%d is outside 1..2147483647", model)
@@ -370,7 +370,7 @@ func parseV3(packet []byte, cursor int, response *Message) (v3Wire, error) {
 	if model != int32(UserSecurityModel) {
 		return w, errNotUSM
 	}
-	if response.MsgFlags.privFlag() && !response.MsgFlags.authFlag() {
+	if response.SecurityLevel.privFlag() && !response.SecurityLevel.authFlag() {
 		return w, errPrivWithoutAuth
 	}
 	if r.Len() == 0 {

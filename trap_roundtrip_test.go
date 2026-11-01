@@ -51,7 +51,7 @@ func rtCreds(auth AuthProtocol, priv PrivProtocol) rtCredentials {
 }
 
 // flags is the security level the credentials imply.
-func (c rtCredentials) flags() SnmpV3MsgFlags {
+func (c rtCredentials) flags() SecurityLevel {
 	switch {
 	case c.priv != NoPriv:
 		return AuthPriv
@@ -91,7 +91,7 @@ func rtEncodeV3(t *testing.T, sender rtCredentials, pduType PDUType) []byte {
 	}
 	pkt := &Message{
 		Version:            Version3,
-		MsgFlags:           flags,
+		SecurityLevel:      flags,
 		SecurityModel:      UserSecurityModel,
 		SecurityParameters: sp,
 		ContextEngineID:    rtEngineID,
@@ -116,7 +116,7 @@ func rtSingleUser(t *testing.T, creds ...rtCredentials) *Client {
 	require.Len(t, creds, 1)
 	return &Client{
 		Version:            Version3,
-		MsgFlags:           creds[0].flags(),
+		SecurityLevel:      creds[0].flags(),
 		SecurityModel:      UserSecurityModel,
 		SecurityParameters: creds[0].usm(""),
 	}
@@ -147,7 +147,7 @@ var rtReceivers = []struct {
 // trapView is the part of a decoded trap the round-trip tests compare.
 type trapView struct {
 	Version         Version
-	MsgFlags        SnmpV3MsgFlags
+	SecurityLevel   SecurityLevel
 	UserName        string
 	EngineID        string
 	ContextEngineID string
@@ -167,7 +167,7 @@ type trapView struct {
 func newTrapView(p *Message) trapView {
 	v := trapView{
 		Version:         p.Version,
-		MsgFlags:        p.MsgFlags,
+		SecurityLevel:   p.SecurityLevel,
 		ContextEngineID: p.ContextEngineID,
 		ContextName:     p.ContextName,
 		Community:       p.Community,
@@ -260,7 +260,7 @@ func TestTrapRoundTripV3(t *testing.T) {
 			for _, pduType := range []PDUType{SNMPv2Trap, InformRequest} {
 				want := trapView{
 					Version:         Version3,
-					MsgFlags:        creds.flags(),
+					SecurityLevel:   creds.flags(),
 					UserName:        rtUser,
 					EngineID:        rtEngineID,
 					ContextEngineID: rtEngineID,
@@ -271,7 +271,7 @@ func TestTrapRoundTripV3(t *testing.T) {
 					VarBinds:        rtVarbinds,
 				}
 				if pduType == InformRequest {
-					want.MsgFlags |= Reportable
+					want.SecurityLevel |= Reportable
 				}
 
 				for _, r := range rtReceivers {
