@@ -62,14 +62,14 @@ func (c rtCredentials) flags() SecurityLevel {
 	}
 }
 
-func (c rtCredentials) usm(engineID string) *UsmSecurityParameters {
-	return &UsmSecurityParameters{
-		UserName:                 c.user,
-		AuthenticationProtocol:   c.auth,
-		AuthenticationPassphrase: c.authPass,
-		PrivacyProtocol:          c.priv,
-		PrivacyPassphrase:        c.privPass,
-		AuthoritativeEngineID:    engineID,
+// asUser returns the credentials as a User.
+func (c rtCredentials) asUser() User {
+	return User{
+		Name:           c.user,
+		AuthProtocol:   c.auth,
+		AuthPassphrase: c.authPass,
+		PrivProtocol:   c.priv,
+		PrivPassphrase: c.privPass,
 	}
 }
 
@@ -79,25 +79,25 @@ func (c rtCredentials) usm(engineID string) *UsmSecurityParameters {
 func rtEncodeV3(t *testing.T, sender rtCredentials, pduType PDUType) []byte {
 	t.Helper()
 
-	sp := sender.usm(rtEngineID)
-	sp.AuthoritativeEngineBoots = 3
-	sp.AuthoritativeEngineTime = 77
-	if sender.auth != NoAuth {
-		require.NoError(t, sp.InitSecurityKeys())
-	}
 	pkt := &Message{
 		Version:       Version3,
 		SecurityLevel: sender.flags(),
 
-		SecurityParameters: sp,
-		ContextEngineID:    rtEngineID,
-		ContextName:        "trap-context",
-		PDUType:            pduType,
-		MsgID:              21,
-		RequestID:          42,
-		VarBinds:           rtVarbinds,
+		SecurityParameters: SecurityParameters{
+			AuthoritativeEngineID:    []byte(rtEngineID),
+			AuthoritativeEngineBoots: 3,
+			AuthoritativeEngineTime:  77,
+			UserName:                 sender.user,
+		},
+		ContextEngineID: []byte(rtEngineID),
+		ContextName:     "trap-context",
+		PDUType:         pduType,
+		MsgID:           21,
+		RequestID:       42,
+		VarBinds:        rtVarbinds,
 	}
-	data, err := pkt.Encode()
+	user := sender.asUser()
+	data, err := pkt.Encode(&user)
 	require.NoError(t, err)
 	return data
 }
@@ -113,19 +113,18 @@ func rtSingleUser(t *testing.T, creds ...rtCredentials) *Client {
 	return &Client{
 		Version:       Version3,
 		SecurityLevel: creds[0].flags(),
-
-		SecurityParameters: creds[0].usm(""),
+		User:          creds[0].asUser(),
 	}
 }
 
 // rtTable returns a receiver with a credentials table, as the Netdata trap
-// receiver builds it, with the table entries localized to engineID.
+// receiver builds it, with the table entries registered for engineID.
 func rtTable(engineID string) rtReceiver {
 	return func(t *testing.T, creds ...rtCredentials) *Client {
 		t.Helper()
 		table := NewSnmpV3SecurityParametersTable()
 		for _, c := range creds {
-			require.NoError(t, table.Add(c.user, c.usm(engineID)))
+			require.NoError(t, table.Add(c.asUser(), []byte(engineID)))
 		}
 		return &Client{Version: Version3, TrapSecurityParametersTable: table}
 	}
@@ -161,10 +160,12 @@ type trapView struct {
 }
 
 func newTrapView(p *Message) trapView {
-	v := trapView{
+	return trapView{
 		Version:         p.Version,
 		SecurityLevel:   p.SecurityLevel,
-		ContextEngineID: p.ContextEngineID,
+		UserName:        p.SecurityParameters.UserName,
+		EngineID:        string(p.SecurityParameters.AuthoritativeEngineID),
+		ContextEngineID: string(p.ContextEngineID),
 		ContextName:     p.ContextName,
 		Community:       p.Community,
 		PDUType:         p.PDUType,
@@ -177,11 +178,6 @@ func newTrapView(p *Message) trapView {
 		Timestamp:       p.Timestamp,
 		VarBinds:        p.VarBinds,
 	}
-	if sp, ok := p.SecurityParameters.(*UsmSecurityParameters); ok {
-		v.UserName = sp.UserName
-		v.EngineID = sp.AuthoritativeEngineID
-	}
-	return v
 }
 
 func TestTrapRoundTripV1V2c(t *testing.T) {
@@ -233,7 +229,7 @@ func TestTrapRoundTripV1V2c(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			data, err := tc.pkt.Encode()
+			data, err := tc.pkt.Encode(nil)
 			require.NoError(t, err)
 
 			got, err := (&Client{}).UnmarshalTrap(data, false)

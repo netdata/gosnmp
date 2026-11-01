@@ -10,67 +10,64 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var secParamsList = []*UsmSecurityParameters{
+var secParamsList = []User{
 	{
-		UserName:                 "myuser",
-		AuthenticationProtocol:   MD5,
-		AuthenticationPassphrase: "mypassword",
+		Name:           "myuser",
+		AuthProtocol:   MD5,
+		AuthPassphrase: "mypassword",
 	},
 	{
-		UserName:                 "myuser1",
-		AuthenticationProtocol:   MD5,
-		AuthenticationPassphrase: "mypassword1",
-		PrivacyProtocol:          AES,
-		PrivacyPassphrase:        "myprivacy1",
+		Name:           "myuser1",
+		AuthProtocol:   MD5,
+		AuthPassphrase: "mypassword1",
+		PrivProtocol:   AES,
+		PrivPassphrase: "myprivacy1",
 	},
 	{
-		UserName:                 "myuser2",
-		AuthenticationProtocol:   SHA,
-		AuthenticationPassphrase: "mypassword2",
-		PrivacyProtocol:          DES,
-		PrivacyPassphrase:        "myprivacy2",
+		Name:           "myuser2",
+		AuthProtocol:   SHA,
+		AuthPassphrase: "mypassword2",
+		PrivProtocol:   DES,
+		PrivPassphrase: "myprivacy2",
 	},
 	{
-		UserName:                 "myuser2",
-		AuthenticationProtocol:   MD5,
-		AuthenticationPassphrase: "mypassword2",
-		PrivacyProtocol:          AES,
-		PrivacyPassphrase:        "myprivacy2",
+		Name:           "myuser2",
+		AuthProtocol:   MD5,
+		AuthPassphrase: "mypassword2",
+		PrivProtocol:   AES,
+		PrivPassphrase: "myprivacy2",
 	},
 }
 
 var testsUnmarshalTrap = []struct {
-	in  func() []byte
-	out *Message
+	in   func() []byte
+	user User // the trap's user
+	out  *Message
 }{
 	{
 		genericV3Trap,
+		User{Name: "myuser", AuthProtocol: MD5, AuthPassphrase: "mypassword"},
 		&Message{
 			Version:       Version3,
 			PDUType:       SNMPv2Trap,
 			RequestID:     957979745,
 			SecurityLevel: AuthNoPriv,
-			SecurityParameters: &UsmSecurityParameters{
-				UserName:                 "myuser",
-				AuthenticationProtocol:   MD5,
-				AuthenticationPassphrase: "mypassword",
-			},
 		},
 	},
 	{
 		snmpV3AuthPrivTrap,
+		User{
+			Name:           "myuser2",
+			AuthProtocol:   MD5,
+			AuthPassphrase: "mypassword2",
+			PrivProtocol:   AES,
+			PrivPassphrase: "myprivacy2",
+		},
 		&Message{
 			Version:       3,
 			PDUType:       SNMPv2Trap,
 			RequestID:     1318065890,
 			SecurityLevel: AuthPriv,
-			SecurityParameters: &UsmSecurityParameters{
-				UserName:                 "myuser2",
-				AuthenticationProtocol:   MD5,
-				AuthenticationPassphrase: "mypassword2",
-				PrivacyProtocol:          AES,
-				PrivacyPassphrase:        "myprivacy2",
-			},
 		},
 	},
 }
@@ -82,7 +79,7 @@ func TestUnmarshalTrap(t *testing.T) {
 
 SANITY:
 	for i, test := range testsUnmarshalTrap {
-		gs.SecurityParameters = test.out.SecurityParameters.Copy()
+		gs.User = test.user
 		buf := test.in()
 		res, err := gs.UnmarshalTrap(buf, true)
 		require.NoError(t, err, "unmarshalTrap failed")
@@ -105,8 +102,8 @@ SANITY:
 func TestUnmarshalTrapWithMultipleUsers(t *testing.T) {
 	useEngineTimes(t)
 	usmMap := NewSnmpV3SecurityParametersTable()
-	for _, sp := range secParamsList {
-		require.NoError(t, usmMap.Add(sp.UserName, sp))
+	for _, user := range secParamsList {
+		require.NoError(t, usmMap.Add(user, nil))
 	}
 	gs := newTestClient()
 	gs.TrapSecurityParametersTable = usmMap
@@ -126,6 +123,31 @@ SANITY:
 		require.Equal(t, test.out.Version, res.Version)
 		require.Equal(t, test.out.RequestID, res.RequestID)
 	}
+}
+
+// TestTableCopiesEngineID pins that the table keeps a copy of the engine ID
+// it derives a user's keys for: a caller that reuses the slice it gave Add
+// does not make the table take those keys for another engine ID, whose
+// messages would then fail the digest check.
+func TestTableCopiesEngineID(t *testing.T) {
+	useEngineTimes(t)
+	const otherEngineID = "\x80\x00\x1f\x88\x04codec-enginf" // as long as codecEngineID
+	user := codecUser(SHA, NoPriv)
+	msg := &Message{
+		Version: Version3, SecurityLevel: AuthNoPriv, SecurityParameters: codecHeader(),
+		ContextEngineID: []byte(otherEngineID), PDUType: SNMPv2Trap, MsgID: 1, RequestID: 1,
+	}
+	msg.SecurityParameters.AuthoritativeEngineID = []byte(otherEngineID)
+	trap, err := msg.Encode(&user)
+	require.NoError(t, err)
+
+	engineID := []byte(codecEngineID)
+	table := NewSnmpV3SecurityParametersTable()
+	require.NoError(t, table.Add(user, engineID))
+	copy(engineID, otherEngineID)
+	x := &Client{Version: Version3, TrapSecurityParametersTable: table}
+	_, err = x.UnmarshalTrap(trap, true)
+	require.NoError(t, err)
 }
 
 func genericV3Trap() []byte {

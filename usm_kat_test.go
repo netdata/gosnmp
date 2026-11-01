@@ -17,7 +17,7 @@ import (
 // 00 00 00 00 00 00 00 00 00 00 00 02. The privacy key of DES uses the same
 // algorithm. The netsnmp module compares every other protocol with net-snmp.
 func TestUSMKeysRFC3414(t *testing.T) {
-	engineID := string([]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2})
+	engineID := []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2}
 
 	tests := map[string]struct {
 		auth AuthProtocol
@@ -29,19 +29,14 @@ func TestUSMKeysRFC3414(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			sp := &UsmSecurityParameters{
-				AuthenticationProtocol:   tc.auth,
-				AuthenticationPassphrase: "maplesyrup",
-				PrivacyProtocol:          DES,
-				PrivacyPassphrase:        "maplesyrup",
-				AuthoritativeEngineID:    engineID,
-			}
-			require.NoError(t, sp.InitSecurityKeys())
+			user := User{AuthProtocol: tc.auth, AuthPassphrase: "maplesyrup", PrivProtocol: DES, PrivPassphrase: "maplesyrup"}
+			keys, err := user.localize(engineID)
+			require.NoError(t, err)
 
-			assert.Equal(t, tc.want, hex.EncodeToString(sp.SecretKey), "authentication key")
+			assert.Equal(t, tc.want, hex.EncodeToString(keys.auth), "authentication key")
 			// The DES key is the localized key's first 16 octets (RFC 3414
 			// section 8.1.1.1).
-			assert.Equal(t, tc.want[:32], hex.EncodeToString(sp.PrivacyKey), "privacy key")
+			assert.Equal(t, tc.want[:32], hex.EncodeToString(keys.priv), "privacy key")
 		})
 	}
 }

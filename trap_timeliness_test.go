@@ -39,23 +39,21 @@ type timelyMessage struct {
 // over 2147483647) is put on the wire afterwards (rewireV3).
 func encodeTimely(t *testing.T, engineID string, m timelyMessage) []byte {
 	t.Helper()
-	sp := &UsmSecurityParameters{
-		UserName: m.user, AuthoritativeEngineID: engineID,
-		AuthoritativeEngineBoots: min(m.boots, maxEngineValue), AuthoritativeEngineTime: min(m.time, maxEngineValue),
-	}
+	user := User{Name: m.user}
 	flags := AuthPriv
 	switch m.user {
 	case "", "codec-user":
-		sp.UserName = "codec-user"
-		sp.AuthenticationProtocol, sp.AuthenticationPassphrase = SHA, "codec-auth-pass"
-		sp.PrivacyProtocol, sp.PrivacyPassphrase = AES, "codec-priv-pass"
+		user = usmUser(SHA, "codec-auth-pass", AES, "codec-priv-pass")
 	case "other-user":
-		sp.AuthenticationProtocol, sp.AuthenticationPassphrase = SHA, "other-auth-pass"
-		sp.PrivacyProtocol, sp.PrivacyPassphrase = AES, "other-priv-pass"
+		user.AuthProtocol, user.AuthPassphrase = SHA, "other-auth-pass"
+		user.PrivProtocol, user.PrivPassphrase = AES, "other-priv-pass"
 	default:
 		flags = NoAuthNoPriv
 	}
-	require.NoError(t, sp.InitSecurityKeys())
+	header := SecurityParameters{
+		UserName: user.Name, AuthoritativeEngineID: []byte(engineID),
+		AuthoritativeEngineBoots: min(m.boots, maxEngineValue), AuthoritativeEngineTime: min(m.time, maxEngineValue),
+	}
 	// wire is the msgFlags octet the message carries.
 	pdu, wire := SNMPv2Trap, flags
 	if m.inform {
@@ -65,23 +63,24 @@ func encodeTimely(t *testing.T, engineID string, m timelyMessage) []byte {
 		wire ^= reportableFlag
 	}
 	data, err := (&Message{
-		Version: Version3, SecurityLevel: flags, SecurityParameters: sp,
+		Version: Version3, SecurityLevel: flags, SecurityParameters: header,
 		PDUType: pdu, RequestID: 1, VarBinds: usmPlainVars,
-	}).Encode()
+	}).Encode(&user)
 	require.NoError(t, err)
-	if m.flipped || m.boots != sp.AuthoritativeEngineBoots || m.time != sp.AuthoritativeEngineTime {
-		data = rewireV3(t, data, sp, wire, m.boots, m.time)
+	if m.flipped || m.boots != header.AuthoritativeEngineBoots || m.time != header.AuthoritativeEngineTime {
+		data = rewireV3(t, data, &user, header.AuthoritativeEngineID, wire, m.boots, m.time)
 	}
 	// A flipped message must carry the flag the other way on the wire.
 	require.Equal(t, wire&reportableFlag, wireFlags(t, data)&reportableFlag, "the wire's reportable flag")
 	return data
 }
 
-// rewireV3 returns the SNMPv3 message data, signed with sp's key when its flags
-// ask for authentication, with the msgFlags octet flags and the engine boots
-// and time given, and signed again: wire values the encoder does not write. An
-// encrypted scoped PDU stays as encrypted with the encoded boots and time.
-func rewireV3(t *testing.T, data []byte, sp *UsmSecurityParameters, flags SecurityLevel, boots, engineTime uint32) []byte {
+// rewireV3 returns the SNMPv3 message data from engineID, signed with user's
+// key for it when its flags ask for authentication, with the msgFlags octet
+// flags and the engine boots and time given, and signed again: wire values
+// the encoder does not write. An encrypted scoped PDU stays as encrypted with
+// the encoded boots and time.
+func rewireV3(t *testing.T, data []byte, user *User, engineID []byte, flags SecurityLevel, boots, engineTime uint32) []byte {
 	t.Helper()
 	m := splitV3Message(t, data)
 	msgFlagsOctets(byte(flags))(&m)
@@ -89,10 +88,12 @@ func rewireV3(t *testing.T, data []byte, sp *UsmSecurityParameters, flags Securi
 	if !flags.authFlag() {
 		return m.bytes()
 	}
+	key, err := user.authKey(engineID)
+	require.NoError(t, err)
 	m.usm[4] = make([]byte, len(m.usm[4]))
-	mac := hmac.New(sp.AuthenticationProtocol.HashType().New, sp.SecretKey)
+	mac := hmac.New(user.AuthProtocol.hash().New, key)
 	mac.Write(m.bytes())
-	m.usm[4] = mac.Sum(nil)[:sp.AuthenticationProtocol.spec().MACLen]
+	m.usm[4] = mac.Sum(nil)[:user.AuthProtocol.spec().MACLen]
 	return m.bytes()
 }
 
@@ -104,10 +105,12 @@ var timelyReceivers = []struct {
 	users    []string // the users the receiver knows
 }{
 	{"table", func(t *testing.T) *Client {
+		other := usmUser(SHA, "other-auth-pass", AES, "other-priv-pass")
+		other.Name = "other-user"
 		tb := NewSnmpV3SecurityParametersTable()
-		require.NoError(t, tb.Add("codec-user", usmDecoder(SHA, "codec-auth-pass", AES, "codec-priv-pass")().SecurityParameters))
-		require.NoError(t, tb.Add("other-user", usmDecoder(SHA, "other-auth-pass", AES, "other-priv-pass")().SecurityParameters))
-		require.NoError(t, tb.Add("plain-user", &UsmSecurityParameters{UserName: "plain-user"}))
+		require.NoError(t, tb.Add(usmUser(SHA, "codec-auth-pass", AES, "codec-priv-pass"), nil))
+		require.NoError(t, tb.Add(other, nil))
+		require.NoError(t, tb.Add(User{Name: "plain-user"}, nil))
 		return &Client{Version: Version3, TrapSecurityParametersTable: tb}
 	}, []string{"", "codec-user", "other-user", "plain-user"}},
 	{"single", func(*testing.T) *Client {
@@ -240,25 +243,30 @@ func TestEngineTimesRecords(t *testing.T) {
 // TestEngineTimesKeys pins what the records of a trap's engine are keyed by:
 // the authentication protocol, the engine ID and the localized key.
 func TestEngineTimesKeys(t *testing.T) {
-	base := func() *UsmSecurityParameters {
-		return &UsmSecurityParameters{AuthenticationProtocol: SHA, AuthoritativeEngineID: "engine", SecretKey: []byte("key")}
+	type keyInput struct {
+		engineID string
+		keys     usmKeys
 	}
-	keys := map[engineTimeKey]string{keyOf(base()): "base"}
-	for name, edit := range map[string]func(sp *UsmSecurityParameters){
-		"another protocol":           func(sp *UsmSecurityParameters) { sp.AuthenticationProtocol = SHA256 },
-		"another engine ID":          func(sp *UsmSecurityParameters) { sp.AuthoritativeEngineID = "engine2" },
-		"another key":                func(sp *UsmSecurityParameters) { sp.SecretKey = []byte("key2") },
-		"an engine ID longer by 1":   func(sp *UsmSecurityParameters) { sp.AuthoritativeEngineID, sp.SecretKey = "enginek", []byte("ey") },
-		"another engine ID, as long": func(sp *UsmSecurityParameters) { sp.AuthoritativeEngineID = "engin2" },
-		"an engine ID of 200 bytes":  func(sp *UsmSecurityParameters) { sp.AuthoritativeEngineID = string(make([]byte, 200)) },
+	base := func() keyInput {
+		return keyInput{engineID: "engine", keys: usmKeys{authProtocol: SHA, auth: []byte("key")}}
+	}
+	keyOfInput := func(k keyInput) engineTimeKey { return keyOf([]byte(k.engineID), &k.keys) }
+	keys := map[engineTimeKey]string{keyOfInput(base()): "base"}
+	for name, edit := range map[string]func(k *keyInput){
+		"another protocol":           func(k *keyInput) { k.keys.authProtocol = SHA256 },
+		"another engine ID":          func(k *keyInput) { k.engineID = "engine2" },
+		"another key":                func(k *keyInput) { k.keys.auth = []byte("key2") },
+		"an engine ID longer by 1":   func(k *keyInput) { k.engineID, k.keys.auth = "enginek", []byte("ey") },
+		"another engine ID, as long": func(k *keyInput) { k.engineID = "engin2" },
+		"an engine ID of 200 bytes":  func(k *keyInput) { k.engineID = string(make([]byte, 200)) },
 	} {
-		sp := base()
-		edit(sp)
-		k := keyOf(sp)
-		require.NotContains(t, keys, k, name)
-		keys[k] = name
+		k := base()
+		edit(&k)
+		key := keyOfInput(k)
+		require.NotContains(t, keys, key, name)
+		keys[key] = name
 	}
-	assert.Equal(t, keyOf(base()), keyOf(base()))
+	assert.Equal(t, keyOfInput(base()), keyOfInput(base()))
 }
 
 // TestEngineTimesConcurrent runs admit from several goroutines, for the race
@@ -285,14 +293,15 @@ func TestTrapEncodedReplay(t *testing.T) {
 	for _, path := range []string{"single", "table"} {
 		t.Run(path, func(t *testing.T) {
 			advance := useEngineTimes(t)
-			sp := signedTestUSM(t, SHA256, AES, usmCharEngineID, "codec-user")
-			sender := &Client{Version: Version3, SecurityLevel: AuthPriv, SecurityParameters: sp.Copy()}
+			user := signedTestUser(SHA256, AES, "codec-user")
+			sender := &Client{Version: Version3, SecurityLevel: AuthPriv, User: user}
+			seedEngine(usmCharEngineID, 3, 77)(sender)
 			wire, err := sender.EncodeMessage(SNMPv2Trap, usmPlainVars, 0, 0)
 			require.NoError(t, err)
-			receiver := &Client{Version: Version3, SecurityLevel: AuthPriv, SecurityParameters: sp.Copy()}
+			receiver := &Client{Version: Version3, SecurityLevel: AuthPriv, User: user}
 			if path == "table" {
 				receiver.TrapSecurityParametersTable = NewSnmpV3SecurityParametersTable()
-				require.NoError(t, receiver.TrapSecurityParametersTable.Add("codec-user", sp.Copy()))
+				require.NoError(t, receiver.TrapSecurityParametersTable.Add(user, []byte(usmCharEngineID)))
 			}
 			got, err := receiver.UnmarshalTrap(bytes.Clone(wire), false)
 			require.NoError(t, err)

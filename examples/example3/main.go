@@ -19,12 +19,12 @@ func main() {
 		Version:       g.Version3,
 		SecurityLevel: g.AuthPriv,
 		Timeout:       time.Duration(30) * time.Second,
-		SecurityParameters: &g.UsmSecurityParameters{
-			UserName:                 "user",
-			AuthenticationProtocol:   g.SHA,
-			AuthenticationPassphrase: "password",
-			PrivacyProtocol:          g.DES,
-			PrivacyPassphrase:        "password",
+		User: g.User{
+			Name:           "user",
+			AuthProtocol:   g.SHA,
+			AuthPassphrase: "password",
+			PrivProtocol:   g.DES,
+			PrivPassphrase: "password",
 		},
 	}
 	err := params.Connect()

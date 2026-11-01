@@ -40,7 +40,7 @@ func BenchmarkDecode(b *testing.B) {
 }
 
 // BenchmarkEncode measures Message.Encode on typical requests, a response, a
-// trap and SNMPv3 messages.
+// trap and SNMPv3 messages, whose user's keys it localizes.
 func BenchmarkEncode(b *testing.B) {
 	oids := make([]VarBind, 10)
 	for i := range oids {
@@ -51,55 +51,43 @@ func BenchmarkEncode(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	v3Request := func(flags SecurityLevel, auth AuthProtocol) *Message {
-		sp := &UsmSecurityParameters{
-			UserName:                 "codec-user",
-			AuthenticationProtocol:   auth,
-			AuthenticationPassphrase: "codec-auth-pass",
-			AuthoritativeEngineID:    "\x80\x00\x1f\x88\x04codec-engine",
-			AuthoritativeEngineBoots: 7,
-			AuthoritativeEngineTime:  1234,
-		}
-		if auth != NoAuth {
-			if err := sp.InitSecurityKeys(); err != nil {
-				b.Fatal(err)
-			}
-		}
+	v3Request := func(flags SecurityLevel) *Message {
 		return &Message{
-			Version:       Version3,
-			SecurityLevel: flags,
-
-			SecurityParameters: sp,
+			Version:            Version3,
+			SecurityLevel:      flags,
+			SecurityParameters: codecHeader(),
 			PDUType:            GetRequest,
 			MsgID:              4242,
 			RequestID:          123456,
 			VarBinds:           oids,
 		}
 	}
+	shaUser := User{Name: "codec-user", AuthProtocol: SHA, AuthPassphrase: "codec-auth-pass"}
 
 	packets := []struct {
 		name string
 		pkt  *Message
+		user *User // an SNMPv3 message's
 	}{
-		{"getRequest10", &Message{Version: Version2c, Community: "public", PDUType: GetRequest, RequestID: 1, VarBinds: oids}},
+		{"getRequest10", &Message{Version: Version2c, Community: "public", PDUType: GetRequest, RequestID: 1, VarBinds: oids}, nil},
 		{"getBulkRequest", &Message{
 			Version: Version2c, Community: "public", PDUType: GetBulkRequest, RequestID: 1,
 			MaxRepetitions: 25, VarBinds: oids[:1],
-		}},
-		{"kyoceraResponse", response},
+		}, nil},
+		{"kyoceraResponse", response, nil},
 		{"v1Trap", &Message{
 			Version: Version1, Community: "public", PDUType: Trap, VarBinds: slices.Clone(response.VarBinds),
 			Enterprise: ".1.3.6.1.4.1.20372", AgentAddress: "192.0.2.1", GenericTrap: 6, SpecificTrap: 1,
-		}},
-		{"v3NoAuthGetRequest10", v3Request(NoAuthNoPriv, NoAuth)},
-		{"v3AuthSHAGetRequest10", v3Request(AuthNoPriv, SHA)},
+		}, nil},
+		{"v3NoAuthGetRequest10", v3Request(NoAuthNoPriv), &User{Name: "codec-user"}},
+		{"v3AuthSHAGetRequest10", v3Request(AuthNoPriv), &shaUser},
 	}
 
 	for _, p := range packets {
 		b.Run(p.name, func(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
-				if _, err := p.pkt.Encode(); err != nil {
+				if _, err := p.pkt.Encode(p.user); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -144,7 +132,7 @@ func snmpv2Trap20() []byte {
 }
 
 func mustMarshal(p *Message) []byte {
-	b, err := p.Encode()
+	b, err := p.Encode(nil)
 	if err != nil {
 		panic(err)
 	}

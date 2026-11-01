@@ -15,10 +15,10 @@ import (
 
 // The FuzzDecodeV3 receivers.
 const (
-	fuzzDecode        = "DecodeMessage"
-	fuzzSingle        = "UnmarshalTrap single user"
-	fuzzTable         = "UnmarshalTrap table"
-	fuzzTableKeysOnly = "UnmarshalTrap table, keys only"
+	fuzzDecode          = "DecodeMessage"
+	fuzzSingle          = "UnmarshalTrap single user"
+	fuzzTable           = "UnmarshalTrap table"
+	fuzzTableRegistered = "UnmarshalTrap table, registered for the seeds' engine ID"
 )
 
 // usmFuzzPair is the credentials of one FuzzDecodeV3 receiver.
@@ -27,8 +27,8 @@ type usmFuzzPair struct {
 	priv PrivProtocol
 }
 
-func (p usmFuzzPair) usm() *UsmSecurityParameters {
-	return usmDecoder(p.auth, "codec-auth-pass", p.priv, "codec-priv-pass")().SecurityParameters.(*UsmSecurityParameters)
+func (p usmFuzzPair) user() User {
+	return usmUser(p.auth, "codec-auth-pass", p.priv, "codec-priv-pass")
 }
 
 func (p usmFuzzPair) flags() SecurityLevel {
@@ -57,10 +57,10 @@ func usmFuzzPairs() []usmFuzzPair {
 // FuzzDecodeV3 decodes input with the SNMPv3 credentials of the pair the
 // first argument selects: DecodeMessage, which decrypts without checking
 // the digest, and UnmarshalTrap for a single user and through a credentials
-// table, the latter also with keys localized to another engine ID and no
-// passphrases. Each must return within a second, must not panic and must not
-// write into its input. Seeds are a secured trap for every pair and malformed
-// variants of it.
+// table, the latter also with the user registered for the seeds' engine ID,
+// whose keys it uses without deriving them. Each must return within a second,
+// must not panic and must not write into its input. Seeds are a secured trap
+// for every pair and malformed variants of it.
 func FuzzDecodeV3(f *testing.F) {
 	pairs := usmFuzzPairs()
 	index := make(map[usmFuzzPair]uint8, len(pairs))
@@ -70,17 +70,13 @@ func FuzzDecodeV3(f *testing.F) {
 
 	for i, p := range pairs {
 		pkt := usmCharPacket(f, p.priv, usmCharVarbinds)
-		sp := pkt.SecurityParameters.(*UsmSecurityParameters)
-		sp.AuthenticationProtocol = p.auth
-		sp.SecretKey, sp.PrivacyKey = nil, nil
+		user := usmCharUser(p.priv)
+		user.AuthProtocol = p.auth
 		if p.auth == NoAuth {
 			pkt.SecurityLevel = NoAuthNoPriv
 		}
-		if err := sp.InitSecurityKeys(); err != nil {
-			f.Fatal(err)
-		}
 		usm.Salts.Set(usmCharSalt(p.priv))
-		data, err := pkt.Encode()
+		data, err := pkt.Encode(&user)
 		if err != nil {
 			f.Fatal(err)
 		}
@@ -112,25 +108,25 @@ func FuzzDecodeV3(f *testing.F) {
 			decode func(data []byte) error
 		}{
 			{fuzzDecode, func(data []byte) error {
-				_, err := (&Client{SecurityParameters: p.usm()}).DecodeMessage(data)
+				_, err := (&Client{User: p.user()}).DecodeMessage(data)
 				return err
 			}},
 			{fuzzSingle, func(data []byte) error {
-				x := &Client{Version: Version3, SecurityLevel: p.flags(), SecurityParameters: p.usm()}
+				x := &Client{Version: Version3, SecurityLevel: p.flags(), User: p.user()}
 				_, err := x.UnmarshalTrap(data, false)
 				return err
 			}},
 			{fuzzTable, func(data []byte) error {
 				table := NewSnmpV3SecurityParametersTable()
-				if err := table.Add("codec-user", p.usm()); err != nil {
+				if err := table.Add(p.user(), nil); err != nil {
 					return err
 				}
 				_, err := (&Client{Version: Version3, TrapSecurityParametersTable: table}).UnmarshalTrap(data, false)
 				return err
 			}},
-			{fuzzTableKeysOnly, func(data []byte) error {
+			{fuzzTableRegistered, func(data []byte) error {
 				table := NewSnmpV3SecurityParametersTable()
-				if err := table.Add("codec-user", usmKeysOnly(p.usm(), usmOtherEngineID)); err != nil {
+				if err := table.Add(p.user(), []byte(usmCharEngineID)); err != nil {
 					return err
 				}
 				_, err := (&Client{Version: Version3, TrapSecurityParametersTable: table}).UnmarshalTrap(data, false)

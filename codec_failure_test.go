@@ -32,13 +32,18 @@ type decodedFields struct {
 }
 
 func fieldsOf(p *Message) decodedFields {
-	d := decodedFields{
+	h := &p.SecurityParameters
+	return decodedFields{
 		version:         p.Version,
 		community:       p.Community,
 		msgID:           p.MsgID,
 		msgMaxSize:      p.MsgMaxSize,
 		securityLevel:   p.SecurityLevel,
-		contextEngineID: p.ContextEngineID,
+		usmEngineID:     string(h.AuthoritativeEngineID),
+		usmUser:         h.UserName,
+		usmBoots:        h.AuthoritativeEngineBoots,
+		usmTime:         h.AuthoritativeEngineTime,
+		contextEngineID: string(p.ContextEngineID),
 		contextName:     p.ContextName,
 		pduType:         p.PDUType,
 		requestID:       p.RequestID,
@@ -53,11 +58,6 @@ func fieldsOf(p *Message) decodedFields {
 		timestamp:       p.Timestamp,
 		variables:       p.VarBinds,
 	}
-	if sp := usmOf(p.SecurityParameters); sp != nil {
-		d.usmEngineID, d.usmUser = sp.AuthoritativeEngineID, sp.UserName
-		d.usmBoots, d.usmTime = sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime
-	}
-	return d
 }
 
 // TestDecodeFailurePartialResults pins, for a field of each decoder failing
@@ -264,11 +264,7 @@ func TestUnknownPDUTypeError(t *testing.T) {
 			_, err := (&Client{Version: Version2c}).DecodeMessage(craftedMsg(1, pdu(tc.tag)))
 			assert.EqualError(t, err, "unable to decode packet body: "+tc.want, "SNMPv2c")
 
-			v3 := &Client{
-				Version: Version3,
-
-				SecurityParameters: &UsmSecurityParameters{UserName: "codec-user"},
-			}
+			v3 := &Client{Version: Version3, User: User{Name: "codec-user"}}
 			_, err = v3.DecodeMessage(craftedV3NoAuth(tlv(0x30, craftedEngineID, octets("ctx"), pdu(tc.tag))))
 			assert.EqualError(t, err, "unable to decode packet body: "+tc.want, "SNMPv3")
 

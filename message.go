@@ -18,10 +18,8 @@ const (
 //go:generate go tool -modfile=tools/go.mod stringer -type=Version -linecomment
 
 // Message is an SNMP message: a request, an answer or a trap. A decoded
-// message holds the fields it carried; its SecurityParameters are a
-// copy of the parameters it was decoded with (the client's, or on
-// UnmarshalTrap's table path the matching set's), protocols, passphrases and
-// keys included, with the message's fields decoded into them.
+// message holds the fields it carried, its SNMPv3 security parameters
+// included; it holds no secret.
 type Message struct {
 	// Version is the SNMP version.
 	Version Version
@@ -29,10 +27,10 @@ type Message struct {
 	// The SNMPv3 header: the security level and the User-based Security
 	// Model's parameters.
 	SecurityLevel      SecurityLevel
-	SecurityParameters SnmpV3SecurityParameters
+	SecurityParameters SecurityParameters
 
 	// The SNMPv3 context of the scoped PDU.
-	ContextEngineID string
+	ContextEngineID []byte
 	ContextName     string
 
 	// Community is the community of an SNMPv1 or SNMPv2c message.
@@ -119,10 +117,21 @@ func (t PDUType) confirmed() bool {
 }
 
 // Encode encodes the message as it is, ready for the wire. An SNMPv3
-// message is encrypted and signed when its flags ask for it, with the keys in
-// its SecurityParameters, which it requires; each encrypted message gets a
-// new salt, whatever PrivacyParameters holds. Encode draws no new msgID
-// (Client.EncodeMessage does).
-func (packet *Message) Encode() ([]byte, error) {
-	return packet.marshalMsg()
+// message is encrypted and signed when its security level asks for it, with
+// user's keys localized to its engine ID (SecurityParameters'
+// AuthoritativeEngineID), which the level requires; each encrypted message
+// gets a new salt, whatever PrivacyParameters holds. The message names its
+// user itself (SecurityParameters' UserName). SNMPv1 and SNMPv2c messages
+// take no user (nil), and an SNMPv3 message at NoAuthNoPriv takes nil or a
+// user whose keys derive. Encode draws no new msgID (Client.EncodeMessage
+// does).
+func (packet *Message) Encode(user *User) ([]byte, error) {
+	var keys usmKeys
+	if packet.Version == Version3 && user != nil {
+		var err error
+		if keys, err = user.localize(packet.SecurityParameters.AuthoritativeEngineID); err != nil {
+			return nil, err
+		}
+	}
+	return packet.marshalMsg(&keys)
 }

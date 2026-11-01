@@ -5,6 +5,7 @@
 package gosnmp
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -38,7 +39,7 @@ func (x *Client) send(packetOut *Message) (result *Message, err error) {
 	return result, err
 }
 
-// request runs a request: for SNMPv3 it first takes the caller's changes into
+// request runs a request: for SNMPv3 it first takes the configuration into
 // the engine state and discovers the agent's engine when it has none, then
 // sends the request, whose answer commits the engine parameters it carries,
 // and sends the request once more when the answer is a Report that
@@ -48,43 +49,42 @@ func (x *Client) request(packetOut *Message) (result *Message, err error) {
 	if _, err = x.connection(); err != nil {
 		return nil, err
 	}
+	// sec is the engine clock and the keys the attempts carry.
+	var sec attemptSecurity
 	if packetOut.Version == Version3 {
-		// The engine state is configuration the request reads at its start.
-		if err = x.reconcileEngine(); err != nil {
+		// The engine state takes the configuration at the request's start.
+		if err = x.startEngine(); err != nil {
 			return &Message{}, err
 		}
-	}
-	// clock is the engine clock the attempts carry.
-	var clock sourcedClock
-	if packetOut.Version == Version3 {
 		if err = x.negotiateInitialSecurityParameters(&cfg, packetOut); err != nil {
 			return &Message{}, err
 		}
-		clock = x.engine.clock
+		sec = attemptSecurity{clock: x.engine.clock, keys: x.engine.keys}
 	}
 
 	var stored bool
-	result, stored, err = x.sendOneRequest(&cfg, packetOut, false, clock)
+	result, stored, err = x.sendOneRequest(&cfg, packetOut, false, sec)
 	kind := resyncKindOf(result)
 	if !kind.resync {
 		return result, err
 	}
 
-	// Resynchronize: send the request again, with the engine parameters the
-	// client committed from an authenticated Report, or with those of an
-	// unauthenticated one in the request only, when mayLend allows it: the
-	// answer brings the agent's, which the client commits. A Report that
-	// cannot resynchronize the request ends it with its error, and so does a
-	// resync Report answering the retransmission.
+	// Resynchronize: send the request again, with the engine clock the
+	// client committed from an authenticated Report, or with the engine
+	// parameters of an unauthenticated one in the request only, when mayLend
+	// allows it: the answer brings the agent's, which the client commits. A
+	// committed Report named the request's engine ID (receiveReply), so the
+	// engine ID and keys stay. A Report that cannot resynchronize the request
+	// ends it with its error, and so does a resync Report answering the
+	// retransmission.
 	if stored {
-		x.engine.stamp(packetOut)
-		clock = x.engine.clock
+		sec.clock = x.engine.clock
 	} else if !mayLend(packetOut, result, kind) {
 		return result, kind.err
-	} else if clock, err = x.lendEngineParameters(packetOut, result, kind); err != nil {
+	} else if sec, err = x.lendEngineParameters(packetOut, result, kind, sec); err != nil {
 		return result, err
 	}
-	result, _, err = x.sendOneRequest(&cfg, packetOut, false, clock)
+	result, _, err = x.sendOneRequest(&cfg, packetOut, false, sec)
 	if kind = resyncKindOf(result); kind.resync {
 		return result, kind.err
 	}
@@ -114,10 +114,10 @@ func resyncKindOf(result *Message) reportKind {
 
 // requestConfig is the client's configuration as a request reads it, once, at
 // its start: a change a hook makes to the client applies from the next
-// request. The packet carries the rest (version, security level, context),
-// and the SNMPv3 engine state takes the caller's changes to its
-// fields at the same time (reconcileEngine). Not part of it: the connection,
-// which each attempt takes from the client (connection).
+// request. The packet carries the rest (version, security level, user name,
+// context name), and the SNMPv3 engine state takes the user at the same time
+// (startEngine). Not part of it: the connection, which each attempt takes from
+// the client (connection).
 type requestConfig struct {
 	ctx                                        context.Context
 	timeout                                    time.Duration
@@ -166,9 +166,9 @@ type exchange struct {
 	// discovery marks the engine discovery's exchange, whose answer gives the
 	// engine state its engine ID (settle).
 	discovery bool
-	// clock is the engine clock the attempts of an SNMPv3 request carry
-	// (encode): the engine state's, or the one a Report lent to a resend.
-	clock sourcedClock
+	// sec is the engine clock and the keys the attempts of an SNMPv3 request
+	// carry (encode) and check answers with (decode).
+	sec attemptSecurity
 
 	// discarded is the reason of the discarded message that came closest to
 	// answering the request, of rank discardedRank (discard).
@@ -274,20 +274,30 @@ func (e *attemptsError) Unwrap() []error {
 	return e.errs[:]
 }
 
+// attemptSecurity is what the attempts of an SNMPv3 request sign, encrypt and
+// check answers with: the engine clock their boots and time come from and the
+// user's keys localized to the request's engine ID, the engine state's, or a
+// resend's that a Report lent them; none for the discovery.
+type attemptSecurity struct {
+	clock sourcedClock
+	keys  usmKeys
+}
+
 // sentIDs are the request ID and the msgID an attempt sent the request with.
 type sentIDs struct {
 	requestID, msgID uint32
 }
 
 // sendOneRequest sends packetOut, the engine discovery's request when
-// discovery is set, an SNMPv3 one with the engine boots and time of clock, and
-// returns the reply that answers it, and whether the reply's engine parameters
-// were committed into the engine state, retrying up to cfg.retries times.
-// OnFinish runs when it succeeds. Once Close closed the client, an attempt
-// that ends without a reply ends the request with net.ErrClosed, whatever else
-// ended it. An exchange that ends without an answer goes through unanswered.
-func (x *Client) sendOneRequest(cfg *requestConfig, packetOut *Message, discovery bool, clock sourcedClock) (*Message, bool, error) {
-	e := exchange{x: x, packet: packetOut, cfg: *cfg, discovery: discovery, clock: clock}
+// discovery is set, an SNMPv3 one with the engine boots and time of sec's clock
+// and its keys, and returns the reply that answers it, and whether the reply's
+// engine parameters were committed into the engine state, retrying up to
+// cfg.retries times. OnFinish runs when it succeeds. Once Close closed the
+// client, an attempt that ends without a reply ends the request with
+// net.ErrClosed, whatever else ended it. An exchange that ends without an
+// answer goes through unanswered.
+func (x *Client) sendOneRequest(cfg *requestConfig, packetOut *Message, discovery bool, sec attemptSecurity) (*Message, bool, error) {
+	e := exchange{x: x, packet: packetOut, cfg: *cfg, discovery: discovery, sec: sec}
 	// The IDs of the attempts before the current one, in a local array, not a
 	// field of exchange, so that eight of them stay on the stack: a field
 	// would always escape to the heap, and a slice made for cfg.retries+1 of
@@ -423,17 +433,16 @@ func attemptDeadline(ctx context.Context, timeout time.Duration) (deadline time.
 // encode marshals the request, for SNMPv3 with a new message ID and the
 // engine boots and time the exchange's clock gives at this attempt
 // (sourcedClock.timeFor; the encoder draws the salt of an encrypted message).
-// An authenticated request is signed with the user's key, which must fit its
-// protocol (usm.Auth.CheckKey).
+// An authenticated request is signed with the exchange's key, which must fit
+// its protocol (usm.Auth.CheckKey).
 func (e *exchange) encode() ([]byte, error) {
 	x, p := e.x, e.packet
 	if p.Version == Version3 {
 		p.MsgID = x.nextMsgID()
-		if sp := usmOf(p.SecurityParameters); sp != nil {
-			sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = e.clock.timeFor(time.Now())
-		}
+		h := &p.SecurityParameters
+		h.AuthoritativeEngineBoots, h.AuthoritativeEngineTime = e.sec.clock.timeFor(time.Now())
 	}
-	out, err := p.marshalMsg()
+	out, err := p.marshalMsg(&e.sec.keys)
 	if err != nil {
 		return nil, fmt.Errorf("marshal: %w", err)
 	}
@@ -540,22 +549,15 @@ func (e *exchange) named(reply *Message, earlier []sentIDs) bool {
 // message of another SNMP version than the request's and, for an SNMPv3
 // request, one whose msgID names none of the exchange's attempts (attemptOf),
 // before security processing; for an SNMPv3 request, the security processing
-// by the message's own flags (RFC 3414 section 3.2: receiveReply, the digest
+// by the message's own level (RFC 3414 section 3.2: receiveReply, the digest
 // exactly when it asks for authentication, decryption exactly when it asks for
-// privacy) and the scoped PDU; then the PDU. It reports whether the message's
-// digest checked with the request's key. The reply's security parameters are
-// the request's with the USM fields the reply carries, keeping the request's
-// keys only for the request's engine ID: no key derives for an engine a reply
-// names. With an error it returns the message as far as it read it when it
-// read the ID that names the request's attempts (rankOf), else nil.
+// privacy) with the exchange's keys, which no reply changes: no key derives
+// for an engine a reply names; then the scoped PDU and the PDU. It reports
+// whether the message's digest checked with the request's key. With an error
+// it returns the message as far as it read it when it read the ID that names
+// the request's attempts (rankOf), else nil.
 func (e *exchange) decode(resp []byte, earlier []sentIDs) (_ *Message, verified bool, _ error) {
 	reply := &Message{}
-	var sp *UsmSecurityParameters
-	if e.packet.SecurityParameters != nil {
-		sp = e.packet.SecurityParameters.Copy().usm()
-		reply.SecurityParameters = sp
-	}
-
 	v3 := e.packet.Version == Version3
 	cursor, w, err := unmarshalHeader(resp, reply)
 	switch {
@@ -565,15 +567,15 @@ func (e *exchange) decode(resp []byte, earlier []sentIDs) (_ *Message, verified 
 	case !v3:
 	case !e.named(reply, earlier):
 		err = errOtherMessage
-	case sp != nil:
-		err = receiveReply(reply.SecurityLevel, &w, sp)
+	default:
+		err = receiveReply(reply.SecurityLevel, &reply.SecurityParameters, &e.packet.SecurityParameters, &e.sec.keys)
 	}
 	// read is reply, as far as it was read, when an error ends the decode: for
 	// an SNMPv3 request when the SNMPv3 header's msgID decoded, for another
 	// when the PDU's request ID did (atPDU: the decode reached the PDU, which
 	// for an SNMPv3 request is after its msgID).
 	read := func(atPDU bool) *Message {
-		if v3 && w.has&hasMsgID != 0 || atPDU && requestIDRead(resp, cursor) {
+		if v3 && w.msgIDRead || atPDU && requestIDRead(resp, cursor) {
 			return reply
 		}
 		return nil
@@ -583,13 +585,13 @@ func (e *exchange) decode(resp []byte, earlier []sentIDs) (_ *Message, verified 
 	}
 	if v3 {
 		if reply.SecurityLevel.authFlag() {
-			in := inbound{msg: resp, wire: w, sp: sp}
+			in := inbound{msg: resp, wire: w, keys: e.sec.keys}
 			if err = in.verify(); err != nil {
 				return read(false), false, err
 			}
 			verified = true
 		}
-		if resp, cursor, err = unmarshalScopedPDU(resp, cursor, reply, reply.SecurityLevel.privFlag()); err != nil {
+		if resp, cursor, err = unmarshalScopedPDU(resp, cursor, reply, reply.SecurityLevel.privFlag(), &e.sec.keys); err != nil {
 			return read(false), verified, err
 		}
 	}
@@ -599,28 +601,32 @@ func (e *exchange) decode(resp []byte, earlier []sentIDs) (_ *Message, verified 
 	return reply, verified, nil
 }
 
-// receiveReply makes sp, a copy of a request's parameters, the security
-// parameters of a reply with flags whose USM fields are w, after RFC 3414
-// section 3.2 steps 4 and 5 by the reply's flags: the reply's user is the
-// request's (else errUnknownUser), or the empty user of discovery, which has
-// no protocols (as net-snmp's), so it names no reply that asks for
-// authentication; a reply that asks for authentication names the request's
-// engine ID, the only one the request's keys serve (else errUnknownUser); the
-// request's user has the protocols the flags ask for.
-func receiveReply(flags SecurityLevel, w *v3Wire, sp *UsmSecurityParameters) error {
-	if w.userName != sp.UserName {
-		if w.userName != "" {
+// receiveReply applies RFC 3414 section 3.2 steps 4 and 5 to a reply at level
+// whose USM parameters are got, to a request whose are want and whose keys are
+// keys: the reply's user is the request's (else errUnknownUser), or the empty
+// user of discovery, which has no protocols (as net-snmp's), so it names no
+// reply that asks for authentication; a reply that asks for authentication
+// names the request's engine ID, the only one the request's keys serve (else
+// errUnknownUser); the request's keys have the protocols the level asks for.
+func receiveReply(level SecurityLevel, got, want *SecurityParameters, keys *usmKeys) error {
+	if got.UserName != want.UserName {
+		if got.UserName != "" {
 			return errUnknownUser
 		}
-		if flags.authFlag() {
+		if level.authFlag() {
 			return errNoAuthForMsg
 		}
 	}
-	if flags.authFlag() && w.engineID != sp.AuthoritativeEngineID {
+	if level.authFlag() && !bytes.Equal(got.AuthoritativeEngineID, want.AuthoritativeEngineID) {
 		return errUnknownUser
 	}
-	_, err := sp.receive(flags, w, false)
-	return err
+	switch needAuth, needPriv := missingProtocol(keys.authProtocol, keys.privProtocol, level); {
+	case needAuth:
+		return errNoAuthForMsg
+	case needPriv:
+		return errNoPrivForMsg
+	}
+	return nil
 }
 
 // The reasons a message is discarded for after the header decoded, besides
@@ -667,15 +673,15 @@ func (e *exchange) answers(reply *Message, earlier []sentIDs) (bool, error) {
 		return true, nil
 	}
 	p := e.packet
-	got, want := reply.SecurityParameters.usm(), p.SecurityParameters.usm()
+	got, want := &reply.SecurityParameters, &p.SecurityParameters
 	switch {
 	case reply.SecurityLevel != p.SecurityLevel:
 		return false, errOtherLevel
 	case got.UserName != want.UserName:
 		return false, errOtherUser
-	case got.AuthoritativeEngineID != want.AuthoritativeEngineID:
+	case !bytes.Equal(got.AuthoritativeEngineID, want.AuthoritativeEngineID):
 		return false, errOtherEngine
-	case reply.ContextEngineID != p.ContextEngineID || reply.ContextName != p.ContextName:
+	case !bytes.Equal(reply.ContextEngineID, p.ContextEngineID) || reply.ContextName != p.ContextName:
 		return false, errOtherContext
 	}
 	return true, nil

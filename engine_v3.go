@@ -5,6 +5,7 @@
 package gosnmp
 
 import (
+	"bytes"
 	"errors"
 	"time"
 )
@@ -13,7 +14,7 @@ import (
 // before an SNMPv3 request: it discovers the agent's engine while the engine
 // state has no engine ID, and gives packetOut the engine state.
 func (x *Client) negotiateInitialSecurityParameters(cfg *requestConfig, packetOut *Message) error {
-	if x.engine.engineID == "" {
+	if len(x.engine.engineID) == 0 {
 		return x.discoverEngine(cfg, packetOut)
 	}
 	x.engine.stamp(packetOut)
@@ -26,7 +27,7 @@ func (x *Client) negotiateInitialSecurityParameters(cfg *requestConfig, packetOu
 func (x *Client) discoverEngine(cfg *requestConfig, packetOut *Message) error {
 	discoveryPacket := newDiscoveryPacket()
 	discoveryPacket.ContextName = packetOut.ContextName
-	_, committed, err := x.sendOneRequest(cfg, discoveryPacket, true, sourcedClock{})
+	_, committed, err := x.sendOneRequest(cfg, discoveryPacket, true, attemptSecurity{})
 	if !committed {
 		return err
 	}
@@ -42,8 +43,7 @@ func engineFoundDespiteUnknownUser(result *Message, err error) bool {
 	if !errors.Is(err, ErrUnknownUsername) || result == nil {
 		return false
 	}
-	usp := usmOf(result.SecurityParameters)
-	return usp != nil && usp.AuthoritativeEngineID != ""
+	return len(result.SecurityParameters.AuthoritativeEngineID) != 0
 }
 
 // errReplyNotInTime is the error of an authenticated reply outside the time
@@ -89,7 +89,7 @@ func (e *exchange) settle(out attemptOutcome) (attemptOutcome, error) {
 	case !out.verified && isReport:
 		return out, nil
 	}
-	from := reply.SecurityParameters.usm()
+	from := &reply.SecurityParameters
 	boots, engineTime := from.AuthoritativeEngineBoots, from.AuthoritativeEngineTime
 	// Recovery relaxes clock ordering, never the terminal maximum-boots rule.
 	if out.verified && boots == maxEngineValue {
@@ -156,7 +156,7 @@ func (x *Client) forgetEngineTime() {
 // a forged Report gets no such answer (net-snmp locks such devices out).
 // settle has already rejected maximum engine boots.
 func (e *exchange) resetsClock(boots, engineTime uint32, now time.Time) bool {
-	lent := e.clock
+	lent := e.sec.clock
 	if lent.source != fromTimeWindowReport || boots != lent.boots {
 		return false
 	}
@@ -182,31 +182,31 @@ func mayLend(packetOut, report *Message, kind reportKind) bool {
 	if kind.namesEngine {
 		return false
 	}
-	return report.SecurityParameters.usm().AuthoritativeEngineID == packetOut.SecurityParameters.usm().AuthoritativeEngineID
+	return bytes.Equal(report.SecurityParameters.AuthoritativeEngineID, packetOut.SecurityParameters.AuthoritativeEngineID)
 }
 
 // lendEngineParameters lends the engine parameters of report, a resync Report
-// the client does not store, to the resend of packetOut only: it gives
-// packetOut the engine ID of a Report that names the engine (by the rule of a
-// commit, withEngine: keys localized to that engine ID, an error for an empty
-// one; the context engine ID follows it unless the caller configured one), and
-// returns the clock of the Report's boots and time, received now, which the
-// resend's attempts carry (RFC 3414 section 3.2 checks the engine ID before
-// the time window). The client takes the agent's from the authenticated
-// answer.
-func (x *Client) lendEngineParameters(packetOut, report *Message, kind reportKind) (sourcedClock, error) {
-	from, sp := report.SecurityParameters.usm(), packetOut.SecurityParameters.usm()
+// the client does not store, to the resend of packetOut only, which the
+// request's attempts so far made with sec: it gives packetOut the engine ID of
+// a Report that names the engine and its context engine ID, and the resend the
+// keys localized to it (by the rule of a commit, withEngine: an error for an
+// empty one), and the clock of the Report's boots and time, received now (RFC
+// 3414 section 3.2 checks the engine ID before the time window). The client
+// takes the agent's from the authenticated answer.
+func (x *Client) lendEngineParameters(packetOut, report *Message, kind reportKind, sec attemptSecurity) (attemptSecurity, error) {
+	from := &report.SecurityParameters
 	if kind.namesEngine {
 		lent, err := x.engine.withEngine(from.AuthoritativeEngineID)
 		if err != nil {
-			return sourcedClock{}, err
+			return attemptSecurity{}, err
 		}
-		sp.AuthoritativeEngineID, sp.SecretKey, sp.PrivacyKey = lent.engineID, lent.authKey, lent.privKey
-		packetOut.ContextEngineID = lent.contextEngineID()
+		lent.stamp(packetOut)
+		sec.keys = lent.keys
 	}
 	source := fromUnauthenticated
 	if kind.timeWindow {
 		source = fromTimeWindowReport
 	}
-	return clockOf(from.AuthoritativeEngineBoots, from.AuthoritativeEngineTime, time.Now(), source), nil
+	sec.clock = clockOf(from.AuthoritativeEngineBoots, from.AuthoritativeEngineTime, time.Now(), source)
+	return sec, nil
 }

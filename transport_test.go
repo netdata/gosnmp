@@ -549,7 +549,7 @@ func TestRequestWithoutConnection(t *testing.T) {
 			}
 			if tc.v3 {
 				x.Version, x.SecurityLevel = Version3, NoAuthNoPriv
-				x.SecurityParameters = &UsmSecurityParameters{UserName: "codec"}
+				x.User = User{Name: "codec"}
 			}
 			if tc.before != nil {
 				tc.before(t, x)

@@ -87,18 +87,10 @@ func engineReplyClient(r engineReplyRequest) *Client {
 		case creds.auth > NoAuth:
 			x.SecurityLevel = AuthNoPriv
 		}
-		sp := &UsmSecurityParameters{
-			UserName:                 r.user,
-			AuthenticationProtocol:   creds.auth,
-			AuthenticationPassphrase: creds.authPass,
-			PrivacyProtocol:          creds.priv,
-			PrivacyPassphrase:        creds.privPass,
-		}
+		x.User = creds.user(r.user)
 		if !r.discover {
-			sp.AuthoritativeEngineID, sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = agentEngineID,
-				agentBoots, agentTimeBase
+			seedEngine(agentEngineID, agentBoots, agentTimeBase)(x)
 		}
-		x.SecurityParameters = sp
 	}
 	x.SetRequestID(1000)
 	x.SetMsgID(2000)
@@ -114,18 +106,20 @@ func engineReplyExchange(tb testing.TB, r engineReplyRequest) *exchange {
 	if err != nil {
 		tb.Fatal(err)
 	}
+	var sec attemptSecurity
 	if x.Version == Version3 {
-		if err := x.reconcileEngine(); err != nil {
+		if err := x.startEngine(); err != nil {
 			tb.Fatal(err)
 		}
 		if r.discover {
 			packet = newDiscoveryPacket()
 		} else {
 			x.engine.stamp(packet)
+			sec = attemptSecurity{clock: x.engine.clock, keys: x.engine.keys}
 		}
 	}
 	cfg := x.prepareRequest()
-	return &exchange{x: x, packet: packet, cfg: cfg, discovery: r.discover, clock: x.engine.clock}
+	return &exchange{x: x, packet: packet, cfg: cfg, discovery: r.discover, sec: sec}
 }
 
 // engineReplySeeds returns replies to the first exchange of r's request
