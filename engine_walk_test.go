@@ -334,6 +334,15 @@ func walkScenarios() map[string]walkScenario {
 				x.MaxRepetitions = 2
 			},
 		},
+		// A change of version applies from the walk's next request: GETBULK
+		// on SNMPv1 is refused, and the walk returns the values so far.
+		"user-code/hook-sets-version-1": {
+			root: walkIfDescr, bulk: true, setup: func(x *GoSNMP) { x.MaxRepetitions = 1 },
+			onFinish: func(x *GoSNMP, tr *engineTranscript) {
+				tr.addf("hook OnFinish sets Version to 1")
+				x.Version = Version1
+			},
+		},
 	}
 
 	// Every error status the walk names, and one it does not. NoSuchName
