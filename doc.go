@@ -190,7 +190,7 @@
 // of its counter, [ErrUnknownUsername] or [ErrWrongDigest] for example, and
 // [ErrUnknownReportPDU] for a counter the library does not know or none, and a
 // usmStatsUnknownEngineIDs Report without an engine ID with an error that
-// matches [ErrUnknownEngineID].
+// matches [ErrUnknownEngineID]; each such error also matches [ErrAnswered].
 //
 // A request that discarded an authentic answer outside the time window and
 // ends without an answer (its attempts ran out, the Context ended it, Close,
@@ -423,6 +423,13 @@
 // derive or fit its protocol, or a protocol FIPS 140-only mode refuses,
 // matches none of them, nor does a transport error or a timeout without a
 // discarded reply.
+//
+// [ErrAnswered] says whether the agent's answer ended a request: the error of
+// a request (a walk's included) that a Report or a discovery answer without an
+// engine ID ended also matches it, besides the answer's category, while the
+// error of a request that ended without an answer never does, a timeout after
+// discarded replies included. A failed request returns no message, so this is
+// how a caller tells an agent that answered from one that did not.
 //
 // The categories are variables only so that errors.Is can match them; do not
 // assign to them. The library makes some of its errors with their values when
