@@ -122,6 +122,28 @@ func TestDecodeFailureNoMessage(t *testing.T) {
 	}
 }
 
+// TestDecodeMessagePrepareFailure pins that DecodeMessage checks the client's
+// configuration as Connect does and returns no message with its error.
+func TestDecodeMessagePrepareFailure(t *testing.T) {
+	tests := map[string]struct {
+		x       *Client
+		wantErr string
+	}{
+		"negative MaxOids": {x: &Client{MaxOids: -1}, wantErr: "field MaxOids cannot be less than 0"},
+		"SNMPv3 user without a name": {
+			x:       &Client{Version: Version3, SecurityLevel: NoAuthNoPriv},
+			wantErr: "User.Name is required",
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			p, err := tc.x.DecodeMessage(craftedMsg(1, craftedPDU(Response, craftedVBL(craftedVB(intTLV(5))))))
+			assert.EqualError(t, err, tc.wantErr)
+			assert.Nil(t, p)
+		})
+	}
+}
+
 // TestDecodeUSMFields pins RFC 3414 section 3.2 step 1: each USM field must
 // be of its type, and the engine boots and time within 0..2147483647 once cut
 // to 32 bits (as net-snmp v5.9.4 reads them); anything else fails the header
