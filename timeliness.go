@@ -137,3 +137,20 @@ func (s *engineTimes) admit(key engineTimeKey, boots, engineTime uint32) error {
 	}
 	return c.admit(boots, engineTime, s.now())
 }
+
+// probe applies step 7 b for a message of a user the receiver is learning:
+// to the record of key when there is one, updating it as a registered user's
+// message would, otherwise to a new clock it does not keep (made), so that a
+// message the receiver does not learn adds no record; registering the user
+// decides such a message again with admit.
+func (s *engineTimes) probe(key engineTimeKey, boots, engineTime uint32) (made bool, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := s.now()
+	if c := s.records[key]; c != nil {
+		return false, c.admit(boots, engineTime, now)
+	}
+	var c engineClock
+	return true, c.admit(boots, engineTime, now)
+}

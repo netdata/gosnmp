@@ -245,7 +245,13 @@ func (r *Receiver) decodeWith(datagram []byte, w v3Wire, n *Notification, users 
 			furthest, reached = err, step
 		}
 	}
-	return nil, fmt.Errorf("no credentials successfully unmarshaled trap: %w", furthest)
+	return nil, noUserAccepted(furthest)
+}
+
+// noUserAccepted returns the error of a message no user accepted, err being
+// the one of the user that got furthest.
+func noUserAccepted(err error) error {
+	return fmt.Errorf("no credentials successfully unmarshaled trap: %w", err)
 }
 
 // learn decodes the SNMPv3 message whose header is in n and w with the users
@@ -263,7 +269,7 @@ func (r *Receiver) learn(datagram []byte, w v3Wire, n *Notification, engineKnown
 		if i > 0 {
 			n.Message = header
 		}
-		probe := learnProbe{now: r.times.now}
+		probe := learnProbe{times: r.times}
 		step, err := decodeTrapV3(datagram, w, &n.Message, &candidates[i], nil, probe.admit)
 		if err != nil {
 			if furthest == nil || step > reached {
@@ -281,17 +287,17 @@ func (r *Receiver) learn(datagram []byte, w v3Wire, n *Notification, engineKnown
 		n.Learned = learned
 		return n, nil
 	}
-	return nil, fmt.Errorf("no credentials successfully unmarshaled trap: %w", furthest)
+	return nil, noUserAccepted(furthest)
 }
 
 // register registers users, the users the receiver may learn for name, for
 // engineID, with their keys localized to it, unless the name was registered
 // for the engine ID meanwhile (learned false) or the receiver learned
-// MaxLearned names (its error). An authenticated trap is decided again by step
-// 7 b (engineTimes.admit) on the record of its engine and credential, made now
-// when there is none: another user's message, or a concurrent one, may have
-// made it since probe decided it, and step 7 b stays one update per message,
-// in one order.
+// MaxLearned names (its error). An authenticated trap the probe decided on a
+// new clock is decided again by step 7 b (engineTimes.admit) on the record of
+// its engine and credential, made now when there is none: a concurrent message
+// of the credential may have made it since, and step 7 b stays one update per
+// message, in one order.
 func (r *Receiver) register(engineID []byte, name string, users []User, probe *learnProbe) (bool, error) {
 	entries := make([]*tableUser, len(users))
 	for i, u := range users {
@@ -309,9 +315,9 @@ func (r *Receiver) register(engineID []byte, name string, users []User, probe *l
 	if !registered && r.learned >= r.maxLearned {
 		return false, unknownUser(name, engineKnown)
 	}
-	if probe.checked {
+	if probe.made {
 		if err := r.times.admit(probe.key, probe.boots, probe.engineTime); err != nil {
-			return false, err
+			return false, noUserAccepted(err)
 		}
 	}
 	if registered {
@@ -327,20 +333,21 @@ func (r *Receiver) register(engineID []byte, name string, users []User, probe *l
 }
 
 // learnProbe applies RFC 3414 section 3.2 step 7 b for a message of a user
-// being learned on a new clock, which rejects only an engine at the maximum
-// boots: the message is not the receiver's yet, so it changes no record. It
-// keeps what register needs to decide the message on the record.
+// being learned (engineTimes.probe), and keeps what register needs to decide
+// the message again when the probe had no record to decide it on (made).
 type learnProbe struct {
-	now               func() time.Time
+	times             *engineTimes
 	key               engineTimeKey
 	boots, engineTime uint32
-	checked           bool
+	made              bool
 }
 
 func (p *learnProbe) admit(key engineTimeKey, boots, engineTime uint32) error {
-	p.key, p.boots, p.engineTime, p.checked = key, boots, engineTime, true
-	var c engineClock
-	return c.admit(boots, engineTime, p.now())
+	made, err := p.times.probe(key, boots, engineTime)
+	if made {
+		p.key, p.boots, p.engineTime, p.made = key, boots, engineTime, true
+	}
+	return err
 }
 
 // trapStep is how far an SNMPv3 trap got through decodeTrapV3 with one user:

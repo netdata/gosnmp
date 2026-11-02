@@ -5,7 +5,9 @@
 package gosnmp
 
 import (
+	"bytes"
 	"crypto/fips140"
+	"crypto/hmac"
 	"fmt"
 	"strings"
 	"sync"
@@ -14,6 +16,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netdata/gosnmp/internal/ber"
 )
 
 const (
@@ -369,6 +373,22 @@ func TestReceiveRecordsPerCredential(t *testing.T) {
 		_, err = r.Receive(msg(lrAuth, 4, 1))
 		require.ErrorIs(t, err, ErrNotInTimeWindow)
 		assert.Zero(t, r.learned)
+		// A trap at the maximum boots locks the shared record, as reg's own would.
+		_, err = r.Receive(msg(lrAuth, maxEngineValue, 1))
+		require.ErrorIs(t, err, ErrNotInTimeWindow)
+		_, err = r.Receive(msg(reg, 5, 1001))
+		require.ErrorIs(t, err, ErrNotInTimeWindow)
+	})
+	t.Run("a learning trap that fails after step 7 b", func(t *testing.T) {
+		r, _ := newTestReceiver(t, ReceiverConfig{LearnUsers: []User{lrAuth}, MaxLearned: 4})
+		for i := range 3 {
+			engineID := fmt.Sprintf("\x80\x00\x1f\x88\x04lr-bad-pdu-%d", i)
+			trap := lrEncode(t, lrMessage{engineID: engineID, user: lrAuth, level: AuthNoPriv})
+			_, err := r.Receive(lrWithPDUType(t, trap, &lrAuth, []byte(engineID), 0xaf))
+			require.ErrorIs(t, err, ErrASNParse)
+		}
+		assert.Empty(t, r.times.records, "an unknown PDU type learns nothing and leaves no record")
+		assert.Zero(t, r.learned)
 	})
 	t.Run("another receiver", func(t *testing.T) {
 		config := ReceiverConfig{Users: []EngineUser{at(lrAuth)}}
@@ -389,8 +409,9 @@ func TestReceiveRecordsPerCredential(t *testing.T) {
 func TestReceiverRegister(t *testing.T) {
 	key := keyOf([]byte(lrEngineA), &usmKeys{authProtocol: SHA, auth: []byte("k")})
 	probed := func(r *Receiver, boots, engineTime uint32) *learnProbe {
-		p := &learnProbe{now: r.times.now}
+		p := &learnProbe{times: r.times}
 		require.NoError(t, p.admit(key, boots, engineTime))
+		require.True(t, p.made)
 		return p
 	}
 	newReceiver := func(t *testing.T) *Receiver {
@@ -406,11 +427,12 @@ func TestReceiverRegister(t *testing.T) {
 		learned, err = r.register([]byte(lrEngineA), "lr-user", []User{lrAuth}, &learnProbe{})
 		require.NoError(t, err)
 		assert.False(t, learned, "a lost race")
-		_, err = r.register([]byte(lrEngineB), "lr-user", []User{lrAuth}, &learnProbe{})
+		_, err = r.register([]byte(lrEngineB), "lr-user", []User{lrAuth}, probed(r, 3, 77))
 		require.ErrorIs(t, err, ErrUnknownEngineID)
-		_, err = r.register([]byte(lrEngineA), "lr-other", []User{lrOther}, &learnProbe{})
+		_, err = r.register([]byte(lrEngineA), "lr-other", []User{lrOther}, probed(r, 3, 77))
 		require.ErrorIs(t, err, ErrUnknownUsername)
 		assert.Equal(t, 1, r.learned)
+		assert.Empty(t, r.times.records, "past the cap a trap makes no record")
 	})
 	t.Run("a lost race through learn", func(t *testing.T) {
 		r := newReceiver(t)
@@ -471,6 +493,28 @@ func TestReceiveLearningPastTheCapDerivesNoKey(t *testing.T) {
 	_, err = r.Receive(trap)
 	require.ErrorIs(t, err, ErrUnknownEngineID)
 	assert.Equal(t, before, passwordCache.Len())
+}
+
+// lrWithPDUType returns the authNoPriv message data with its PDU's tag set to
+// tag, signed again with user's key for engineID.
+func lrWithPDUType(t *testing.T, data []byte, user *User, engineID []byte, tag byte) []byte {
+	t.Helper()
+	m := splitV3Message(t, data)
+	r := ber.NewReader(m.scoped)
+	for range 2 { // contextEngineID, contextName
+		_, _, err := r.Next()
+		require.NoError(t, err)
+	}
+	scoped := bytes.Clone(m.scoped)
+	scoped[len(m.scoped)-r.Len()] = tag
+	m.scoped = scoped
+	key, err := user.authKey(engineID)
+	require.NoError(t, err)
+	m.usm[4] = make([]byte, len(m.usm[4]))
+	mac := hmac.New(user.AuthProtocol.hash().New, key)
+	mac.Write(m.bytes())
+	m.usm[4] = mac.Sum(nil)[:user.AuthProtocol.spec().MACLen]
+	return m.bytes()
 }
 
 // TestReceiveConcurrent receives traps from several goroutines, which learn

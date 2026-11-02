@@ -200,7 +200,9 @@ func TestTrapTimeliness(t *testing.T) {
 }
 
 // TestEngineTimesRecords pins the records' lifecycle: admit makes a key's
-// record with its first message and keeps every record (no eviction).
+// record with its first message and keeps every record (no eviction); probe
+// decides on the record of a key when there is one, updating it, and
+// otherwise on a new clock it does not keep.
 func TestEngineTimesRecords(t *testing.T) {
 	key := func(b byte) engineTimeKey { return engineTimeKey{b} }
 	now := time.Unix(1_000_000_000, 0)
@@ -214,6 +216,27 @@ func TestEngineTimesRecords(t *testing.T) {
 		for b := range 200 {
 			require.ErrorIs(t, s.admit(key(byte(b)), 4, 1), ErrNotInTimeWindow, "record %d", b)
 		}
+	})
+	t.Run("probe of a recorded key", func(t *testing.T) {
+		s := newEngineTimes(func() time.Time { return now })
+		require.NoError(t, s.admit(key(1), 5, 100))
+		made, err := s.probe(key(1), 4, 1)
+		require.ErrorIs(t, err, ErrNotInTimeWindow)
+		assert.False(t, made)
+		made, err = s.probe(key(1), 6, 1)
+		require.NoError(t, err)
+		assert.False(t, made)
+		require.ErrorIs(t, s.admit(key(1), 5, 200), ErrNotInTimeWindow, "the probe updated the record")
+	})
+	t.Run("probe of a new key", func(t *testing.T) {
+		s := newEngineTimes(func() time.Time { return now })
+		made, err := s.probe(key(1), 5, 100)
+		require.NoError(t, err)
+		require.True(t, made)
+		made, err = s.probe(key(1), maxEngineValue, 1)
+		require.ErrorIs(t, err, ErrNotInTimeWindow)
+		assert.True(t, made)
+		assert.Empty(t, s.records, "a probe makes no record")
 	})
 }
 

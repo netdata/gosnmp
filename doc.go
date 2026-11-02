@@ -393,10 +393,11 @@
 // traps of a device whose engine time does not advance in real time, whose
 // boots do not increase when it restarts, or that shares its engine ID with
 // another, for as long as the receiver lives; a new receiver starts with no
-// records, and accepts a copy of each engine's latest trap once more. An engine
-// the receiver is still learning has no record: its trap at the maximum boots
-// is rejected and leaves none, so its next authentic trap is a first contact.
-// Informs
+// records, and accepts a copy of each engine's latest trap once more. A trap of
+// a user the receiver is learning is decided on the record of its engine and
+// credential when another user's traps made one; without one, it makes none
+// unless the user is learned, so a trap at the maximum boots is rejected and
+// leaves none, and the next authentic trap is a first contact. Informs
 // are neither checked nor recorded (an inform's receiver is the authoritative
 // engine, whose time the library does not keep), nor are unauthenticated
 // traps. The records are at most one per user and engine ID, since only a
