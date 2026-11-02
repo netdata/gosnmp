@@ -649,7 +649,7 @@ reencode: identical
 decode: error (ErrBadVersion)
 
 == crafted/version/2-trailing-octets
-decode: error (ErrASNParse)
+decode: error (ErrBadVersion)
 
 == crafted/version/1-trailing-octets
 decode: error (ErrASNParse)

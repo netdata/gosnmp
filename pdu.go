@@ -178,42 +178,46 @@ var errEmptyPacket = fmt.Errorf("%w: cannot unmarshal empty packet", ber.ErrInva
 // readVersion reads the message SEQUENCE, which must span the whole packet,
 // and its version field, an INTEGER of SNMPv1 (0), SNMPv2c (1) or SNMPv3 (3).
 // It returns the version and the offset of the field after it. Another
-// version is ErrBadVersion (RFC 3412 section 4.2.1), a message that does not
-// parse that far ErrASNParse.
+// version is ErrBadVersion (RFC 3412 section 4.2.1: the version is known once
+// the SEQUENCE's declared extent and the version field parse, octets after the
+// message or not), a message that does not parse ErrASNParse.
 func readVersion(packet []byte) (Version, int, error) {
-	r, version, err := readVersionField(packet)
+	r, version, after, err := readVersionField(packet)
 	switch {
 	case err != nil:
 		return 0, 0, inCategory(ErrASNParse, err)
 	case version != int32(Version1) && version != int32(Version2c) && version != int32(Version3):
 		return 0, 0, inCategory(ErrBadVersion, fmt.Errorf("error parsing SNMP packet version: %d is not 0, 1 or 3", version))
+	case after != 0:
+		return 0, 0, inCategory(ErrASNParse, fmt.Errorf("error verifying packet sanity: %d bytes after the TLV", after))
 	case r.Len() == 0:
 		return 0, 0, inCategory(ErrASNParse, errors.New("error parsing SNMP packet: nothing after the version"))
 	}
 	return Version(version), len(packet) - r.Len(), nil //nolint:gosec // 0, 1 or 3
 }
 
-// readVersionField reads the message SEQUENCE, which must span the whole
-// packet, and its first field, an INTEGER (readInt32); it returns the reader
-// of the fields after it.
-func readVersionField(packet []byte) (ber.Reader, int32, error) {
+// readVersionField reads the message SEQUENCE, whose declared length must fit
+// the packet, and its first field, an INTEGER (readInt32); it returns the
+// reader of the fields after it and the number of octets after the SEQUENCE.
+func readVersionField(packet []byte) (ber.Reader, int32, int, error) {
 	if len(packet) < 2 {
-		return ber.Reader{}, 0, errEmptyPacket
+		return ber.Reader{}, 0, 0, errEmptyPacket
 	}
 	if packet[0] != ber.Sequence {
-		return ber.Reader{}, 0, errors.New("invalid packet header")
+		return ber.Reader{}, 0, 0, errors.New("invalid packet header")
 	}
-	msg, err := readWhole(packet)
+	whole := ber.NewReader(packet)
+	_, msg, err := whole.Next()
 	if err != nil {
-		return ber.Reader{}, 0, fmt.Errorf("error verifying packet sanity: %w", err)
+		return ber.Reader{}, 0, 0, fmt.Errorf("error verifying packet sanity: %w", err)
 	}
 
 	r := ber.NewReader(msg)
 	version, err := readInt32(&r)
 	if err != nil {
-		return ber.Reader{}, 0, fmt.Errorf("error parsing SNMP packet version: %w", err)
+		return ber.Reader{}, 0, 0, fmt.Errorf("error parsing SNMP packet version: %w", err)
 	}
-	return r, version, nil
+	return r, version, whole.Len(), nil
 }
 
 // unmarshalHeader reads the message header into response: the version and,
