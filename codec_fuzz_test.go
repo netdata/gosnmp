@@ -36,7 +36,8 @@ func FuzzUnmarshal(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		stime := time.Now()
 		in := bytes.Clone(data)
-		_, _ = vhandle.DecodeMessage(in)
+		_, err := vhandle.DecodeMessage(in)
+		checkCategory(t, "DecodeMessage", err)
 
 		if e := time.Since(stime); e > (time.Second * 1) {
 			t.Errorf("DecodeMessage() took too long: %s", e)

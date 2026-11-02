@@ -8,31 +8,6 @@
 
 package gosnmp
 
-import (
-	"errors"
-
-	"github.com/netdata/gosnmp/internal/ber"
-)
-
-// Errors that some decode errors wrap (match them with errors.Is): those of
-// the BER decoder, ErrInvalidOidLength for an OBJECT IDENTIFIER of more than
-// 128 arcs, ErrInvalidPacketLength for a message shorter than two octets and
-// any length that breaks its rules or runs past its input (bytes after a TLV
-// inside its container are another error), and ErrZeroByteBuffer for a
-// varbind without a value. Other decode, configuration and authentication
-// errors are not exported.
-var (
-	ErrBase128IntegerTooLarge  = ber.ErrBase128IntegerTooLarge
-	ErrBase128IntegerTruncated = ber.ErrBase128IntegerTruncated
-	ErrFloatBufferTooShort     = ber.ErrFloatBufferTooShort
-	ErrFloatTooLarge           = ber.ErrFloatTooLarge
-	ErrIntegerTooLarge         = ber.ErrIntegerTooLarge
-	ErrInvalidOidLength        = ber.ErrInvalidOidLength
-	ErrInvalidPacketLength     = ber.ErrInvalidPacketLength
-	ErrZeroByteBuffer          = errors.New("zero byte buffer")
-	ErrZeroLenInteger          = ber.ErrZeroLenInteger
-)
-
 // BitStringValue is an ASN.1 BIT STRING: the bits packed into bytes, the
 // first bit in the high bit of the first byte, and the number of valid bits;
 // the padding bits are zero. The encoder and decoder do not use it: BitString

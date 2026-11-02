@@ -443,8 +443,8 @@ func TestUSMTrapMistypedFields(t *testing.T) {
 		want error // nil: accepted
 	}{
 		"as sent":                 {in: trap(octets(usmCharEngineID), octets("secret-user"))},
-		"user name as an INTEGER": {in: trap(octets(usmCharEngineID), intTLV(1)), want: ErrInvalidMsgs},
-		"engine ID as an INTEGER": {in: trap(intTLV(1), octets("secret-user")), want: ErrInvalidMsgs},
+		"user name as an INTEGER": {in: trap(octets(usmCharEngineID), intTLV(1)), want: ErrASNParse},
+		"engine ID as an INTEGER": {in: trap(intTLV(1), octets("secret-user")), want: ErrASNParse},
 	}
 	for name, tc := range tests {
 		for rname, receiver := range receivers {
@@ -663,9 +663,7 @@ func TestUSMFIPS140OnlyDecrypt(t *testing.T) {
 				t.Run(name, func(t *testing.T) {
 					err := decode()
 					require.ErrorContains(t, err, "not allowed in FIPS 140-only mode")
-					for _, category := range []error{ErrDecryption, ErrWrongDigest, ErrInvalidMsgs} {
-						assert.NotErrorIs(t, err, category)
-					}
+					assert.Empty(t, categoriesOf(err), "a local failure is in no category")
 				})
 			}
 		})

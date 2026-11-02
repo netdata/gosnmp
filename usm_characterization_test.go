@@ -433,13 +433,13 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 			in: func() []byte { return usmFlagsTrap(t, AES, usmPrivacyFlag, 8) }, priv: AES, receiver: table, is: ErrInvalidMsgs,
 		},
 		"noAuthNoPriv flags, encrypted AES, table": {
-			in: func() []byte { return usmFlagsTrap(t, AES, NoAuthNoPriv, 8) }, priv: AES, receiver: table, is: ErrInvalidMsgs,
+			in: func() []byte { return usmFlagsTrap(t, AES, NoAuthNoPriv, 8) }, priv: AES, receiver: table, is: ErrASNParse,
 		},
 		"noAuthNoPriv flags, encrypted AES, single user": {
-			in: func() []byte { return usmFlagsTrap(t, AES, NoAuthNoPriv, 8) }, priv: AES, is: ErrInvalidMsgs,
+			in: func() []byte { return usmFlagsTrap(t, AES, NoAuthNoPriv, 8) }, priv: AES, is: ErrASNParse,
 		},
 		"noAuthNoPriv flags, OCTET STRING scoped PDU, table without privacy": {
-			in: wrappedTrap, priv: NoPriv, receiver: table, is: ErrInvalidMsgs,
+			in: wrappedTrap, priv: NoPriv, receiver: table, is: ErrASNParse,
 		},
 		"privacy-only DES with a 7-octet salt, single user": {
 			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 7) }, priv: DES, is: ErrInvalidMsgs,
@@ -448,7 +448,7 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 7) }, priv: DES, receiver: table, is: ErrInvalidMsgs,
 		},
 		"noAuthNoPriv flags, encrypted DES with a 7-octet salt, table": {
-			in: func() []byte { return usmFlagsTrap(t, DES, NoAuthNoPriv, 7) }, priv: DES, receiver: table, is: ErrInvalidMsgs,
+			in: func() []byte { return usmFlagsTrap(t, DES, NoAuthNoPriv, 7) }, priv: DES, receiver: table, is: ErrASNParse,
 		},
 		"privacy-only AES with a 7-octet salt, table": {
 			in: func() []byte { return usmFlagsTrap(t, AES, usmPrivacyFlag, 7) }, priv: AES, receiver: table, is: ErrInvalidMsgs,
@@ -478,10 +478,10 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 			in: func() []byte { return usmPlainTrap(3, usmCharEngineID, "") }, priv: AES, is: ErrUnknownUsername,
 		},
 		"malformed header, single user": {
-			in: func() []byte { return usmMalformedV3Header }, priv: AES, is: ErrInvalidMsgs,
+			in: func() []byte { return usmMalformedV3Header }, priv: AES, is: ErrASNParse,
 		},
 		"malformed header, table": {
-			in: func() []byte { return usmMalformedV3Header }, priv: AES, receiver: table, is: ErrInvalidMsgs,
+			in: func() []byte { return usmMalformedV3Header }, priv: AES, receiver: table, is: ErrASNParse,
 		},
 	}
 
