@@ -42,8 +42,8 @@ func TestValueAccessors(t *testing.T) {
 		"NoSuchInstance":     {value: NoSuchInstanceValue(), want: "NoSuchInstance:"},
 		"EndOfMibView":       {value: EndOfMibViewValue(), want: "EndOfMibView:"},
 		"the zero Value":     {value: Value{}, want: "UnknownType:"},
-		"decoded IPv4-in-16": {value: decodedValue(t, IPAddress, netip.MustParseAddr("::ffff:192.0.2.1").AsSlice()), want: "IPAddress: IP ::ffff:192.0.2.1"},
-		"decoded empty IP":   {value: decodedValue(t, IPAddress, []byte{}), want: "IPAddress: IP invalid IP"},
+		"decoded IPv4-in-16": {value: decodedIPAddress(t, netip.MustParseAddr("::ffff:192.0.2.1").AsSlice()), want: "IPAddress: IP 192.0.2.1"},
+		"decoded empty IP":   {value: decodedIPAddress(t, []byte{}), want: "IPAddress: IP invalid IP"},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -52,15 +52,15 @@ func TestValueAccessors(t *testing.T) {
 			}
 		})
 	}
-	if !reflect.DeepEqual(decodedValue(t, IPAddress, []byte{}), IPAddressValue(netip.Addr{})) {
+	if !reflect.DeepEqual(decodedIPAddress(t, []byte{}), IPAddressValue(netip.Addr{})) {
 		t.Error("a decoded empty IPAddress differs from IPAddressValue(netip.Addr{})")
 	}
 }
 
-// decodedValue decodes content with tag.
-func decodedValue(t *testing.T, tag ValueType, content []byte) Value {
+// decodedIPAddress decodes content as an IPAddress value.
+func decodedIPAddress(t *testing.T, content []byte) Value {
 	t.Helper()
-	v, err := decodeValue(tag, content)
+	v, err := decodeValue(IPAddress, content)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,5 +271,63 @@ func TestDecodedHeaderCopiesInput(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestIPAddressMappedDecodesAsIPv4 checks that 16 octets of an IPv4-mapped
+// address, which some devices send for an IpAddress, decode as the IPv4
+// address and encode back in 4 octets, as the decoder's address text did:
+// every decoded IpAddress is one IPAddressValue builds from its address.
+func TestIPAddressMappedDecodesAsIPv4(t *testing.T) {
+	tests := map[string]struct {
+		content []byte
+		want    netip.Addr
+	}{
+		"IPv4":        {content: []byte{192, 0, 2, 1}, want: netip.MustParseAddr("192.0.2.1")},
+		"IPv4-mapped": {content: netip.MustParseAddr("::ffff:192.0.2.1").AsSlice(), want: netip.MustParseAddr("192.0.2.1")},
+		"IPv6":        {content: netip.MustParseAddr("2001:db8::1").AsSlice(), want: netip.MustParseAddr("2001:db8::1")},
+		"IPv4-compatible": {
+			content: netip.MustParseAddr("::c000:201").AsSlice(), want: netip.MustParseAddr("::c000:201"),
+		},
+		"empty": {content: []byte{}, want: netip.Addr{}},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			v := decodedIPAddress(t, tc.content)
+			if got, ok := v.IP(); !ok || got != tc.want {
+				t.Errorf("IP() = %v, %v; want %v", got, ok, tc.want)
+			}
+			if !reflect.DeepEqual(v, IPAddressValue(tc.want)) {
+				t.Errorf("decoded %#v, IPAddressValue(%v) = %#v", v, tc.want, IPAddressValue(tc.want))
+			}
+		})
+	}
+}
+
+// TestIPAddressValueAliasesInput checks that a decoded IpAddress holds the
+// octets of the input, which IP reads when called: the last 4 of an
+// IPv4-mapped address.
+func TestIPAddressValueAliasesInput(t *testing.T) {
+	tests := map[string]struct {
+		value []byte
+		want  netip.Addr
+	}{
+		"4 octets":         {value: []byte{byte(IPAddress), 0x04, 192, 0, 2, 1}, want: netip.MustParseAddr("63.255.253.254")},
+		"16 octets mapped": {value: append([]byte{byte(IPAddress), 0x10}, netip.MustParseAddr("::ffff:192.0.2.1").AsSlice()...), want: netip.MustParseAddr("63.255.253.254")},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			packet := buildVBL(rawVB(0x01, tt.value))
+			vars, err := testUnmarshalVBL(t, packet)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			for i := range packet {
+				packet[i] ^= 0xff
+			}
+			if got, ok := vars[0].Value.IP(); !ok || got != tt.want {
+				t.Fatalf("IP() = %v, %v after the input changed; want %v", got, ok, tt.want)
+			}
+		})
 	}
 }

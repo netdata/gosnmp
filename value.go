@@ -28,8 +28,9 @@ import (
 // Int64, Uint64 and Float64 also read the narrower types they hold exactly.
 // The zero Value is UnknownType, a value of a type the decoder does not decode,
 // which the encoder refuses. Values are built by the constructor of their type,
-// such as Counter32Value; octets, and the octets of an address, are held as
-// given, not copied.
+// such as Counter32Value, and every decoded value is one a constructor builds;
+// octets are held as given, not copied. A Value holds a slice, so it is not
+// comparable with ==: compare the types and the accessors' results.
 type Value struct {
 	num  uint64 // Integer's two's complement, an unsigned value or a float's bits
 	data []byte // OctetString and Opaque octets; IPAddress's 0, 4 or 16 octets
@@ -157,8 +158,8 @@ func (v Value) OID() (string, bool) {
 	return v.oid, true
 }
 
-// IP returns an IPAddress: the zero Addr for an empty one, an IPv6 address for
-// 16 octets, as a device sent them.
+// IP returns an IPAddress: the zero Addr for an empty one, and an IPv6 address
+// for 16 octets but an IPv4-mapped one, which reads as the IPv4 address.
 func (v Value) IP() (netip.Addr, bool) {
 	if v.typ != IPAddress {
 		return netip.Addr{}, false
@@ -196,8 +197,8 @@ func (v Value) Float64() (float64, bool) {
 //   - OctetString, Opaque: the content, aliased, empty included
 //   - OpaqueFloat, OpaqueDouble: wrapped in an Opaque (see decodeOpaque)
 //   - ObjectIdentifier: dotted with a leading dot (ber.OID)
-//   - IPAddress: 4 octets, or the quirks of devices: none, or 16 (IPv6),
-//     aliased
+//   - IPAddress: 4 octets, or the quirks of devices: none, or 16 (IPv6; an
+//     IPv4-mapped address keeps its last 4), aliased
 //   - Null, NoSuchObject, NoSuchInstance, EndOfMibView: content ignored
 //   - any other tag, and a bare OpaqueFloat or OpaqueDouble tag (net-snmp
 //     wraps those in an Opaque): UnknownType, content ignored
@@ -242,7 +243,12 @@ func decodeValue(tag ValueType, content []byte) (Value, error) {
 		switch len(content) {
 		case 0: // real life, devices returning bad data: the zero Addr
 			return Value{typ: IPAddress}, nil
-		case 4, 16: // 16 octets: devices returning IPv6
+		case 4:
+			return Value{typ: IPAddress, data: content}, nil
+		case 16: // devices returning IPv6; an IPv4-mapped one reads as IPv4
+			if isIPv4Mapped(content) {
+				content = content[12:]
+			}
 			return Value{typ: IPAddress, data: content}, nil
 		default:
 			return Value{}, fmt.Errorf("got ipaddress len %d, expected 4 or 16", len(content))
@@ -273,6 +279,17 @@ func unsigned32(content []byte) (v uint32, ok bool) {
 	}
 	u, err := ber.Uint64(content)
 	return uint32(u), err == nil //nolint:gosec // the cut
+}
+
+// isIPv4Mapped reports whether the 16 octets of an IPv6 address hold an
+// IPv4-mapped address (::ffff:a.b.c.d, RFC 4291 section 2.5.5.2).
+func isIPv4Mapped(ip []byte) bool {
+	for _, b := range ip[:10] {
+		if b != 0 {
+			return false
+		}
+	}
+	return ip[10] == 0xff && ip[11] == 0xff
 }
 
 // opaqueExtensionTag is the identifier octet of the floats net-snmp wraps in
