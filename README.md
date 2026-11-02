@@ -39,7 +39,7 @@ errors.
 
 Each varbind holds a `Value` of one Go type per SMI type (an Integer is an `int32`, a Counter32 a `uint32`, an IpAddress
 a `netip.Addr`, ...), read through its accessor (`Int32`, `Uint32`, `IP`, ...) and built by its constructor
-(`IntegerValue`, `Counter32Value`, ...).
+(`IntegerValue`, `Counter32Value`, ...); `String` prints it as `%v` printed the untyped value.
 
 The [package documentation](https://pkg.go.dev/github.com/netdata/gosnmp) describes request attempts and timeouts,
 hooks, SNMPv3 engine discovery and Reports, the Go type of each value type, and how messages are decoded.

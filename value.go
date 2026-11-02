@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"net/netip"
+	"strconv"
 
 	"github.com/netdata/gosnmp/internal/ber"
 )
@@ -185,6 +186,35 @@ func (v Value) Float64() (float64, bool) {
 		return float64(math.Float32frombits(uint32(v.num))), true //nolint:gosec // stored from 32 bits
 	}
 	return 0, false
+}
+
+// String returns the text fmt's %v printed for a decoded value of the type
+// before values were typed: numbers in decimal, octets as Go prints a byte
+// slice ("[1 2]"), an ObjectIdentifier dotted, an address as text, the floats
+// as %v prints a float32 or float64, and "<nil>" for an empty IpAddress and the
+// types without a value.
+func (v Value) String() string {
+	switch valueKinds[v.typ] {
+	case kindInteger:
+		return strconv.FormatInt(int64(int32(v.num)), 10) //nolint:gosec // the two's complement IntegerValue stored
+	case kindUnsigned32, kindCounter64:
+		return strconv.FormatUint(v.num, 10)
+	case kindOctets:
+		return fmt.Sprint(v.data) //nolint:staticcheck // the byte list, not the text: what %v printed
+	case kindOID:
+		return v.oid
+	case kindIPAddress:
+		if a, _ := v.IP(); a.IsValid() {
+			return a.String()
+		}
+	case kindOpaqueFloat:
+		if f, ok := v.Float32(); ok {
+			return fmt.Sprint(f)
+		}
+		f, _ := v.Float64()
+		return fmt.Sprint(f)
+	}
+	return "<nil>"
 }
 
 // decodeValue decodes the content octets of a varbind value with the given tag
