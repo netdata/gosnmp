@@ -574,7 +574,7 @@ func describeEngineResult(p *Message, err error) string {
 	case p.PDUType == 0 && p.Version == 0 && len(p.VarBinds) == 0:
 		sb.WriteString("packet empty")
 	case p.Version == Version3:
-		fmt.Fprintf(&sb, "packet 3 msgID=%d %s %v id=%d context=%q/%q", p.MsgID, describeFlags(p.MsgFlags), p.PDUType,
+		fmt.Fprintf(&sb, "packet 3 msgID=%d %s %v id=%d context=%q/%q", p.MsgID, describeFlags(p.SecurityLevel), p.PDUType,
 			p.RequestID, p.ContextEngineID, p.ContextName)
 		if usp := usmOf(p.SecurityParameters); usp != nil {
 			fmt.Fprintf(&sb, " usm=%q/%q/%d/%d", usp.UserName, usp.AuthoritativeEngineID, usp.AuthoritativeEngineBoots,

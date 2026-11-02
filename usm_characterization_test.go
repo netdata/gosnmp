@@ -192,9 +192,9 @@ func usmCharPacket(t testing.TB, priv PrivProtocol, variables []VarBind) *Messag
 		flags = AuthNoPriv
 	}
 	return &Message{
-		Version:            Version3,
-		MsgFlags:           flags,
-		SecurityModel:      UserSecurityModel,
+		Version:       Version3,
+		SecurityLevel: flags,
+
 		SecurityParameters: sp,
 		ContextEngineID:    usmCharEngineID,
 		ContextName:        "ctx",
@@ -350,10 +350,10 @@ func TestUSMDecryptCharacterization(t *testing.T) {
 
 // usmPrivacyFlag is the msgFlags privacy bit without the authentication bit,
 // an invalid combination (RFC 3412 section 7.2 step 5d).
-const usmPrivacyFlag SnmpV3MsgFlags = 0x02
+const usmPrivacyFlag SecurityLevel = 0x02
 
 // withFlags returns the message with other msgFlags.
-func (m v3Message) withFlags(t testing.TB, flags SnmpV3MsgFlags) v3Message {
+func (m v3Message) withFlags(t testing.TB, flags SecurityLevel) v3Message {
 	t.Helper()
 	old := []byte{byte(OctetString), 1, byte(AuthPriv)}
 	require.Equal(t, 1, bytes.Count(m.header, old), "authPriv msgFlags not found once in the header")
@@ -364,7 +364,7 @@ func (m v3Message) withFlags(t testing.TB, flags SnmpV3MsgFlags) v3Message {
 // withModel returns the message with another msgSecurityModel.
 func (m v3Message) withModel(t testing.TB, model byte) v3Message {
 	t.Helper()
-	usm := []byte{byte(Integer), 1, byte(UserSecurityModel)}
+	usm := []byte{byte(Integer), 1, usmSecurityModel}
 	require.True(t, bytes.HasSuffix(m.header, usm), "the header does not end with the USM security model")
 	m.header = append(bytes.Clone(m.header[:len(m.header)-1]), model)
 	return m
@@ -372,7 +372,7 @@ func (m v3Message) withModel(t testing.TB, model byte) v3Message {
 
 // usmFlagsTrap is usmCharTrap, still encrypted, with other msgFlags and the
 // first saltLen octets of its privacy parameters.
-func usmFlagsTrap(t testing.TB, priv PrivProtocol, flags SnmpV3MsgFlags, saltLen int) []byte {
+func usmFlagsTrap(t testing.TB, priv PrivProtocol, flags SecurityLevel, saltLen int) []byte {
 	t.Helper()
 	m := splitV3Message(t, usmCharTrap(t, priv, usmCharVarbinds)).withFlags(t, flags)
 	m.usm[5] = m.usm[5][:saltLen]
@@ -423,7 +423,7 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 	// octets gives the same digest.
 	emptyKeyTrap := func() []byte {
 		data, err := (&Message{
-			Version: Version3, MsgFlags: AuthNoPriv, SecurityModel: UserSecurityModel,
+			Version: Version3, SecurityLevel: AuthNoPriv,
 			SecurityParameters: &UsmSecurityParameters{
 				UserName: "codec-user", AuthoritativeEngineID: usmCharEngineID, AuthenticationProtocol: SHA,
 				SecretKey: make([]byte, 20),
@@ -445,10 +445,10 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 		sp := usmDecoder(SHA, "codec-auth-pass", priv, "codec-priv-pass")().SecurityParameters.(*UsmSecurityParameters)
 		switch kind {
 		case single:
-			return &Client{Version: Version3, MsgFlags: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp}
+			return &Client{Version: Version3, SecurityLevel: AuthPriv, SecurityParameters: sp}
 		case singleKeysOnly:
 			usmKeysOnly(sp, usmOtherEngineID)
-			return &Client{Version: Version3, MsgFlags: AuthNoPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp}
+			return &Client{Version: Version3, SecurityLevel: AuthNoPriv, SecurityParameters: sp}
 		case tableKeysOnly:
 			usmKeysOnly(sp, usmOtherEngineID)
 		}
@@ -579,7 +579,7 @@ func TestUSMKeysBoundToEngine(t *testing.T) {
 			PrivacyProtocol: priv, PrivacyPassphrase: "codec-priv-pass",
 		}, boundEngineID)
 	}
-	level := func(priv PrivProtocol) SnmpV3MsgFlags {
+	level := func(priv PrivProtocol) SecurityLevel {
 		if priv > NoPriv {
 			return AuthPriv
 		}
@@ -589,7 +589,7 @@ func TestUSMKeysBoundToEngine(t *testing.T) {
 	// encrypted with the user's keys.
 	signedTrap := func(auth AuthProtocol, priv PrivProtocol) []byte {
 		data, err := (&Message{
-			Version: Version3, MsgFlags: level(priv), SecurityModel: UserSecurityModel,
+			Version: Version3, SecurityLevel: level(priv),
 			SecurityParameters: keysOnly(auth, priv), PDUType: SNMPv2Trap, VarBinds: usmPlainVars,
 		}).Encode()
 		require.NoError(t, err)
@@ -617,7 +617,7 @@ func TestUSMKeysBoundToEngine(t *testing.T) {
 				for rk, receiver := range receivers {
 					t.Run(fmt.Sprintf("%s/%s/%s/%s", name, auth, priv, receiver), func(t *testing.T) {
 						sp, want := keysOnly(auth, priv), keysOnly(auth, priv)
-						x := &Client{Version: Version3, MsgFlags: level(priv), SecurityModel: UserSecurityModel, SecurityParameters: sp}
+						x := &Client{Version: Version3, SecurityLevel: level(priv), SecurityParameters: sp}
 						if rk == table {
 							tb := NewSnmpV3SecurityParametersTable()
 							require.NoError(t, tb.Add("codec-user", sp))
@@ -753,7 +753,7 @@ func TestUSMAuthFieldEmpty(t *testing.T) {
 	decoder := usmDecoder(SHA, "codec-auth-pass", NoPriv, "")
 	trapDecoder := func() *Client {
 		x := decoder()
-		x.Version, x.SecurityModel, x.MsgFlags = Version3, UserSecurityModel, AuthNoPriv
+		x.Version, x.SecurityLevel = Version3, AuthNoPriv
 		return x
 	}
 
@@ -802,17 +802,17 @@ func TestUSMSalts(t *testing.T) {
 	tests := map[string]struct {
 		priv  PrivProtocol
 		next  uint64
-		flags []SnmpV3MsgFlags
+		flags []SecurityLevel
 		want  []string
 	}{
 		"aes": {
 			priv: AES256, next: 0x0000000700000001,
-			flags: []SnmpV3MsgFlags{AuthPriv, AuthNoPriv, AuthPriv, NoAuthNoPriv, AuthPriv},
+			flags: []SecurityLevel{AuthPriv, AuthNoPriv, AuthPriv, NoAuthNoPriv, AuthPriv},
 			want:  []string{"0000000700000001", "empty", "0000000700000002", "empty", "0000000700000003"},
 		},
 		"des counts in 64 bits": {
 			priv: DES, next: 0x00000001ffffffff,
-			flags: []SnmpV3MsgFlags{AuthPriv, AuthNoPriv, AuthPriv},
+			flags: []SecurityLevel{AuthPriv, AuthNoPriv, AuthPriv},
 			want:  []string{"00000001ffffffff", "empty", "0000000200000000"},
 		},
 	}
@@ -824,7 +824,7 @@ func TestUSMSalts(t *testing.T) {
 				sp := codecUSM(t, SHA, tc.priv)
 				sp.PrivacyParameters = packetSalt()
 				pkt := &Message{
-					Version: Version3, MsgFlags: flags, SecurityModel: UserSecurityModel, SecurityParameters: sp,
+					Version: Version3, SecurityLevel: flags, SecurityParameters: sp,
 					PDUType: GetRequest,
 				}
 				data, err := pkt.Encode()
@@ -837,8 +837,8 @@ func TestUSMSalts(t *testing.T) {
 	}
 	t.Run("a message without security parameters is an error", func(t *testing.T) {
 		for name, sp := range map[string]SnmpV3SecurityParameters{"nil": nil, "typed nil": (*UsmSecurityParameters)(nil)} {
-			for _, flags := range []SnmpV3MsgFlags{NoAuthNoPriv, AuthPriv} {
-				pkt := &Message{Version: Version3, MsgFlags: flags, SecurityModel: UserSecurityModel, SecurityParameters: sp}
+			for _, flags := range []SecurityLevel{NoAuthNoPriv, AuthPriv} {
+				pkt := &Message{Version: Version3, SecurityLevel: flags, SecurityParameters: sp}
 				_, err := pkt.Encode()
 				assert.EqualError(t, err, "SNMPv3 message without security parameters", "%s, %v", name, flags)
 			}
@@ -847,7 +847,7 @@ func TestUSMSalts(t *testing.T) {
 	t.Run("InitPacket does nothing", func(t *testing.T) {
 		usm.Salts.Set(5)
 		sp := &UsmSecurityParameters{PrivacyProtocol: AES}
-		pkt := &Message{Version: Version3, MsgFlags: AuthPriv, SecurityParameters: sp}
+		pkt := &Message{Version: Version3, SecurityLevel: AuthPriv, SecurityParameters: sp}
 		require.NoError(t, (&UsmSecurityParameters{PrivacyProtocol: DES}).InitPacket(pkt))
 		assert.Equal(t, &UsmSecurityParameters{PrivacyProtocol: AES}, sp)
 		assert.Equal(t, [8]byte{7: 5}, usm.Salts.Next(), "no salt drawn")
@@ -948,8 +948,7 @@ func TestUSMValidate(t *testing.T) {
 	key := []byte("0123456789abcdefghij") // of the SHA hash's size
 
 	tests := map[string]struct {
-		flags   SnmpV3MsgFlags
-		model   SnmpV3SecurityModel
+		flags   SecurityLevel
 		sp      SnmpV3SecurityParameters
 		wantErr string
 	}{
@@ -1023,25 +1022,17 @@ func TestUSMValidate(t *testing.T) {
 		},
 		"privacy flag without authentication flag": {
 			flags: 0x2, sp: &UsmSecurityParameters{UserName: "u"},
-			wantErr: "validate: MsgFlags must be populated with an appropriate security level",
+			wantErr: "validate: SecurityLevel must be populated with an appropriate security level",
 		},
 		"no security parameters": {
 			flags:   NoAuthNoPriv,
 			wantErr: "SNMPV3 SecurityParameters must be set",
 		},
-		"other security model": {
-			flags: NoAuthNoPriv, model: 2, sp: &UsmSecurityParameters{UserName: "u"},
-			wantErr: "the SNMPV3 User Security Model is the only SNMPV3 security model currently implemented",
-		},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			model := tc.model
-			if model == 0 {
-				model = UserSecurityModel
-			}
-			x := &Client{Version: Version3, MsgFlags: tc.flags, SecurityModel: model, SecurityParameters: tc.sp}
+			x := &Client{Version: Version3, SecurityLevel: tc.flags, SecurityParameters: tc.sp}
 			_, err := x.DecodeMessage(bytes.Clone(msg))
 			if tc.wantErr == "" {
 				assert.NoError(t, err)

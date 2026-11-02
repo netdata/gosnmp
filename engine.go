@@ -114,8 +114,8 @@ func resyncKindOf(result *Message) reportKind {
 
 // requestConfig is the client's configuration as a request reads it, once, at
 // its start: a change a hook makes to the client applies from the next
-// request. The packet carries the rest (version, security level and model,
-// context), and the SNMPv3 engine state takes the caller's changes to its
+// request. The packet carries the rest (version, security level, context),
+// and the SNMPv3 engine state takes the caller's changes to its
 // fields at the same time (reconcileEngine). Not part of it: the connection,
 // which each attempt takes from the client (connection).
 type requestConfig struct {
@@ -566,7 +566,7 @@ func (e *exchange) decode(resp []byte, earlier []sentIDs) (_ *Message, verified 
 	case !e.named(reply, earlier):
 		err = errOtherMessage
 	case sp != nil:
-		err = receiveReply(reply.MsgFlags, &w, sp)
+		err = receiveReply(reply.SecurityLevel, &w, sp)
 	}
 	// read is reply, as far as it was read, when an error ends the decode: for
 	// an SNMPv3 request when the SNMPv3 header's msgID decoded, for another
@@ -582,14 +582,14 @@ func (e *exchange) decode(resp []byte, earlier []sentIDs) (_ *Message, verified 
 		return read(false), false, err
 	}
 	if v3 {
-		if reply.MsgFlags.authFlag() {
+		if reply.SecurityLevel.authFlag() {
 			in := inbound{msg: resp, wire: w, sp: sp}
 			if err = in.verify(); err != nil {
 				return read(false), false, err
 			}
 			verified = true
 		}
-		if resp, cursor, err = unmarshalScopedPDU(resp, cursor, reply, reply.MsgFlags.privFlag()); err != nil {
+		if resp, cursor, err = unmarshalScopedPDU(resp, cursor, reply, reply.SecurityLevel.privFlag()); err != nil {
 			return read(false), verified, err
 		}
 	}
@@ -607,7 +607,7 @@ func (e *exchange) decode(resp []byte, earlier []sentIDs) (_ *Message, verified 
 // authentication; a reply that asks for authentication names the request's
 // engine ID, the only one the request's keys serve (else errUnknownUser); the
 // request's user has the protocols the flags ask for.
-func receiveReply(flags SnmpV3MsgFlags, w *v3Wire, sp *UsmSecurityParameters) error {
+func receiveReply(flags SecurityLevel, w *v3Wire, sp *UsmSecurityParameters) error {
 	if w.userName != sp.UserName {
 		if w.userName != "" {
 			return errUnknownUser
@@ -669,7 +669,7 @@ func (e *exchange) answers(reply *Message, earlier []sentIDs) (bool, error) {
 	p := e.packet
 	got, want := reply.SecurityParameters.usm(), p.SecurityParameters.usm()
 	switch {
-	case reply.MsgFlags&AuthPriv != p.MsgFlags&AuthPriv:
+	case reply.SecurityLevel != p.SecurityLevel:
 		return false, errOtherLevel
 	case got.UserName != want.UserName:
 		return false, errOtherUser

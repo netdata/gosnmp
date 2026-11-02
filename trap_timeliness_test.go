@@ -56,23 +56,24 @@ func encodeTimely(t *testing.T, engineID string, m timelyMessage) []byte {
 		flags = NoAuthNoPriv
 	}
 	require.NoError(t, sp.InitSecurityKeys())
-	pdu := SNMPv2Trap
+	// wire is the msgFlags octet the message carries.
+	pdu, wire := SNMPv2Trap, flags
 	if m.inform {
-		flags, pdu = flags|Reportable, InformRequest
+		pdu, wire = InformRequest, wire|reportableFlag
 	}
 	if m.flipped {
-		flags ^= Reportable
+		wire ^= reportableFlag
 	}
 	data, err := (&Message{
-		Version: Version3, MsgFlags: flags, SecurityModel: UserSecurityModel, SecurityParameters: sp,
+		Version: Version3, SecurityLevel: flags, SecurityParameters: sp,
 		PDUType: pdu, RequestID: 1, VarBinds: usmPlainVars,
 	}).Encode()
 	require.NoError(t, err)
 	if m.flipped || m.boots != sp.AuthoritativeEngineBoots || m.time != sp.AuthoritativeEngineTime {
-		data = rewireV3(t, data, sp, flags, m.boots, m.time)
+		data = rewireV3(t, data, sp, wire, m.boots, m.time)
 	}
 	// A flipped message must carry the flag the other way on the wire.
-	require.Equal(t, flags&Reportable, wireFlags(t, data)&Reportable, "the wire's reportable flag")
+	require.Equal(t, wire&reportableFlag, wireFlags(t, data)&reportableFlag, "the wire's reportable flag")
 	return data
 }
 
@@ -80,7 +81,7 @@ func encodeTimely(t *testing.T, engineID string, m timelyMessage) []byte {
 // ask for authentication, with the msgFlags octet flags and the engine boots
 // and time given, and signed again: wire values the encoder does not write. An
 // encrypted scoped PDU stays as encrypted with the encoded boots and time.
-func rewireV3(t *testing.T, data []byte, sp *UsmSecurityParameters, flags SnmpV3MsgFlags, boots, engineTime uint32) []byte {
+func rewireV3(t *testing.T, data []byte, sp *UsmSecurityParameters, flags SecurityLevel, boots, engineTime uint32) []byte {
 	t.Helper()
 	m := splitV3Message(t, data)
 	msgFlagsOctets(byte(flags))(&m)
@@ -111,7 +112,7 @@ var timelyReceivers = []struct {
 	}, []string{"", "codec-user", "other-user", "plain-user"}},
 	{"single", func(*testing.T) *Client {
 		x := usmDecoder(SHA, "codec-auth-pass", AES, "codec-priv-pass")()
-		x.Version, x.MsgFlags, x.SecurityModel = Version3, AuthPriv, UserSecurityModel
+		x.Version, x.SecurityLevel = Version3, AuthPriv
 		return x
 	}, []string{"", "codec-user"}},
 }
@@ -285,17 +286,17 @@ func TestTrapEncodedReplay(t *testing.T) {
 		t.Run(path, func(t *testing.T) {
 			advance := useEngineTimes(t)
 			sp := signedTestUSM(t, SHA256, AES, usmCharEngineID, "codec-user")
-			sender := &Client{Version: Version3, MsgFlags: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy()}
+			sender := &Client{Version: Version3, SecurityLevel: AuthPriv, SecurityParameters: sp.Copy()}
 			wire, err := sender.EncodeMessage(SNMPv2Trap, usmPlainVars, 0, 0)
 			require.NoError(t, err)
-			receiver := &Client{Version: Version3, MsgFlags: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp.Copy()}
+			receiver := &Client{Version: Version3, SecurityLevel: AuthPriv, SecurityParameters: sp.Copy()}
 			if path == "table" {
 				receiver.TrapSecurityParametersTable = NewSnmpV3SecurityParametersTable()
 				require.NoError(t, receiver.TrapSecurityParametersTable.Add("codec-user", sp.Copy()))
 			}
 			got, err := receiver.UnmarshalTrap(bytes.Clone(wire), false)
 			require.NoError(t, err)
-			require.Equal(t, AuthPriv, got.MsgFlags)
+			require.Equal(t, AuthPriv, got.SecurityLevel)
 			advance(24 * time.Hour)
 			_, err = receiver.UnmarshalTrap(bytes.Clone(wire), false)
 			require.ErrorIs(t, err, ErrNotInTimeWindow)
