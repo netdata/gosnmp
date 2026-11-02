@@ -61,9 +61,9 @@ func categoriesOf(err error) []string {
 }
 
 // checkCategory fails t unless err, an error of an incoming message or nil,
-// matches exactly one category, and not ErrAnswered. The fuzz targets that call it decode with
-// valid users outside FIPS 140-only mode (their seeds derive MD5 keys), so no
-// local failure is expected.
+// matches exactly one category, and not ErrAnswered. The fuzz targets that
+// call it decode with valid users outside FIPS 140-only mode (their seeds
+// derive MD5 keys), so no local failure is expected.
 func checkCategory(t *testing.T, what string, err error) {
 	t.Helper()
 	if names := categoriesOf(err); err != nil && len(names) != 1 {
