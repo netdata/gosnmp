@@ -542,6 +542,7 @@ var engineSentinels = []struct {
 	{"syscall.EHOSTUNREACH", syscall.EHOSTUNREACH},
 	{"syscall.EACCES", syscall.EACCES},
 	{"errEngineWrite", errEngineWrite},
+	{"ErrAnswered", ErrAnswered},
 }
 
 // describeEngineError gives the text of err and what it is: the sentinels it

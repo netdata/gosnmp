@@ -12,27 +12,29 @@ import (
 
 // negotiateInitialSecurityParameters prepares packetOut's security parameters
 // before an SNMPv3 request: it discovers the agent's engine while the engine
-// state has no engine ID, and gives packetOut the engine state.
-func (x *Client) negotiateInitialSecurityParameters(cfg *requestConfig, packetOut *Message) error {
+// state has no engine ID, and gives packetOut the engine state. A failed
+// discovery returns its error with the answer that ended it, if any.
+func (x *Client) negotiateInitialSecurityParameters(cfg *requestConfig, packetOut *Message) (*Message, error) {
 	if len(x.engine.engineID) == 0 {
 		return x.discoverEngine(cfg, packetOut)
 	}
 	x.engine.stamp(packetOut)
-	return nil
+	return nil, nil
 }
 
 // discoverEngine runs engine discovery (RFC 3414 section 4): it sends the
 // discovery request, whose answer the attempt commits into the engine state
-// (exchange.settle), and gives packetOut the engine state.
-func (x *Client) discoverEngine(cfg *requestConfig, packetOut *Message) error {
+// (exchange.settle), and gives packetOut the engine state. A discovery whose
+// answer was not committed returns its error with the answer, if any.
+func (x *Client) discoverEngine(cfg *requestConfig, packetOut *Message) (*Message, error) {
 	discoveryPacket := newDiscoveryPacket()
 	discoveryPacket.ContextName = packetOut.ContextName
-	_, committed, err := x.sendOneRequest(cfg, discoveryPacket, true, attemptSecurity{})
+	answer, committed, err := x.sendOneRequest(cfg, discoveryPacket, true, attemptSecurity{})
 	if !committed {
-		return err
+		return answer, err
 	}
 	x.engine.stamp(packetOut)
-	return nil
+	return nil, nil
 }
 
 // engineFoundDespiteUnknownUser reports whether a discovery that failed with

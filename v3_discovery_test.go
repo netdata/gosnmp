@@ -252,9 +252,10 @@ func TestV3DiscoveryUnknownUserNames(t *testing.T) {
 	// negotiateInitialSecurityParameters internally.
 	pkt := ts.NewMessage(GetRequest, nil, 0, 0)
 	require.NoError(t, ts.startEngine())
-	err := ts.negotiateInitialSecurityParameters(new(ts.prepareRequest()), pkt)
+	answer, err := ts.negotiateInitialSecurityParameters(new(ts.prepareRequest()), pkt)
 	require.NoError(t, err, "negotiateInitialSecurityParameters must succeed even when the device "+
 		"responds with usmStatsUnknownUserNames during engine-ID discovery")
+	require.Nil(t, answer, "a discovery that succeeds returns no answer")
 
 	stored := &ts.engine
 	require.Equal(t, []byte(testDiscoveryEngineID), stored.engineID,
@@ -306,9 +307,10 @@ func TestV3DiscoveryUnknownUserNamesNoEngineID(t *testing.T) {
 
 	pkt := ts.NewMessage(GetRequest, nil, 0, 0)
 	require.NoError(t, ts.startEngine())
-	err := ts.negotiateInitialSecurityParameters(new(ts.prepareRequest()), pkt)
+	answer, err := ts.negotiateInitialSecurityParameters(new(ts.prepareRequest()), pkt)
 	require.ErrorIs(t, err, ErrUnknownUsername,
 		"ErrUnknownUsername must not be suppressed when the Report carries an empty engine ID")
+	require.NotNil(t, answer, "the discovery returns the Report that ended it")
 }
 
 // TestV3GetRealUnknownUserNameStillFails verifies that ErrUnknownUsername is
@@ -332,6 +334,7 @@ func TestV3GetRealUnknownUserNameStillFails(t *testing.T) {
 	_, err := ts.Get([]string{".1.3.6.1.2.1.1.1.0"})
 	require.ErrorIs(t, err, ErrUnknownUsername,
 		"ErrUnknownUsername from a post-discovery request must not be suppressed")
+	require.ErrorIs(t, err, ErrAnswered, "the agent's Report ended the request")
 }
 
 // TestV3DiscoveryUnknownUserNamesOtherUser pins a discovery answered with a
@@ -351,7 +354,8 @@ func TestV3DiscoveryUnknownUserNamesOtherUser(t *testing.T) {
 
 	pkt := ts.NewMessage(GetRequest, nil, 0, 0)
 	require.NoError(t, ts.startEngine())
-	err := ts.negotiateInitialSecurityParameters(new(ts.prepareRequest()), pkt)
+	answer, err := ts.negotiateInitialSecurityParameters(new(ts.prepareRequest()), pkt)
 	require.ErrorIs(t, err, errUnknownUser)
+	require.Nil(t, answer, "no answer ended the discovery: it timed out")
 	require.Empty(t, ts.engine.engineID)
 }
