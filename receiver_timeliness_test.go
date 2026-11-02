@@ -200,10 +200,7 @@ func TestTrapTimeliness(t *testing.T) {
 }
 
 // TestEngineTimesRecords pins the records' lifecycle: admit makes a key's
-// record with its first message and keeps every record (no eviction); probe
-// decides on the record of a key when there is one, updating it, and
-// otherwise on a new clock it returns for install, which keeps a record
-// already there.
+// record with its first message and keeps every record (no eviction).
 func TestEngineTimesRecords(t *testing.T) {
 	key := func(b byte) engineTimeKey { return engineTimeKey{b} }
 	now := time.Unix(1_000_000_000, 0)
@@ -217,36 +214,6 @@ func TestEngineTimesRecords(t *testing.T) {
 		for b := range 200 {
 			require.ErrorIs(t, s.admit(key(byte(b)), 4, 1), ErrNotInTimeWindow, "record %d", b)
 		}
-	})
-	t.Run("probe of a recorded key", func(t *testing.T) {
-		s := newEngineTimes(func() time.Time { return now })
-		require.NoError(t, s.admit(key(1), 5, 100))
-		_, made, err := s.probe(key(1), 4, 1)
-		require.ErrorIs(t, err, ErrNotInTimeWindow)
-		assert.False(t, made)
-		_, made, err = s.probe(key(1), 6, 1)
-		require.NoError(t, err)
-		assert.False(t, made)
-		require.ErrorIs(t, s.admit(key(1), 5, 200), ErrNotInTimeWindow, "the probe updated the record")
-	})
-	t.Run("probe of a new key, then install", func(t *testing.T) {
-		s := newEngineTimes(func() time.Time { return now })
-		clock, made, err := s.probe(key(1), 5, 100)
-		require.NoError(t, err)
-		require.True(t, made)
-		assert.Empty(t, s.records, "a probe makes no record")
-		s.install(key(1), clock)
-		require.ErrorIs(t, s.admit(key(1), 4, 1), ErrNotInTimeWindow, "the installed clock is the record")
-		other, _, err := s.probe(key(2), 9, 9)
-		require.NoError(t, err)
-		s.install(key(1), other)
-		require.NoError(t, s.admit(key(1), 5, 100), "install keeps the record already there")
-	})
-	t.Run("probe at the maximum boots", func(t *testing.T) {
-		s := newEngineTimes(func() time.Time { return now })
-		_, made, err := s.probe(key(1), maxEngineValue, 1)
-		require.ErrorIs(t, err, ErrNotInTimeWindow)
-		assert.True(t, made)
 	})
 }
 

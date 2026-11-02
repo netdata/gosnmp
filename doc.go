@@ -343,7 +343,8 @@
 // [Client.DecodeMessage] derives them for the engine ID a message names, the
 // authentication key when the message asks for authentication, the privacy key
 // only to decrypt it. A [Receiver] derives its users' keys for their engine IDs
-// when it is made, and a user it learns the authentication key for the
+// when it is made (and a LearnUser's once, to check they derive), and a user it
+// learns the authentication key for the
 // message's engine ID to check the digest, the privacy key only once the
 // digest checked, and every learned user's keys once it registers them.
 // [Message.Encode] derives them for the message's engine ID. No
@@ -354,7 +355,10 @@
 // extension (AES192C, AES256C) hashes the localized key the same way, so it
 // adds a result per user and engine ID, and DecodeMessage, which decrypts
 // without checking the digest, one per engine ID its messages name; a
-// receiver's, at most one per user it has and learns.
+// receiver's, one per user it has, learns or may learn, and one per engine ID
+// an authentic message of a LearnUser names when the receiver does not learn
+// it (an inform, a trap outside the time window, a message that does not
+// decrypt or whose PDU does not parse).
 //
 // # Notifications
 //
@@ -391,7 +395,10 @@
 // traps of a device whose engine time does not advance in real time, whose
 // boots do not increase when it restarts, or that shares its engine ID with
 // another, for as long as the receiver lives; a new receiver starts with no
-// records, and accepts a copy of each engine's latest trap once more. Informs
+// records, and accepts a copy of each engine's latest trap once more. An engine
+// the receiver is still learning has no record: its trap at the maximum boots
+// is rejected and leaves none, so its next authentic trap is a first contact.
+// Informs
 // are neither checked nor recorded (an inform's receiver is the authoritative
 // engine, whose time the library does not keep), nor are unauthenticated
 // traps. The records are at most one per user and engine ID, since only a
@@ -402,7 +409,7 @@
 // Every error of an incoming message unwraps ([errors.Is]) to exactly one
 // category, an exported error named after the counter RFC 3412, RFC 3414 or
 // RFC 3418 counts the message in, as net-snmp v5.9.4 counts it, with a text of
-// its own: an error of DecodeMessage, of Receive, and the reason a
+// its own: an error of DecodeMessage, of Receive, of ReadEnvelope, and the reason a
 // request discards a reply for. The categories:
 //
 //   - [ErrASNParse] (snmpInASNParseErrs): the message does not parse, of any

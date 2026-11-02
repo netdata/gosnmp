@@ -44,18 +44,22 @@ type ReceiverConfig struct {
 	Users []EngineUser
 
 	// LearnUsers are the users the receiver may learn for any engine ID
-	// (RFC 3414 section 3.2 step 3: a non-authoritative engine may create
-	// the entry of an engine it does not know). A message whose user name
-	// and engine ID have no user is decoded with the LearnUsers of its name,
+	// (RFC 3414 section 3.2 step 3 lets a non-authoritative engine create the
+	// entry of an engine it does not know; the receiver creates one per user
+	// name, also at an engine it has users of other names for). A message
+	// whose user name and engine ID have no user is decoded with the
+	// LearnUsers of its name,
 	// tried in the order given; once one accepts it, by the security
 	// processing at the user's own level, the receiver registers every
-	// LearnUser of the name for the engine ID. A notification of the
-	// Confirmed Class (an inform) is never learned: its engine is the
-	// receiver's.
+	// LearnUser of the name for the engine ID. A message of the Confirmed
+	// Class (an inform) is never learned: its engine is the receiver's. A
+	// LearnUser without an authentication protocol learns from
+	// unauthenticated messages, which anyone can send naming any engine ID.
 	LearnUsers []User
 
 	// MaxLearned is how many user names, each for one engine ID, the
-	// receiver learns at most; it must be at least 1 when LearnUsers is set.
+	// receiver learns at most, every name counting against it; it must be at
+	// least 1 when LearnUsers is set.
 	MaxLearned int
 }
 
@@ -80,9 +84,10 @@ type Notification struct {
 var errLearnWithoutMax = errors.New("ReceiverConfig.MaxLearned must be at least 1 when LearnUsers is set")
 
 // NewReceiver returns a receiver of config's users, whose keys it derives
-// for their engine IDs. A user with an empty engine ID, the same user twice
-// for an engine ID or in LearnUsers, a protocol out of its set and a protocol
-// without a passphrase fail.
+// for their engine IDs. A user with an empty engine ID or a name outside 1..32
+// octets, the same user twice for an engine ID or in LearnUsers, a protocol out
+// of its set and a key that does not derive (a protocol without a passphrase,
+// or one FIPS 140-only mode refuses) fail.
 func NewReceiver(config ReceiverConfig) (*Receiver, error) {
 	r := &Receiver{
 		users:      make(map[string]map[string][]*tableUser),
@@ -111,6 +116,9 @@ func (r *Receiver) add(engineID []byte, user User) error {
 	if len(engineID) == 0 {
 		return errors.New("an engine ID is required")
 	}
+	if err := user.checkName(); err != nil {
+		return err
+	}
 	byName := r.users[string(engineID)]
 	for _, u := range byName[user.Name] {
 		if u.user == user {
@@ -129,13 +137,15 @@ func (r *Receiver) add(engineID []byte, user User) error {
 	return nil
 }
 
-// addLearnable adds user to the users the receiver may learn, after checking
-// that its keys can derive.
+// addLearnable adds user to the users the receiver may learn, after deriving
+// its keys once, for the empty engine ID, so that a key that cannot derive
+// (a protocol without a passphrase, or one FIPS 140-only mode refuses) fails
+// here rather than every registration of its name.
 func (r *Receiver) addLearnable(user User) error {
-	if err := user.checkProtocols(); err != nil {
+	if err := user.checkName(); err != nil {
 		return err
 	}
-	if err := user.checkPassphrases(); err != nil {
+	if _, err := user.localize(nil); err != nil {
 		return err
 	}
 	if slices.Contains(r.learnable[user.Name], user) {
@@ -167,7 +177,9 @@ func (r *Receiver) addLearnable(user User) error {
 // (ErrUnknownSecurityLevel): a user with an authentication protocol accepts
 // only authenticated messages. When no user accepts the message, the error is
 // the one of the user that got furthest through these steps, the first on
-// ties.
+// ties. An inform is decoded with the users of the engine ID it names, as any
+// message: Receive does not check that it names the receiver's own engine ID,
+// an inform's authoritative engine (RFC 3414 section 1.5.1); the caller does.
 //
 // The notification's OctetString, Opaque and IPAddress values alias
 // datagram (see the package documentation).
@@ -251,7 +263,7 @@ func (r *Receiver) learn(datagram []byte, w v3Wire, n *Notification, engineKnown
 		if i > 0 {
 			n.Message = header
 		}
-		probe := learnProbe{times: r.times}
+		probe := learnProbe{now: r.times.now}
 		step, err := decodeTrapV3(datagram, w, &n.Message, &candidates[i], nil, probe.admit)
 		if err != nil {
 			if furthest == nil || step > reached {
@@ -273,9 +285,13 @@ func (r *Receiver) learn(datagram []byte, w v3Wire, n *Notification, engineKnown
 }
 
 // register registers users, the users the receiver may learn for name, for
-// engineID, with their keys localized to it, and installs the time record
-// probe made, unless the name was registered for the engine ID meanwhile
-// (learned false) or the receiver learned MaxLearned names (its error).
+// engineID, with their keys localized to it, unless the name was registered
+// for the engine ID meanwhile (learned false) or the receiver learned
+// MaxLearned names (its error). An authenticated trap is decided again by step
+// 7 b (engineTimes.admit) on the record of its engine and credential, made now
+// when there is none: another user's message, or a concurrent one, may have
+// made it since probe decided it, and step 7 b stays one update per message,
+// in one order.
 func (r *Receiver) register(engineID []byte, name string, users []User, probe *learnProbe) (bool, error) {
 	entries := make([]*tableUser, len(users))
 	for i, u := range users {
@@ -289,11 +305,17 @@ func (r *Receiver) register(engineID []byte, name string, users []User, probe *l
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	byName, engineKnown := r.users[string(engineID)]
-	if _, ok := byName[name]; ok {
-		return false, nil
-	}
-	if r.learned >= r.maxLearned {
+	_, registered := byName[name]
+	if !registered && r.learned >= r.maxLearned {
 		return false, unknownUser(name, engineKnown)
+	}
+	if probe.checked {
+		if err := r.times.admit(probe.key, probe.boots, probe.engineTime); err != nil {
+			return false, err
+		}
+	}
+	if registered {
+		return false, nil
 	}
 	if byName == nil {
 		byName = make(map[string][]*tableUser)
@@ -301,28 +323,24 @@ func (r *Receiver) register(engineID []byte, name string, users []User, probe *l
 	}
 	byName[name] = entries
 	r.learned++
-	if probe.made {
-		r.times.install(probe.key, probe.clock)
-	}
 	return true, nil
 }
 
 // learnProbe applies RFC 3414 section 3.2 step 7 b for a message of a user
-// being learned: to the time record of its engine and credential when the
-// receiver has one, or to a new one, which it keeps for register to install.
+// being learned on a new clock, which rejects only an engine at the maximum
+// boots: the message is not the receiver's yet, so it changes no record. It
+// keeps what register needs to decide the message on the record.
 type learnProbe struct {
-	times *engineTimes
-	key   engineTimeKey
-	clock engineClock
-	made  bool
+	now               func() time.Time
+	key               engineTimeKey
+	boots, engineTime uint32
+	checked           bool
 }
 
 func (p *learnProbe) admit(key engineTimeKey, boots, engineTime uint32) error {
-	clock, made, err := p.times.probe(key, boots, engineTime)
-	if made {
-		p.key, p.clock, p.made = key, clock, true
-	}
-	return err
+	p.key, p.boots, p.engineTime, p.checked = key, boots, engineTime, true
+	var c engineClock
+	return c.admit(boots, engineTime, p.now())
 }
 
 // trapStep is how far an SNMPv3 trap got through decodeTrapV3 with one user:
@@ -382,8 +400,8 @@ func decodeTrapV3(trap []byte, w v3Wire, result *Message, user *User, keys *usmK
 }
 
 // Envelope is what a datagram's header says before any security processing:
-// the version and, for SNMPv3, msgGlobalData and the User-based Security
-// Model's header. None of it is authenticated.
+// the version and, for SNMPv3, the msgID and the flags of msgGlobalData and
+// the User-based Security Model's parameters. None of it is authenticated.
 type Envelope struct {
 	Version Version
 
@@ -397,10 +415,13 @@ type Envelope struct {
 	SecurityParameters SecurityParameters
 }
 
-// ReadEnvelope reads the header of datagram, a message of any version: the
-// version and, for SNMPv3, the header fields up to the USM parameters, by the
-// rules a decode reads them with, and the errors of their categories. It
-// decodes no PDU, derives no key and checks no digest.
+// ReadEnvelope reads the header of datagram, a message of any version, by the
+// rules a decode reads it with and with the errors of their categories: the
+// message's SEQUENCE, which must span datagram, the version and, for SNMPv1
+// and SNMPv2c, the community (not returned), or, for SNMPv3, every header
+// field up to the USM parameters. It returns no envelope with an error, also
+// when the version read. It decodes no PDU, derives no key and checks no
+// digest.
 func ReadEnvelope(datagram []byte) (Envelope, error) {
 	var m Message
 	_, w, err := unmarshalHeader(datagram, &m)
