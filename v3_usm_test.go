@@ -53,8 +53,10 @@ func packetSHA224Authenticated(t *testing.T) []byte {
 	return packet
 }
 
-// TestTrapOtherUser pins that a single trap user does not take a message
-// naming another user (RFC 3414 section 3.2 step 4), before its digest.
+// TestTrapOtherUser pins that a receiver does not take a message naming a
+// user it has none of for the message's engine ID, though it has another user
+// with the same keys for the engine ID (RFC 3414 section 3.2 step 4), before
+// its digest: a wrong digest is not checked.
 func TestTrapOtherUser(t *testing.T) {
 	user := User{Name: "usr-sha224-none", AuthProtocol: SHA224, AuthPassphrase: "authkey1"}
 	key, err := user.authKey(authorativeEngineID(t))
@@ -64,13 +66,15 @@ func TestTrapOtherUser(t *testing.T) {
 	verifier := user
 	verifier.Name = "foo"
 
-	msg := packetSHA224Authenticated(t)
-	res := new(Message)
-	_, w, err := unmarshalHeader(msg, res)
-	require.NoError(t, err)
-	step, err := decodeTrapV3(msg, w, res, &verifier, nil, trapRule{singleUser: true})
-	require.ErrorIs(t, err, ErrUnknownUsername)
-	assert.Equal(t, stepUser, step)
+	for name, msg := range map[string][]byte{
+		"authentic":    packetSHA224Authenticated(t),
+		"wrong digest": withWrongDigest(t, packetSHA224Authenticated(t)),
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := receiverAt(t, authorativeEngineID(t), verifier).Receive(msg)
+			require.ErrorIs(t, err, ErrUnknownUsername)
+		})
+	}
 }
 
 func TestAuthenticationSHA224(t *testing.T) {
@@ -173,10 +177,10 @@ func testInbound(t *testing.T, msg []byte, user *User) *inbound {
 
 // TestUSMUnsupportedProtocols checks that protocol values outside the defined
 // sets fail with an error on every path: validation, key derivation, a
-// table's Add, encoding without validation, and decoding with a table entry
-// whose protocol changed after Add.
+// receiver's users and users to learn (NewReceiver), encoding without
+// validation, and decoding with a registered user whose protocol changed after
+// NewReceiver.
 func TestUSMUnsupportedProtocols(t *testing.T) {
-	useEngineTimes(t)
 	const (
 		authErr = "User.AuthProtocol AuthProtocol(8) is not supported"
 		privErr = "User.PrivProtocol PrivProtocol(8) is not supported"
@@ -207,9 +211,12 @@ func TestUSMUnsupportedProtocols(t *testing.T) {
 				_, err := u.localize([]byte(usmCharEngineID))
 				assert.EqualError(t, err, tc.wantErr)
 			})
-			t.Run("table", func(t *testing.T) {
-				table := NewSnmpV3SecurityParametersTable()
-				assert.EqualError(t, table.Add(user(tc.auth, tc.priv), []byte(usmCharEngineID)), tc.wantErr)
+			t.Run("receiver", func(t *testing.T) {
+				u := user(tc.auth, tc.priv)
+				_, err := NewReceiver(ReceiverConfig{Users: []EngineUser{{EngineID: []byte(usmCharEngineID), User: u}}})
+				assert.EqualError(t, err, "ReceiverConfig.Users[0]: "+tc.wantErr)
+				_, err = NewReceiver(ReceiverConfig{LearnUsers: []User{u}, MaxLearned: 1})
+				assert.EqualError(t, err, "ReceiverConfig.LearnUsers[0]: "+tc.wantErr)
 			})
 			t.Run("encode", func(t *testing.T) {
 				pkt := &Message{
@@ -226,13 +233,11 @@ func TestUSMUnsupportedProtocols(t *testing.T) {
 			})
 			t.Run("decode", func(t *testing.T) {
 				data := usmCharTrap(t, AES, usmCharVarbinds)
-				table := NewSnmpV3SecurityParametersTable()
-				require.NoError(t, table.Add(user(SHA, AES), []byte(usmCharEngineID)))
-				entries, err := table.get("codec-user")
-				require.NoError(t, err)
-				entries[0].user.AuthProtocol, entries[0].user.PrivProtocol = tc.auth, tc.priv
-				x := &Client{Version: Version3, TrapSecurityParametersTable: table}
-				require.NotPanics(t, func() { _, err = x.UnmarshalTrap(data, true) })
+				r := receiverAt(t, []byte(usmCharEngineID), user(SHA, AES))
+				entry := r.users[usmCharEngineID]["codec-user"][0]
+				entry.user.AuthProtocol, entry.user.PrivProtocol = tc.auth, tc.priv
+				var err error
+				require.NotPanics(t, func() { _, err = r.Receive(data) })
 				assert.EqualError(t, err, "no credentials successfully unmarshaled trap: "+tc.wantErr)
 			})
 		})
@@ -325,35 +330,30 @@ func TestUSMDecodeSecurityLevel(t *testing.T) {
 	}
 }
 
-// TestUSMTrapTableAttempts checks how the trap table path tries the users of
-// a name, in the order they were added, on the one trap (no attempt writes
-// it): the first that decodes wins, and when none does the error carries the
-// one of the user that got furthest, whatever the order, the first on ties: a
-// wrong digest after a local failure that comes before it, a level the user
-// lacks protocols for after a local failure.
-func TestUSMTrapTableAttempts(t *testing.T) {
-	useEngineTimes(t)
+// TestUSMReceiveAttempts checks how a receiver tries the users of a name
+// registered for the message's engine ID, in the order they were added, on
+// the one trap (no attempt writes it): the first that decodes wins, and when
+// none does the error carries the one of the user that got furthest, whatever
+// the order, the first on ties: a wrong digest after a local failure that
+// comes before it, a level the user lacks protocols for after a local
+// failure.
+func TestUSMReceiveAttempts(t *testing.T) {
 	data := usmCharTrap(t, AES, usmCharVarbinds)
 	user := func(authPass string) User { return usmUser(SHA, authPass, AES, "codec-priv-pass") }
 	good := user("codec-auth-pass")
 	wrongPass := user("wrong-auth-pass")
 	noPriv := good
 	noPriv.PrivProtocol = NoPriv
-	add := func(u User) func(*SnmpV3SecurityParametersTable) {
-		return func(tb *SnmpV3SecurityParametersTable) { require.NoError(t, tb.Add(u, []byte(usmCharEngineID))) }
+	// entry is one user of the receiver: user, or, when edit is set, a user
+	// that fails before decoding anything: NewReceiver rejects an unsupported
+	// protocol, so edit sets it on the registered user.
+	type entry struct {
+		user User
+		edit func(u *User)
 	}
-	// unsupported fails before decoding anything: the entry's protocol is
-	// set after Add, which rejects it; edit sets it.
-	unsupported := func(edit func(u *User)) func(*SnmpV3SecurityParametersTable) {
-		return func(tb *SnmpV3SecurityParametersTable) {
-			add(good)(tb)
-			entries, err := tb.get("codec-user")
-			require.NoError(t, err)
-			edit(&entries[len(entries)-1].user)
-		}
-	}
-	unsupportedAuth := unsupported(func(u *User) { u.AuthProtocol = AuthProtocol(8) })
-	unsupportedPriv := unsupported(func(u *User) { u.PrivProtocol = PrivProtocol(8) })
+	add := func(u User) entry { return entry{user: u} }
+	unsupportedAuth := entry{edit: func(u *User) { u.AuthProtocol = AuthProtocol(8) }}
+	unsupportedPriv := entry{edit: func(u *User) { u.PrivProtocol = PrivProtocol(8) }}
 	const (
 		prefix         = "no credentials successfully unmarshaled trap: "
 		notAuthentic   = "incoming packet is not authentic, discarding"
@@ -363,28 +363,38 @@ func TestUSMTrapTableAttempts(t *testing.T) {
 	)
 
 	tests := map[string]struct {
-		sets    []func(*SnmpV3SecurityParametersTable)
+		users   []entry
 		wantErr string
 	}{
-		"wrong passphrase, then right":          {sets: []func(*SnmpV3SecurityParametersTable){add(wrongPass), add(good)}},
-		"right passphrase first":                {sets: []func(*SnmpV3SecurityParametersTable){add(good), add(wrongPass)}},
-		"unsupported, then not authentic":       {sets: []func(*SnmpV3SecurityParametersTable){unsupportedAuth, add(wrongPass)}, wantErr: prefix + notAuthentic},
-		"not authentic, then unsupported":       {sets: []func(*SnmpV3SecurityParametersTable){add(wrongPass), unsupportedAuth}, wantErr: prefix + notAuthentic},
-		"unsupported twice":                     {sets: []func(*SnmpV3SecurityParametersTable){unsupportedAuth, unsupportedAuth}, wantErr: prefix + notSupportedV8},
-		"unsupported, then unsupported privacy": {sets: []func(*SnmpV3SecurityParametersTable){unsupportedAuth, unsupportedPriv}, wantErr: prefix + notSupportedV8},
-		"unsupported privacy, then unsupported": {sets: []func(*SnmpV3SecurityParametersTable){unsupportedPriv, unsupportedAuth}, wantErr: prefix + privNotSupport},
-		"unsupported privacy, then no privacy":  {sets: []func(*SnmpV3SecurityParametersTable){unsupportedPriv, add(noPriv)}, wantErr: prefix + noPrivProtocol},
-		"no privacy, then unsupported privacy":  {sets: []func(*SnmpV3SecurityParametersTable){add(noPriv), unsupportedPriv}, wantErr: prefix + noPrivProtocol},
+		"wrong passphrase, then right":          {users: []entry{add(wrongPass), add(good)}},
+		"right passphrase first":                {users: []entry{add(good), add(wrongPass)}},
+		"unsupported, then not authentic":       {users: []entry{unsupportedAuth, add(wrongPass)}, wantErr: prefix + notAuthentic},
+		"not authentic, then unsupported":       {users: []entry{add(wrongPass), unsupportedAuth}, wantErr: prefix + notAuthentic},
+		"unsupported twice":                     {users: []entry{unsupportedAuth, unsupportedAuth}, wantErr: prefix + notSupportedV8},
+		"unsupported, then unsupported privacy": {users: []entry{unsupportedAuth, unsupportedPriv}, wantErr: prefix + notSupportedV8},
+		"unsupported privacy, then unsupported": {users: []entry{unsupportedPriv, unsupportedAuth}, wantErr: prefix + privNotSupport},
+		"unsupported privacy, then no privacy":  {users: []entry{unsupportedPriv, add(noPriv)}, wantErr: prefix + noPrivProtocol},
+		"no privacy, then unsupported privacy":  {users: []entry{add(noPriv), unsupportedPriv}, wantErr: prefix + noPrivProtocol},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			tb := NewSnmpV3SecurityParametersTable()
-			for _, set := range tc.sets {
-				set(tb)
+			users := make([]User, len(tc.users))
+			for i, e := range tc.users {
+				users[i] = e.user
+				if e.edit != nil {
+					// A user of its own, which NewReceiver takes once.
+					users[i] = user(fmt.Sprintf("unsupported-%d", i))
+				}
 			}
-			x := &Client{Version: Version3, TrapSecurityParametersTable: tb}
+			r := receiverAt(t, []byte(usmCharEngineID), users...)
+			registered := r.users[usmCharEngineID]["codec-user"]
+			for i, e := range tc.users {
+				if e.edit != nil {
+					e.edit(&registered[i].user)
+				}
+			}
 			in := bytes.Clone(data)
-			res, err := x.UnmarshalTrap(in, false)
+			res, err := receiveMessage(r, in)
 			assert.Equal(t, data, in, "the caller's trap")
 			if tc.wantErr != "" {
 				assert.EqualError(t, err, tc.wantErr)
@@ -419,24 +429,13 @@ func TestUSMReceivePassphrases(t *testing.T) {
 
 // TestUSMTrapMistypedFields pins that a trap whose user name or engine ID is
 // not an OCTET STRING fails the header parse (RFC 3414 section 3.2 step 1),
-// so a receiver without authentication, whose user name is its only
+// so a receiver of a user without authentication, whose user name is its only
 // credential, cannot take it as its own user's or from no engine.
 func TestUSMTrapMistypedFields(t *testing.T) {
-	useEngineTimes(t)
 	trap := func(engineID, user []byte) []byte {
 		return craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3),
 			craftedUSM(engineID, intTLV(1), intTLV(1), user, octets(""), octets("")),
 			tlv(0x30, octets(""), octets(""), craftedPDU(SNMPv2Trap, craftedVBL(craftedVB(intTLV(5))))))
-	}
-	receivers := map[string]func() *Client{
-		"single": func() *Client {
-			return &Client{Version: Version3, User: User{Name: "secret-user"}}
-		},
-		"table": func() *Client {
-			tb := NewSnmpV3SecurityParametersTable()
-			require.NoError(t, tb.Add(User{Name: "secret-user"}, nil))
-			return &Client{Version: Version3, TrapSecurityParametersTable: tb}
-		},
 	}
 	tests := map[string]struct {
 		in   []byte
@@ -447,23 +446,21 @@ func TestUSMTrapMistypedFields(t *testing.T) {
 		"engine ID as an INTEGER": {in: trap(intTLV(1), octets("secret-user")), want: ErrASNParse},
 	}
 	for name, tc := range tests {
-		for rname, receiver := range receivers {
-			t.Run(name+"/"+rname, func(t *testing.T) {
-				_, err := receiver().UnmarshalTrap(bytes.Clone(tc.in), false)
-				if tc.want == nil {
-					require.NoError(t, err)
-					return
-				}
-				require.ErrorIs(t, err, tc.want)
-			})
-		}
+		t.Run(name, func(t *testing.T) {
+			r := receiverAt(t, []byte(usmCharEngineID), User{Name: "secret-user"})
+			_, err := r.Receive(bytes.Clone(tc.in))
+			if tc.want == nil {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, tc.want)
+		})
 	}
 }
 
-// TestUSMTrapTableSkipsV1V2c checks that a receiver with a trap table
-// decodes SNMPv1 and SNMPv2c traps without it.
-func TestUSMTrapTableSkipsV1V2c(t *testing.T) {
-	useEngineTimes(t)
+// TestUSMReceiverSkipsUsersV1V2c checks that a receiver with SNMPv3 users
+// decodes SNMPv1 and SNMPv2c traps without them.
+func TestUSMReceiverSkipsUsersV1V2c(t *testing.T) {
 	vbl := craftedVBL(craftedVB(intTLV(5)))
 	vars := []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Value: IntegerValue(5)}}
 	tests := map[string]struct {
@@ -476,12 +473,10 @@ func TestUSMTrapTableSkipsV1V2c(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			tb := NewSnmpV3SecurityParametersTable()
-			require.NoError(t, tb.Add(User{Name: "codec-user"}, nil))
-			x := &Client{Version: Version3, TrapSecurityParametersTable: tb}
+			r := receiverAt(t, []byte(usmCharEngineID), User{Name: "codec-user"})
 			var res *Message
 			var err error
-			require.NotPanics(t, func() { res, err = x.UnmarshalTrap(tc.in, false) })
+			require.NotPanics(t, func() { res, err = receiveMessage(r, tc.in) })
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantVersion, res.Version)
 			assert.Equal(t, tc.wantPDUType, res.PDUType)
@@ -490,13 +485,11 @@ func TestUSMTrapTableSkipsV1V2c(t *testing.T) {
 	}
 }
 
-// TestUSMReceiverAuthenticationWithoutProtocol checks that a single-user
-// UnmarshalTrap receiver whose flags require authentication rejects an
-// unauthenticated trap from its user as below its minimum level, whether or
-// not its parameters have an authentication protocol, instead of panicking or
-// accepting it; a trap from another user is rejected before.
-func TestUSMReceiverAuthenticationWithoutProtocol(t *testing.T) {
-	useEngineTimes(t)
+// TestUSMReceiverMinimumLevel checks that a receiver whose user has an
+// authentication protocol rejects an unauthenticated trap from that user as
+// below the user's minimum level, instead of accepting it; a trap naming a
+// user the receiver has none of for the engine ID is rejected before.
+func TestUSMReceiverMinimumLevel(t *testing.T) {
 	sender := &Message{
 		Version:            Version3,
 		SecurityLevel:      NoAuthNoPriv,
@@ -511,28 +504,20 @@ func TestUSMReceiverAuthenticationWithoutProtocol(t *testing.T) {
 		receiver User
 		wantErr  string
 	}{
-		"unset protocol": {
-			receiver: User{Name: "codec-user"},
-			wantErr:  "incoming packet has a lower security level than its user requires, discarding",
-		},
-		"NoAuth": {
-			receiver: User{Name: "codec-user", AuthProtocol: NoAuth},
-			wantErr:  "incoming packet has a lower security level than its user requires, discarding",
-		},
 		"authentication protocol": {
 			receiver: User{Name: "codec-user", AuthProtocol: SHA, AuthPassphrase: "codec-auth-pass"},
-			wantErr:  "incoming packet has a lower security level than its user requires, discarding",
+			wantErr:  "no credentials successfully unmarshaled trap: incoming packet has a lower security level than its user requires, discarding",
 		},
 		"other user": {
 			receiver: User{Name: "other-user"},
-			wantErr:  "incoming packet is not authentic, discarding",
+			wantErr:  "no user codec-user for the message's engine ID",
 		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			x := &Client{Version: Version3, SecurityLevel: AuthNoPriv, User: tc.receiver}
+			r := receiverAt(t, []byte(usmCharEngineID), tc.receiver)
 			var err error
-			require.NotPanics(t, func() { _, err = x.UnmarshalTrap(bytes.Clone(data), false) })
+			require.NotPanics(t, func() { _, err = r.Receive(bytes.Clone(data)) })
 			assert.EqualError(t, err, tc.wantErr)
 		})
 	}
@@ -543,7 +528,6 @@ func TestUSMReceiverAuthenticationWithoutProtocol(t *testing.T) {
 // panicking, when signing and when checking the digest of a message made with
 // enforcement off.
 func TestUSMFIPS140OnlyDigest(t *testing.T) {
-	useEngineTimes(t)
 	if !fips140.Enforced() {
 		t.Skip("run with GODEBUG=fips140=only")
 	}
@@ -561,14 +545,14 @@ func TestUSMFIPS140OnlyDigest(t *testing.T) {
 			}
 			var data []byte
 			var keys usmKeys
-			tb := NewSnmpV3SecurityParametersTable()
+			var r *Receiver
 			fips140.WithoutEnforcement(func() {
 				var err error
 				keys, err = user.localize([]byte(usmCharEngineID))
 				require.NoError(t, err)
 				data, err = trap().Encode(&user)
 				require.NoError(t, err)
-				require.NoError(t, tb.Add(user, []byte(usmCharEngineID)))
+				r = receiverAt(t, []byte(usmCharEngineID), user)
 			})
 
 			var err error
@@ -577,10 +561,9 @@ func TestUSMFIPS140OnlyDigest(t *testing.T) {
 			assert.False(t, wroteStdout, "encode wrote to stdout")
 			assert.ErrorContains(t, err, "not allowed in FIPS 140-only mode")
 
-			// The table holds the keys for the trap's engine ID, so decoding
-			// derives none.
-			x := &Client{Version: Version3, TrapSecurityParametersTable: tb}
-			require.NotPanics(t, func() { _, err = x.UnmarshalTrap(bytes.Clone(data), false) })
+			// The receiver holds the keys for the trap's engine ID, so
+			// decoding derives none.
+			require.NotPanics(t, func() { _, err = r.Receive(bytes.Clone(data)) })
 			assert.ErrorContains(t, err, "not allowed in FIPS 140-only mode")
 		})
 	}
@@ -609,10 +592,9 @@ func TestUSMFIPS140OnlyEncodeNoAuth(t *testing.T) {
 // a receiver whose privacy cipher the mode refuses (DES, AES-CFB) rejects an
 // authPriv message made with enforcement off with the refusal, a local
 // failure that unwraps to no RFC 3414 error (not ErrDecryption: the message is
-// not at fault), after checking its digest: on the trap paths, the raw decode
-// and a reply, for every privacy protocol.
+// not at fault), after checking its digest: by a receiver, the raw decode and
+// a reply, for every privacy protocol.
 func TestUSMFIPS140OnlyDecrypt(t *testing.T) {
-	useEngineTimes(t)
 	if !fips140.Enforced() {
 		t.Skip("run with GODEBUG=fips140=only")
 	}
@@ -644,11 +626,8 @@ func TestUSMFIPS140OnlyDecrypt(t *testing.T) {
 				return &Client{Version: Version3, SecurityLevel: AuthPriv, User: user}
 			}
 			paths := map[string]func() error{
-				"single": func() error { _, err := client().UnmarshalTrap(bytes.Clone(trap), false); return err },
-				"table": func() error {
-					tb := NewSnmpV3SecurityParametersTable()
-					require.NoError(t, tb.Add(user, header.AuthoritativeEngineID))
-					_, err := (&Client{Version: Version3, TrapSecurityParametersTable: tb}).UnmarshalTrap(bytes.Clone(trap), false)
+				"receiver": func() error {
+					_, err := receiverAt(t, header.AuthoritativeEngineID, user).Receive(bytes.Clone(trap))
 					return err
 				},
 				"raw": func() error { _, err := client().DecodeMessage(bytes.Clone(trap)); return err },
@@ -776,7 +755,6 @@ func TestUSMFIPS140OnlyKeyDerivation(t *testing.T) {
 // differs from its unsigned layout only in that field and decodes as an
 // authentic trap.
 func TestSignDigestOffset(t *testing.T) {
-	useEngineTimes(t)
 	// usmLen is the length of the encoded USM SEQUENCE of a message from
 	// engineID.
 	usmLen := func(t *testing.T, auth AuthProtocol, priv PrivProtocol, engineID string) int {
@@ -873,8 +851,7 @@ func TestSignDigestOffset(t *testing.T) {
 					mac.Write(unsigned)
 					assert.Equal(t, mac.Sum(nil)[:auth.spec().MACLen], digest, "the field holds the digest")
 
-					x := &Client{Version: Version3, SecurityLevel: signedTestFlags(priv), User: u}
-					res, err := x.UnmarshalTrap(bytes.Clone(data), false)
+					res, err := receiveMessage(receiverFor(t, data, u), bytes.Clone(data))
 					require.NoError(t, err)
 					h := &res.SecurityParameters
 					assert.Equal(t, []string{engineID, user}, []string{string(h.AuthoritativeEngineID), h.UserName})

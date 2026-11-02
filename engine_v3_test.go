@@ -1090,12 +1090,6 @@ func v3Scenarios() map[string]v3Scenario {
 					x.User.AuthPassphrase = "codec-other-pass"
 				}),
 		},
-		// A decode of a trap leaves the client's engine state as it was.
-		"caller/trap-decode-then-get": {user: "codec-md5", run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-			_, err := x.UnmarshalTrap([]byte{0x30, 0x05, 0x02, 0x01, 0x03, 0x30, 0x00}, false)
-			a.tr.addf("UnmarshalTrap: %v; client %s", err, describeEngineState(&x.engine))
-			return x.Get([]string{engineOID})
-		}},
 		// EncodeMessage takes the engine state as a request starts it: the
 		// engine ID, the keys localized to it and the latest boots and time
 		// received, not advanced; a ForgetEngine or another User since the

@@ -25,9 +25,10 @@ func codecFuzzSeeds(tb testing.TB) [][]byte {
 }
 
 // FuzzUnmarshal checks that DecodeMessage returns quickly, does not panic
-// and does not write into its input, and that its errors and those of
-// UnmarshalTrap's single path each have one category and come without a
-// message. Its corpus in testdata/fuzz/FuzzUnmarshal is also pinned by
+// and does not write into its input, and that its errors and those of a
+// receiver with the zero user, registered for the engine ID the input names
+// (receiverFor), each have one category and come without a message. Its
+// corpus in testdata/fuzz/FuzzUnmarshal is also pinned by
 // TestDecodeCharacterization.
 func FuzzUnmarshal(f *testing.F) {
 	for _, seed := range codecFuzzSeeds(f) {
@@ -35,16 +36,15 @@ func FuzzUnmarshal(f *testing.F) {
 	}
 
 	vhandle := Client{}
-	receiver := Client{Version: Version3}
 	f.Fuzz(func(t *testing.T, data []byte) {
 		stime := time.Now()
 		in := bytes.Clone(data)
 		msg, err := vhandle.DecodeMessage(in)
 		checkCategory(t, "DecodeMessage", err)
 		checkNoMessage(t, "DecodeMessage", msg, err)
-		msg, err = receiver.UnmarshalTrap(bytes.Clone(data), true)
-		checkCategory(t, "UnmarshalTrap", err)
-		checkNoMessage(t, "UnmarshalTrap", msg, err)
+		msg, err = usmFuzzReceive(receiverFor(t, data, User{}), bytes.Clone(data))
+		checkCategory(t, "Receive", err)
+		checkNoMessage(t, "Receive", msg, err)
 
 		if e := time.Since(stime); e > (time.Second * 1) {
 			t.Errorf("DecodeMessage() took too long: %s", e)

@@ -9,7 +9,6 @@
 package gosnmp
 
 import (
-	"bytes"
 	"crypto"
 	"errors"
 	"fmt"
@@ -388,11 +387,11 @@ func (h *SecurityParameters) marshal(dst []byte, level SecurityLevel, auth AuthP
 }
 
 // tableUser is a user a receiver decodes messages for, with its keys localized
-// to the engine ID it was registered for (SnmpV3SecurityParametersTable).
+// to the engine ID it is registered for, the only one whose messages it
+// decodes (Receiver).
 type tableUser struct {
-	user     User
-	engineID []byte
-	keys     usmKeys
+	user User
+	keys usmKeys
 }
 
 // inbound is an SNMPv3 message in security processing for one user (RFC 3414
@@ -410,26 +409,25 @@ type inbound struct {
 }
 
 // receiveV3 starts the security processing of the SNMPv3 message msg, whose
-// header is in result and w, for user, with the keys of own for its engine ID
-// (nil: none, the keys derive for the message's engine ID): the checks of RFC
+// header is in result and w, for user, with keys, user's keys localized to the
+// message's engine ID (nil: they derive for it): the checks of RFC
 // 3414 section 3.2 made before the digest, valid protocols, and for the keys
 // to derive a passphrase for each protocol (local failures); the protocols the
 // message's level asks for (step 5, ErrUnknownSecurityLevel); then, to derive,
 // the authentication key when the level asks for authentication (to check the
 // digest).
-func receiveV3(msg []byte, w v3Wire, result *Message, user *User, own *tableUser) (inbound, error) {
-	in := inbound{msg: msg, wire: w, user: user}
+func receiveV3(msg []byte, w v3Wire, result *Message, user *User, keys *usmKeys) (inbound, error) {
+	in := inbound{msg: msg, wire: w, user: user, derive: keys == nil}
 	if err := user.checkProtocols(); err != nil {
 		return inbound{}, err
 	}
 	h := &result.SecurityParameters
-	in.derive = own == nil || !bytes.Equal(h.AuthoritativeEngineID, own.engineID)
 	if in.derive {
 		if err := user.checkPassphrases(); err != nil {
 			return inbound{}, err
 		}
 	} else {
-		in.keys = own.keys
+		in.keys = *keys
 	}
 	switch needAuth, needPriv := missingProtocol(user.AuthProtocol, user.PrivProtocol, result.SecurityLevel); {
 	case needAuth:

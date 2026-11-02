@@ -127,10 +127,6 @@ type Client struct {
 	// ForgetEngine).
 	User User
 
-	// TrapSecurityParametersTable, when set, holds the users UnmarshalTrap
-	// decodes SNMPv3 messages with, by name, instead of User.
-	TrapSecurityParametersTable *SnmpV3SecurityParametersTable
-
 	// ContextName is the SNMPv3 context name of requests; their context
 	// engine ID is the agent's engine ID.
 	ContextName string

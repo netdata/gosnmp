@@ -49,25 +49,19 @@ func BenchmarkUSMEncode(b *testing.B) {
 	}
 }
 
-// BenchmarkUSMDecode measures UnmarshalTrap of a secured SNMPv3 trap by a
-// single-user receiver, which localizes its user's keys to the sender's engine
-// ID.
+// BenchmarkUSMDecode measures Receiver.Receive of a secured SNMPv3 trap by a
+// receiver with one user, registered for the sender's engine ID, whose keys it
+// localized when it was built.
 func BenchmarkUSMDecode(b *testing.B) {
-	useEngineTimes(b)
 	for _, priv := range usmBenchPrivProtocols {
 		b.Run(priv.String(), func(b *testing.B) {
 			data := usmCharTrap(b, priv, usmCharVarbinds)
-			x := usmDecoder(SHA, "codec-auth-pass", priv, "codec-priv-pass")()
-			x.Version = Version3
-			x.SecurityLevel = AuthPriv
-			if priv == NoPriv {
-				x.SecurityLevel = AuthNoPriv
-			}
+			r := receiverAt(b, []byte(usmCharEngineID), usmCharUser(priv))
 			in := make([]byte, len(data))
 			b.ReportAllocs()
 			for b.Loop() {
 				copy(in, data)
-				if _, err := x.UnmarshalTrap(in, false); err != nil {
+				if _, err := r.Receive(in); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -75,28 +69,21 @@ func BenchmarkUSMDecode(b *testing.B) {
 	}
 }
 
-// BenchmarkUSMDecodeTable measures UnmarshalTrap of a secured SNMPv3 trap
-// through a credentials table whose user has two entries, the second one
-// decoding it: another authentication passphrase registered for another
-// engine ID first, then the sender's credentials registered for its engine ID.
+// BenchmarkUSMDecodeTable measures Receiver.Receive of a secured SNMPv3 trap
+// by a receiver whose user name has two users for the sender's engine ID, the
+// second one decoding it: another authentication passphrase first, then the
+// sender's credentials.
 func BenchmarkUSMDecodeTable(b *testing.B) {
-	useEngineTimes(b)
 	for _, priv := range usmBenchPrivProtocols {
 		b.Run(priv.String(), func(b *testing.B) {
 			data := usmCharTrap(b, priv, usmCharVarbinds)
-			table := NewSnmpV3SecurityParametersTable()
-			if err := table.Add(usmUser(SHA, "other-auth-pass", priv, "codec-priv-pass"), []byte(usmOtherEngineID)); err != nil {
-				b.Fatal(err)
-			}
-			if err := table.Add(usmCharUser(priv), []byte(usmCharEngineID)); err != nil {
-				b.Fatal(err)
-			}
-			x := &Client{Version: Version3, TrapSecurityParametersTable: table}
+			r := receiverAt(b, []byte(usmCharEngineID),
+				usmUser(SHA, "other-auth-pass", priv, "codec-priv-pass"), usmCharUser(priv))
 			in := make([]byte, len(data))
 			b.ReportAllocs()
 			for b.Loop() {
 				copy(in, data)
-				if _, err := x.UnmarshalTrap(in, false); err != nil {
+				if _, err := r.Receive(in); err != nil {
 					b.Fatal(err)
 				}
 			}

@@ -369,21 +369,6 @@ func (mr *MockHandlerMockRecorder) Timeout() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Timeout", reflect.TypeOf((*MockHandler)(nil).Timeout))
 }
 
-// UnmarshalTrap mocks base method.
-func (m *MockHandler) UnmarshalTrap(trap []byte, useResponseSecurityParameters bool) (*gosnmp.Message, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UnmarshalTrap", trap, useResponseSecurityParameters)
-	ret0, _ := ret[0].(*gosnmp.Message)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// UnmarshalTrap indicates an expected call of UnmarshalTrap.
-func (mr *MockHandlerMockRecorder) UnmarshalTrap(trap, useResponseSecurityParameters any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UnmarshalTrap", reflect.TypeOf((*MockHandler)(nil).UnmarshalTrap), trap, useResponseSecurityParameters)
-}
-
 // User mocks base method.
 func (m *MockHandler) User() gosnmp.User {
 	m.ctrl.T.Helper()

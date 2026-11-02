@@ -97,27 +97,31 @@ func rewireV3(t *testing.T, data []byte, user *User, engineID []byte, flags Secu
 	return m.bytes()
 }
 
-// timelyReceivers are the trap receivers of the timeliness sequences: a table
-// with the three users of encodeTimely, and a single user, codec-user.
+// timelyReceivers are the trap receivers of the timeliness sequences, each
+// with the three users of encodeTimely: registered for the sequence's engine
+// ID, or to learn for it (informs, which are never learned, are left out).
 var timelyReceivers = []struct {
-	name     string
-	receiver func(t *testing.T) *Client
-	users    []string // the users the receiver knows
+	name    string
+	config  func(engineID []byte) ReceiverConfig
+	informs bool // the receiver takes informs
 }{
-	{"table", func(t *testing.T) *Client {
-		other := usmUser(SHA, "other-auth-pass", AES, "other-priv-pass")
-		other.Name = "other-user"
-		tb := NewSnmpV3SecurityParametersTable()
-		require.NoError(t, tb.Add(usmUser(SHA, "codec-auth-pass", AES, "codec-priv-pass"), nil))
-		require.NoError(t, tb.Add(other, nil))
-		require.NoError(t, tb.Add(User{Name: "plain-user"}, nil))
-		return &Client{Version: Version3, TrapSecurityParametersTable: tb}
-	}, []string{"", "codec-user", "other-user", "plain-user"}},
-	{"single", func(*testing.T) *Client {
-		x := usmDecoder(SHA, "codec-auth-pass", AES, "codec-priv-pass")()
-		x.Version, x.SecurityLevel = Version3, AuthPriv
-		return x
-	}, []string{"", "codec-user"}},
+	{"registered", func(engineID []byte) ReceiverConfig {
+		var config ReceiverConfig
+		for _, u := range timelyUsers() {
+			config.Users = append(config.Users, EngineUser{EngineID: engineID, User: u})
+		}
+		return config
+	}, true},
+	{"learning", func([]byte) ReceiverConfig {
+		return ReceiverConfig{LearnUsers: timelyUsers(), MaxLearned: 3}
+	}, false},
+}
+
+// timelyUsers are the users of encodeTimely.
+func timelyUsers() []User {
+	other := usmUser(SHA, "other-auth-pass", AES, "other-priv-pass")
+	other.Name = "other-user"
+	return []User{usmUser(SHA, "codec-auth-pass", AES, "codec-priv-pass"), other, {Name: "plain-user"}}
 }
 
 // TestTrapTimeliness pins which traps and informs a receiver accepts by the
@@ -127,7 +131,8 @@ var timelyReceivers = []struct {
 // then advances with the receiver's clock, and is accepted; an older one more
 // than 150 s behind that notion, one of lower boots, and one of an engine at
 // the maximum boots are rejected; informs and unauthenticated traps are neither checked nor
-// recorded, and each credential has its own records.
+// recorded, and each credential has its own records. A learned user's first
+// trap starts its record.
 func TestTrapTimeliness(t *testing.T) {
 	const maxBoots = 2147483647
 	ok := func(boots, time uint32) timelyMessage { return timelyMessage{boots: boots, time: time} }
@@ -173,21 +178,16 @@ func TestTrapTimeliness(t *testing.T) {
 		for _, r := range timelyReceivers {
 			t.Run(name+"/"+r.name, func(t *testing.T) {
 				for _, m := range msgs {
-					known := false
-					for _, u := range r.users {
-						known = known || u == m.user
-					}
-					if !known {
-						t.Skip("the receiver does not know " + m.user)
+					if m.inform && !r.informs {
+						t.Skip("informs are never learned")
 					}
 				}
 				seq++
 				engineID := fmt.Sprintf("\x80\x00\x1f\x88\x04tl-%d", seq)
-				advance := useEngineTimes(t)
-				x := r.receiver(t)
+				x, advance := newTestReceiver(t, r.config([]byte(engineID)))
 				for i, m := range msgs {
 					advance(m.wait)
-					_, err := x.UnmarshalTrap(encodeTimely(t, engineID, m), false)
+					_, err := x.Receive(encodeTimely(t, engineID, m))
 					if m.want == nil {
 						assert.NoError(t, err, "message %d", i)
 					} else {
@@ -199,44 +199,54 @@ func TestTrapTimeliness(t *testing.T) {
 	}
 }
 
-// useEngineTimes gives the test its own trap timeliness store, whose clock
-// stands still until advance moves it, and restores the package's afterwards:
-// tests decode messages of one engine with any boots and time.
-func useEngineTimes(tb testing.TB) (advance func(time.Duration)) {
-	tb.Helper()
-	clock := time.Unix(1_000_000_000, 0)
-	prev := trapEngineTimes
-	trapEngineTimes = newEngineTimes(maxEngineTimes, func() time.Time { return clock })
-	tb.Cleanup(func() { trapEngineTimes = prev })
-	return func(d time.Duration) { clock = clock.Add(d) }
-}
-
-// TestEngineTimesRecords pins the bounds of the timeliness records: at the
-// limit, a new engine replaces the least recently updated one, which then
-// starts over (a message with lower boots is accepted again); a message that
-// updates nothing does not count as an update, a newer one does.
+// TestEngineTimesRecords pins the records' lifecycle: admit makes a key's
+// record with its first message and keeps every record (no eviction); probe
+// decides on the record of a key when there is one, updating it, and
+// otherwise on a new clock it returns for install, which keeps a record
+// already there.
 func TestEngineTimesRecords(t *testing.T) {
 	key := func(b byte) engineTimeKey { return engineTimeKey{b} }
 	now := time.Unix(1_000_000_000, 0)
 
-	t.Run("an older message is no update", func(t *testing.T) {
-		s := newEngineTimes(2, func() time.Time { return now })
-		require.NoError(t, s.admit(key(1), 5, 100))
-		require.NoError(t, s.admit(key(2), 5, 100))
-		require.NoError(t, s.admit(key(1), 5, 50))  // older: 1 stays the least recently updated
-		require.NoError(t, s.admit(key(3), 5, 100)) // replaces 1
-		assert.Len(t, s.records, 2)
-		require.NoError(t, s.admit(key(1), 4, 1), "a replaced engine starts over")
-		require.ErrorIs(t, s.admit(key(3), 4, 1), ErrNotInTimeWindow, "a kept engine keeps its record")
+	t.Run("every record is kept", func(t *testing.T) {
+		s := newEngineTimes(func() time.Time { return now })
+		for b := range 200 {
+			require.NoError(t, s.admit(key(byte(b)), 5, 100))
+		}
+		assert.Len(t, s.records, 200)
+		for b := range 200 {
+			require.ErrorIs(t, s.admit(key(byte(b)), 4, 1), ErrNotInTimeWindow, "record %d", b)
+		}
 	})
-	t.Run("a newer message is an update", func(t *testing.T) {
-		s := newEngineTimes(2, func() time.Time { return now })
+	t.Run("probe of a recorded key", func(t *testing.T) {
+		s := newEngineTimes(func() time.Time { return now })
 		require.NoError(t, s.admit(key(1), 5, 100))
-		require.NoError(t, s.admit(key(2), 5, 100))
-		require.NoError(t, s.admit(key(1), 5, 101)) // newer: 2 is the least recently updated
-		require.NoError(t, s.admit(key(3), 5, 100)) // replaces 2
-		require.ErrorIs(t, s.admit(key(1), 4, 1), ErrNotInTimeWindow, "a kept engine keeps its record")
-		require.NoError(t, s.admit(key(2), 4, 1), "a replaced engine starts over")
+		_, made, err := s.probe(key(1), 4, 1)
+		require.ErrorIs(t, err, ErrNotInTimeWindow)
+		assert.False(t, made)
+		_, made, err = s.probe(key(1), 6, 1)
+		require.NoError(t, err)
+		assert.False(t, made)
+		require.ErrorIs(t, s.admit(key(1), 5, 200), ErrNotInTimeWindow, "the probe updated the record")
+	})
+	t.Run("probe of a new key, then install", func(t *testing.T) {
+		s := newEngineTimes(func() time.Time { return now })
+		clock, made, err := s.probe(key(1), 5, 100)
+		require.NoError(t, err)
+		require.True(t, made)
+		assert.Empty(t, s.records, "a probe makes no record")
+		s.install(key(1), clock)
+		require.ErrorIs(t, s.admit(key(1), 4, 1), ErrNotInTimeWindow, "the installed clock is the record")
+		other, _, err := s.probe(key(2), 9, 9)
+		require.NoError(t, err)
+		s.install(key(1), other)
+		require.NoError(t, s.admit(key(1), 5, 100), "install keeps the record already there")
+	})
+	t.Run("probe at the maximum boots", func(t *testing.T) {
+		s := newEngineTimes(func() time.Time { return now })
+		_, made, err := s.probe(key(1), maxEngineValue, 1)
+		require.ErrorIs(t, err, ErrNotInTimeWindow)
+		assert.True(t, made)
 	})
 }
 
@@ -272,7 +282,7 @@ func TestEngineTimesKeys(t *testing.T) {
 // TestEngineTimesConcurrent runs admit from several goroutines, for the race
 // detector: each update is one step under the lock.
 func TestEngineTimesConcurrent(t *testing.T) {
-	s := newEngineTimes(4, time.Now)
+	s := newEngineTimes(time.Now)
 	var wg sync.WaitGroup
 	for g := range 8 {
 		wg.Go(func() {
@@ -282,39 +292,38 @@ func TestEngineTimesConcurrent(t *testing.T) {
 		})
 	}
 	wg.Wait()
-	assert.LessOrEqual(t, len(s.records), 4)
-	assert.Equal(t, len(s.records), s.updated.Len())
+	assert.Len(t, s.records, 6)
 }
 
 // TestTrapEncodedReplay pins that a trap the library's own encoder makes,
 // unreportable as RFC 3412 section 6.4 asks, is checked against the time
-// window: a copy of it a day later is outside it, on both trap paths.
+// window: a copy of it a day later is outside it, for a registered user and
+// for a learned one.
 func TestTrapEncodedReplay(t *testing.T) {
-	for _, path := range []string{"single", "table"} {
-		t.Run(path, func(t *testing.T) {
-			advance := useEngineTimes(t)
-			user := signedTestUser(SHA256, AES, "codec-user")
+	user := signedTestUser(SHA256, AES, "codec-user")
+	for name, config := range map[string]ReceiverConfig{
+		"registered": {Users: []EngineUser{{EngineID: []byte(usmCharEngineID), User: user}}},
+		"learned":    {LearnUsers: []User{user}, MaxLearned: 1},
+	} {
+		t.Run(name, func(t *testing.T) {
 			sender := &Client{Version: Version3, SecurityLevel: AuthPriv, User: user}
 			seedEngine(usmCharEngineID, 3, 77)(sender)
 			wire, err := sender.EncodeMessage(SNMPv2Trap, usmPlainVars, 0, 0)
 			require.NoError(t, err)
-			receiver := &Client{Version: Version3, SecurityLevel: AuthPriv, User: user}
-			if path == "table" {
-				receiver.TrapSecurityParametersTable = NewSnmpV3SecurityParametersTable()
-				require.NoError(t, receiver.TrapSecurityParametersTable.Add(user, []byte(usmCharEngineID)))
-			}
-			got, err := receiver.UnmarshalTrap(bytes.Clone(wire), false)
+			receiver, advance := newTestReceiver(t, config)
+			got, err := receiver.Receive(bytes.Clone(wire))
 			require.NoError(t, err)
-			require.Equal(t, AuthPriv, got.SecurityLevel)
+			require.Equal(t, AuthPriv, got.Message.SecurityLevel)
 			advance(24 * time.Hour)
-			_, err = receiver.UnmarshalTrap(bytes.Clone(wire), false)
+			_, err = receiver.Receive(bytes.Clone(wire))
 			require.ErrorIs(t, err, ErrNotInTimeWindow)
 		})
 	}
 }
 
 // TestPDUTypeConfirmed pins the Confirmed Class of RFC 3411 section 2.8.2,
-// which the time window leaves to the API phase: requests and informs.
+// which the time window leaves out and the receiver never learns: requests
+// and informs.
 func TestPDUTypeConfirmed(t *testing.T) {
 	want := map[PDUType]bool{
 		GetRequest: true, GetNextRequest: true, GetBulkRequest: true, SetRequest: true, InformRequest: true,

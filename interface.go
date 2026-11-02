@@ -32,9 +32,6 @@ type Handler interface {
 	// BulkWalkAll: see Client.BulkWalkAll.
 	BulkWalkAll(rootOid string) (results []VarBind, err error)
 
-	// UnmarshalTrap: see Client.UnmarshalTrap.
-	UnmarshalTrap(trap []byte, useResponseSecurityParameters bool) (result *Message, err error)
-
 	// Close: see Client.Close.
 	Close() error
 

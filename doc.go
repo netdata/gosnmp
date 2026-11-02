@@ -40,8 +40,8 @@
 // ends without a reply fails with an error wrapping [net.ErrClosed], whatever
 // else ended the attempt, a done Context included, and so do later requests
 // until Connect opens a connection or Conn is set. The hooks run on the
-// goroutine of the request. A [SnmpV3SecurityParametersTable] and the
-// package's key cache are safe for concurrent use.
+// goroutine of the request. A [Receiver] and the package's key cache are safe
+// for concurrent use.
 //
 // # Attempts and timeouts
 //
@@ -319,7 +319,7 @@
 //     message
 //
 // The decoders never write their input. [Client.DecodeMessage] and
-// [Client.UnmarshalTrap] return OctetString, Opaque and IPAddress values that
+// [Receiver.Receive] return OctetString, Opaque and IPAddress values that
 // alias the input, or, in an encrypted message, the buffer the scoped PDU is
 // decrypted into: copy the octets ([Value.Bytes]) and read the addresses
 // ([Value.IP]) before reusing the input. A decoded message's SecurityParameters
@@ -338,54 +338,69 @@
 // engine ID at hand (RFC 3414 section 2.6). A client derives them when its
 // engine state takes an engine ID (discovery, an answer it takes, a Report lent
 // to a resend) or another User; decoding a reply derives none.
-// [Client.DecodeMessage] and [Client.UnmarshalTrap] derive them for the engine
-// ID a message names, the authentication key when the message asks for
-// authentication, the privacy key only to decrypt it (on the trap paths, once
-// its digest checked), and a table user's were derived for its engine ID when
-// it was added. [Message.Encode] derives them for the message's engine ID. No
+// [Client.DecodeMessage] derives them for the engine ID a message names, the
+// authentication key when the message asks for authentication, the privacy key
+// only to decrypt it. A [Receiver] derives its users' keys for their engine IDs
+// when it is made, and a user it learns the authentication key for the
+// message's engine ID to check the digest, the privacy key only once the
+// digest checked, and every learned user's keys once it registers them.
+// [Message.Encode] derives them for the message's engine ID. No
 // message carries keys or passphrases. Deriving a key starts with hashing a
 // megabyte of the passphrase (RFC 3414 appendix A.2.1). The package caches that
 // result for every client and receiver, by passphrase and hash, for the life of
 // the process; it holds the passphrases in memory meanwhile. The Reeder key
 // extension (AES192C, AES256C) hashes the localized key the same way, so it
 // adds a result per user and engine ID, and DecodeMessage, which decrypts
-// without checking the digest, one per engine ID its messages name.
+// without checking the digest, one per engine ID its messages name; a
+// receiver's, at most one per user it has and learns.
 //
-// # Traps
+// # Notifications
 //
-// [Client.UnmarshalTrap] decodes a received trap or inform: an SNMPv3 message
-// with the client's User, or, when TrapSecurityParametersTable is set, with the
-// users the table holds for the message's user name, tried in the order they
-// were added. Its doc gives the security processing
-// and the minimum level a receiver requires. The library does not listen for
-// traps or answer informs.
+// A [Receiver] decodes received traps and informs: built once from its users
+// ([NewReceiver]), it is safe for concurrent use, and [Receiver.Receive] takes
+// each datagram the caller read. The library does not listen for
+// notifications or answer informs. [ReadEnvelope] reads a datagram's header,
+// unauthenticated, for a caller's checks before it receives one, or to describe
+// one it rejected.
+//
+// A receiver holds the SNMPv3 users of each engine ID, as the usmUserTable of
+// RFC 3414 does: a message is decoded with the users registered for its user
+// name and engine ID only, in the order they were added, so a user's keys are
+// never localized to another engine ID than its own. An agent's traps name its
+// own engine ID; an inform names its receiver's, so the users that send informs
+// are registered for the receiver's engine ID. A receiver may also learn the
+// users of a new engine (RFC 3414 section 3.2 step 3): the LearnUsers of a
+// message's user name decode a message whose name and engine ID it has no
+// user for, and the first message one of them accepts, at the user's own
+// level, registers them all for its engine ID, up to MaxLearned names; an
+// inform is never learned. Receive gives the security processing and the
+// minimum level a receiver requires.
 //
 // An authenticated SNMPv3 trap, any message whose PDU is not of the Confirmed
 // Class (a request or an inform), whatever its reportable flag (RFC 3412
 // section 6.4), must be in the time window of its engine (RFC 3414 section 3.2
-// step 7 b), or it is rejected with [ErrNotInTimeWindow]. For
-// each engine and credential that authenticated a trap, the package keeps the
-// latest engine boots and time received and when, for all clients: a trap
-// newer than the latest updates them and is accepted; one with lower boots, an
-// older one more than 150 seconds behind the latest advanced by the time
-// since, and any of an engine whose boots reached 2147483647 are rejected, so
-// an exact copy of a trap is rejected after 150 seconds. Like snmptrapd, a
-// receiver then loses the traps of a device whose engine time does not advance
-// in real time, whose boots do not increase when it restarts, or that shares
-// its engine ID with another, until the process restarts. Informs are neither
-// checked nor recorded (an inform's receiver is the authoritative engine,
-// whose time the library does not keep), nor are unauthenticated traps. The
-// package keeps at most 65536 records, replacing the least recently updated
-// one, of whatever engine and credential: a holder of one credential who sends
-// traps from that many engine IDs makes the package forget another
-// credential's records, whose traps it then accepts as first contacts.
+// step 7 b), or it is rejected with [ErrNotInTimeWindow]. For each engine and
+// authentication credential that authenticated a trap, a receiver keeps the
+// latest engine boots and time received and when: a trap newer than the latest
+// updates them and is accepted; one with lower boots, an older one more than
+// 150 seconds behind the latest advanced by the time since, and any of an
+// engine whose boots reached 2147483647 are rejected, so an exact copy of a
+// trap is rejected after 150 seconds. Like snmptrapd, a receiver then loses the
+// traps of a device whose engine time does not advance in real time, whose
+// boots do not increase when it restarts, or that shares its engine ID with
+// another, for as long as the receiver lives; a new receiver starts with no
+// records, and accepts a copy of each engine's latest trap once more. Informs
+// are neither checked nor recorded (an inform's receiver is the authoritative
+// engine, whose time the library does not keep), nor are unauthenticated
+// traps. The records are at most one per user and engine ID, since only a
+// receiver's users authenticate a message, each for its own engine ID.
 //
 // # Errors
 //
 // Every error of an incoming message unwraps ([errors.Is]) to exactly one
 // category, an exported error named after the counter RFC 3412, RFC 3414 or
 // RFC 3418 counts the message in, as net-snmp v5.9.4 counts it, with a text of
-// its own: an error of DecodeMessage, of UnmarshalTrap, and the reason a
+// its own: an error of DecodeMessage, of Receive, and the reason a
 // request discards a reply for. The categories:
 //
 //   - [ErrASNParse] (snmpInASNParseErrs): the message does not parse, of any
