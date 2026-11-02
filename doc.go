@@ -388,7 +388,8 @@
 //     not parse in plaintext, the PDU, an unknown PDU type and a varbind (RFC
 //     3412 section 7.2 steps 2 and 7);
 //   - [ErrBadVersion] (snmpInBadVersions): a version other than SNMPv1, SNMPv2c
-//     and SNMPv3 (RFC 3412 section 4.2.1);
+//     and SNMPv3 (RFC 3412 section 4.2.1; net-snmp counts a negative one in
+//     snmpInASNParseErrs too);
 //   - [ErrUnknownSecurityModels]: another security model (step 4);
 //   - [ErrInvalidMsgs]: privacy without authentication (step 5 d);
 //   - [ErrUnknownEngineID] through [ErrDecryption]: the security processing

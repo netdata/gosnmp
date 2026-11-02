@@ -29,7 +29,8 @@ var (
 	// usmStatsDecryptionErrors).
 	ErrASNParse = errors.New("ASN.1 parse error")
 	// ErrBadVersion is a message of another version than SNMPv1, SNMPv2c and
-	// SNMPv3 (snmpInBadVersions, RFC 3412 section 4.2.1).
+	// SNMPv3 (snmpInBadVersions, RFC 3412 section 4.2.1; net-snmp v5.9.4 counts
+	// a negative one in snmpInASNParseErrs too).
 	ErrBadVersion = errors.New("bad version")
 	// ErrUnknownSecurityModels is an SNMPv3 message of another security model
 	// than the User-based Security Model (RFC 3412 section 7.2 step 4).
