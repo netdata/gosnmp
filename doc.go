@@ -185,12 +185,13 @@
 // lent time, it sets the clock: agents that restart without raising their boots
 // and report usmStatsNotInTimeWindows without authentication so recover
 // (net-snmp locks them out). So an authenticated request to an agent whose
-// engine ID changed ends with [ErrUnknownEngineID]. Any other Report, or a
-// second resynchronizing one, ends the discovery or the request with the error
-// of its counter, [ErrUnknownUsername] or [ErrWrongDigest] for example, and
-// [ErrUnknownReportPDU] for a counter the library does not know or none, and a
-// usmStatsUnknownEngineIDs Report without an engine ID with an error that
-// matches [ErrUnknownEngineID]; each such error also matches [ErrAnswered].
+// engine ID changed ends with an error that matches [ErrUnknownEngineID]. Any
+// other Report, or a second resynchronizing one, ends the discovery or the
+// request with an error that matches its counter's, [ErrUnknownUsername] or
+// [ErrWrongDigest] for example, or [ErrUnknownReportPDU] for a counter the
+// library does not know or none, and a usmStatsUnknownEngineIDs Report without
+// an engine ID with an error that matches [ErrUnknownEngineID]; each such error
+// also matches [ErrAnswered].
 //
 // A request that discarded an authentic answer outside the time window and
 // ends without an answer (its attempts ran out, the Context ended it, Close,
@@ -412,8 +413,8 @@
 //     or with another request ID, security level, user name, engine ID or
 //     context (RFC 3412 section 7.2 steps 10 a and 12 b).
 //
-// A request answered by an SNMPv3 Report fails with the error of the Report's
-// counter, the same errors ([ErrUnknownPDUHandlers] too), or
+// A request answered by an SNMPv3 Report fails with an error that matches the
+// Report's counter, the same errors ([ErrUnknownPDUHandlers] too), or
 // [ErrUnknownReportPDU] for a counter the library does not know. A request
 // that times out or ends at the Context's deadline after discarded replies
 // fails with an error that also matches the category of the one that came
@@ -427,9 +428,11 @@
 // [ErrAnswered] says whether the agent's answer ended a request: the error of
 // a request (a walk's included) that a Report or a discovery answer without an
 // engine ID ended also matches it, besides the answer's category, while the
-// error of a request that ended without an answer never does, a timeout after
-// discarded replies included. A failed request returns no message, so this is
-// how a caller tells an agent that answered from one that did not.
+// library marks no error of a request that ended without an answer, a timeout
+// after discarded replies included; errors of the caller's own code (a hook's
+// panic, a Conn or Context it gave) pass through unchanged. A failed request
+// returns no message, so this is how a caller tells an agent that answered from
+// one that did not.
 //
 // The categories are variables only so that errors.Is can match them; do not
 // assign to them. The library makes some of its errors with their values when
