@@ -30,7 +30,7 @@ var engineReplyRequests = []engineReplyRequest{
 }
 
 // FuzzEngineReply reads any octets as the reply to each exchange of a request,
-// below send's recover (GoSNMP.request), so that a panic fails it: the decode,
+// below send's recover (Client.request), so that a panic fails it: the decode,
 // its security processing, the answer predicate, the engine commit, the
 // discovery and the resynchronization. The first argument selects the request
 // (engineReplyRequests). The request IDs and msgIDs are fixed, so mutated
@@ -76,8 +76,8 @@ func TestEngineReplySeeds(t *testing.T) {
 
 // engineReplyClient returns a client for r whose next request ID and msgID
 // are 1001 and 2001, without a Conn.
-func engineReplyClient(r engineReplyRequest) *GoSNMP {
-	x := &GoSNMP{Version: Version2c, Community: "public", Timeout: time.Second, MaxOids: MaxOids}
+func engineReplyClient(r engineReplyRequest) *Client {
+	x := &Client{Version: Version2c, Community: "public", Timeout: time.Second, MaxOids: MaxOids}
 	if r.user != "" {
 		creds := agentCreds[r.user]
 		x.Version, x.SecurityModel, x.MsgFlags = Version3, UserSecurityModel, NoAuthNoPriv
@@ -142,7 +142,7 @@ func engineReplySeeds(tb testing.TB, r engineReplyRequest) [][]byte {
 		tb.Fatal(err)
 	}
 	if r.user == "" {
-		noSuchName := func(p *SnmpPacket) { p.Error, p.ErrorIndex = NoSuchName, 1 }
+		noSuchName := func(p *Message) { p.ErrorStatus, p.ErrorIndex = NoSuchName, 1 }
 		return [][]byte{replyTo(req, nil, sysDescr), replyTo(req, noSuchName, sysDescr)}
 	}
 	scripts := []func(int, agentRequest) (agentAnswer, bool){

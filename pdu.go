@@ -30,12 +30,12 @@ var (
 
 // readTagged reads the next field, which must have the tag want; a field of
 // another tag fails with notTag before its length is read.
-func readTagged(r *ber.Reader, want Asn1BER, notTag error) ([]byte, error) {
+func readTagged(r *ber.Reader, want ValueType, notTag error) ([]byte, error) {
 	tag, ok := r.Peek()
 	switch {
 	case !ok:
 		return nil, errNoField
-	case Asn1BER(tag) != want:
+	case ValueType(tag) != want:
 		return nil, notTag
 	}
 	_, content, err := r.Next()
@@ -93,7 +93,7 @@ func readAgentAddress(r *ber.Reader) (string, error) {
 	switch {
 	case !ok:
 		return "", errNoField
-	case Asn1BER(tag) != IPAddress && Asn1BER(tag) != OctetString:
+	case ValueType(tag) != IPAddress && ValueType(tag) != OctetString:
 		return "", errors.New("not an IpAddress or OCTET STRING")
 	}
 	_, content, err := r.Next()
@@ -102,7 +102,7 @@ func readAgentAddress(r *ber.Reader) (string, error) {
 		return "", err
 	case len(content) == 4:
 		return net.IP(content).String(), nil
-	case len(content) == 0 && Asn1BER(tag) == IPAddress:
+	case len(content) == 0 && ValueType(tag) == IPAddress:
 		return "", nil
 	}
 	return "", fmt.Errorf("%d octets, not 4", len(content))
@@ -138,7 +138,7 @@ func readName(r *ber.Reader) (string, error) {
 	if !ok {
 		return "", errNoField
 	}
-	switch Asn1BER(tag) {
+	switch ValueType(tag) {
 	case ObjectIdentifier, OctetString, IPAddress:
 	default:
 		return "", errors.New("not an OBJECT IDENTIFIER or text")
@@ -147,9 +147,9 @@ func readName(r *ber.Reader) (string, error) {
 	switch {
 	case err != nil:
 		return "", err
-	case Asn1BER(tag) == ObjectIdentifier:
+	case ValueType(tag) == ObjectIdentifier:
 		return ber.OID(content)
-	case Asn1BER(tag) == OctetString:
+	case ValueType(tag) == OctetString:
 		return string(content), nil
 	case len(content) != 4:
 		return "", fmt.Errorf("an IpAddress of %d octets, not 4", len(content))
@@ -178,11 +178,11 @@ var errEmptyPacket = fmt.Errorf("%w: cannot unmarshal empty packet", ErrInvalidP
 // readVersion reads the message SEQUENCE, which must span the whole packet,
 // and its version field, an INTEGER of SNMPv1 (0), SNMPv2c (1) or SNMPv3 (3).
 // It returns the version and the offset of the field after it.
-func readVersion(packet []byte) (SnmpVersion, int, error) {
+func readVersion(packet []byte) (Version, int, error) {
 	if len(packet) < 2 {
 		return 0, 0, errEmptyPacket
 	}
-	if PDUType(packet[0]) != Sequence {
+	if packet[0] != ber.Sequence {
 		return 0, 0, errors.New("invalid packet header")
 	}
 	msg, err := readWhole(packet)
@@ -201,7 +201,7 @@ func readVersion(packet []byte) (SnmpVersion, int, error) {
 	if r.Len() == 0 {
 		return 0, 0, errors.New("error parsing SNMP packet: nothing after the version")
 	}
-	return SnmpVersion(version), len(packet) - r.Len(), nil //nolint:gosec // 0, 1 or 3
+	return Version(version), len(packet) - r.Len(), nil //nolint:gosec // 0, 1 or 3
 }
 
 // unmarshalHeader reads the message header into response: the version and,
@@ -210,12 +210,12 @@ func readVersion(packet []byte) (SnmpVersion, int, error) {
 // decoded before an error. It returns the offset of the PDU, or of the scoped
 // PDU. An SNMPv3 header error unwraps to ErrUnknownSecurityModels or
 // ErrInvalidMsgs (v3ParseError).
-func unmarshalHeader(packet []byte, response *SnmpPacket) (int, v3Wire, error) {
+func unmarshalHeader(packet []byte, response *Message) (int, v3Wire, error) {
 	version, cursor, err := readVersion(packet)
 	// Known bug: a packet that is not too short to read presets the variables
 	// to an empty list, also when it then fails to decode.
 	if !errors.Is(err, errEmptyPacket) {
-		response.Variables = make([]SnmpPDU, 0, 5)
+		response.VarBinds = make([]VarBind, 0, 5)
 	}
 	if err != nil {
 		return 0, v3Wire{}, err
@@ -241,7 +241,7 @@ func unmarshalHeader(packet []byte, response *SnmpPacket) (int, v3Wire, error) {
 
 // unmarshalPayload reads the PDU at packet[cursor:], which must span the rest
 // of the packet.
-func unmarshalPayload(packet []byte, cursor int, response *SnmpPacket) error {
+func unmarshalPayload(packet []byte, cursor int, response *Message) error {
 	if len(packet) == 0 {
 		return errors.New("cannot unmarshal nil or empty payload packet")
 	}
@@ -302,7 +302,7 @@ func requestIDRead(packet []byte, cursor int) bool {
 // a GetBulkRequest, or the error status, 0..255, and the error index
 // (readCount) of any other PDU; and the varbinds. Fields read before an error
 // stay set.
-func unmarshalResponse(packet []byte, pduType PDUType, response *SnmpPacket) error {
+func unmarshalResponse(packet []byte, pduType PDUType, response *Message) error {
 	r, requestID, err := readRequestID(packet)
 	if err != nil {
 		return err
@@ -328,7 +328,7 @@ func unmarshalResponse(packet []byte, pduType PDUType, response *SnmpPacket) err
 		if err != nil {
 			return fmt.Errorf("error parsing SNMP packet error: %w", err)
 		}
-		response.Error = SNMPError(errorStatus) //nolint:gosec // 0..255
+		response.ErrorStatus = ErrorStatus(errorStatus) //nolint:gosec // 0..255
 		if response.ErrorIndex, err = readCount(&r); err != nil {
 			return fmt.Errorf("error parsing SNMP packet error index: %w", err)
 		}
@@ -340,7 +340,7 @@ func unmarshalResponse(packet []byte, pduType PDUType, response *SnmpPacket) err
 // IDENTIFIER; the agent address (readAgentAddress); the generic and specific
 // trap, INTEGERs cut to 32 bits; the timestamp (readTimestamp); and the
 // varbinds. Fields read before an error stay set.
-func unmarshalTrapV1(packet []byte, response *SnmpPacket) error {
+func unmarshalTrapV1(packet []byte, response *Message) error {
 	pdu, err := readWhole(packet)
 	if err != nil {
 		return fmt.Errorf("error verifying Response sanity: %w", err)
@@ -372,13 +372,13 @@ func unmarshalTrapV1(packet []byte, response *SnmpPacket) error {
 }
 
 // unmarshalVBL reads a varbind list, which must span all of packet, and
-// appends its varbinds to response.Variables; on an error the ones before it
+// appends its varbinds to response.VarBinds; on an error the ones before it
 // stay appended.
-func unmarshalVBL(packet []byte, response *SnmpPacket) error {
+func unmarshalVBL(packet []byte, response *Message) error {
 	if len(packet) == 0 {
 		return errors.New("truncated packet when unmarshalling a VBL")
 	}
-	if PDUType(packet[0]) != Sequence {
+	if packet[0] != ber.Sequence {
 		return fmt.Errorf("expected a sequence when unmarshalling a VBL, got %x", packet[0])
 	}
 	vbl, err := readWhole(packet)
@@ -392,52 +392,52 @@ func unmarshalVBL(packet []byte, response *SnmpPacket) error {
 		if err != nil {
 			return err
 		}
-		response.Variables = append(response.Variables, vb)
+		response.VarBinds = append(response.VarBinds, vb)
 	}
 	return nil
 }
 
 // readVarbind reads the next varbind: a SEQUENCE of the name (readName) and
 // the value TLV, which must span the rest of it.
-func readVarbind(r *ber.Reader) (SnmpPDU, error) {
-	if tag, _ := r.Peek(); PDUType(tag) != Sequence {
-		return SnmpPDU{}, fmt.Errorf("expected a sequence when unmarshalling a VB, got %x", tag)
+func readVarbind(r *ber.Reader) (VarBind, error) {
+	if tag, _ := r.Peek(); tag != ber.Sequence {
+		return VarBind{}, fmt.Errorf("expected a sequence when unmarshalling a VB, got %x", tag)
 	}
 	_, vb, err := r.Next()
 	if err != nil {
-		return SnmpPDU{}, fmt.Errorf("error reading varbind: %w", err)
+		return VarBind{}, fmt.Errorf("error reading varbind: %w", err)
 	}
 
 	fields := ber.NewReader(vb)
 	name, err := readName(&fields)
 	if err != nil {
-		return SnmpPDU{}, fmt.Errorf("error parsing OID Value: %w", err)
+		return VarBind{}, fmt.Errorf("error parsing OID Value: %w", err)
 	}
 
 	value := fields.Rest()
 	if len(value) == 0 {
-		return SnmpPDU{}, fmt.Errorf("error decoding value: %w", ErrZeroByteBuffer)
+		return VarBind{}, fmt.Errorf("error decoding value: %w", ErrZeroByteBuffer)
 	}
 	length, header, err := ber.Length(value)
 	if err != nil {
-		return SnmpPDU{}, fmt.Errorf("error parsing value TLV in varbind: %w", err)
+		return VarBind{}, fmt.Errorf("error parsing value TLV in varbind: %w", err)
 	}
-	tag := Asn1BER(value[0])
+	tag := ValueType(value[0])
 	// Some MikroTik responses overdeclare OctetString lengths by one byte.
 	// The enclosing varbind provides the content boundary for this case.
 	overdeclared := tag == OctetString && length == uint64(len(value))+1
 	switch {
 	case overdeclared:
 	case length > uint64(len(value)):
-		return SnmpPDU{}, fmt.Errorf("value TLV length mismatch in varbind (TLV %d, remaining %d): %w", length, len(value), ber.ErrTruncated)
+		return VarBind{}, fmt.Errorf("value TLV length mismatch in varbind (TLV %d, remaining %d): %w", length, len(value), ber.ErrTruncated)
 	case length < uint64(len(value)):
-		return SnmpPDU{}, fmt.Errorf("value TLV length mismatch in varbind (TLV %d, remaining %d)", length, len(value))
+		return VarBind{}, fmt.Errorf("value TLV length mismatch in varbind (TLV %d, remaining %d)", length, len(value))
 	}
 	typ, val, err := decodeValue(tag, value[header:])
 	if err != nil {
-		return SnmpPDU{}, fmt.Errorf("error decoding value: %w", err)
+		return VarBind{}, fmt.Errorf("error decoding value: %w", err)
 	}
-	return SnmpPDU{Name: name, Type: typ, Value: val}, nil
+	return VarBind{Name: name, Type: typ, Value: val}, nil
 }
 
 // marshalMsg encodes the message: a SEQUENCE of the version, then the
@@ -445,13 +445,13 @@ func readVarbind(r *ber.Reader) (SnmpPDU, error) {
 // the scoped PDU; an SNMPv3 message is then authenticated when its flags ask
 // for it. The version, which takes one octet, must be SNMPv1, SNMPv2c or
 // SNMPv3.
-func (packet *SnmpPacket) marshalMsg() ([]byte, error) {
+func (packet *Message) marshalMsg() ([]byte, error) {
 	switch packet.Version {
 	case Version1, Version2c, Version3:
 	default:
 		return nil, fmt.Errorf("unable to marshal SNMP version %d: not 1, 2c or 3", packet.Version)
 	}
-	dst, start := ber.Begin(make([]byte, 0, packet.sizeHint()), byte(Sequence))
+	dst, start := ber.Begin(make([]byte, 0, packet.sizeHint()), ber.Sequence)
 	dst = append(dst, byte(Integer), 1, byte(packet.Version))
 	if packet.Version != Version3 {
 		msg, err := packet.appendPDU(appendOctets(dst, OctetString, packet.Community))
@@ -472,14 +472,14 @@ func (packet *SnmpPacket) marshalMsg() ([]byte, error) {
 // usually allocates once: room for the headers and the security parameters,
 // the text fields, and per varbind its name in dotted form (no shorter than
 // its encoding), its headers and an OCTET STRING or Opaque value.
-func (packet *SnmpPacket) sizeHint() int {
+func (packet *Message) sizeHint() int {
 	n := 64 + len(packet.Community) + len(packet.ContextEngineID) + len(packet.ContextName)
 	if packet.Version == Version3 {
 		n += 128
 	}
-	for i := range packet.Variables {
-		n += 16 + len(packet.Variables[i].Name)
-		switch v := packet.Variables[i].Value.(type) {
+	for i := range packet.VarBinds {
+		n += 16 + len(packet.VarBinds[i].Name)
+		switch v := packet.VarBinds[i].Value.(type) {
 		case []byte:
 			n += len(v)
 		case string:
@@ -495,7 +495,7 @@ func (packet *SnmpPacket) sizeHint() int {
 // an SNMPv1 trap, then the varbind list. The request ID is an Integer32 (RFC
 // 3416) whose two's complement RequestID holds, so IDs of 2^31 and up encode
 // as negative INTEGERs on every platform.
-func (packet *SnmpPacket) appendPDU(dst []byte) ([]byte, error) {
+func (packet *Message) appendPDU(dst []byte) ([]byte, error) {
 	if !packet.PDUType.known() {
 		return nil, fmt.Errorf("unable to marshal PDU type %#x: not a PDU type", byte(packet.PDUType))
 	}
@@ -516,7 +516,7 @@ func (packet *SnmpPacket) appendPDU(dst []byte) ([]byte, error) {
 		}
 	default:
 		dst = appendInt(dst, Integer, requestID)
-		dst = appendUint(dst, Integer, uint64(packet.Error))
+		dst = appendUint(dst, Integer, uint64(packet.ErrorStatus))
 		dst = appendUint(dst, Integer, uint64(packet.ErrorIndex))
 	}
 	dst, err := packet.appendVBL(dst)
@@ -530,7 +530,7 @@ func (packet *SnmpPacket) appendPDU(dst []byte) ([]byte, error) {
 // enterprise, the agent address (an IPv4 address, RFC 1157's NetworkAddress),
 // generic and specific trap within the int32 range, and the timestamp of at
 // most 4294967295.
-func (packet *SnmpPacket) appendTrapV1Header(dst []byte) ([]byte, error) {
+func (packet *Message) appendTrapV1Header(dst []byte) ([]byte, error) {
 	if uint64(packet.Timestamp) > math.MaxUint32 {
 		return nil, fmt.Errorf("unable to marshal SNMPv1 Timestamp: %d overflows uint32", packet.Timestamp)
 	}
@@ -557,11 +557,11 @@ func (packet *SnmpPacket) appendTrapV1Header(dst []byte) ([]byte, error) {
 
 // appendVBL appends the varbind list: a SEQUENCE of varbinds, each a SEQUENCE
 // of the name's OBJECT IDENTIFIER and the value (see appendValue).
-func (packet *SnmpPacket) appendVBL(dst []byte) ([]byte, error) {
-	dst, start := ber.Begin(dst, byte(Sequence))
-	for i := range packet.Variables {
+func (packet *Message) appendVBL(dst []byte) ([]byte, error) {
+	dst, start := ber.Begin(dst, ber.Sequence)
+	for i := range packet.VarBinds {
 		var err error
-		if dst, err = appendVarbind(dst, &packet.Variables[i]); err != nil {
+		if dst, err = appendVarbind(dst, &packet.VarBinds[i]); err != nil {
 			return nil, err
 		}
 	}
@@ -569,8 +569,8 @@ func (packet *SnmpPacket) appendVBL(dst []byte) ([]byte, error) {
 }
 
 // appendVarbind appends one varbind.
-func appendVarbind(dst []byte, pdu *SnmpPDU) ([]byte, error) {
-	dst, start := ber.Begin(dst, byte(Sequence))
+func appendVarbind(dst []byte, pdu *VarBind) ([]byte, error) {
+	dst, start := ber.Begin(dst, ber.Sequence)
 	dst, err := appendObjectIdentifier(dst, pdu.Name)
 	if err != nil {
 		return nil, err

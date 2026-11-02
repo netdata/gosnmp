@@ -28,6 +28,11 @@ var (
 	ErrZeroLenInteger          = errors.New("zero length integer")
 )
 
+// Sequence is the tag of a SEQUENCE (X.690 section 8.9), which encloses an
+// SNMP message, its varbind list and each varbind, and the SNMPv3 header,
+// scoped PDU and USM parameters.
+const Sequence = 0x30
+
 // maxLengthOctets is the most long-form length octets Length reads: eight hold
 // any length a uint64 holds. net-snmp v5.9.4 reads as many as its long holds,
 // so its limit depends on the platform.

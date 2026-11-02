@@ -35,7 +35,7 @@ import (
 // An unsigned value that is empty or too long is not an error: it decodes as
 // UnknownType with a nil value, so that one bad counter does not fail the
 // message, and allocates nothing. The other types' failures are errors.
-func decodeValue(tag Asn1BER, content []byte) (Asn1BER, any, error) {
+func decodeValue(tag ValueType, content []byte) (ValueType, any, error) {
 	switch valueKinds[tag] {
 	case kindInteger:
 		v, err := int32Value(content)
@@ -121,11 +121,11 @@ const opaqueExtensionTag = 0x80 | 0x1f
 // its second identifier octet on, and octets after it are ignored. Content of
 // up to two octets, empty included, is never such a TLV; anything else is a
 // raw Opaque.
-func decodeOpaque(content []byte) (Asn1BER, any, error) {
+func decodeOpaque(content []byte) (ValueType, any, error) {
 	if len(content) <= 2 || content[0] != opaqueExtensionTag {
 		return Opaque, content, nil
 	}
-	tag := Asn1BER(content[1])
+	tag := ValueType(content[1])
 	if tag != OpaqueFloat && tag != OpaqueDouble {
 		return Opaque, content, nil
 	}
@@ -201,7 +201,7 @@ var valueKinds = [256]valueKind{ //nolint:gochecknoglobals // a read-only table
 //   - Null, NoSuchObject, NoSuchInstance, EndOfMibView: any, ignored
 //
 // Other tags, BitString included, and types are errors.
-func appendValue(dst []byte, tag Asn1BER, value any) ([]byte, error) {
+func appendValue(dst []byte, tag ValueType, value any) ([]byte, error) {
 	switch valueKinds[tag] {
 	case kindNull:
 		return append(dst, byte(tag), 0), nil
@@ -279,13 +279,13 @@ func appendIPAddress(dst []byte, value any) ([]byte, error) {
 }
 
 // appendOctets appends a TLV whose content is v as is.
-func appendOctets[T string | []byte](dst []byte, tag Asn1BER, v T) []byte {
+func appendOctets[T string | []byte](dst []byte, tag ValueType, v T) []byte {
 	return append(ber.AppendHeader(dst, byte(tag), len(v)), v...)
 }
 
 // appendInt32 appends a TLV holding v as an INTEGER; v must be within the
 // int32 range, as SNMP Integer32 values are.
-func appendInt32(dst []byte, tag Asn1BER, v int) ([]byte, error) {
+func appendInt32(dst []byte, tag ValueType, v int) ([]byte, error) {
 	if v < math.MinInt32 || v > math.MaxInt32 {
 		return nil, fmt.Errorf("%d overflows int32", v)
 	}
@@ -293,13 +293,13 @@ func appendInt32(dst []byte, tag Asn1BER, v int) ([]byte, error) {
 }
 
 // appendInt appends a TLV holding v as an INTEGER.
-func appendInt(dst []byte, tag Asn1BER, v int64) []byte {
+func appendInt(dst []byte, tag ValueType, v int64) []byte {
 	dst, start := ber.Begin(dst, byte(tag))
 	return ber.End(ber.AppendInt64(dst, v), start)
 }
 
 // appendUint appends a TLV holding the unsigned v as a non-negative INTEGER.
-func appendUint(dst []byte, tag Asn1BER, v uint64) []byte {
+func appendUint(dst []byte, tag ValueType, v uint64) []byte {
 	dst, start := ber.Begin(dst, byte(tag))
 	return ber.End(ber.AppendUint64(dst, v), start)
 }
@@ -307,7 +307,7 @@ func appendUint(dst []byte, tag Asn1BER, v uint64) []byte {
 // appendOpaqueFloat appends a float or double the way net-snmp wraps it in an
 // Opaque: an Opaque TLV holding a TLV whose identifier is the extension octet
 // 0x9f followed by the OpaqueFloat or OpaqueDouble tag (see decodeOpaque).
-func appendOpaqueFloat(dst []byte, tag Asn1BER, value any) ([]byte, error) {
+func appendOpaqueFloat(dst []byte, tag ValueType, value any) ([]byte, error) {
 	dst, start := ber.Begin(dst, byte(Opaque))
 	dst = append(dst, opaqueExtensionTag)
 	switch v := value.(type) {

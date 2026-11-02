@@ -13,9 +13,9 @@ import (
 )
 
 func main() {
-	// A GoSNMP literal configures the client: SNMPv2c to port 161 with the
+	// A Client literal configures the client: SNMPv2c to port 161 with the
 	// community "public"; Connect fills in MaxOids (60).
-	client := &g.GoSNMP{
+	client := &g.Client{
 		Target:    "192.168.1.10",
 		Port:      161,
 		Community: "public",
@@ -35,7 +35,7 @@ func main() {
 		log.Fatalf("Get() err: %v", err2)
 	}
 
-	for i, variable := range result.Variables {
+	for i, variable := range result.VarBinds {
 		fmt.Printf("%d: oid: %s ", i, variable.Name)
 
 		// The Go type of a Value depends on its Type (see the package

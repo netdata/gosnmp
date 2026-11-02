@@ -39,7 +39,7 @@ import (
 // useResponseSecurityParameters is set. A table tries all of a user's sets in
 // the order they were added; when none accepts the message, the error is the
 // one of the set that got furthest through these steps, the first on ties.
-func (x *GoSNMP) UnmarshalTrap(trap []byte, useResponseSecurityParameters bool) (*SnmpPacket, error) {
+func (x *Client) UnmarshalTrap(trap []byte, useResponseSecurityParameters bool) (*Message, error) {
 	version, _, err := readVersion(trap)
 	if err != nil {
 		return nil, err
@@ -55,8 +55,8 @@ func (x *GoSNMP) UnmarshalTrap(trap []byte, useResponseSecurityParameters bool) 
 // they were added, each a private copy with the message's security
 // parameters. The first set that accepts it wins; when none does, the error
 // wraps the one of the set that got furthest.
-func (x *GoSNMP) unmarshalTrapByUser(trap []byte) (*SnmpPacket, error) {
-	var header SnmpPacket
+func (x *Client) unmarshalTrapByUser(trap []byte) (*Message, error) {
+	var header Message
 	_, w, err := unmarshalHeader(trap, &header)
 	if err != nil {
 		return nil, err
@@ -73,7 +73,7 @@ func (x *GoSNMP) unmarshalTrapByUser(trap []byte) (*SnmpPacket, error) {
 	for _, secParams := range secParamsList {
 		// The attempts share the header's empty variable list: they run one
 		// after the other, and only the last one's result is kept.
-		result := new(SnmpPacket)
+		result := new(Message)
 		*result = header
 		step, err := decodeTrapV3(trap, w, result, secParams.Copy().usm(), trapRule{})
 		if err == nil {
@@ -88,8 +88,8 @@ func (x *GoSNMP) unmarshalTrapByUser(trap []byte) (*SnmpPacket, error) {
 
 // unmarshalTrapBase decodes trap with a copy of the client's security
 // parameters, whose keys it derives first.
-func (x *GoSNMP) unmarshalTrapBase(trap []byte, useResponseSecurityParameters bool) (*SnmpPacket, error) {
-	result := new(SnmpPacket)
+func (x *Client) unmarshalTrapBase(trap []byte, useResponseSecurityParameters bool) (*Message, error) {
+	result := new(Message)
 	if sp := usmOf(x.SecurityParameters); sp != nil {
 		if err := sp.InitSecurityKeys(); err != nil {
 			return nil, err
@@ -130,7 +130,7 @@ func (x *GoSNMP) unmarshalTrapBase(trap []byte, useResponseSecurityParameters bo
 // checkTrapV3 makes the checks of an SNMPv3 trap that come before its user is
 // known: the client's version, and an engine ID that is not empty (RFC 3414
 // section 3.2 step 3: no receiver's engine has it).
-func (x *GoSNMP) checkTrapV3(w *v3Wire) error {
+func (x *Client) checkTrapV3(w *v3Wire) error {
 	if x.Version != Version3 {
 		return errors.New("UnmarshalTrap: an SNMPv3 message needs a client whose Version is Version3")
 	}
@@ -173,7 +173,7 @@ const (
 // message's flags, with step 7 by the class of the decrypted PDU (RFC 3412
 // section 6.4: the PDU type, not the reportable flag, decides once the PDU
 // decodes), the minimum level of rule and sp, then the PDU.
-func decodeTrapV3(trap []byte, w v3Wire, result *SnmpPacket, sp *UsmSecurityParameters, rule trapRule) (trapStep, error) {
+func decodeTrapV3(trap []byte, w v3Wire, result *Message, sp *UsmSecurityParameters, rule trapRule) (trapStep, error) {
 	if rule.singleUser && w.userName != sp.UserName {
 		return stepUser, errUnknownUser
 	}

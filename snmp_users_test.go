@@ -18,9 +18,9 @@ import (
 // snmpd.
 type snmpUser struct {
 	name     string
-	auth     SnmpV3AuthProtocol
+	auth     AuthProtocol
 	authPass string
-	priv     SnmpV3PrivProtocol
+	priv     PrivProtocol
 	privPass string
 }
 
@@ -51,11 +51,11 @@ func loadSnmpUsers(tb testing.TB) []snmpUser {
 	data, err := os.ReadFile("testdata/snmp_users.txt")
 	require.NoError(tb, err)
 
-	auths := make(map[string]SnmpV3AuthProtocol, len(usmAuthProtocols))
+	auths := make(map[string]AuthProtocol, len(usmAuthProtocols))
 	for _, a := range usmAuthProtocols {
 		auths[a.String()] = a
 	}
-	privs := make(map[string]SnmpV3PrivProtocol, len(usmPrivProtocols))
+	privs := make(map[string]PrivProtocol, len(usmPrivProtocols))
 	for _, p := range usmPrivProtocols {
 		privs[p.String()] = p
 	}
@@ -89,8 +89,8 @@ func loadSnmpUsers(tb testing.TB) []snmpUser {
 // needs one.
 func TestSnmpUsers(t *testing.T) {
 	type pair struct {
-		auth SnmpV3AuthProtocol
-		priv SnmpV3PrivProtocol
+		auth AuthProtocol
+		priv PrivProtocol
 	}
 	want := map[pair]int{{NoAuth, NoPriv}: 1}
 	for _, a := range usmAuthProtocols[1:] {
@@ -107,7 +107,7 @@ func TestSnmpUsers(t *testing.T) {
 		names[u.name] = true
 		assert.Equal(t, u.auth > NoAuth, u.authPass != "", "user %q: authentication passphrase", u.name)
 		assert.Equal(t, u.priv > NoPriv, u.privPass != "", "user %q: privacy passphrase", u.name)
-		assert.NoError(t, newTestGoSNMPv3(u.msgFlags(), u.securityParameters()).prepare(), "user %q", u.name)
+		assert.NoError(t, newTestClientV3(u.msgFlags(), u.securityParameters()).prepare(), "user %q", u.name)
 	}
 	assert.Equal(t, want, got)
 }

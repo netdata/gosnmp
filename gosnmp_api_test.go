@@ -18,7 +18,7 @@ import (
 )
 
 func TestAPIConfigTypes(_ *testing.T) {
-	g := &gosnmp.GoSNMP{}
+	g := &gosnmp.Client{}
 	g.Target = ""
 	g.Port = 0
 	g.Community = ""
@@ -33,21 +33,21 @@ func TestAPIConfigTypes(_ *testing.T) {
 }
 
 func TestAPIConnectMethodSignature(_ *testing.T) {
-	var f func() error = (&gosnmp.GoSNMP{}).Connect
+	var f func() error = (&gosnmp.Client{}).Connect
 	_ = f
 }
 
 func TestAPIGetMethodSignature(_ *testing.T) {
-	var f func([]string) (*gosnmp.SnmpPacket, error) = (&gosnmp.GoSNMP{}).Get
+	var f func([]string) (*gosnmp.Message, error) = (&gosnmp.Client{}).Get
 	_ = f
 }
 
 func TestAPIBulkWalkAllMethodSignature(_ *testing.T) {
-	var f func(string) ([]gosnmp.SnmpPDU, error) = (&gosnmp.GoSNMP{}).BulkWalkAll
+	var f func(string) ([]gosnmp.VarBind, error) = (&gosnmp.Client{}).BulkWalkAll
 	_ = f
 }
 
 func TestAPIWalkAllMethodSignature(_ *testing.T) {
-	var f func(string) ([]gosnmp.SnmpPDU, error) = (&gosnmp.GoSNMP{}).WalkAll
+	var f func(string) ([]gosnmp.VarBind, error) = (&gosnmp.Client{}).WalkAll
 	_ = f
 }

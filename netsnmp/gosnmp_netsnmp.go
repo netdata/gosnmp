@@ -71,7 +71,7 @@ case TYPE_INTEGER:
 	    type = 'o';
 	    break;
 */
-func berToSnmpValType(in gosnmp.Asn1BER) (C.char, error) {
+func berToSnmpValType(in gosnmp.ValueType) (C.char, error) {
 	switch in {
 	case gosnmp.Gauge32:
 		return 'u', nil
@@ -100,7 +100,7 @@ func berToSnmpValType(in gosnmp.Asn1BER) (C.char, error) {
 	}
 }
 
-func verToSnmpVer(in gosnmp.SnmpVersion) (C.int, error) {
+func verToSnmpVer(in gosnmp.Version) (C.int, error) {
 	switch in {
 	case gosnmp.Version1:
 		return C.SNMP_VERSION_1, nil
@@ -113,7 +113,7 @@ func verToSnmpVer(in gosnmp.SnmpVersion) (C.int, error) {
 	}
 }
 
-func netSnmpPduPkt(fname string, gopdu gosnmp.SnmpPDU, gosess *gosnmp.GoSNMP, reqid uint32, verbose bool) ([]byte, error) {
+func netSnmpPduPkt(fname string, gopdu gosnmp.VarBind, gosess *gosnmp.Client, reqid uint32, verbose bool) ([]byte, error) {
 	var errout *C.char
 	var err error
 
@@ -203,7 +203,7 @@ func oidStringToInts(in string) []int {
 	return out
 }
 
-func valToString(gopdu gosnmp.SnmpPDU) string {
+func valToString(gopdu gosnmp.VarBind) string {
 	var val any
 	switch gopdu.Type {
 	case gosnmp.OctetString:

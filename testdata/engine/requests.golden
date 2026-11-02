@@ -8,7 +8,7 @@
 0s    agent answers #1 after 0s
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
 0s    deadline +1s
@@ -17,12 +17,12 @@
 0s    agent answers #2 after 0s
 0s    agent answers #2 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1003
 
 == requests/answer/empty
@@ -32,10 +32,10 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 []
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 []
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 2c "public" GetResponse id=1001 [], no error
+0s    result: packet 2c "public" Response id=1001 [], no error
 0s    client after: retries=2 next request id=1002
 
 == requests/answer/empty-with-error-status-wrong-id
@@ -45,7 +45,7 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1101 error=GenErr index=0 []
+0s    read from 127.0.0.2:161: 2c "public" Response id=1101 error=GenErr index=0 []
 0s    hook OnRecv
 1s    read from 127.0.0.2:161: deadline
 1s    hook OnRetry
@@ -54,7 +54,7 @@
 1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 1s    agent answers #2 after 0s
 1s    hook OnSent
-1s    read from 127.0.0.2:161: 2c "public" GetResponse id=1102 error=GenErr index=0 []
+1s    read from 127.0.0.2:161: 2c "public" Response id=1102 error=GenErr index=0 []
 1s    hook OnRecv
 2s    read from 127.0.0.2:161: deadline
 2s    hook OnRetry
@@ -63,7 +63,7 @@
 2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
 2s    agent answers #3 after 0s
 2s    hook OnSent
-2s    read from 127.0.0.2:161: 2c "public" GetResponse id=1103 error=GenErr index=0 []
+2s    read from 127.0.0.2:161: 2c "public" Response id=1103 error=GenErr index=0 []
 2s    hook OnRecv
 3s    read from 127.0.0.2:161: deadline
 3s    result: packet nil, error "request timeout (after 2 retries)" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
@@ -76,7 +76,7 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1101 []
+0s    read from 127.0.0.2:161: 2c "public" Response id=1101 []
 0s    hook OnRecv
 1s    read from 127.0.0.2:161: deadline
 1s    hook OnRetry
@@ -85,7 +85,7 @@
 1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 1s    agent answers #2 after 0s
 1s    hook OnSent
-1s    read from 127.0.0.2:161: 2c "public" GetResponse id=1102 []
+1s    read from 127.0.0.2:161: 2c "public" Response id=1102 []
 1s    hook OnRecv
 2s    read from 127.0.0.2:161: deadline
 2s    hook OnRetry
@@ -94,7 +94,7 @@
 2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
 2s    agent answers #3 after 0s
 2s    hook OnSent
-2s    read from 127.0.0.2:161: 2c "public" GetResponse id=1103 []
+2s    read from 127.0.0.2:161: 2c "public" Response id=1103 []
 2s    hook OnRecv
 3s    read from 127.0.0.2:161: deadline
 3s    result: packet nil, error "request timeout (after 2 retries)" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
@@ -108,12 +108,12 @@
 0s    agent answers #1 after 0s
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1101 []
+0s    read from 127.0.0.2:161: 2c "public" Response id=1101 []
 0s    hook OnRecv
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1002
 
 == requests/answer/error-status
@@ -123,10 +123,10 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 error=NoSuchName index=1 [.1.3.6.1.2.1.1.1.0]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 error=NoSuchName index=1 [.1.3.6.1.2.1.1.1.0]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 2c "public" GetResponse id=1001 error=NoSuchName index=1 [.1.3.6.1.2.1.1.1.0], no error
+0s    result: packet 2c "public" Response id=1001 error=NoSuchName index=1 [.1.3.6.1.2.1.1.1.0], no error
 0s    client after: retries=2 next request id=1002
 
 == requests/answer/first-result-after-second-get
@@ -136,7 +136,7 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent 1"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent 1"]
 0s    hook OnRecv
 0s    hook OnFinish
 0s    deadline +1s
@@ -144,10 +144,10 @@
 0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #2 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent 2"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent 2"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent 1"], no error
+0s    result: packet 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent 1"], no error
 0s    client after: retries=2 next request id=1003
 
 == requests/answer/garbage
@@ -191,10 +191,10 @@
 0s    hook OnSent
 0s    read from 127.0.0.2:161: 4 octets, not decodable (error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input)
 0s    hook OnRecv
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1002
 
 == requests/answer/largest-udp
@@ -204,10 +204,10 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"xxxxxxxxxxxxxxxx"... (65483 octets)]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"xxxxxxxxxxxxxxxx"... (65483 octets)]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"xxxxxxxxxxxxxxxx"... (65483 octets)], no error
+0s    result: packet 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"xxxxxxxxxxxxxxxx"... (65483 octets)], no error
 0s    client after: retries=2 next request id=1002
 
 == requests/answer/late
@@ -223,10 +223,10 @@
 1s    hook PreSend
 1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 1s    hook OnSent
-1.5s  read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+1.5s  read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 1.5s  hook OnRecv
 1.5s  hook OnFinish
-1.5s  result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+1.5s  result: packet 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 1.5s  client after: retries=2 next request id=1003
 
 == requests/answer/late-by-two-attempts
@@ -248,10 +248,10 @@
 2s    hook PreSend
 2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
 2s    hook OnSent
-2.5s  read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+2.5s  read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 2.5s  hook OnRecv
 2.5s  hook OnFinish
-2.5s  result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+2.5s  result: packet 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 2.5s  client after: retries=2 next request id=1004
 
 == requests/answer/late-reply-read-by-next-request
@@ -268,7 +268,7 @@
 1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 1s    agent answers #2 after 0s
 1s    hook OnSent
-1s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+1s    read from 127.0.0.2:161: 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 1s    hook OnRecv
 1s    hook OnFinish
 1s    deadline +1s
@@ -276,12 +276,12 @@
 1s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
 1s    agent answers #3 after 800ms
 1s    hook OnSent
-1.5s  read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+1.5s  read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 1.5s  hook OnRecv
-1.8s  read from 127.0.0.2:161: 2c "public" GetResponse id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+1.8s  read from 127.0.0.2:161: 2c "public" Response id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 1.8s  hook OnRecv
 1.8s  hook OnFinish
-1.8s  result: packet 2c "public" GetResponse id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+1.8s  result: packet 2c "public" Response id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 1.8s  client after: retries=2 next request id=1004
 
 == requests/answer/not-a-response
@@ -322,10 +322,10 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "private" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "private" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 2c "private" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "private" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1002
 
 == requests/answer/other-version
@@ -335,7 +335,7 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 1 "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 1 "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 1s    read from 127.0.0.2:161: deadline
 1s    hook OnRetry
@@ -344,7 +344,7 @@
 1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 1s    agent answers #2 after 0s
 1s    hook OnSent
-1s    read from 127.0.0.2:161: 1 "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+1s    read from 127.0.0.2:161: 1 "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 1s    hook OnRecv
 2s    read from 127.0.0.2:161: deadline
 2s    hook OnRetry
@@ -353,7 +353,7 @@
 2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
 2s    agent answers #3 after 0s
 2s    hook OnSent
-2s    read from 127.0.0.2:161: 1 "public" GetResponse id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+2s    read from 127.0.0.2:161: 1 "public" Response id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 2s    hook OnRecv
 3s    read from 127.0.0.2:161: deadline
 3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: the reply is of another SNMP version than the request" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
@@ -367,12 +367,12 @@
 0s    agent answers #1 after 0s
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 1 "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 1 "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1002
 
 == requests/answer/other-version-v3
@@ -382,7 +382,7 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 3 msgID=0 noAuthNoPriv user="public" engine="" boots=0 time=0 context=""/"" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 3 msgID=0 noAuthNoPriv user="public" engine="" boots=0 time=0 context=""/"" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 1s    read from 127.0.0.2:161: deadline
 1s    hook OnRetry
@@ -391,7 +391,7 @@
 1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 1s    agent answers #2 after 0s
 1s    hook OnSent
-1s    read from 127.0.0.2:161: 3 msgID=0 noAuthNoPriv user="public" engine="" boots=0 time=0 context=""/"" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+1s    read from 127.0.0.2:161: 3 msgID=0 noAuthNoPriv user="public" engine="" boots=0 time=0 context=""/"" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 1s    hook OnRecv
 2s    read from 127.0.0.2:161: deadline
 2s    hook OnRetry
@@ -400,7 +400,7 @@
 2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
 2s    agent answers #3 after 0s
 2s    hook OnSent
-2s    read from 127.0.0.2:161: 3 msgID=0 noAuthNoPriv user="public" engine="" boots=0 time=0 context=""/"" GetResponse id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+2s    read from 127.0.0.2:161: 3 msgID=0 noAuthNoPriv user="public" engine="" boots=0 time=0 context=""/"" Response id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 2s    hook OnRecv
 3s    read from 127.0.0.2:161: deadline
 3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: the reply is of another SNMP version than the request" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
@@ -605,10 +605,10 @@
 1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 1s    agent answers #2 after 0s
 1s    hook OnSent
-1s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+1s    read from 127.0.0.2:161: 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 1s    hook OnRecv
 1s    hook OnFinish
-1s    result: packet 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+1s    result: packet 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 1s    client after: retries=2 next request id=1003
 
 == requests/answer/too-big-udp
@@ -618,14 +618,14 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"xxxxxxxxxxxxxxxx"... (65484 octets)]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"xxxxxxxxxxxxxxxx"... (65484 octets)]
 0s    hook OnRetry
 0s    deadline +1s
 0s    hook PreSend
 0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #2 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"xxxxxxxxxxxxxxxx"... (65484 octets)]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"xxxxxxxxxxxxxxxx"... (65484 octets)]
 0s    result: packet nil, error "response buffer too small" *errors.errorString
 0s    client after: retries=1 next request id=1003
 
@@ -769,7 +769,7 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1101 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1101 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 1s    read from 127.0.0.2:161: deadline
 1s    hook OnRetry
@@ -778,7 +778,7 @@
 1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 1s    agent answers #2 after 0s
 1s    hook OnSent
-1s    read from 127.0.0.2:161: 2c "public" GetResponse id=1102 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+1s    read from 127.0.0.2:161: 2c "public" Response id=1102 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 1s    hook OnRecv
 2s    read from 127.0.0.2:161: deadline
 2s    hook OnRetry
@@ -787,7 +787,7 @@
 2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
 2s    agent answers #3 after 0s
 2s    hook OnSent
-2s    read from 127.0.0.2:161: 2c "public" GetResponse id=1103 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+2s    read from 127.0.0.2:161: 2c "public" Response id=1103 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 2s    hook OnRecv
 3s    read from 127.0.0.2:161: deadline
 3s    result: packet nil, error "request timeout (after 2 retries)" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
@@ -800,7 +800,7 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 1s    read from 127.0.0.2:161: deadline
 1s    hook OnRetry
@@ -809,7 +809,7 @@
 1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 1s    agent answers #2 after 0s
 1s    hook OnSent
-1s    read from 127.0.0.2:161: 2c "public" GetResponse id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+1s    read from 127.0.0.2:161: 2c "public" Response id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 1s    hook OnRecv
 2s    read from 127.0.0.2:161: deadline
 2s    hook OnRetry
@@ -818,7 +818,7 @@
 2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
 2s    agent answers #3 after 0s
 2s    hook OnSent
-2s    read from 127.0.0.2:161: 2c "public" GetResponse id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+2s    read from 127.0.0.2:161: 2c "public" Response id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 2s    hook OnRecv
 3s    read from 127.0.0.2:161: deadline
 3s    result: packet nil, error "request timeout (after 2 retries)" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
@@ -832,12 +832,12 @@
 0s    agent answers #1 after 0s
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1002
 
 == requests/close/after-a-request-conn-replaced-by-hook
@@ -847,11 +847,11 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent replaces Conn
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
 0s    close
-0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1002
 
 == requests/close/after-the-reply
@@ -861,12 +861,12 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv closes the client
 0s    deadline in the past
 0s    close
 0s    hook OnFinish
-0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1002
 
 == requests/close/before-request
@@ -895,7 +895,7 @@
 0s    hook OnSent
 1s    read from 127.0.0.2:161: deadline
 1s    hook OnRetry removes Conn
-1s    result: packet nil, error "&GoSNMP.Conn is missing. Provide a connection or use Connect()" *errors.errorString
+1s    result: packet nil, error "&Client.Conn is missing. Provide a connection or use Connect()" *errors.errorString
 1s    client after: retries=2 next request id=1002
 
 == requests/close/connection-from-another-goroutine
@@ -940,10 +940,10 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1002
 
 == requests/conn-without-receive-buffer
@@ -953,10 +953,10 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1002
 
 == requests/context/canceled-after-request
@@ -966,7 +966,7 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
 0s    deadline +1s
@@ -974,10 +974,10 @@
 0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #2 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1003
 
 == requests/context/canceled-before
@@ -992,12 +992,12 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 100ms
 0s    hook OnSent
-100ms read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+100ms read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 100ms hook OnRecv
 200ms interrupt released
 200ms deadline in the past
 200ms hook OnFinish
-200ms result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+200ms result: packet 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 200ms client after: retries=2 next request id=1002
 
 == requests/context/canceled-before-deadline
@@ -1177,10 +1177,10 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1002
 
 == requests/custom-conn/split
@@ -1212,10 +1212,10 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1002
 
 == requests/get/invalid-oid
@@ -1231,10 +1231,10 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0 .1.3.6.1.2.1.1.3.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1002
 
 == requests/get/max-oids/over-limit
@@ -1244,7 +1244,7 @@
 
 == requests/get/no-conn
 0s    client: 2c timeout=1s retries=2
-0s    result: packet nil, error "&GoSNMP.Conn is missing. Provide a connection or use Connect()" *errors.errorString
+0s    result: packet nil, error "&Client.Conn is missing. Provide a connection or use Connect()" *errors.errorString
 0s    client after: retries=2 next request id=1001
 
 == requests/get/v1
@@ -1254,10 +1254,10 @@
 0s    write #1: 1 "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 1 "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 1 "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 1 "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 1 "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1002
 
 == requests/hook-panics
@@ -1281,12 +1281,12 @@
 0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #2 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1003
 
 == requests/hook-panics/onfinish
@@ -1296,7 +1296,7 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
 0s    hook OnFinish panics
@@ -1307,10 +1307,10 @@
 0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #2 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1003
 
 == requests/hook-panics/onrecv
@@ -1320,7 +1320,7 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnRecv panics
 0s    first request: packet nil, error "request panicked: the caller's code failed" *fmt.wrapError
@@ -1330,10 +1330,10 @@
 0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #2 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1003
 
 == requests/hook-panics/onretry
@@ -1352,10 +1352,10 @@
 1s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 1s    agent answers #2 after 0s
 1s    hook OnSent
-1s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+1s    read from 127.0.0.2:161: 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 1s    hook OnRecv
 1s    hook OnFinish
-1s    result: packet 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+1s    result: packet 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 1s    client after: retries=2 next request id=1003
 
 == requests/hook-panics/onsent-runtime-error
@@ -1373,12 +1373,12 @@
 0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #2 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1003
 
 == requests/hook-panics/presend-error
@@ -1393,10 +1393,10 @@
 0s    write #1: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1003
 
 == requests/hooks/retry-cancels-context
@@ -1445,10 +1445,10 @@
 2s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
 2s    agent answers #3 after 0s
 2s    hook OnSent
-2s    read from 127.0.0.2:161: 2c "public" GetResponse id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+2s    read from 127.0.0.2:161: 2c "public" Response id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 2s    hook OnRecv
 2s    hook OnFinish
-2s    result: packet 2c "public" GetResponse id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+2s    result: packet 2c "public" Response id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 2s    client after: retries=2 next request id=1004
 
 == requests/hooks/retry-sets-context-deadline
@@ -1508,10 +1508,10 @@
 0s    write #1: 2c "public" GetBulkRequest id=1001 nonRepeaters=2 maxRepetitions=7 [.1.3.6.1.2.1.1]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 2c "public" GetResponse id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1002
 
 == requests/read-eof/udp
@@ -1527,10 +1527,10 @@
 0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #2 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1003
 
 == requests/read-error/always
@@ -1582,10 +1582,10 @@
 0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #2 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1003
 
 == requests/request-id/set
@@ -1595,10 +1595,10 @@
 0s    write #1: 2c "public" GetRequest id=6 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=6 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=6 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 2c "public" GetResponse id=6 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" Response id=6 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=7
 
 == requests/request-id/wraps
@@ -1608,10 +1608,10 @@
 0s    write #1: 2c "public" GetRequest id=0 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 2c "public" GetResponse id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" Response id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1
 
 == requests/request-id/wraps-between-attempts
@@ -1627,10 +1627,10 @@
 1s    write #2: 2c "public" GetRequest id=0 [.1.3.6.1.2.1.1.1.0]
 1s    agent answers #2 after 0s
 1s    hook OnSent
-1s    read from 127.0.0.2:161: 2c "public" GetResponse id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+1s    read from 127.0.0.2:161: 2c "public" Response id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 1s    hook OnRecv
 1s    hook OnFinish
-1s    result: packet 2c "public" GetResponse id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+1s    result: packet 2c "public" Response id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 1s    client after: retries=2 next request id=1
 
 == requests/timeout
@@ -1734,10 +1734,10 @@
 0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #2 after 0s
 0s    hook OnSent
-0s    read from 127.0.0.2:161: 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    read from 127.0.0.2:161: 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 0s    hook OnRecv
 0s    hook OnFinish
-0s    result: packet 2c "public" GetResponse id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
 0s    client after: retries=2 next request id=1003
 
 == requests/write-error/timeout-in-text

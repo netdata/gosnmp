@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// BenchmarkDecode measures SnmpDecodePacket on recorded packets.
+// BenchmarkDecode measures DecodeMessage on recorded packets.
 func BenchmarkDecode(b *testing.B) {
 	inputs := []struct {
 		name string
@@ -28,10 +28,10 @@ func BenchmarkDecode(b *testing.B) {
 	for _, in := range inputs {
 		b.Run(in.name, func(b *testing.B) {
 			data := in.in()
-			x := &GoSNMP{}
+			x := &Client{}
 			b.ReportAllocs()
 			for b.Loop() {
-				if _, err := x.SnmpDecodePacket(data); err != nil {
+				if _, err := x.DecodeMessage(data); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -39,19 +39,19 @@ func BenchmarkDecode(b *testing.B) {
 	}
 }
 
-// BenchmarkEncode measures MarshalMsg on typical requests, a response, a
+// BenchmarkEncode measures Message.Encode on typical requests, a response, a
 // trap and SNMPv3 messages.
 func BenchmarkEncode(b *testing.B) {
-	oids := make([]SnmpPDU, 10)
+	oids := make([]VarBind, 10)
 	for i := range oids {
-		oids[i] = SnmpPDU{Name: ".1.3.6.1.2.1.2.2.1.10." + strconv.Itoa(i+1), Type: Null}
+		oids[i] = VarBind{Name: ".1.3.6.1.2.1.2.2.1.10." + strconv.Itoa(i+1), Type: Null}
 	}
-	response, err := (&GoSNMP{}).SnmpDecodePacket(kyoceraResponseBytes())
+	response, err := (&Client{}).DecodeMessage(kyoceraResponseBytes())
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	v3Request := func(flags SnmpV3MsgFlags, auth SnmpV3AuthProtocol) *SnmpPacket {
+	v3Request := func(flags SnmpV3MsgFlags, auth AuthProtocol) *Message {
 		sp := &UsmSecurityParameters{
 			UserName:                 "codec-user",
 			AuthenticationProtocol:   auth,
@@ -65,7 +65,7 @@ func BenchmarkEncode(b *testing.B) {
 				b.Fatal(err)
 			}
 		}
-		return &SnmpPacket{
+		return &Message{
 			Version:            Version3,
 			MsgFlags:           flags,
 			SecurityModel:      UserSecurityModel,
@@ -73,22 +73,22 @@ func BenchmarkEncode(b *testing.B) {
 			PDUType:            GetRequest,
 			MsgID:              4242,
 			RequestID:          123456,
-			Variables:          oids,
+			VarBinds:           oids,
 		}
 	}
 
 	packets := []struct {
 		name string
-		pkt  *SnmpPacket
+		pkt  *Message
 	}{
-		{"getRequest10", &SnmpPacket{Version: Version2c, Community: "public", PDUType: GetRequest, RequestID: 1, Variables: oids}},
-		{"getBulkRequest", &SnmpPacket{
+		{"getRequest10", &Message{Version: Version2c, Community: "public", PDUType: GetRequest, RequestID: 1, VarBinds: oids}},
+		{"getBulkRequest", &Message{
 			Version: Version2c, Community: "public", PDUType: GetBulkRequest, RequestID: 1,
-			MaxRepetitions: 25, Variables: oids[:1],
+			MaxRepetitions: 25, VarBinds: oids[:1],
 		}},
 		{"kyoceraResponse", response},
-		{"v1Trap", &SnmpPacket{
-			Version: Version1, Community: "public", PDUType: Trap, Variables: slices.Clone(response.Variables),
+		{"v1Trap", &Message{
+			Version: Version1, Community: "public", PDUType: Trap, VarBinds: slices.Clone(response.VarBinds),
 			Enterprise: ".1.3.6.1.4.1.20372", AgentAddress: "192.0.2.1", GenericTrap: 6, SpecificTrap: 1,
 		}},
 		{"v3NoAuthGetRequest10", v3Request(NoAuthNoPriv, NoAuth)},
@@ -99,7 +99,7 @@ func BenchmarkEncode(b *testing.B) {
 		b.Run(p.name, func(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
-				if _, err := p.pkt.MarshalMsg(); err != nil {
+				if _, err := p.pkt.Encode(); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -111,40 +111,40 @@ func BenchmarkEncode(b *testing.B) {
 // an interface table, each its name, octet and packet counters, speed and
 // last change, the types a polling collector reads most.
 func getBulkResponse50() []byte {
-	vbs := make([]SnmpPDU, 0, 50)
+	vbs := make([]VarBind, 0, 50)
 	for i := range 10 {
 		row := "." + strconv.Itoa(i+1)
 		vbs = append(vbs,
-			SnmpPDU{Name: ".1.3.6.1.2.1.31.1.1.1.1" + row, Type: OctetString, Value: []byte("GigabitEthernet0/" + strconv.Itoa(i))},
-			SnmpPDU{Name: ".1.3.6.1.2.1.31.1.1.1.6" + row, Type: Counter64, Value: uint64(1)<<40 + uint64(i)},
-			SnmpPDU{Name: ".1.3.6.1.2.1.2.2.1.11" + row, Type: Counter32, Value: uint32(3000000000) + uint32(i)},
-			SnmpPDU{Name: ".1.3.6.1.2.1.2.2.1.5" + row, Type: Gauge32, Value: uint32(1000000000)},
-			SnmpPDU{Name: ".1.3.6.1.2.1.2.2.1.9" + row, Type: TimeTicks, Value: uint32(123456 + i)},
+			VarBind{Name: ".1.3.6.1.2.1.31.1.1.1.1" + row, Type: OctetString, Value: []byte("GigabitEthernet0/" + strconv.Itoa(i))},
+			VarBind{Name: ".1.3.6.1.2.1.31.1.1.1.6" + row, Type: Counter64, Value: uint64(1)<<40 + uint64(i)},
+			VarBind{Name: ".1.3.6.1.2.1.2.2.1.11" + row, Type: Counter32, Value: uint32(3000000000) + uint32(i)},
+			VarBind{Name: ".1.3.6.1.2.1.2.2.1.5" + row, Type: Gauge32, Value: uint32(1000000000)},
+			VarBind{Name: ".1.3.6.1.2.1.2.2.1.9" + row, Type: TimeTicks, Value: uint32(123456 + i)},
 		)
 	}
-	return mustMarshal(&SnmpPacket{Version: Version2c, Community: "public", PDUType: GetResponse, RequestID: 1, Variables: vbs})
+	return mustMarshal(&Message{Version: Version2c, Community: "public", PDUType: Response, RequestID: 1, VarBinds: vbs})
 }
 
 // snmpv2Trap20 is an SNMPv2c trap of 20 varbinds: sysUpTime.0, snmpTrapOID.0,
 // then integers, strings and counters.
 func snmpv2Trap20() []byte {
-	vbs := []SnmpPDU{
+	vbs := []VarBind{
 		{Name: ".1.3.6.1.2.1.1.3.0", Type: TimeTicks, Value: uint32(987654)},
 		{Name: ".1.3.6.1.6.3.1.1.4.1.0", Type: ObjectIdentifier, Value: ".1.3.6.1.4.1.20372.0.1"},
 	}
 	for i := range 6 {
 		n := ".1.3.6.1.4.1.20372.1." + strconv.Itoa(i+1)
 		vbs = append(vbs,
-			SnmpPDU{Name: n + ".1", Type: Integer, Value: 100 + i},
-			SnmpPDU{Name: n + ".2", Type: OctetString, Value: []byte("trap-field-" + strconv.Itoa(i))},
-			SnmpPDU{Name: n + ".3", Type: Counter32, Value: uint32(42 + i)},
+			VarBind{Name: n + ".1", Type: Integer, Value: 100 + i},
+			VarBind{Name: n + ".2", Type: OctetString, Value: []byte("trap-field-" + strconv.Itoa(i))},
+			VarBind{Name: n + ".3", Type: Counter32, Value: uint32(42 + i)},
 		)
 	}
-	return mustMarshal(&SnmpPacket{Version: Version2c, Community: "public", PDUType: SNMPv2Trap, RequestID: 7, Variables: vbs})
+	return mustMarshal(&Message{Version: Version2c, Community: "public", PDUType: SNMPv2Trap, RequestID: 7, VarBinds: vbs})
 }
 
-func mustMarshal(p *SnmpPacket) []byte {
-	b, err := p.MarshalMsg()
+func mustMarshal(p *Message) []byte {
+	b, err := p.Encode()
 	if err != nil {
 		panic(err)
 	}

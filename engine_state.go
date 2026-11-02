@@ -91,9 +91,9 @@ func (c sourcedClock) timeFor(now time.Time) (boots, engineTime uint32) {
 
 // credentials are the parameters' fields the keys derive from.
 type credentials struct {
-	authProtocol   SnmpV3AuthProtocol
+	authProtocol   AuthProtocol
 	authPassphrase string
-	privProtocol   SnmpV3PrivProtocol
+	privProtocol   PrivProtocol
 	privPassphrase string
 }
 
@@ -183,7 +183,7 @@ func (s *engineState) withEngine(engineID string) (engineState, error) {
 // derives is the client's, however it reached the field. Without an engine ID
 // the keys must derive all the same, before discovery. An error ends the
 // request and changes nothing.
-func (x *GoSNMP) reconcileEngine() error {
+func (x *Client) reconcileEngine() error {
 	sp := usmOf(x.SecurityParameters)
 	if sp == nil {
 		return errors.New("SNMPV3 SecurityParameters must be set")
@@ -308,7 +308,7 @@ func nextKey(field, key []byte, given, same, newEngine, newCred, fromNone, bound
 
 // commitEngine replaces the engine state with next, a state validated by its
 // caller, and mirrors it into the exported fields.
-func (x *GoSNMP) commitEngine(next engineState) {
+func (x *Client) commitEngine(next engineState) {
 	was := x.engine.fields()
 	x.engine = next
 	x.mirrorEngine(was, &x.engine)
@@ -319,7 +319,7 @@ func (x *GoSNMP) commitEngine(next engineState) {
 // SecurityParameters value the state follows, and ContextEngineID. A field a
 // caller or a hook changed since keeps the change, which the next request
 // takes (reconcileEngine). Keys are written as copies.
-func (x *GoSNMP) mirrorEngine(was engineFields, s *engineState) {
+func (x *Client) mirrorEngine(was engineFields, s *engineState) {
 	sp := s.params
 	sp.mu.Lock()
 	if sp.AuthoritativeEngineID == was.engineID {
@@ -343,7 +343,7 @@ func (x *GoSNMP) mirrorEngine(was engineFields, s *engineState) {
 // stamp gives packet, a request's private copy of the parameters, the engine
 // state's engine ID and keys, and its context engine ID; each attempt gives it
 // the engine boots and time (exchange.encode).
-func (s *engineState) stamp(packet *SnmpPacket) {
+func (s *engineState) stamp(packet *Message) {
 	sp := packet.SecurityParameters.usm()
 	sp.AuthoritativeEngineID, sp.SecretKey, sp.PrivacyKey = s.engineID, s.authKey, s.privKey
 	packet.ContextEngineID = s.contextEngineID()

@@ -10,12 +10,12 @@
 //
 // # Lifecycle
 //
-// A client is a [GoSNMP] whose exported fields configure it: a literal, or
-// [NewHandler] for code that takes the [Handler] interface. [GoSNMP.Connect]
+// A client is a [Client] whose exported fields configure it: a literal, or
+// [NewHandler] for code that takes the [Handler] interface. [Client.Connect]
 // fills in defaults ([MaxOids], a background Context), checks the SNMPv3
 // configuration and opens the connection, a UDP socket connected to Target and
 // Port, which replaces the client's (a failed Connect keeps it); a client may
-// instead be given a Conn. The client owns its connection: [GoSNMP.Close]
+// instead be given a Conn. The client owns its connection: [Client.Close]
 // closes it, and so does a Connect that replaces it; a connection the caller or
 // a hook replaces in Conn is the caller's again. Connect may be called again
 // after Close. A request reads the client's configuration when it starts and
@@ -24,12 +24,12 @@
 // the rest of it (see SNMPv3), and each attempt uses the connection Conn holds
 // when it starts. A request resolves no name: Connect looks up Target, and a
 // request writes to the peer of the connection it uses. The request IDs and
-// msgIDs start at a random value on first use unless [GoSNMP.SetRequestID] and
-// [GoSNMP.SetMsgID] set them, and Connect does not reset them.
+// msgIDs start at a random value on first use unless [Client.SetRequestID] and
+// [Client.SetMsgID] set them, and Connect does not reset them.
 //
 // # Concurrency
 //
-// A GoSNMP is not safe for concurrent use: its requests share the connection
+// A Client is not safe for concurrent use: its requests share the connection
 // and its deadline, the receive buffer and the SNMPv3 engine state, so run one
 // request at a time, or give each goroutine its own client. Close is the
 // exception: any goroutine may call it at any time, also to end a running
@@ -45,7 +45,7 @@
 //
 // A request makes up to Retries+1 attempts. Each sends the request with a new
 // request ID (and SNMPv3 msgID) and waits up to Timeout for an answer, or until
-// the Context's deadline when that comes first. An answer is a GetResponse of
+// the Context's deadline when that comes first. An answer is a Response of
 // the request's SNMP version with the request ID of one of its attempts, or an
 // SNMPv3 Report (see SNMPv3 below): an answer to any earlier attempt of the
 // same request answers it too. A message read that does not decode or
@@ -70,11 +70,11 @@
 // discarded messages, such an error, and one at the Context's deadline, also
 // matches the reason of the one that came closest to answering it (the last
 // authentic reply naming the request, by its SNMPv3 msgID, else the last naming
-// it, by that msgID or as an SNMPv1 or SNMPv2c GetResponse with one of its
+// it, by that msgID or as an SNMPv1 or SNMPv2c Response with one of its
 // request IDs, else the last one whose ID could not be read, as one of another
 // SNMP version; messages to other requests do not count), and its text ends
 // with ": last discarded reply: " and that reason's text. An answer's error
-// status ([SnmpPacket].Error) is not an error of the request. Connect uses
+// status ([Message].ErrorStatus) is not an error of the request. Connect uses
 // Timeout and the Context too, for its lookup of Target and its dial together.
 //
 // # Hooks
@@ -89,7 +89,7 @@
 //
 // A panic in the code a request runs on its own goroutine ends the request: in
 // a hook, or in a method of a Conn or Context the caller gave that the request
-// calls. The request returns no packet and an error whose text starts with
+// calls. The request returns no message and an error whose text starts with
 // "request panicked: " and that wraps the panic's value when it is an error, so
 // that [errors.Is] and [errors.As] reach it (a [runtime.Error] included); the
 // client stays usable. Other panics are not recovered: they reach the caller,
@@ -109,7 +109,7 @@
 // boots and time of the answer, with keys derived for that engine ID. The
 // answer is usually a usmStatsUnknownEngineIDs Report; a
 // usmStatsUnknownUserNames Report that carries an engine ID, as some devices
-// send, serves too (a GetResponse answers discovery only with neither an engine
+// send, serves too (a Response answers discovery only with neither an engine
 // ID nor a context engine ID: see below). An answer without an engine ID ends
 // the request with an error that matches [ErrUnknownEngineID]: the client
 // learns nothing, and the next request discovers again. Keys that do not derive
@@ -152,7 +152,7 @@
 // 7 b, below); a reply is decrypted exactly when it asks for privacy. A Report
 // then answers whatever its request ID, level and context, by the counter its
 // first varbind names, with one instance sub-identifier of any value (as
-// net-snmp). A GetResponse answers
+// net-snmp). A Response answers
 // only with the request ID of the attempt whose msgID it carries and the
 // request's security level (its authentication and privacy flags), user name,
 // engine ID, context engine ID and context name (RFC 3412 section 7.2 step 12
@@ -162,7 +162,7 @@
 // step's, [ErrNotInTimeWindow] for the time window (see Attempts and timeouts).
 //
 // The client takes the engine ID of each answer whose digest it checked and of
-// each GetResponse, which name the request's (security processing, the rule
+// each Response, which name the request's (security processing, the rule
 // above); of an unauthenticated Report only in discovery, and it lends one to a
 // resend (with keys derived for it and a new clock), whose answers name it. It
 // follows an agent whose engine ID changed through a usmStatsUnknownEngineIDs
@@ -215,12 +215,12 @@
 //
 // # Walks
 //
-// [GoSNMP.WalkAll] and [GoSNMP.BulkWalkAll] return the values of a subtree, in
+// [Client.WalkAll] and [Client.BulkWalkAll] return the values of a subtree, in
 // order. Their docs say how a walk starts and ends.
 //
 // # Values
 //
-// A varbind ([SnmpPDU]) holds its value as an any whose Go type depends on its
+// A varbind ([VarBind]) holds its value as an any whose Go type depends on its
 // Type. Decoding gives:
 //
 //   - Integer: int, within the int32 range; Uinteger32: uint32; Counter32,
@@ -311,8 +311,8 @@
 //     other unknown value types as UnknownType, where net-snmp fails the
 //     message
 //
-// The decoders never write their input. [GoSNMP.SnmpDecodePacket] and
-// [GoSNMP.UnmarshalTrap] return OctetString and Opaque values that alias the
+// The decoders never write their input. [Client.DecodeMessage] and
+// [Client.UnmarshalTrap] return OctetString and Opaque values that alias the
 // input, or, in an encrypted message, the buffer the scoped PDU is decrypted
 // into: copy them to reuse the input. The answers to requests are copied from
 // the receive buffer, so their values stay valid.
@@ -326,7 +326,7 @@
 // and AES-CFB in FIPS 140-only mode, with an error. Keys derive from non-empty
 // passphrases of any length (RFC 3414 section 11.2 asks for at least 8 octets);
 // a key given without a passphrase serves only the engine ID it was localized
-// to: parameters holding one decode no trap, inform or SnmpDecodePacket message
+// to: parameters holding one decode no trap, inform or DecodeMessage message
 // naming another engine ID, whatever its security level, and a client holding
 // one takes no engine ID but the first one the caller gives it: discovery, or
 // the caller giving it another one, ends the request with an error. A key its
@@ -337,7 +337,7 @@
 // checked); decoding a reply derives none, while discovery and, without
 // authentication, an answer the client takes or a lent Report localize the
 // client's keys to the engine ID it names. The SecurityParameters of a
-// request's packet and answer share the client's keys: do not write into them.
+// request's message and answer share the client's keys: do not write into them.
 // Deriving a key starts with hashing a megabyte of the passphrase (RFC 3414
 // appendix A.2.1). The package caches that result for every client, by
 // passphrase and hash, until [PasswordCaching] turns the cache off; it holds
@@ -345,7 +345,7 @@
 //
 // # Traps
 //
-// [GoSNMP.UnmarshalTrap] decodes a received trap or inform: an SNMPv3 message
+// [Client.UnmarshalTrap] decodes a received trap or inform: an SNMPv3 message
 // with the client's SecurityParameters, or, when TrapSecurityParametersTable
 // is set, with the parameter sets the table holds for the message's user name,
 // tried in the order they were added. Its doc gives the security processing

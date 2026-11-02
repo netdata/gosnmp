@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	params := &g.GoSNMP{
+	params := &g.Client{
 		Target:        "192.168.91.20",
 		Port:          161,
 		Version:       g.Version3,
@@ -40,7 +40,7 @@ func main() {
 		log.Fatalf("Get() err: %v", err2)
 	}
 
-	for i, variable := range result.Variables {
+	for i, variable := range result.VarBinds {
 		fmt.Printf("%d: oid: %s ", i, variable.Name)
 
 		// The Go type of a Value depends on its Type (see the package

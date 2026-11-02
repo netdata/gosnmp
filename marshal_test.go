@@ -56,12 +56,12 @@ type testsEnmarshalVarbindPosition struct {
 
 	start    int
 	finish   int
-	pduType  Asn1BER
+	pduType  ValueType
 	pduValue any
 }
 
 type testsEnmarshalT struct {
-	version     SnmpVersion
+	version     Version
 	community   string
 	requestType PDUType
 	requestid   uint32
@@ -233,9 +233,9 @@ var testsEnmarshal = []testsEnmarshalT{
 // helpers for Enmarshal tests
 
 // vbPosPdus returns a slice of oids in the given test
-func vbPosPdus(test testsEnmarshalT) (pdus []SnmpPDU) {
+func vbPosPdus(test testsEnmarshalT) (pdus []VarBind) {
 	for _, vbp := range test.vbPositions {
-		pdu := SnmpPDU{Name: vbp.oid, Type: vbp.pduType, Value: vbp.pduValue}
+		pdu := VarBind{Name: vbp.oid, Type: vbp.pduType, Value: vbp.pduValue}
 		pdus = append(pdus, pdu)
 	}
 	return pdus
@@ -259,7 +259,7 @@ func checkByteEquality(t *testing.T, test testsEnmarshalT, testBytes []byte,
 func TestEnmarshalVarbind(t *testing.T) {
 	for _, test := range testsEnmarshal {
 		for j, test2 := range test.vbPositions {
-			snmppdu := &SnmpPDU{Name: test2.oid, Type: test2.pduType, Value: test2.pduValue}
+			snmppdu := &VarBind{Name: test2.oid, Type: test2.pduType, Value: test2.pduValue}
 			testBytes, err := appendVarbind(nil, snmppdu)
 			if err != nil {
 				t.Errorf("#%s:%d:%s err returned: %v",
@@ -273,11 +273,11 @@ func TestEnmarshalVarbind(t *testing.T) {
 
 func TestEnmarshalVBL(t *testing.T) {
 	for _, test := range testsEnmarshal {
-		x := &SnmpPacket{
+		x := &Message{
 			Community: test.community,
 			Version:   test.version,
 			RequestID: test.requestid,
-			Variables: vbPosPdus(test),
+			VarBinds:  vbPosPdus(test),
 		}
 
 		testBytes, err := x.appendVBL(nil)
@@ -291,12 +291,12 @@ func TestEnmarshalVBL(t *testing.T) {
 
 func TestEnmarshalPDU(t *testing.T) {
 	for _, test := range testsEnmarshal {
-		x := &SnmpPacket{
+		x := &Message{
 			Community: test.community,
 			Version:   test.version,
 			PDUType:   test.requestType,
 			RequestID: test.requestid,
-			Variables: vbPosPdus(test),
+			VarBinds:  vbPosPdus(test),
 		}
 
 		testBytes, err := x.appendPDU(nil)
@@ -310,13 +310,13 @@ func TestEnmarshalPDU(t *testing.T) {
 
 func TestEnmarshalMsg(t *testing.T) {
 	for _, test := range testsEnmarshal {
-		x := &SnmpPacket{
+		x := &Message{
 			Community: test.community,
 			Version:   test.version,
 			PDUType:   test.requestType,
 			RequestID: test.requestid,
 			MsgID:     test.msgid,
-			Variables: vbPosPdus(test),
+			VarBinds:  vbPosPdus(test),
 		}
 
 		testBytes, err := x.marshalMsg()
@@ -325,10 +325,10 @@ func TestEnmarshalMsg(t *testing.T) {
 		}
 		checkByteEquality(t, test, testBytes, 0, test.finish)
 		t.Run(fmt.Sprintf("TestEnmarshalMsgUnmarshal/PDU[%v]/RequestID[%v]", test.requestType, test.requestid), func(t *testing.T) {
-			vhandle := GoSNMP{}
-			result, err := vhandle.SnmpDecodePacket(testBytes)
+			vhandle := Client{}
+			result, err := vhandle.DecodeMessage(testBytes)
 			if err != nil {
-				t.Errorf("#%s: SnmpDecodePacket() err returned: %v", test.funcName, err)
+				t.Errorf("#%s: DecodeMessage() err returned: %v", test.funcName, err)
 			}
 			newResultTestBytes, err := result.marshalMsg()
 			if err != nil {
@@ -382,18 +382,18 @@ var testsUnmarshalErr = []struct {
 
 var testsUnmarshal = []struct {
 	in  func() []byte
-	out *SnmpPacket
+	out *Message
 }{
 	{
 		kyoceraResponseBytes,
-		&SnmpPacket{
-			Version:    Version2c,
-			Community:  "public",
-			PDUType:    GetResponse,
-			RequestID:  1066889284,
-			Error:      0,
-			ErrorIndex: 0,
-			Variables: []SnmpPDU{
+		&Message{
+			Version:     Version2c,
+			Community:   "public",
+			PDUType:     Response,
+			RequestID:   1066889284,
+			ErrorStatus: 0,
+			ErrorIndex:  0,
+			VarBinds: []VarBind{
 				{
 					Name:  ".1.3.6.1.2.1.1.7.0",
 					Type:  Integer,
@@ -439,14 +439,14 @@ var testsUnmarshal = []struct {
 	},
 	{
 		ciscoResponseBytes,
-		&SnmpPacket{
-			Version:    Version2c,
-			Community:  "public",
-			PDUType:    GetResponse,
-			RequestID:  4876669,
-			Error:      0,
-			ErrorIndex: 0,
-			Variables: []SnmpPDU{
+		&Message{
+			Version:     Version2c,
+			Community:   "public",
+			PDUType:     Response,
+			RequestID:   4876669,
+			ErrorStatus: 0,
+			ErrorIndex:  0,
+			VarBinds: []VarBind{
 				{
 					Name:  ".1.3.6.1.2.1.1.7.0",
 					Type:  Integer,
@@ -502,14 +502,14 @@ var testsUnmarshal = []struct {
 	},
 	{
 		portOnIncoming1,
-		&SnmpPacket{
-			Version:    Version1,
-			Community:  "privatelab",
-			PDUType:    GetResponse,
-			RequestID:  526895288,
-			Error:      0,
-			ErrorIndex: 0,
-			Variables: []SnmpPDU{
+		&Message{
+			Version:     Version1,
+			Community:   "privatelab",
+			PDUType:     Response,
+			RequestID:   526895288,
+			ErrorStatus: 0,
+			ErrorIndex:  0,
+			VarBinds: []VarBind{
 				{
 					Name:  ".1.3.6.1.4.1.318.1.1.4.4.2.1.3.5",
 					Type:  Integer,
@@ -520,14 +520,14 @@ var testsUnmarshal = []struct {
 	},
 	{
 		portOffIncoming1,
-		&SnmpPacket{
-			Version:    Version1,
-			Community:  "privatelab",
-			PDUType:    GetResponse,
-			RequestID:  1826072803,
-			Error:      0,
-			ErrorIndex: 0,
-			Variables: []SnmpPDU{
+		&Message{
+			Version:     Version1,
+			Community:   "privatelab",
+			PDUType:     Response,
+			RequestID:   1826072803,
+			ErrorStatus: 0,
+			ErrorIndex:  0,
+			VarBinds: []VarBind{
 				{
 					Name:  ".1.3.6.1.4.1.318.1.1.4.4.2.1.3.5",
 					Type:  Integer,
@@ -538,14 +538,14 @@ var testsUnmarshal = []struct {
 	},
 	{
 		ciscoGetnextResponseBytes,
-		&SnmpPacket{
-			Version:    Version2c,
-			Community:  "public",
-			PDUType:    GetResponse,
-			RequestID:  1528674030,
-			Error:      0,
-			ErrorIndex: 0,
-			Variables: []SnmpPDU{
+		&Message{
+			Version:     Version2c,
+			Community:   "public",
+			PDUType:     Response,
+			RequestID:   1528674030,
+			ErrorStatus: 0,
+			ErrorIndex:  0,
+			VarBinds: []VarBind{
 				{
 					Name:  ".1.3.6.1.2.1.3.1.1.3.2.1.192.168.104.2",
 					Type:  IPAddress,
@@ -581,14 +581,14 @@ var testsUnmarshal = []struct {
 	},
 	{
 		ciscoGetbulkResponseBytes,
-		&SnmpPacket{
-			Version:    Version2c,
-			Community:  "public",
-			PDUType:    GetResponse,
-			RequestID:  250000266,
-			Error:      0,
-			ErrorIndex: 0,
-			Variables: []SnmpPDU{
+		&Message{
+			Version:     Version2c,
+			Community:   "public",
+			PDUType:     Response,
+			RequestID:   250000266,
+			ErrorStatus: 0,
+			ErrorIndex:  0,
+			VarBinds: []VarBind{
 				{
 					Name:  ".1.3.6.1.2.1.1.9.1.4.1",
 					Type:  TimeTicks,
@@ -644,25 +644,25 @@ var testsUnmarshal = []struct {
 	},
 	{
 		emptyErrResponse,
-		&SnmpPacket{
-			Version:   Version2c,
-			Community: "public",
-			PDUType:   GetResponse,
-			RequestID: 1883298028,
-			Error:     0,
-			Variables: []SnmpPDU{},
+		&Message{
+			Version:     Version2c,
+			Community:   "public",
+			PDUType:     Response,
+			RequestID:   1883298028,
+			ErrorStatus: 0,
+			VarBinds:    []VarBind{},
 		},
 	},
 	{
 		counter64Response,
-		&SnmpPacket{
-			Version:    Version2c,
-			Community:  "public",
-			PDUType:    GetResponse,
-			RequestID:  190378322,
-			Error:      0,
-			ErrorIndex: 0,
-			Variables: []SnmpPDU{
+		&Message{
+			Version:     Version2c,
+			Community:   "public",
+			PDUType:     Response,
+			RequestID:   190378322,
+			ErrorStatus: 0,
+			ErrorIndex:  0,
+			VarBinds: []VarBind{
 				{
 					Name:  ".1.3.6.1.2.1.31.1.1.1.10.1",
 					Type:  Counter64,
@@ -673,14 +673,14 @@ var testsUnmarshal = []struct {
 	},
 	{
 		opaqueFloatResponse,
-		&SnmpPacket{
-			Version:    Version2c,
-			Community:  "public",
-			PDUType:    GetResponse,
-			RequestID:  601216773,
-			Error:      0,
-			ErrorIndex: 0,
-			Variables: []SnmpPDU{
+		&Message{
+			Version:     Version2c,
+			Community:   "public",
+			PDUType:     Response,
+			RequestID:   601216773,
+			ErrorStatus: 0,
+			ErrorIndex:  0,
+			VarBinds: []VarBind{
 				{
 					Name:  ".1.3.6.1.4.1.6574.4.2.12.1.0",
 					Type:  OpaqueFloat,
@@ -691,14 +691,14 @@ var testsUnmarshal = []struct {
 	},
 	{
 		opaqueResponse,
-		&SnmpPacket{
-			Version:    Version1,
-			Community:  "public",
-			PDUType:    GetResponse,
-			RequestID:  2033938493,
-			Error:      0,
-			ErrorIndex: 0,
-			Variables: []SnmpPDU{
+		&Message{
+			Version:     Version1,
+			Community:   "public",
+			PDUType:     Response,
+			RequestID:   2033938493,
+			ErrorStatus: 0,
+			ErrorIndex:  0,
+			VarBinds: []VarBind{
 				{
 					Name:  ".1.3.6.1.4.1.34187.74195.2.1.24590",
 					Type:  Opaque,
@@ -709,14 +709,14 @@ var testsUnmarshal = []struct {
 	},
 	{
 		opaqueDoubleResponse,
-		&SnmpPacket{
-			Version:    Version2c,
-			Community:  "public",
-			PDUType:    GetResponse,
-			RequestID:  601216773,
-			Error:      0,
-			ErrorIndex: 0,
-			Variables: []SnmpPDU{
+		&Message{
+			Version:     Version2c,
+			Community:   "public",
+			PDUType:     Response,
+			RequestID:   601216773,
+			ErrorStatus: 0,
+			ErrorIndex:  0,
+			VarBinds: []VarBind{
 				{
 					Name:  ".1.3.6.1.4.1.6574.4.2.12.1.0",
 					Type:  OpaqueDouble,
@@ -727,26 +727,26 @@ var testsUnmarshal = []struct {
 	},
 	{
 		snmpv3HelloRequest,
-		&SnmpPacket{
-			Version:    Version3,
-			PDUType:    GetRequest,
-			MsgID:      91040642,
-			RequestID:  1157240545,
-			Error:      0,
-			ErrorIndex: 0,
-			Variables:  []SnmpPDU{},
+		&Message{
+			Version:     Version3,
+			PDUType:     GetRequest,
+			MsgID:       91040642,
+			RequestID:   1157240545,
+			ErrorStatus: 0,
+			ErrorIndex:  0,
+			VarBinds:    []VarBind{},
 		},
 	},
 	{
 		snmpv3HelloResponse,
-		&SnmpPacket{
-			Version:    Version3,
-			PDUType:    Report,
-			MsgID:      91040642,
-			RequestID:  1157240545,
-			Error:      0,
-			ErrorIndex: 0,
-			Variables: []SnmpPDU{
+		&Message{
+			Version:     Version3,
+			PDUType:     Report,
+			MsgID:       91040642,
+			RequestID:   1157240545,
+			ErrorStatus: 0,
+			ErrorIndex:  0,
+			VarBinds: []VarBind{
 				{
 					Name:  ".1.3.6.1.6.3.15.1.1.4.0",
 					Type:  Counter32,
@@ -763,11 +763,11 @@ func TestUnmarshalErrors(t *testing.T) {
 		splitedFuncName := strings.Split(funcName, ".")
 		funcName = splitedFuncName[len(splitedFuncName)-1]
 		t.Run(fmt.Sprintf("%v-%v", i, funcName), func(t *testing.T) {
-			vhandle := GoSNMP{}
+			vhandle := Client{}
 			testBytes := test.in()
-			_, err := vhandle.SnmpDecodePacket(testBytes)
+			_, err := vhandle.DecodeMessage(testBytes)
 			if err == nil {
-				t.Errorf("#%s: SnmpDecodePacket() err expected, but not returned", funcName)
+				t.Errorf("#%s: DecodeMessage() err expected, but not returned", funcName)
 			}
 		})
 	}
@@ -776,30 +776,30 @@ func TestUnmarshalErrors(t *testing.T) {
 // unmarshalView holds the decoded packet fields that TestUnmarshal compares,
 // including the exact Go type of every varbind value.
 type unmarshalView struct {
-	Version        SnmpVersion
+	Version        Version
 	Community      string
 	MsgID          uint32
 	PDUType        PDUType
 	RequestID      uint32
-	Error          SNMPError
+	ErrorStatus    ErrorStatus
 	ErrorIndex     uint8
 	NonRepeaters   uint8
 	MaxRepetitions uint32
-	Variables      []SnmpPDU
+	VarBinds       []VarBind
 }
 
-func newUnmarshalView(p *SnmpPacket) unmarshalView {
+func newUnmarshalView(p *Message) unmarshalView {
 	return unmarshalView{
 		Version:        p.Version,
 		Community:      p.Community,
 		MsgID:          p.MsgID,
 		PDUType:        p.PDUType,
 		RequestID:      p.RequestID,
-		Error:          p.Error,
+		ErrorStatus:    p.ErrorStatus,
 		ErrorIndex:     p.ErrorIndex,
 		NonRepeaters:   p.NonRepeaters,
 		MaxRepetitions: p.MaxRepetitions,
-		Variables:      p.Variables,
+		VarBinds:       p.VarBinds,
 	}
 }
 
@@ -809,11 +809,11 @@ func TestUnmarshal(t *testing.T) {
 		splitedFuncName := strings.Split(funcName, ".")
 		funcName = splitedFuncName[len(splitedFuncName)-1]
 		t.Run(fmt.Sprintf("%v-%v", i, funcName), func(t *testing.T) {
-			vhandle := GoSNMP{}
+			vhandle := Client{}
 			testBytes := test.in()
-			res, err := vhandle.SnmpDecodePacket(testBytes)
+			res, err := vhandle.DecodeMessage(testBytes)
 			if err != nil {
-				t.Fatalf("#%s: SnmpDecodePacket() err returned: %v", funcName, err)
+				t.Fatalf("#%s: DecodeMessage() err returned: %v", funcName, err)
 			}
 			t.Run("unmarshal", func(t *testing.T) {
 				assert.Equal(t, newUnmarshalView(test.out), newUnmarshalView(res))
@@ -823,9 +823,9 @@ func TestUnmarshal(t *testing.T) {
 				if err != nil {
 					t.Fatalf("#%s: marshalMsg() err returned: %v", funcName, err)
 				}
-				resNew, err := vhandle.SnmpDecodePacket(result)
+				resNew, err := vhandle.DecodeMessage(result)
 				if err != nil {
-					t.Fatalf("#%s: SnmpDecodePacket() err returned: %v", funcName, err)
+					t.Fatalf("#%s: DecodeMessage() err returned: %v", funcName, err)
 				}
 				assert.EqualValues(t, res, resNew)
 			})
@@ -1518,7 +1518,7 @@ func opaqueDoubleResponse() []byte {
 
 func TestUnmarshalEmptyPanic(t *testing.T) {
 	in := []byte{}
-	res := new(SnmpPacket)
+	res := new(Message)
 
 	_, _, err := unmarshalHeader(in, res)
 	if err == nil {
@@ -1532,13 +1532,13 @@ func TestV3USMInitialPacket(t *testing.T) {
 	if err != nil {
 		t.Errorf("#TestV3USMInitialPacket: marshalMsg() err returned: %v", err)
 	}
-	engine := GoSNMP{}
-	pktNew, errDecode := engine.SnmpDecodePacket(iBytes)
+	engine := Client{}
+	pktNew, errDecode := engine.DecodeMessage(iBytes)
 	if errDecode != nil {
 		t.Logf("-->Bytes=%v", iBytes)
 		t.Logf("-->Expect=%v", blankPacket)
 		t.Logf("-->got=%v", pktNew)
-		t.Errorf("#TestV3USMInitialPacket: SnmpDecodePacket() err returned: %v. ", errDecode)
+		t.Errorf("#TestV3USMInitialPacket: DecodeMessage() err returned: %v. ", errDecode)
 	}
 }
 
@@ -1549,7 +1549,7 @@ func TestSendOneRequest_dups(t *testing.T) {
 	}
 	defer srvr.Close()
 
-	x := &GoSNMP{
+	x := &Client{
 		Version: Version2c,
 		Target:  srvr.LocalAddr().(*net.UDPAddr).IP.String(),
 		Port:    uint16(srvr.LocalAddr().(*net.UDPAddr).Port),
@@ -1560,11 +1560,11 @@ func TestSendOneRequest_dups(t *testing.T) {
 		t.Fatalf("error connecting: %s", err)
 	}
 
-	go serveGetResponses(t, srvr, x, sendCopies(srvr, x.Retries+2))
+	go serveResponses(t, srvr, x, sendCopies(srvr, x.Retries+2))
 
-	pdus := []SnmpPDU{{Name: ".1.2", Type: Null}}
-	// This is not actually a GetResponse, but we need something our test server can unmarshal.
-	reqPkt := x.MkSnmpPacket(GetResponse, pdus, 0, 0)
+	pdus := []VarBind{{Name: ".1.2", Type: Null}}
+	// This is not actually a Response, but we need something our test server can unmarshal.
+	reqPkt := x.NewMessage(Response, pdus, 0, 0)
 
 	_, _, err = x.sendOneRequest(new(x.prepareRequest()), reqPkt, false, sourcedClock{})
 	if err != nil {
@@ -1579,11 +1579,11 @@ func TestSendOneRequest_dups(t *testing.T) {
 	}
 }
 
-// serveGetResponses answers each request read from srvr with a GetResponse for
+// serveResponses answers each request read from srvr with a Response for
 // .1.2 that carries the request ID, and hands the encoded reply to send. It
 // returns when srvr is closed or send fails; send errors are not reported
 // because they also happen when the test has finished and closed srvr.
-func serveGetResponses(t *testing.T, srvr *net.UDPConn, x *GoSNMP, send func(reply []byte, addr net.Addr) error) {
+func serveResponses(t *testing.T, srvr *net.UDPConn, x *Client, send func(reply []byte, addr net.Addr) error) {
 	buf := make([]byte, 256)
 	for {
 		n, addr, err := srvr.ReadFrom(buf)
@@ -1592,7 +1592,7 @@ func serveGetResponses(t *testing.T, srvr *net.UDPConn, x *GoSNMP, send func(rep
 		}
 		req := buf[:n]
 
-		var reqPkt SnmpPacket
+		var reqPkt Message
 		cursor, _, err := unmarshalHeader(req, &reqPkt)
 		if err != nil {
 			t.Errorf("error: %s", err)
@@ -1601,7 +1601,7 @@ func serveGetResponses(t *testing.T, srvr *net.UDPConn, x *GoSNMP, send func(rep
 			t.Errorf("error: %s", err)
 		}
 
-		rspPkt := x.MkSnmpPacket(GetResponse, []SnmpPDU{
+		rspPkt := x.NewMessage(Response, []VarBind{
 			{
 				Name:  ".1.2",
 				Type:  Integer,
@@ -1619,7 +1619,7 @@ func serveGetResponses(t *testing.T, srvr *net.UDPConn, x *GoSNMP, send func(rep
 	}
 }
 
-// sendCopies returns a send function for serveGetResponses that writes each
+// sendCopies returns a send function for serveResponses that writes each
 // reply count times from srvr.
 func sendCopies(srvr *net.UDPConn, count int) func([]byte, net.Addr) error {
 	return func(reply []byte, addr net.Addr) error {
@@ -1778,50 +1778,50 @@ func TestMarshalVarbindRoundTrip(t *testing.T) {
 
 	tests := []struct {
 		name string
-		pdu  SnmpPDU
+		pdu  VarBind
 	}{
 		// Integer with various OID sizes
-		{"Integer/small OID", SnmpPDU{Name: smallOID, Type: Integer, Value: 42}},
-		{"Integer/large OID", SnmpPDU{Name: largeOID, Type: Integer, Value: 42}},
+		{"Integer/small OID", VarBind{Name: smallOID, Type: Integer, Value: 42}},
+		{"Integer/large OID", VarBind{Name: largeOID, Type: Integer, Value: 42}},
 
 		// Null
-		{"Null/small OID", SnmpPDU{Name: smallOID, Type: Null, Value: nil}},
-		{"Null/large OID", SnmpPDU{Name: largeOID, Type: Null, Value: nil}},
+		{"Null/small OID", VarBind{Name: smallOID, Type: Null, Value: nil}},
+		{"Null/large OID", VarBind{Name: largeOID, Type: Null, Value: nil}},
 
 		// Counter32
-		{"Counter32/small OID", SnmpPDU{Name: smallOID, Type: Counter32, Value: uint(1000)}},
-		{"Counter32/large OID", SnmpPDU{Name: largeOID, Type: Counter32, Value: uint(1000)}},
+		{"Counter32/small OID", VarBind{Name: smallOID, Type: Counter32, Value: uint(1000)}},
+		{"Counter32/large OID", VarBind{Name: largeOID, Type: Counter32, Value: uint(1000)}},
 
 		// Gauge32
-		{"Gauge32/small OID", SnmpPDU{Name: smallOID, Type: Gauge32, Value: uint(500)}},
-		{"Gauge32/large OID", SnmpPDU{Name: largeOID, Type: Gauge32, Value: uint(500)}},
+		{"Gauge32/small OID", VarBind{Name: smallOID, Type: Gauge32, Value: uint(500)}},
+		{"Gauge32/large OID", VarBind{Name: largeOID, Type: Gauge32, Value: uint(500)}},
 
 		// TimeTicks
-		{"TimeTicks/small OID", SnmpPDU{Name: smallOID, Type: TimeTicks, Value: uint32(123456)}},
-		{"TimeTicks/large OID", SnmpPDU{Name: largeOID, Type: TimeTicks, Value: uint32(123456)}},
+		{"TimeTicks/small OID", VarBind{Name: smallOID, Type: TimeTicks, Value: uint32(123456)}},
+		{"TimeTicks/large OID", VarBind{Name: largeOID, Type: TimeTicks, Value: uint32(123456)}},
 
 		// OctetString with various sizes
-		{"OctetString/small OID/small value", SnmpPDU{Name: smallOID, Type: OctetString, Value: []byte("test")}},
-		{"OctetString/large OID/small value", SnmpPDU{Name: largeOID, Type: OctetString, Value: []byte("test")}},
-		{"OctetString/small OID/large value", SnmpPDU{Name: smallOID, Type: OctetString, Value: make([]byte, 200)}},
+		{"OctetString/small OID/small value", VarBind{Name: smallOID, Type: OctetString, Value: []byte("test")}},
+		{"OctetString/large OID/small value", VarBind{Name: largeOID, Type: OctetString, Value: []byte("test")}},
+		{"OctetString/small OID/large value", VarBind{Name: smallOID, Type: OctetString, Value: make([]byte, 200)}},
 
 		// ObjectIdentifier as value
-		{"ObjectIdentifier/small OID", SnmpPDU{Name: smallOID, Type: ObjectIdentifier, Value: ".1.3.6.1.2.1"}},
-		{"ObjectIdentifier/large OID", SnmpPDU{Name: largeOID, Type: ObjectIdentifier, Value: ".1.3.6.1.2.1"}},
+		{"ObjectIdentifier/small OID", VarBind{Name: smallOID, Type: ObjectIdentifier, Value: ".1.3.6.1.2.1"}},
+		{"ObjectIdentifier/large OID", VarBind{Name: largeOID, Type: ObjectIdentifier, Value: ".1.3.6.1.2.1"}},
 
 		// IPAddress
-		{"IPAddress/small OID", SnmpPDU{Name: smallOID, Type: IPAddress, Value: "192.168.1.1"}},
-		{"IPAddress/large OID", SnmpPDU{Name: largeOID, Type: IPAddress, Value: "192.168.1.1"}},
+		{"IPAddress/small OID", VarBind{Name: smallOID, Type: IPAddress, Value: "192.168.1.1"}},
+		{"IPAddress/large OID", VarBind{Name: largeOID, Type: IPAddress, Value: "192.168.1.1"}},
 
 		// Counter64
-		{"Counter64/small OID", SnmpPDU{Name: smallOID, Type: Counter64, Value: uint64(9999999999)}},
-		{"Counter64/large OID", SnmpPDU{Name: largeOID, Type: Counter64, Value: uint64(9999999999)}},
+		{"Counter64/small OID", VarBind{Name: smallOID, Type: Counter64, Value: uint64(9999999999)}},
+		{"Counter64/large OID", VarBind{Name: largeOID, Type: Counter64, Value: uint64(9999999999)}},
 
 		// NoSuchObject, NoSuchInstance, EndOfMibView
-		{"NoSuchObject/small OID", SnmpPDU{Name: smallOID, Type: NoSuchObject, Value: nil}},
-		{"NoSuchObject/large OID", SnmpPDU{Name: largeOID, Type: NoSuchObject, Value: nil}},
-		{"NoSuchInstance/small OID", SnmpPDU{Name: smallOID, Type: NoSuchInstance, Value: nil}},
-		{"EndOfMibView/small OID", SnmpPDU{Name: smallOID, Type: EndOfMibView, Value: nil}},
+		{"NoSuchObject/small OID", VarBind{Name: smallOID, Type: NoSuchObject, Value: nil}},
+		{"NoSuchObject/large OID", VarBind{Name: largeOID, Type: NoSuchObject, Value: nil}},
+		{"NoSuchInstance/small OID", VarBind{Name: smallOID, Type: NoSuchInstance, Value: nil}},
+		{"EndOfMibView/small OID", VarBind{Name: smallOID, Type: EndOfMibView, Value: nil}},
 	}
 
 	for _, tt := range tests {
@@ -1832,7 +1832,7 @@ func TestMarshalVarbindRoundTrip(t *testing.T) {
 			}
 
 			// Verify SEQUENCE tag
-			if result[0] != byte(Sequence) {
+			if result[0] != ber.Sequence {
 				t.Fatalf("expected SEQUENCE tag 0x30, got 0x%02x", result[0])
 			}
 
@@ -1857,7 +1857,7 @@ func TestMarshalVarbindRoundTrip(t *testing.T) {
 			if err != nil {
 				t.Fatalf("reading the value TLV: %v", err)
 			}
-			typ, _, err := decodeValue(Asn1BER(tag), content)
+			typ, _, err := decodeValue(ValueType(tag), content)
 			if err != nil {
 				t.Fatalf("decodeValue() error = %v", err)
 			}
@@ -1900,14 +1900,14 @@ func buildVBL(varbinds ...[]byte) []byte {
 }
 
 // goodVB builds a well-formed varbind with OID .1.3.6.<suffix> and the given value.
-func goodVB(suffix byte, tag Asn1BER, content []byte) []byte {
+func goodVB(suffix byte, tag ValueType, content []byte) []byte {
 	oid := append(buildTLVHeader(0x06, 3), 0x2b, 0x06, suffix)
 	val := append(buildTLVHeader(byte(tag), len(content)), content...)
 	return buildSequence(append(oid, val...))
 }
 
 // badVB builds a varbind with OID .1.3.6.<suffix> where the value's BER length is declaredLen.
-func badVB(suffix byte, tag Asn1BER, content []byte, declaredLen int) []byte {
+func badVB(suffix byte, tag ValueType, content []byte, declaredLen int) []byte {
 	oid := append(buildTLVHeader(0x06, 3), 0x2b, 0x06, suffix)
 	val := append(buildTLVHeader(byte(tag), declaredLen), content...)
 	return buildSequence(append(oid, val...))
@@ -1920,22 +1920,22 @@ func rawVB(suffix byte, rawValue []byte) []byte {
 }
 
 // testUnmarshalVBL calls unmarshalVBL and returns the parsed variables and error.
-func testUnmarshalVBL(t *testing.T, packet []byte) ([]SnmpPDU, error) {
+func testUnmarshalVBL(t *testing.T, packet []byte) ([]VarBind, error) {
 	t.Helper()
-	response := &SnmpPacket{}
+	response := &Message{}
 	err := unmarshalVBL(packet, response)
-	return response.Variables, err
+	return response.VarBinds, err
 }
 
 // wantPDU describes an expected parsed varbind for value-level assertions.
 type wantPDU struct {
 	name string
-	typ  Asn1BER
+	typ  ValueType
 	val  any
 }
 
 // assertPDUs checks that each parsed PDU matches the expected name, type, and value.
-func assertPDUs(t *testing.T, got []SnmpPDU, want []wantPDU) {
+func assertPDUs(t *testing.T, got []VarBind, want []wantPDU) {
 	t.Helper()
 	if len(got) != len(want) {
 		t.Fatalf("assertPDUs: got %d PDUs, want %d", len(got), len(want))

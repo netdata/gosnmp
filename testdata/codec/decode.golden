@@ -4,7 +4,7 @@
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1066889284 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1066889284 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 8
 vb[0]: .1.3.6.1.2.1.1.7.0 0x02 (Integer) int 104
 vb[1]: .1.3.6.1.2.1.2.2.1.10.1 0x41 (Counter32) uint 271070065
@@ -20,7 +20,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=4876669 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=4876669 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 10
 vb[0]: .1.3.6.1.2.1.1.7.0 0x02 (Integer) int 78
 vb[1]: .1.3.6.1.2.1.2.2.1.2.6 0x04 (OctetString) []uint8 len=16 4769676162697445746865726e657430
@@ -38,7 +38,7 @@ reencode: identical
 decode: ok
 version: 0 (1)
 community: "privatelab"
-pdu: 0xa2 (GetResponse) request-id=526895288 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=526895288 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.4.1.318.1.1.4.4.2.1.3.5 0x02 (Integer) int 1
 reencode: 3035020100040a707269766174656c6162a22402041f67c8b802010002010030163014060f2b06010401823e0101040402010305020101
@@ -47,7 +47,7 @@ reencode: 3035020100040a707269766174656c6162a22402041f67c8b802010002010030163014
 decode: ok
 version: 0 (1)
 community: "privatelab"
-pdu: 0xa2 (GetResponse) request-id=1826072803 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1826072803 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.4.1.318.1.1.4.4.2.1.3.5 0x02 (Integer) int 2
 reencode: 3035020100040a707269766174656c6162a22402046cd7a8e302010002010030163014060f2b06010401823e0101040402010305020102
@@ -56,7 +56,7 @@ reencode: 3035020100040a707269766174656c6162a22402046cd7a8e302010002010030163014
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1528674030 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1528674030 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 6
 vb[0]: .1.3.6.1.2.1.3.1.1.3.2.1.192.168.104.2 0x40 (IPAddress) string "192.168.104.2"
 vb[1]: .1.3.6.1.2.1.92.1.2.1.0 0x41 (Counter32) uint 0
@@ -70,7 +70,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=250000266 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=250000266 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 10
 vb[0]: .1.3.6.1.2.1.1.9.1.4.1 0x43 (TimeTicks) uint32 21
 vb[1]: .1.3.6.1.2.1.1.9.1.4.2 0x43 (TimeTicks) uint32 21
@@ -88,7 +88,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1883298028 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1883298028 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 0
 reencode: identical
 
@@ -96,7 +96,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=190378322 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=190378322 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.31.1.1.1.10.1 0x46 (Counter64) uint64 1527943
 reencode: identical
@@ -105,7 +105,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=601216773 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=601216773 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.4.1.6574.4.2.12.1.0 0x78 (OpaqueFloat) float32 10 (0x41200000)
 reencode: identical
@@ -114,7 +114,7 @@ reencode: identical
 decode: ok
 version: 0 (1)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=2033938493 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=2033938493 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.4.1.34187.74195.2.1.24590 0x44 (Opaque) []uint8 len=4 41f00000
 reencode: identical
@@ -123,7 +123,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=601216773 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=601216773 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.4.1.6574.4.2.12.1.0 0x79 (OpaqueDouble) float64 10 (0x4024000000000000)
 reencode: identical
@@ -279,7 +279,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=4242 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=1154402d7e48d7e3eeefd168 priv-params=
-pdu: 0xa2 (GetResponse) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
 vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=10 636f6465632d686f7374
 vb[1]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 98765
@@ -292,7 +292,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=4242 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=3b68db890b9ab44ebb8cd718 priv-params=0000000000000001
-pdu: 0xa2 (GetResponse) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
 vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=10 636f6465632d686f7374
 vb[1]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 98765
@@ -305,7 +305,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=4242 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=74db1c45023e69078ae0cc77 priv-params=0000000700000001
-pdu: 0xa2 (GetResponse) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
 vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=10 636f6465632d686f7374
 vb[1]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 98765
@@ -318,7 +318,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=4242 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=c80d165de740913804ce5886 priv-params=
-pdu: 0xa2 (GetResponse) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
 vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d30
 vb[1]: .1.3.6.1.2.1.1.5.1 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d31
@@ -331,7 +331,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=4242 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=fcf61f262134fa3c911049016d89a090 priv-params=
-pdu: 0xa2 (GetResponse) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
 vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d30
 vb[1]: .1.3.6.1.2.1.1.5.1 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d31
@@ -344,7 +344,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=4242 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=307c1e97c620111e5ebdc21007b1271df911388f95f2ebe5 priv-params=
-pdu: 0xa2 (GetResponse) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
 vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d30
 vb[1]: .1.3.6.1.2.1.1.5.1 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d31
@@ -357,7 +357,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=4242 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=9455c83f9f6742b448b51d7f0ae761d522809c79d329f7093acc8dd18d8dc812 priv-params=
-pdu: 0xa2 (GetResponse) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
 vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d30
 vb[1]: .1.3.6.1.2.1.1.5.1 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d31
@@ -370,7 +370,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=4242 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=4b4cbcb73771a64a01869451863f2da738abfab179be611e72da2fe9437734fe7dadf119eac0b90336c589cc7b1799f1 priv-params=
-pdu: 0xa2 (GetResponse) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
 vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d30
 vb[1]: .1.3.6.1.2.1.1.5.1 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d31
@@ -383,7 +383,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=4242 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=57106f4372af877a899fc8c4fbdf7ce752e77dbdc5d8a021 priv-params=0000000000000001
-pdu: 0xa2 (GetResponse) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
 vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d30
 vb[1]: .1.3.6.1.2.1.1.5.1 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d31
@@ -396,7 +396,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=4242 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=dd204b253ce4ae9d001c83dd1dd86dfdb03bed93221671d991433bfba0d46ab7271d284f6fc9ab3bf73dc0cf0bf282d5 priv-params=0000000700000001
-pdu: 0xa2 (GetResponse) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
 vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d30
 vb[1]: .1.3.6.1.2.1.1.5.1 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d31
@@ -409,7 +409,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=4242 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
-pdu: 0xa2 (GetResponse) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 20
 vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d30
 vb[1]: .1.3.6.1.2.1.1.5.1 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d31
@@ -440,7 +440,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=4242 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=eabeb49e32f5cfc9f624a2ff priv-params=
-pdu: 0xa2 (GetResponse) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 20
 vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d30
 vb[1]: .1.3.6.1.2.1.1.5.1 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d31
@@ -471,7 +471,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=4242 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=a592ad7567bfa5f69550daff priv-params=0000000000000001
-pdu: 0xa2 (GetResponse) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 4
 vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d30
 vb[1]: .1.3.6.1.2.1.1.5.1 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d31
@@ -486,7 +486,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=4242 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=29d727b83d33ffbed3d8823a priv-params=0000000000000001
-pdu: 0xa2 (GetResponse) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 20
 vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d30
 vb[1]: .1.3.6.1.2.1.1.5.1 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d31
@@ -517,7 +517,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=4242 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=8272fa62ec3c65f3b9f6f1e6 priv-params=0000000700000001
-pdu: 0xa2 (GetResponse) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 20
 vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d30
 vb[1]: .1.3.6.1.2.1.1.5.1 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d31
@@ -548,7 +548,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=4242 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=8adadfef3510a12fb3aef738bf16fd41c04ad66dbe741838f04c93ca56fa4ec7359206a877aa79f24ed85d70554ab2d7 priv-params=0000000000000001
-pdu: 0xa2 (GetResponse) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 20
 vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d30
 vb[1]: .1.3.6.1.2.1.1.5.1 0x04 (OctetString) []uint8 len=12 636f6465632d686f73742d31
@@ -595,7 +595,7 @@ decode: error (ErrInvalidPacketLength)
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: 302702010104067075626c6963a21a020101020100020100300f300d06082b06010201010500020105
@@ -604,7 +604,7 @@ reencode: 302702010104067075626c6963a21a020101020100020100300f300d06082b06010201
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: 302702010104067075626c6963a21a020101020100020100300f300d06082b06010201010500020105
@@ -628,7 +628,7 @@ decode: error (ErrInvalidPacketLength)
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=5 68656c6c6f
 reencode: 302b02010104067075626c6963a21e0201010201000201003013301106082b06010201010500040568656c6c6f
@@ -640,7 +640,7 @@ decode: error (ErrInvalidPacketLength)
 decode: ok
 version: 0 (1)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
 reencode: identical
@@ -661,7 +661,7 @@ decode: error
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
 reencode: 302602010104067075626c6963a219020101020100020100300e300c06082b060102010105000500
@@ -679,7 +679,7 @@ decode: error
 decode: ok
 version: 1 (2c)
 community: ""
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
 reencode: identical
@@ -691,7 +691,7 @@ decode: error
 decode: ok
 version: 1 (2c)
 community: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
 reencode: identical
@@ -700,7 +700,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "\xff\x00\x80"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
 reencode: identical
@@ -827,7 +827,7 @@ decode: error
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=4294967295 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=4294967295 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
 reencode: identical
@@ -836,7 +836,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=2147483648 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=2147483648 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
 reencode: 302902010104067075626c6963a21c020480000000020100020100300e300c06082b060102010105000500
@@ -845,7 +845,7 @@ reencode: 302902010104067075626c6963a21c020480000000020100020100300e300c06082b06
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=0 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=0 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
 reencode: 302602010104067075626c6963a219020100020100020100300e300c06082b060102010105000500
@@ -863,7 +863,7 @@ decode: error (ErrZeroLenInteger)
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=5 (GenErr) error-index=1 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=5 (GenErr) error-index=1 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
 reencode: identical
@@ -872,7 +872,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=255 (SNMPError(255)) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=255 (ErrorStatus(255)) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
 reencode: identical
@@ -887,7 +887,7 @@ decode: error
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=255 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=255 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
 reencode: 302702010104067075626c6963a21a020101020100020200ff300e300c06082b060102010105000500
@@ -896,7 +896,7 @@ reencode: 302702010104067075626c6963a21a020101020100020200ff300e300c06082b060102
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=255 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=255 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
 reencode: identical
@@ -911,7 +911,7 @@ decode: error
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 0
 reencode: identical
 
@@ -931,7 +931,7 @@ decode: error
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 100
 vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
 vb[1]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
@@ -1045,7 +1045,7 @@ decode: error
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: abc 0x05 (Null) <nil>
 reencode: error
@@ -1054,7 +1054,7 @@ reencode: error
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: 192.0.2.1 0x05 (Null) <nil>
 reencode: error
@@ -1081,7 +1081,7 @@ decode: error (ErrInvalidPacketLength)
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .0.0 0x05 (Null) <nil>
 reencode: 301f02010104067075626c6963a212020101020100020100300730050601000500
@@ -1090,7 +1090,7 @@ reencode: 301f02010104067075626c6963a212020101020100020100300730050601000500
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3 0x05 (Null) <nil>
 reencode: identical
@@ -1099,7 +1099,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .2.999.1 0x05 (Null) <nil>
 reencode: identical
@@ -1108,7 +1108,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.4294967295 0x05 (Null) <nil>
 reencode: identical
@@ -1123,7 +1123,7 @@ decode: error (ErrBase128IntegerTruncated)
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6 0x05 (Null) <nil>
 reencode: 302002010104067075626c6963a2130201010201000201003008300606022b060500
@@ -1135,7 +1135,7 @@ decode: error (ErrInvalidOidLength)
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1 0x05 (Null) <nil>
 reencode: identical
@@ -1150,7 +1150,7 @@ decode: error (ErrZeroLenInteger)
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 0
 reencode: identical
@@ -1159,7 +1159,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int -1
 reencode: identical
@@ -1168,7 +1168,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 255
 reencode: 302802010104067075626c6963a21b0201010201000201003010300e06082b06010201010500020200ff
@@ -1177,7 +1177,7 @@ reencode: 302802010104067075626c6963a21b0201010201000201003010300e06082b06010201
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 2147483647
 reencode: identical
@@ -1186,7 +1186,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int -2147483648
 reencode: identical
@@ -1195,7 +1195,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int -2147483648
 reencode: 302a02010104067075626c6963a21d0201010201000201003012301006082b06010201010500020480000000
@@ -1204,7 +1204,7 @@ reencode: 302a02010104067075626c6963a21d0201010201000201003012301006082b06010201
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int -1
 reencode: 302702010104067075626c6963a21a020101020100020100300f300d06082b060102010105000201ff
@@ -1213,7 +1213,7 @@ reencode: 302702010104067075626c6963a21a020101020100020100300f300d06082b06010201
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 0
 reencode: 302702010104067075626c6963a21a020101020100020100300f300d06082b06010201010500020100
@@ -1222,7 +1222,7 @@ reencode: 302702010104067075626c6963a21a020101020100020100300f300d06082b06010201
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int -1
 reencode: 302702010104067075626c6963a21a020101020100020100300f300d06082b060102010105000201ff
@@ -1231,7 +1231,7 @@ reencode: 302702010104067075626c6963a21a020101020100020100300f300d06082b06010201
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 0
 reencode: 302702010104067075626c6963a21a020101020100020100300f300d06082b06010201010500020100
@@ -1246,7 +1246,7 @@ decode: error (ErrInvalidPacketLength)
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x00 (EndOfContents) <nil>
 reencode: error
@@ -1255,7 +1255,7 @@ reencode: error
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x41 (Counter32) uint 0
 reencode: identical
@@ -1264,7 +1264,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x41 (Counter32) uint 255
 reencode: 302802010104067075626c6963a21b0201010201000201003010300e06082b06010201010500410200ff
@@ -1273,7 +1273,7 @@ reencode: 302802010104067075626c6963a21b0201010201000201003010300e06082b06010201
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x41 (Counter32) uint 4294967295
 reencode: identical
@@ -1282,7 +1282,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x41 (Counter32) uint 4294967295
 reencode: 302b02010104067075626c6963a21e0201010201000201003013301106082b06010201010500410500ffffffff
@@ -1291,7 +1291,7 @@ reencode: 302b02010104067075626c6963a21e0201010201000201003013301106082b06010201
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x41 (Counter32) uint 0
 reencode: 302702010104067075626c6963a21a020101020100020100300f300d06082b06010201010500410100
@@ -1300,7 +1300,7 @@ reencode: 302702010104067075626c6963a21a020101020100020100300f300d06082b06010201
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x00 (EndOfContents) <nil>
 reencode: error
@@ -1309,7 +1309,7 @@ reencode: error
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x42 (Gauge32) uint 4294967295
 reencode: identical
@@ -1318,7 +1318,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x00 (EndOfContents) <nil>
 reencode: error
@@ -1327,7 +1327,7 @@ reencode: error
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x42 (Gauge32) uint 0
 reencode: 302702010104067075626c6963a21a020101020100020100300f300d06082b06010201010500420100
@@ -1336,7 +1336,7 @@ reencode: 302702010104067075626c6963a21a020101020100020100300f300d06082b06010201
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x00 (EndOfContents) <nil>
 reencode: error
@@ -1345,7 +1345,7 @@ reencode: error
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x43 (TimeTicks) uint32 4294967295
 reencode: identical
@@ -1354,7 +1354,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x43 (TimeTicks) uint32 0
 reencode: 302702010104067075626c6963a21a020101020100020100300f300d06082b06010201010500430100
@@ -1363,7 +1363,7 @@ reencode: 302702010104067075626c6963a21a020101020100020100300f300d06082b06010201
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x47 (Uinteger32) uint32 1
 reencode: identical
@@ -1372,7 +1372,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x47 (Uinteger32) uint32 0
 reencode: 302702010104067075626c6963a21a020101020100020100300f300d06082b06010201010500470100
@@ -1381,7 +1381,7 @@ reencode: 302702010104067075626c6963a21a020101020100020100300f300d06082b06010201
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x47 (Uinteger32) uint32 255
 reencode: 302802010104067075626c6963a21b0201010201000201003010300e06082b06010201010500470200ff
@@ -1390,7 +1390,7 @@ reencode: 302802010104067075626c6963a21b0201010201000201003010300e06082b06010201
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x00 (EndOfContents) <nil>
 reencode: error
@@ -1399,7 +1399,7 @@ reencode: error
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x00 (EndOfContents) <nil>
 reencode: error
@@ -1408,7 +1408,7 @@ reencode: error
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x46 (Counter64) uint64 0
 reencode: identical
@@ -1417,7 +1417,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x46 (Counter64) uint64 18446744073709551615
 reencode: identical
@@ -1426,7 +1426,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x46 (Counter64) uint64 18446744073709551615
 reencode: 302f02010104067075626c6963a2220201010201000201003017301506082b06010201010500460900ffffffffffffffff
@@ -1435,7 +1435,7 @@ reencode: 302f02010104067075626c6963a2220201010201000201003017301506082b06010201
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x00 (EndOfContents) <nil>
 reencode: error
@@ -1444,7 +1444,7 @@ reencode: error
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x00 (EndOfContents) <nil>
 reencode: error
@@ -1453,7 +1453,7 @@ reencode: error
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=0 
 reencode: identical
@@ -1462,7 +1462,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=200 6161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161
 reencode: identical
@@ -1471,7 +1471,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=300 626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262626262
 reencode: identical
@@ -1480,7 +1480,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=5 68656c6c6f
 reencode: 302b02010104067075626c6963a21e0201010201000201003013301106082b06010201010500040568656c6c6f
@@ -1501,7 +1501,7 @@ decode: error (ErrInvalidPacketLength)
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x05 (Null) <nil>
 reencode: 302602010104067075626c6963a219020101020100020100300e300c06082b060102010105000500
@@ -1510,7 +1510,7 @@ reencode: 302602010104067075626c6963a219020101020100020100300e300c06082b06010201
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1"
 reencode: identical
@@ -1519,7 +1519,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x06 (ObjectIdentifier) string ".0.0"
 reencode: 302702010104067075626c6963a21a020101020100020100300f300d06082b06010201010500060100
@@ -1528,7 +1528,7 @@ reencode: 302702010104067075626c6963a21a020101020100020100300f300d06082b06010201
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x06 (ObjectIdentifier) string ".1.3.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1.1"
 reencode: identical
@@ -1543,7 +1543,7 @@ decode: error (ErrBase128IntegerTruncated)
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x40 (IPAddress) string "192.0.2.1"
 reencode: identical
@@ -1552,7 +1552,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x40 (IPAddress) <nil>
 reencode: error
@@ -1567,7 +1567,7 @@ decode: error
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x40 (IPAddress) string "2001:db8::1"
 reencode: identical
@@ -1576,7 +1576,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x44 (Opaque) []uint8 len=2 0102
 reencode: identical
@@ -1585,7 +1585,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x44 (Opaque) []uint8 len=0 
 reencode: identical
@@ -1594,7 +1594,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x78 (OpaqueFloat) float32 10 (0x41200000)
 reencode: identical
@@ -1603,7 +1603,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x78 (OpaqueFloat) float32 NaN (0x7fc00001)
 reencode: identical
@@ -1618,7 +1618,7 @@ decode: error (ErrFloatTooLarge)
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x79 (OpaqueDouble) float64 10 (0x4024000000000000)
 reencode: identical
@@ -1630,7 +1630,7 @@ decode: error (ErrInvalidPacketLength)
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x44 (Opaque) []uint8 len=4 9f760105
 reencode: identical
@@ -1639,7 +1639,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x44 (Opaque) []uint8 len=4 9f7a0105
 reencode: identical
@@ -1648,7 +1648,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x44 (Opaque) []uint8 len=1 9f
 reencode: identical
@@ -1657,7 +1657,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x44 (Opaque) []uint8 len=2 9f78
 reencode: identical
@@ -1666,7 +1666,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x00 (EndOfContents) <nil>
 reencode: error
@@ -1675,7 +1675,7 @@ reencode: error
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x00 (EndOfContents) <nil>
 reencode: error
@@ -1684,7 +1684,7 @@ reencode: error
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x00 (EndOfContents) <nil>
 reencode: error
@@ -1693,7 +1693,7 @@ reencode: error
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x00 (EndOfContents) <nil>
 reencode: error
@@ -1702,7 +1702,7 @@ reencode: error
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x00 (EndOfContents) <nil>
 reencode: error
@@ -1711,7 +1711,7 @@ reencode: error
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x80 (NoSuchObject) <nil>
 reencode: identical
@@ -1720,7 +1720,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x81 (NoSuchInstance) <nil>
 reencode: identical
@@ -1729,7 +1729,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x82 (EndOfMibView) <nil>
 reencode: identical
@@ -1738,7 +1738,7 @@ reencode: identical
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x80 (NoSuchObject) <nil>
 reencode: 302602010104067075626c6963a219020101020100020100300e300c06082b060102010105008000
@@ -1747,7 +1747,7 @@ reencode: 302602010104067075626c6963a219020101020100020100300e300c06082b06010201
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x81 (NoSuchInstance) <nil>
 reencode: 302602010104067075626c6963a219020101020100020100300e300c06082b060102010105008100
@@ -1756,7 +1756,7 @@ reencode: 302602010104067075626c6963a219020101020100020100300e300c06082b06010201
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x82 (EndOfMibView) <nil>
 reencode: 302602010104067075626c6963a219020101020100020100300e300c06082b060102010105008200
@@ -1765,7 +1765,7 @@ reencode: 302602010104067075626c6963a219020101020100020100300e300c06082b06010201
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x00 (EndOfContents) <nil>
 reencode: error
@@ -1774,7 +1774,7 @@ reencode: error
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x00 (EndOfContents) <nil>
 reencode: error
@@ -1786,7 +1786,7 @@ decode: error (ErrInvalidPacketLength)
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x00 (EndOfContents) <nil>
 reencode: error
@@ -1795,7 +1795,7 @@ reencode: error
 decode: ok
 version: 1 (2c)
 community: "public"
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x00 (EndOfContents) <nil>
 reencode: error
@@ -1945,7 +1945,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: identical
@@ -1977,7 +1977,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=2147483647 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: identical
@@ -1994,7 +1994,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=42 max-size=484 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: identical
@@ -2005,7 +2005,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=42 max-size=2147483647 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: identical
@@ -2031,7 +2031,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=6161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161 boots=7 time=1234 user="codec-user" auth-params= priv-params=
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: identical
@@ -2045,7 +2045,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" auth-params= priv-params=
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: identical
@@ -2059,7 +2059,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id= boots=0 time=0 user="" auth-params= priv-params=
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: identical
@@ -2079,7 +2079,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: 3077020103300e02012a020300ffe3040100020103042c302a041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040004003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
@@ -2116,7 +2116,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=4242 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=1154402d7e48d7e3eeefd168 priv-params=
-pdu: 0xa2 (GetResponse) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
 vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=10 636f6465632d686f7374
 vb[1]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 98765
@@ -2140,7 +2140,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=4242 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=3b68db890b9ab44ebb8cd718 priv-params=0000000000000001
-pdu: 0xa2 (GetResponse) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
 vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=10 636f6465632d686f7374
 vb[1]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 98765
@@ -2157,7 +2157,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=4242 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=74db1c45023e69078ae0cc77 priv-params=0000000700000001
-pdu: 0xa2 (GetResponse) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
 vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=10 636f6465632d686f7374
 vb[1]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 98765
@@ -2174,7 +2174,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=4242 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="codec-context"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=1154402d7e48d7e3eeefd168 priv-params=
-pdu: 0xa2 (GetResponse) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=123456 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 2
 vb[0]: .1.3.6.1.2.1.1.5.0 0x04 (OctetString) []uint8 len=10 636f6465632d686f7374
 vb[1]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 98765
@@ -2216,7 +2216,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: 3077020103300e02012a020300ffe3040100020103042c302a041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040004003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
@@ -2233,7 +2233,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=42 max-size=65507 flags=0x00 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: 3077020103300e02012a020300ffe3040100020103042c302a041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040004003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
@@ -2259,7 +2259,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=42 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=2fdb2102f8239dec900468a5 priv-params=
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: 308183020103300e02012a020300ffe304010102010304383036041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040cd8e942bfd89f14914a8ce92304003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
@@ -2271,7 +2271,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=42 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=673f2311ea9ad6ea140784 priv-params=
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: 308183020103300e02012a020300ffe304010102010304383036041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040cd8e942bfd89f14914a8ce92304003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
@@ -2283,7 +2283,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=42 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=44bfbc11437ba415af3403b200 priv-params=
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: 308183020103300e02012a020300ffe304010102010304383036041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040cd8e942bfd89f14914a8ce92304003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
@@ -2295,7 +2295,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=42 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params= priv-params=
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: 308183020103300e02012a020300ffe304010102010304383036041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040cd8e942bfd89f14914a8ce92304003034041180001f8804636f6465632d656e67696e650403637478a21a020101020100020100300f300d06082b06010201010500020105
@@ -2307,7 +2307,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=42 max-size=65507 flags=0x01 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=d8e942bfd89f14914a8ce923 priv-params=
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: identical
@@ -2319,7 +2319,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=42 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=4950d0f2b8200b4dd30d9164 priv-params=0000000000000001
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: identical
@@ -2339,7 +2339,7 @@ version: 3 (3)
 community: ""
 v3: msg-id=42 max-size=65507 flags=0x03 security-model=3 context-engine-id=80001f8804636f6465632d656e67696e65 context-name="ctx"
 usm: engine-id=80001f8804636f6465632d656e67696e65 boots=7 time=1234 user="codec-user" auth-params=7c249a518b70267f2b549d26 priv-params=0000000000000001
-pdu: 0xa2 (GetResponse) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
+pdu: 0xa2 (Response) request-id=1 error=0 (NoError) error-index=0 non-repeaters=0 max-repetitions=0
 varbinds: 1
 vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: 30818d020103300e02012a020300ffe30401030201030440303e041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040c4950d0f2b8200b4dd30d9164040800000000000000010436cdfd70ed7da6078b60e0f621da87c222f187f9362893efe46f7bd6cb090806e019640bcef16def38545821d4e055eea35fa37fa83b0c

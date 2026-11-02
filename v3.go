@@ -57,7 +57,7 @@ const (
 type SnmpV3SecurityParameters interface {
 	Copy() SnmpV3SecurityParameters
 	Description() string
-	InitPacket(packet *SnmpPacket) error
+	InitPacket(packet *Message) error
 	InitSecurityKeys() error
 
 	// usm returns the parameters of the User-based Security Model. Being
@@ -76,7 +76,7 @@ func usmOf(sp SnmpV3SecurityParameters) *UsmSecurityParameters {
 
 // validateParametersV3 checks the client's SNMPv3 configuration: the
 // User-based Security Model, and parameters that fit MsgFlags.
-func (x *GoSNMP) validateParametersV3() error {
+func (x *Client) validateParametersV3() error {
 	// update following code if you implement a new security model
 	if x.SecurityModel != UserSecurityModel {
 		return errors.New("the SNMPV3 User Security Model is the only SNMPV3 security model currently implemented")
@@ -93,7 +93,7 @@ func (x *GoSNMP) validateParametersV3() error {
 // content of its msgAuthenticationParameters, at offset auth, when the flags
 // ask for authentication; a key that does not fit the protocol is an error
 // (usm.Auth.CheckKey).
-func (packet *SnmpPacket) sign(msg []byte, auth int) ([]byte, error) {
+func (packet *Message) sign(msg []byte, auth int) ([]byte, error) {
 	if packet.MsgFlags.authFlag() {
 		if err := packet.SecurityParameters.usm().sign(msg, auth); err != nil {
 			return nil, err
@@ -149,7 +149,7 @@ var errNoSecurityParameters = errors.New("SNMPv3 message without security parame
 // where sign writes the digest. A message the flags encrypt gets the next salt
 // of usm.Salts, never the packet's PrivacyParameters, so that no two messages
 // share one, whatever the caller copied into the packet.
-func (packet *SnmpPacket) appendV3(dst []byte) ([]byte, int, error) {
+func (packet *Message) appendV3(dst []byte) ([]byte, int, error) {
 	sp := usmOf(packet.SecurityParameters)
 	if sp == nil {
 		return nil, 0, errNoSecurityParameters
@@ -191,7 +191,7 @@ const (
 // User-based Security Model, a msgID of at most 2147483647, a MsgMaxSize of 0
 // (the receive buffer's size) or 484..2147483647, and flags that do not ask for
 // privacy without authentication.
-func (packet *SnmpPacket) checkV3Header() error {
+func (packet *Message) checkV3Header() error {
 	switch {
 	case packet.SecurityModel != UserSecurityModel:
 		return fmt.Errorf("unable to marshal SNMPv3 security model %d: not the User-based Security Model", packet.SecurityModel)
@@ -211,8 +211,8 @@ func (packet *SnmpPacket) checkV3Header() error {
 // MsgFlags and the reportable flag, set for a PDU of the Confirmed Class and
 // clear for the others (RFC 3412 section 6.4), whatever MsgFlags holds besides
 // the level.
-func (packet *SnmpPacket) appendV3Header(dst []byte) []byte {
-	dst, start := ber.Begin(dst, byte(Sequence))
+func (packet *Message) appendV3Header(dst []byte) []byte {
+	dst, start := ber.Begin(dst, ber.Sequence)
 	dst = appendUint(dst, Integer, uint64(packet.MsgID))
 	maxSize := uint32(rxBufSize)
 	if packet.MsgMaxSize != 0 {
@@ -231,9 +231,9 @@ func (packet *SnmpPacket) appendV3Header(dst []byte) []byte {
 // appendV3ScopedPDU appends the scoped PDU: a SEQUENCE of the context engine
 // ID, the context name and the PDU, encrypted with salt into an OCTET STRING
 // when there is one (appendV3 draws it when the flags ask for privacy).
-func (packet *SnmpPacket) appendV3ScopedPDU(dst []byte, sp *UsmSecurityParameters, salt []byte) ([]byte, error) {
+func (packet *Message) appendV3ScopedPDU(dst []byte, sp *UsmSecurityParameters, salt []byte) ([]byte, error) {
 	scoped := len(dst)
-	dst, start := ber.Begin(dst, byte(Sequence))
+	dst, start := ber.Begin(dst, ber.Sequence)
 	dst = appendOctets(dst, OctetString, packet.ContextEngineID)
 	dst = appendOctets(dst, OctetString, packet.ContextName)
 	dst, err := packet.appendPDU(dst)
@@ -322,9 +322,9 @@ func v3ParseError(err error) error {
 // types, the engine boots and time within 0..2147483647 (RFC 3414 section 3.2
 // step 1) and the user name at most 32 octets. It writes nothing into packet
 // and derives no key.
-func parseV3(packet []byte, cursor int, response *SnmpPacket) (v3Wire, error) {
+func parseV3(packet []byte, cursor int, response *Message) (v3Wire, error) {
 	w := v3Wire{authOff: -1}
-	if PDUType(packet[cursor]) != Sequence {
+	if packet[cursor] != ber.Sequence {
 		return w, errors.New("invalid SNMPV3 Header")
 	}
 	start, _, err := tlvAt(packet, cursor, len(packet))
@@ -388,7 +388,7 @@ func parseV3(packet []byte, cursor int, response *SnmpPacket) (v3Wire, error) {
 	if params == paramsEnd {
 		return w, errors.New("error parsing SNMPV3 User Security Model parameters: end of packet")
 	}
-	if PDUType(packet[params]) != Sequence {
+	if packet[params] != ber.Sequence {
 		return w, errors.New("error parsing SNMPV3 User Security Model parameters")
 	}
 	usmStart, usmEnd, err := tlvAt(packet, params, paramsEnd)
@@ -482,17 +482,17 @@ func tlvAt(packet []byte, off, end int) (start, stop int, err error) {
 // decryption failure, or a decrypted plaintext that does not parse, as with a
 // wrong key, ErrDecryption; a key the process cannot decrypt with
 // (usm.Priv.CheckUse) neither.
-func unmarshalScopedPDU(packet []byte, cursor int, response *SnmpPacket, encrypted bool) ([]byte, int, error) {
+func unmarshalScopedPDU(packet []byte, cursor int, response *Message, encrypted bool) ([]byte, int, error) {
 	if cursor >= len(packet) {
 		return nil, 0, inCategory(ErrInvalidMsgs, errors.New("error parsing SNMPV3: truncated packet"))
 	}
 
 	var r ber.Reader
-	tag := PDUType(packet[cursor])
-	if encrypted != (tag == PDUType(OctetString)) {
+	tag := packet[cursor]
+	if encrypted != (tag == byte(OctetString)) {
 		return nil, 0, errScopedPDUType
 	}
-	if tag != Sequence && tag != PDUType(OctetString) {
+	if tag != ber.Sequence && tag != byte(OctetString) {
 		return nil, 0, inCategory(ErrInvalidMsgs, errors.New("error parsing SNMPV3 scoped PDU"))
 	}
 	start, stop, err := tlvAt(packet, cursor, len(packet))
@@ -510,7 +510,7 @@ func unmarshalScopedPDU(packet []byte, cursor int, response *SnmpPacket, encrypt
 		}
 		pr := ber.NewReader(plaintext)
 		tag, content, err := pr.Next()
-		if err == nil && PDUType(tag) != Sequence {
+		if err == nil && tag != ber.Sequence {
 			err = fmt.Errorf("tag %#x, not a SEQUENCE", tag)
 		}
 		if err != nil {
@@ -533,7 +533,7 @@ func unmarshalScopedPDU(packet []byte, cursor int, response *SnmpPacket, encrypt
 
 // readContext reads the scoped PDU's contextEngineID and contextName, OCTET
 // STRINGs, into response; a field read before an error stays set.
-func readContext(r *ber.Reader, response *SnmpPacket) error {
+func readContext(r *ber.Reader, response *Message) error {
 	engineID, err := readOctets(r)
 	if err != nil {
 		return fmt.Errorf("error parsing SNMPV3 contextEngineID: %w", err)

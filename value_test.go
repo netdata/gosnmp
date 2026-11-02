@@ -75,7 +75,7 @@ func TestIPAddressVarbindValue(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			want := []SnmpPDU{{Name: ".1.3.6.1", Type: IPAddress, Value: tt.want}}
+			want := []VarBind{{Name: ".1.3.6.1", Type: IPAddress, Value: tt.want}}
 			if len(vars) != 1 || vars[0] != want[0] {
 				t.Errorf("got %v, want %v", vars, want)
 			}
