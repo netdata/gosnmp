@@ -188,7 +188,7 @@ func (w *walker) visit(response *Message, oid string, firstAnswer bool, results 
 		// first value, without the leaf Get, as in net-snmp's snmpwalk: a leaf
 		// root that is the MIB's last object answers endOfMibView and is not
 		// fetched.
-		if isException(pdu.Type) {
+		if isException(pdu.Value.Type()) {
 			return results, walkDone, nil
 		}
 		// Each name is compared with the request's, as net-snmp's
@@ -215,7 +215,7 @@ func (w *walker) getRoot(results []VarBind) ([]VarBind, error) {
 	if rfcError(response.ErrorStatus) || len(response.VarBinds) == 0 {
 		return results, nil
 	}
-	if pdu := response.VarBinds[0]; pdu.Name == w.root && !isException(pdu.Type) {
+	if pdu := response.VarBinds[0]; pdu.Name == w.root && !isException(pdu.Value.Type()) {
 		return append(results, pdu), nil
 	}
 	return results, nil

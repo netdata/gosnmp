@@ -100,7 +100,7 @@ func TestUSM(t *testing.T) {
 				RequestID:       usmRequestID,
 				VarBinds:        usmVarbinds,
 			}
-			if diff := cmp.Diff(wantView, newUSMTrapView(res)); diff != "" {
+			if diff := cmp.Diff(wantView, newUSMTrapView(res), cmp.AllowUnexported(gosnmp.Value{})); diff != "" {
 				t.Errorf("decoded trap differs (-want +got):\n%s", diff)
 			}
 		})
@@ -122,10 +122,10 @@ const (
 const usmEngineID = "\x80\x00\x1f\x88\x04oracle-engine"
 
 var usmVarbinds = []gosnmp.VarBind{
-	{Name: ".1.3.6.1.2.1.1.3.0", Type: gosnmp.TimeTicks, Value: uint32(12345)},
-	{Name: ".1.3.6.1.6.3.1.1.4.1.0", Type: gosnmp.ObjectIdentifier, Value: ".1.3.6.1.4.1.8072.2.3.0.1"},
-	{Name: ".1.3.6.1.4.1.8072.2.3.2.1", Type: gosnmp.OctetString, Value: []byte("usm-oracle")},
-	{Name: ".1.3.6.1.4.1.8072.2.3.2.2", Type: gosnmp.Integer, Value: -7},
+	{Name: ".1.3.6.1.2.1.1.3.0", Value: gosnmp.TimeTicksValue(12345)},
+	{Name: ".1.3.6.1.6.3.1.1.4.1.0", Value: gosnmp.ObjectIdentifierValue(".1.3.6.1.4.1.8072.2.3.0.1")},
+	{Name: ".1.3.6.1.4.1.8072.2.3.2.1", Value: gosnmp.OctetStringValue([]byte("usm-oracle"))},
+	{Name: ".1.3.6.1.4.1.8072.2.3.2.2", Value: gosnmp.IntegerValue(-7)},
 }
 
 // usmCase is one set of credentials secured by both libraries.

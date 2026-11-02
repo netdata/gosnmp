@@ -8,21 +8,16 @@ func _() {
 	// An "invalid array index" compiler error signifies that the constant values have changed.
 	// Re-run the stringer command to generate them again.
 	var x [1]struct{}
-	_ = x[EndOfContents-0]
 	_ = x[UnknownType-0]
-	_ = x[Boolean-1]
 	_ = x[Integer-2]
-	_ = x[BitString-3]
 	_ = x[OctetString-4]
 	_ = x[Null-5]
 	_ = x[ObjectIdentifier-6]
-	_ = x[ObjectDescription-7]
 	_ = x[IPAddress-64]
 	_ = x[Counter32-65]
 	_ = x[Gauge32-66]
 	_ = x[TimeTicks-67]
 	_ = x[Opaque-68]
-	_ = x[NsapAddress-69]
 	_ = x[Counter64-70]
 	_ = x[Uinteger32-71]
 	_ = x[OpaqueFloat-120]
@@ -33,32 +28,44 @@ func _() {
 }
 
 const (
-	_ValueType_name_0 = "EndOfContentsBooleanIntegerBitStringOctetStringNullObjectIdentifierObjectDescription"
-	_ValueType_name_1 = "IPAddressCounter32Gauge32TimeTicksOpaqueNsapAddressCounter64Uinteger32"
-	_ValueType_name_2 = "OpaqueFloatOpaqueDouble"
-	_ValueType_name_3 = "NoSuchObjectNoSuchInstanceEndOfMibView"
+	_ValueType_name_0 = "UnknownType"
+	_ValueType_name_1 = "Integer"
+	_ValueType_name_2 = "OctetStringNullObjectIdentifier"
+	_ValueType_name_3 = "IPAddressCounter32Gauge32TimeTicksOpaque"
+	_ValueType_name_4 = "Counter64Uinteger32"
+	_ValueType_name_5 = "OpaqueFloatOpaqueDouble"
+	_ValueType_name_6 = "NoSuchObjectNoSuchInstanceEndOfMibView"
 )
 
 var (
-	_ValueType_index_0 = [...]uint8{0, 13, 20, 27, 36, 47, 51, 67, 84}
-	_ValueType_index_1 = [...]uint8{0, 9, 18, 25, 34, 40, 51, 60, 70}
-	_ValueType_index_2 = [...]uint8{0, 11, 23}
-	_ValueType_index_3 = [...]uint8{0, 12, 26, 38}
+	_ValueType_index_2 = [...]uint8{0, 11, 15, 31}
+	_ValueType_index_3 = [...]uint8{0, 9, 18, 25, 34, 40}
+	_ValueType_index_4 = [...]uint8{0, 9, 19}
+	_ValueType_index_5 = [...]uint8{0, 11, 23}
+	_ValueType_index_6 = [...]uint8{0, 12, 26, 38}
 )
 
 func (i ValueType) String() string {
 	switch {
-	case i <= 7:
-		return _ValueType_name_0[_ValueType_index_0[i]:_ValueType_index_0[i+1]]
-	case 64 <= i && i <= 71:
+	case i == 0:
+		return _ValueType_name_0
+	case i == 2:
+		return _ValueType_name_1
+	case 4 <= i && i <= 6:
+		i -= 4
+		return _ValueType_name_2[_ValueType_index_2[i]:_ValueType_index_2[i+1]]
+	case 64 <= i && i <= 68:
 		i -= 64
-		return _ValueType_name_1[_ValueType_index_1[i]:_ValueType_index_1[i+1]]
+		return _ValueType_name_3[_ValueType_index_3[i]:_ValueType_index_3[i+1]]
+	case 70 <= i && i <= 71:
+		i -= 70
+		return _ValueType_name_4[_ValueType_index_4[i]:_ValueType_index_4[i+1]]
 	case 120 <= i && i <= 121:
 		i -= 120
-		return _ValueType_name_2[_ValueType_index_2[i]:_ValueType_index_2[i+1]]
+		return _ValueType_name_5[_ValueType_index_5[i]:_ValueType_index_5[i+1]]
 	case 128 <= i && i <= 130:
 		i -= 128
-		return _ValueType_name_3[_ValueType_index_3[i]:_ValueType_index_3[i+1]]
+		return _ValueType_name_6[_ValueType_index_6[i]:_ValueType_index_6[i+1]]
 	default:
 		return "ValueType(" + strconv.FormatInt(int64(i), 10) + ")"
 	}

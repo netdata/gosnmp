@@ -39,9 +39,7 @@ func main() {
 
 	for i, variable := range result.VarBinds {
 		fmt.Printf("%d: oid: %s ", i, variable.Name)
-		switch variable.Type {
-		case g.OctetString:
-			value := variable.Value.([]byte)
+		if value, ok := variable.Value.Bytes(); ok {
 			if strings.Contains(strconv.Quote(string(value)), "\\x") {
 				var tmp strings.Builder
 				for i := range value {
@@ -52,13 +50,11 @@ func main() {
 				}
 				fmt.Printf("Hex-String: %s\n", tmp.String())
 			} else {
-				fmt.Printf("string: %s\n", string(variable.Value.([]byte)))
+				fmt.Printf("string: %s\n", string(value))
 			}
-		default:
+		} else if n, ok := variable.Value.Int64(); ok {
 			// ... or often you're just interested in numeric values.
-			// ToBigInt() will return the Value as a BigInt, for plugging
-			// into your calculations.
-			fmt.Printf("number: %d\n", g.ToBigInt(variable.Value))
+			fmt.Printf("number: %d\n", n)
 		}
 	}
 }

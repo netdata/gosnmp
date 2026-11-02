@@ -148,9 +148,13 @@ func dumpPacket(d *dumpWriter, p *Message) {
 	}
 	d.linef("pdu: 0x%02x (%s) request-id=%d error=%d (%s) error-index=%d non-repeaters=%d max-repetitions=%d",
 		byte(p.PDUType), p.PDUType, p.RequestID, uint8(p.ErrorStatus), p.ErrorStatus, p.ErrorIndex, p.NonRepeaters, p.MaxRepetitions)
-	if p.Enterprise != "" || p.AgentAddress != "" || p.GenericTrap != 0 || p.SpecificTrap != 0 || p.Timestamp != 0 {
+	if p.Enterprise != "" || p.AgentAddress.IsValid() || p.GenericTrap != 0 || p.SpecificTrap != 0 || p.Timestamp != 0 {
+		var agentAddress string // "" for the zero Addr
+		if p.AgentAddress.IsValid() {
+			agentAddress = p.AgentAddress.String()
+		}
 		d.linef("trap-v1: enterprise=%q agent-address=%q generic=%d specific=%d timestamp=%d",
-			p.Enterprise, p.AgentAddress, p.GenericTrap, p.SpecificTrap, p.Timestamp)
+			p.Enterprise, agentAddress, p.GenericTrap, p.SpecificTrap, p.Timestamp)
 	}
 	if p.IsInform {
 		d.line("inform: true")
@@ -161,29 +165,43 @@ func dumpPacket(d *dumpWriter, p *Message) {
 		d.linef("varbinds: %d", len(p.VarBinds))
 	}
 	for i, v := range p.VarBinds {
-		d.linef("vb[%d]: %s 0x%02x (%s) %s", i, v.Name, byte(v.Type), v.Type, dumpValue(v.Value))
+		d.linef("vb[%d]: %s 0x%02x (%s) %s", i, v.Name, byte(v.Value.Type()), v.Value.Type(), dumpValue(v.Value))
 	}
 }
 
-// dumpValue prints a decoded value with its exact Go type.
-func dumpValue(v any) string {
-	switch v := v.(type) {
-	case nil:
-		return "<nil>"
-	case []byte:
-		if v == nil {
+// dumpValue prints a decoded value with the Go type its accessor returns.
+func dumpValue(v Value) string {
+	if i, ok := v.Int32(); ok {
+		return fmt.Sprintf("int32 %d", i)
+	}
+	if u, ok := v.Uint32(); ok {
+		return fmt.Sprintf("uint32 %d", u)
+	}
+	if u, ok := v.Uint64(); ok {
+		return fmt.Sprintf("uint64 %d", u)
+	}
+	if b, ok := v.Bytes(); ok {
+		if b == nil {
 			return "[]uint8 nil"
 		}
-		return fmt.Sprintf("[]uint8 len=%d %x", len(v), v)
-	case string:
-		return fmt.Sprintf("string %q", v)
-	case float32:
-		return fmt.Sprintf("float32 %v (0x%08x)", v, math.Float32bits(v))
-	case float64:
-		return fmt.Sprintf("float64 %v (0x%016x)", v, math.Float64bits(v))
-	default:
-		return fmt.Sprintf("%T %v", v, v)
+		return fmt.Sprintf("[]uint8 len=%d %x", len(b), b)
 	}
+	if oid, ok := v.OID(); ok {
+		return fmt.Sprintf("string %q", oid)
+	}
+	if a, ok := v.IP(); ok {
+		if !a.IsValid() {
+			return "netip.Addr <zero>"
+		}
+		return "netip.Addr " + a.String()
+	}
+	if f, ok := v.Float32(); ok {
+		return fmt.Sprintf("float32 %v (0x%08x)", f, math.Float32bits(f))
+	}
+	if f, ok := v.Float64(); ok {
+		return fmt.Sprintf("float64 %v (0x%016x)", f, math.Float64bits(f))
+	}
+	return "<nil>"
 }
 
 // dumpReencode pins what Message.Encode makes of a decoded packet with the
@@ -387,6 +405,15 @@ func craftedValue(value []byte) []byte {
 func craftedV1Trap(enterprise, agentAddress, generic, specific, timestamp, vbl []byte) []byte {
 	return craftedMsg(0, tlv(byte(Trap), enterprise, agentAddress, generic, specific, timestamp, vbl))
 }
+
+// The tags of value types the decoder does not decode: ASN.1's BOOLEAN, BIT
+// STRING and ObjectDescriptor, and SMIv1's NsapAddress.
+const (
+	tagBoolean           = 0x01
+	tagBitString         = 0x03
+	tagObjectDescription = 0x07
+	tagNsapAddress       = 0x45
+)
 
 var (
 	craftedEnterprise   = tlv(byte(ObjectIdentifier), []byte{0x2b, 0x06, 0x01, 0x04, 0x01, 0x81, 0x9f, 0x14}) // .1.3.6.1.4.1.20372
@@ -615,10 +642,10 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/value/opaque/extension-two-octets", in: craftedValue(tlv(byte(Opaque), []byte{0x9f, 0x78}))},
 		// OpaqueFloat's tag outside an Opaque.
 		{name: "crafted/value/opaque/float-bare-tag", in: craftedValue(tlv(byte(OpaqueFloat), []byte{0x41, 0x20, 0x00, 0x00}))},
-		{name: "crafted/value/nsap-address", in: craftedValue(tlv(byte(NsapAddress), []byte{0x01, 0x02}))},
-		{name: "crafted/value/boolean", in: craftedValue(tlv(byte(Boolean), []byte{0xff}))},
-		{name: "crafted/value/bit-string", in: craftedValue(tlv(byte(BitString), []byte{0x00, 0xff}))},
-		{name: "crafted/value/object-description", in: craftedValue(tlv(byte(ObjectDescription), []byte("d")))},
+		{name: "crafted/value/nsap-address", in: craftedValue(tlv(tagNsapAddress, []byte{0x01, 0x02}))},
+		{name: "crafted/value/boolean", in: craftedValue(tlv(tagBoolean, []byte{0xff}))},
+		{name: "crafted/value/bit-string", in: craftedValue(tlv(tagBitString, []byte{0x00, 0xff}))},
+		{name: "crafted/value/object-description", in: craftedValue(tlv(tagObjectDescription, []byte("d")))},
 		{name: "crafted/value/no-such-object", in: craftedValue(tlv(byte(NoSuchObject)))},
 		{name: "crafted/value/no-such-instance", in: craftedValue(tlv(byte(NoSuchInstance)))},
 		{name: "crafted/value/end-of-mib-view", in: craftedValue(tlv(byte(EndOfMibView)))},

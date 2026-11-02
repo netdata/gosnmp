@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,48 +31,45 @@ var (
 )
 
 // pduCases are the varbinds TestPDU sends as a v2c SetRequest with request ID
-// 1 and compares with net-snmp's encoding, and the value DecodeMessage
-// returns for each recorded net-snmp packet. New cases go at the end: the
+// 1 and compares with net-snmp's encoding; DecodeMessage returns each one as
+// it was built from its recorded net-snmp packet. New cases go at the end: the
 // case index is part of the recording file name.
-var pduCases = []struct {
-	pdu     gosnmp.VarBind
-	decoded any
-}{
-	{gosnmp.VarBind{Name: ".1.3.6.1.2.1.1.7.0", Type: gosnmp.Integer, Value: 104}, 104},
-	{gosnmp.VarBind{Name: ".1.3.6.1.2.1.2.2.1.10.1", Type: gosnmp.Counter32, Value: uint32(271070065)}, uint(271070065)},
-	{gosnmp.VarBind{Name: ".1.3.6.1.2.1.2.2.1.5.1", Type: gosnmp.Gauge32, Value: uint32(math.MaxUint32)}, uint(math.MaxUint32)},
-	{gosnmp.VarBind{Name: ".1.3.6.1.2.1.1.4.0", Type: gosnmp.OctetString, Value: []byte("Administrator")}, []byte("Administrator")},
-	{gosnmp.VarBind{Name: ".1.3.6.1.2.1.4.21.1.1.127.0.0.1", Type: gosnmp.IPAddress, Value: "127.0.0.1"}, "127.0.0.1"},
-	{gosnmp.VarBind{Name: ".1.3.6.1.4.1.6574.4.2.12.1.0", Type: gosnmp.OpaqueFloat, Value: float32(10.0)}, float32(10.0)},
-	{gosnmp.VarBind{Name: ".1.3.6.1.4.1.6574.4.2.12.1.1", Type: gosnmp.OpaqueFloat, Value: float32(0.0)}, float32(0.0)},
-	{gosnmp.VarBind{Name: ".1.3.6.1.4.1.6574.4.2.12.2.0", Type: gosnmp.OpaqueDouble, Value: float64(10.0)}, float64(10.0)},
-	{gosnmp.VarBind{Name: ".1.3.6.1.4.1.6574.4.2.12.2.1", Type: gosnmp.OpaqueDouble, Value: float64(0.0)}, float64(0.0)},
-	{gosnmp.VarBind{Name: ".1.3.6.1.2.1.2.2.1.10.1", Type: gosnmp.Counter32, Value: uint32(271070065)}, uint(271070065)},
-	{gosnmp.VarBind{Name: ".1.3.6.1.2.1.1.3.0", Type: gosnmp.TimeTicks, Value: uint32(318870100)}, uint32(318870100)},
-	{gosnmp.VarBind{Name: ".1.3.6.1.2.1.1.3.1", Type: gosnmp.Uinteger32, Value: uint32(math.MaxInt32)}, uint32(math.MaxInt32)},
-	{gosnmp.VarBind{Name: ".1.3.6.1.2.1.1.3.2", Type: gosnmp.Counter64, Value: uint64(math.MaxInt64)}, uint64(math.MaxInt64)},
-	{gosnmp.VarBind{Name: ".1.3.6.1.2.1.1.7.0", Type: gosnmp.Integer, Value: -1}, -1},
-	{gosnmp.VarBind{Name: ".1.3.6.1.2.1.1.7.0", Type: gosnmp.Integer, Value: math.MinInt32}, math.MinInt32},
-	{gosnmp.VarBind{Name: ".1.3.6.1.2.1.1.7.0", Type: gosnmp.Integer, Value: math.MaxInt32}, math.MaxInt32},
-	{gosnmp.VarBind{Name: ".1.3.6.1.2.1.2.2.1.10.1", Type: gosnmp.Counter32, Value: uint32(0)}, uint(0)},
-	{gosnmp.VarBind{Name: ".1.3.6.1.2.1.2.2.1.5.1", Type: gosnmp.Gauge32, Value: uint32(0)}, uint(0)},
-	{gosnmp.VarBind{Name: ".1.3.6.1.2.1.1.3.0", Type: gosnmp.TimeTicks, Value: uint32(math.MaxUint32)}, uint32(math.MaxUint32)},
-	{gosnmp.VarBind{Name: ".1.3.6.1.2.1.31.1.1.1.6.1", Type: gosnmp.Counter64, Value: uint64(0)}, uint64(0)},
-	{gosnmp.VarBind{Name: ".1.3.6.1.2.1.31.1.1.1.6.1", Type: gosnmp.Counter64, Value: uint64(math.MaxUint64)}, uint64(math.MaxUint64)},
-	{gosnmp.VarBind{Name: ".1.3.6.1.2.1.1.4.0", Type: gosnmp.OctetString, Value: []byte{}}, []byte{}},
-	{gosnmp.VarBind{Name: ".1.3.6.1.2.1.1.4.0", Type: gosnmp.OctetString, Value: []byte(strings.Repeat("a", 200))}, []byte(strings.Repeat("a", 200))},
-	{gosnmp.VarBind{Name: ".1.3.6.1.2.1.4.20.1.1.0.0.0.0", Type: gosnmp.IPAddress, Value: "0.0.0.0"}, "0.0.0.0"},
-	{gosnmp.VarBind{Name: ".1.3.6.1.2.1.4.20.1.1.10.20.30.40", Type: gosnmp.IPAddress, Value: "10.20.30.40"}, "10.20.30.40"},
-	{gosnmp.VarBind{Name: ".1.3.6.1.4.1.4294967295.1", Type: gosnmp.Integer, Value: 1}, 1},
-	{gosnmp.VarBind{Name: ".1.3.6.1.4.1" + strings.Repeat(".300", 114), Type: gosnmp.Integer, Value: 1}, 1},
-	{gosnmp.VarBind{Name: ".1.3.6.1.4.1.6574.4.2.12.1.2", Type: gosnmp.OpaqueFloat, Value: float32(-1.5)}, float32(-1.5)},
-	{gosnmp.VarBind{Name: ".1.3.6.1.4.1.6574.4.2.12.2.2", Type: gosnmp.OpaqueDouble, Value: float64(1e300)}, float64(1e300)},
-	{gosnmp.VarBind{Name: ".1.3.6.1.2.1.1.3.1", Type: gosnmp.Uinteger32, Value: uint32(0)}, uint32(0)},
+var pduCases = []gosnmp.VarBind{
+	{Name: ".1.3.6.1.2.1.1.7.0", Value: gosnmp.IntegerValue(104)},
+	{Name: ".1.3.6.1.2.1.2.2.1.10.1", Value: gosnmp.Counter32Value(271070065)},
+	{Name: ".1.3.6.1.2.1.2.2.1.5.1", Value: gosnmp.Gauge32Value(math.MaxUint32)},
+	{Name: ".1.3.6.1.2.1.1.4.0", Value: gosnmp.OctetStringValue([]byte("Administrator"))},
+	{Name: ".1.3.6.1.2.1.4.21.1.1.127.0.0.1", Value: gosnmp.IPAddressValue(netip.MustParseAddr("127.0.0.1"))},
+	{Name: ".1.3.6.1.4.1.6574.4.2.12.1.0", Value: gosnmp.OpaqueFloatValue(10.0)},
+	{Name: ".1.3.6.1.4.1.6574.4.2.12.1.1", Value: gosnmp.OpaqueFloatValue(0.0)},
+	{Name: ".1.3.6.1.4.1.6574.4.2.12.2.0", Value: gosnmp.OpaqueDoubleValue(10.0)},
+	{Name: ".1.3.6.1.4.1.6574.4.2.12.2.1", Value: gosnmp.OpaqueDoubleValue(0.0)},
+	{Name: ".1.3.6.1.2.1.2.2.1.10.1", Value: gosnmp.Counter32Value(271070065)},
+	{Name: ".1.3.6.1.2.1.1.3.0", Value: gosnmp.TimeTicksValue(318870100)},
+	{Name: ".1.3.6.1.2.1.1.3.1", Value: gosnmp.Uinteger32Value(math.MaxInt32)},
+	{Name: ".1.3.6.1.2.1.1.3.2", Value: gosnmp.Counter64Value(math.MaxInt64)},
+	{Name: ".1.3.6.1.2.1.1.7.0", Value: gosnmp.IntegerValue(-1)},
+	{Name: ".1.3.6.1.2.1.1.7.0", Value: gosnmp.IntegerValue(math.MinInt32)},
+	{Name: ".1.3.6.1.2.1.1.7.0", Value: gosnmp.IntegerValue(math.MaxInt32)},
+	{Name: ".1.3.6.1.2.1.2.2.1.10.1", Value: gosnmp.Counter32Value(0)},
+	{Name: ".1.3.6.1.2.1.2.2.1.5.1", Value: gosnmp.Gauge32Value(0)},
+	{Name: ".1.3.6.1.2.1.1.3.0", Value: gosnmp.TimeTicksValue(math.MaxUint32)},
+	{Name: ".1.3.6.1.2.1.31.1.1.1.6.1", Value: gosnmp.Counter64Value(0)},
+	{Name: ".1.3.6.1.2.1.31.1.1.1.6.1", Value: gosnmp.Counter64Value(math.MaxUint64)},
+	{Name: ".1.3.6.1.2.1.1.4.0", Value: gosnmp.OctetStringValue([]byte{})},
+	{Name: ".1.3.6.1.2.1.1.4.0", Value: gosnmp.OctetStringValue([]byte(strings.Repeat("a", 200)))},
+	{Name: ".1.3.6.1.2.1.4.20.1.1.0.0.0.0", Value: gosnmp.IPAddressValue(netip.MustParseAddr("0.0.0.0"))},
+	{Name: ".1.3.6.1.2.1.4.20.1.1.10.20.30.40", Value: gosnmp.IPAddressValue(netip.MustParseAddr("10.20.30.40"))},
+	{Name: ".1.3.6.1.4.1.4294967295.1", Value: gosnmp.IntegerValue(1)},
+	{Name: ".1.3.6.1.4.1" + strings.Repeat(".300", 114), Value: gosnmp.IntegerValue(1)},
+	{Name: ".1.3.6.1.4.1.6574.4.2.12.1.2", Value: gosnmp.OpaqueFloatValue(-1.5)},
+	{Name: ".1.3.6.1.4.1.6574.4.2.12.2.2", Value: gosnmp.OpaqueDoubleValue(1e300)},
+	{Name: ".1.3.6.1.2.1.1.3.1", Value: gosnmp.Uinteger32Value(0)},
 }
 
 // pduCaseName names the subtest and the recording file of pduCases[i].
 func pduCaseName(i int, pdu gosnmp.VarBind) string {
-	return fmt.Sprintf("test%d_PDU%s", i, pdu.Type.String())
+	return fmt.Sprintf("test%d_PDU%s", i, pdu.Value.Type().String())
 }
 
 func TestPDU(t *testing.T) {
@@ -101,7 +99,7 @@ func TestPDU(t *testing.T) {
 	sess := &gosnmp.Client{Community: "public", Version: gosnmp.Version2c}
 
 	for i, tc := range pduCases {
-		tstpdu := tc.pdu
+		tstpdu := tc
 		tname := pduCaseName(i, tstpdu)
 		t.Run(tname, func(t *testing.T) {
 			fname := filepath.Join(recdir, tname+"_pkt.b64")
@@ -224,7 +222,7 @@ func TestDecodeRecorded(t *testing.T) {
 	}
 
 	for i, tc := range pduCases {
-		tname := pduCaseName(i, tc.pdu)
+		tname := pduCaseName(i, tc)
 		t.Run(tname, func(t *testing.T) {
 			pkt, err := readRecording(filepath.Join("testdata", "TestPDU", tname+"_pkt.b64"))
 			if err != nil {
@@ -242,7 +240,7 @@ func TestDecodeRecorded(t *testing.T) {
 				Community: "public",
 				PDUType:   gosnmp.SetRequest,
 				RequestID: 1,
-				VarBinds:  []gosnmp.VarBind{{Name: tc.pdu.Name, Type: tc.pdu.Type, Value: tc.decoded}},
+				VarBinds:  []gosnmp.VarBind{tc},
 			}
 			got := decoded{
 				Version:     res.Version,
@@ -253,7 +251,7 @@ func TestDecodeRecorded(t *testing.T) {
 				ErrorIndex:  res.ErrorIndex,
 				VarBinds:    res.VarBinds,
 			}
-			if diff := cmp.Diff(want, got); diff != "" {
+			if diff := cmp.Diff(want, got, cmp.AllowUnexported(gosnmp.Value{})); diff != "" {
 				t.Fatalf("decoded packet differs (-want +got):\n%s", diff)
 			}
 		})

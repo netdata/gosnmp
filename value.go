@@ -5,86 +5,252 @@
 package gosnmp
 
 import (
-	"errors"
 	"fmt"
 	"math"
-	"net"
+	"net/netip"
 
 	"github.com/netdata/gosnmp/internal/ber"
 )
 
-// decodeValue decodes the content octets of a varbind value with the given tag
-// into the type and Go value of the varbind, by the tag's kind (valueKinds):
+// Value is a varbind's value: its type and the number, octets or OID it
+// holds. Each type holds one Go type, read through its accessor:
 //
-//   - Integer: int, an INTEGER of one to eight octets cut to 32 bits
-//     (int32Value)
-//   - Counter32, Gauge32: uint; TimeTicks, Uinteger32: uint32; each unsigned
-//     and cut to 32 bits (unsigned32)
-//   - Counter64: uint64, unsigned, of one to eight octets or nine with a
-//     leading zero
-//   - OctetString, Opaque: []byte, aliasing content, empty included
-//   - OpaqueFloat: float32; OpaqueDouble: float64 (see decodeOpaque)
-//   - ObjectIdentifier: dotted string (ber.OID)
-//   - IPAddress: an IPv4 address as text; quirks of devices: an empty one is
-//     nil, one of 16 octets IPv6 text
-//   - Null, NoSuchObject, NoSuchInstance, EndOfMibView: nil, content ignored
-//   - any other tag, BitString and a bare OpaqueFloat or OpaqueDouble tag
-//     included (net-snmp wraps those in an Opaque): UnknownType and nil,
-//     content ignored
+//   - Integer: int32 (Int32)
+//   - Counter32, Gauge32, TimeTicks, Uinteger32: uint32 (Uint32)
+//   - Counter64: uint64 (Uint64)
+//   - OctetString, Opaque: []byte (Bytes)
+//   - ObjectIdentifier: a dotted string (OID)
+//   - IPAddress: a netip.Addr (IP), the zero Addr for the empty one some
+//     devices send
+//   - OpaqueFloat: float32 (Float32); OpaqueDouble: float64 (Float64)
+//   - Null, NoSuchObject, NoSuchInstance, EndOfMibView, UnknownType: none
+//
+// Int64, Uint64 and Float64 also read the narrower types they hold exactly.
+// The zero Value is UnknownType, a value of a type the decoder does not decode,
+// which the encoder refuses. Values are built by the constructor of their type,
+// such as Counter32Value; octets, and the octets of an address, are held as
+// given, not copied.
+type Value struct {
+	num  uint64 // Integer's two's complement, an unsigned value or a float's bits
+	data []byte // OctetString and Opaque octets; IPAddress's 0, 4 or 16 octets
+	oid  string // ObjectIdentifier
+	typ  ValueType
+}
+
+// IntegerValue returns an Integer.
+func IntegerValue(v int32) Value {
+	return Value{typ: Integer, num: uint64(int64(v))} //nolint:gosec // the two's complement
+}
+
+// Counter32Value returns a Counter32.
+func Counter32Value(v uint32) Value { return Value{typ: Counter32, num: uint64(v)} }
+
+// Gauge32Value returns a Gauge32.
+func Gauge32Value(v uint32) Value { return Value{typ: Gauge32, num: uint64(v)} }
+
+// TimeTicksValue returns a TimeTicks, in hundredths of a second.
+func TimeTicksValue(v uint32) Value { return Value{typ: TimeTicks, num: uint64(v)} }
+
+// Uinteger32Value returns a Uinteger32.
+func Uinteger32Value(v uint32) Value { return Value{typ: Uinteger32, num: uint64(v)} }
+
+// Counter64Value returns a Counter64.
+func Counter64Value(v uint64) Value { return Value{typ: Counter64, num: v} }
+
+// OctetStringValue returns an OctetString holding v.
+func OctetStringValue(v []byte) Value { return Value{typ: OctetString, data: v} }
+
+// OpaqueValue returns an Opaque holding v.
+func OpaqueValue(v []byte) Value { return Value{typ: Opaque, data: v} }
+
+// OpaqueFloatValue returns net-snmp's OpaqueFloat, sent wrapped in an Opaque.
+func OpaqueFloatValue(v float32) Value {
+	return Value{typ: OpaqueFloat, num: uint64(math.Float32bits(v))}
+}
+
+// OpaqueDoubleValue returns net-snmp's OpaqueDouble, sent wrapped in an Opaque.
+func OpaqueDoubleValue(v float64) Value {
+	return Value{typ: OpaqueDouble, num: math.Float64bits(v)}
+}
+
+// ObjectIdentifierValue returns an ObjectIdentifier: oid in dotted form, with
+// or without the leading dot; the encoder checks it.
+func ObjectIdentifierValue(oid string) Value { return Value{typ: ObjectIdentifier, oid: oid} }
+
+// IPAddressValue returns an IPAddress: an IPv4 address, an IPv4-mapped one
+// included, in 4 octets, another IPv6 address in 16, without its zone; the
+// zero Addr is the empty IPAddress, which the encoder refuses.
+func IPAddressValue(a netip.Addr) Value {
+	return Value{typ: IPAddress, data: a.Unmap().AsSlice()}
+}
+
+// NullValue returns a Null, the value a request sends.
+func NullValue() Value { return Value{typ: Null} }
+
+// NoSuchObjectValue returns the noSuchObject exception (RFC 3416 section 4.2.1).
+func NoSuchObjectValue() Value { return Value{typ: NoSuchObject} }
+
+// NoSuchInstanceValue returns the noSuchInstance exception (RFC 3416 section
+// 4.2.1).
+func NoSuchInstanceValue() Value { return Value{typ: NoSuchInstance} }
+
+// EndOfMibViewValue returns the endOfMibView exception (RFC 3416 section
+// 4.2.2).
+func EndOfMibViewValue() Value { return Value{typ: EndOfMibView} }
+
+// Type returns the value's type.
+func (v Value) Type() ValueType { return v.typ }
+
+// Int32 returns an Integer.
+func (v Value) Int32() (int32, bool) {
+	if v.typ != Integer {
+		return 0, false
+	}
+	return int32(v.num), true //nolint:gosec // the two's complement IntegerValue stored
+}
+
+// Uint32 returns a Counter32, Gauge32, TimeTicks or Uinteger32.
+func (v Value) Uint32() (uint32, bool) {
+	if valueKinds[v.typ] != kindUnsigned32 {
+		return 0, false
+	}
+	return uint32(v.num), true //nolint:gosec // stored from a uint32
+}
+
+// Int64 returns an Integer, Counter32, Gauge32, TimeTicks or Uinteger32: every
+// integer type but Counter64, whose values int64 cannot all hold.
+func (v Value) Int64() (int64, bool) {
+	switch valueKinds[v.typ] {
+	case kindInteger:
+		return int64(v.num), true //nolint:gosec // the two's complement IntegerValue stored
+	case kindUnsigned32:
+		return int64(v.num), true //nolint:gosec // below 2^32
+	}
+	return 0, false
+}
+
+// Uint64 returns a Counter64, Counter32, Gauge32, TimeTicks or Uinteger32:
+// every unsigned type.
+func (v Value) Uint64() (uint64, bool) {
+	switch valueKinds[v.typ] {
+	case kindUnsigned32, kindCounter64:
+		return v.num, true
+	}
+	return 0, false
+}
+
+// Bytes returns an OctetString's or Opaque's octets, as built or decoded (see
+// the package documentation for those that alias a decoded message).
+func (v Value) Bytes() ([]byte, bool) {
+	if valueKinds[v.typ] != kindOctets {
+		return nil, false
+	}
+	return v.data, true
+}
+
+// OID returns an ObjectIdentifier in dotted form: a decoded one with a leading
+// dot.
+func (v Value) OID() (string, bool) {
+	if v.typ != ObjectIdentifier {
+		return "", false
+	}
+	return v.oid, true
+}
+
+// IP returns an IPAddress: the zero Addr for an empty one, an IPv6 address for
+// 16 octets, as a device sent them.
+func (v Value) IP() (netip.Addr, bool) {
+	if v.typ != IPAddress {
+		return netip.Addr{}, false
+	}
+	a, _ := netip.AddrFromSlice(v.data)
+	return a, true
+}
+
+// Float32 returns an OpaqueFloat.
+func (v Value) Float32() (float32, bool) {
+	if v.typ != OpaqueFloat {
+		return 0, false
+	}
+	return math.Float32frombits(uint32(v.num)), true //nolint:gosec // stored from 32 bits
+}
+
+// Float64 returns an OpaqueDouble or OpaqueFloat.
+func (v Value) Float64() (float64, bool) {
+	switch v.typ {
+	case OpaqueDouble:
+		return math.Float64frombits(v.num), true
+	case OpaqueFloat:
+		return float64(math.Float32frombits(uint32(v.num))), true //nolint:gosec // stored from 32 bits
+	}
+	return 0, false
+}
+
+// decodeValue decodes the content octets of a varbind value with the given tag
+// by the tag's kind (valueKinds):
+//
+//   - Integer: an INTEGER of one to eight octets cut to 32 bits (int32Value)
+//   - Counter32, Gauge32, TimeTicks, Uinteger32: unsigned, cut to 32 bits
+//     (unsigned32)
+//   - Counter64: unsigned, of one to eight octets or nine with a leading zero
+//   - OctetString, Opaque: the content, aliased, empty included
+//   - OpaqueFloat, OpaqueDouble: wrapped in an Opaque (see decodeOpaque)
+//   - ObjectIdentifier: dotted with a leading dot (ber.OID)
+//   - IPAddress: 4 octets, or the quirks of devices: none, or 16 (IPv6),
+//     aliased
+//   - Null, NoSuchObject, NoSuchInstance, EndOfMibView: content ignored
+//   - any other tag, and a bare OpaqueFloat or OpaqueDouble tag (net-snmp
+//     wraps those in an Opaque): UnknownType, content ignored
 //
 // An unsigned value that is empty or too long is not an error: it decodes as
-// UnknownType with a nil value, so that one bad counter does not fail the
-// message, and allocates nothing. The other types' failures are errors.
-func decodeValue(tag ValueType, content []byte) (ValueType, any, error) {
+// UnknownType, so that one bad counter does not fail the message. The other
+// types' failures are errors.
+func decodeValue(tag ValueType, content []byte) (Value, error) {
 	switch valueKinds[tag] {
 	case kindInteger:
 		v, err := int32Value(content)
 		if err != nil {
-			return 0, nil, fmt.Errorf("invalid Integer: %w", err)
+			return Value{}, fmt.Errorf("invalid Integer: %w", err)
 		}
-		return Integer, int(v), nil
+		return IntegerValue(v), nil
 	case kindUnsigned32:
 		v, ok := unsigned32(content)
-		switch {
-		case !ok:
-			return UnknownType, nil, nil
-		case tag == Counter32, tag == Gauge32:
-			return tag, uint(v), nil
+		if !ok {
+			return Value{}, nil
 		}
-		return tag, v, nil
+		return Value{typ: tag, num: uint64(v)}, nil
 	case kindCounter64:
 		if len(content) == 0 {
-			return UnknownType, nil, nil
+			return Value{}, nil
 		}
-		v, err := ber.Uint64(content)
-		if err != nil {
-			return UnknownType, nil, nil
+		if v, err := ber.Uint64(content); err == nil {
+			return Counter64Value(v), nil
 		}
-		return Counter64, v, nil
+		return Value{}, nil
 	case kindOctets:
 		if tag == Opaque {
 			return decodeOpaque(content)
 		}
-		return OctetString, content, nil
+		return OctetStringValue(content), nil
 	case kindOID:
 		oid, err := ber.OID(content)
 		if err != nil {
-			return 0, nil, fmt.Errorf("invalid ObjectIdentifier: %w", err)
+			return Value{}, fmt.Errorf("invalid ObjectIdentifier: %w", err)
 		}
-		return ObjectIdentifier, oid, nil
+		return ObjectIdentifierValue(oid), nil
 	case kindIPAddress:
 		switch len(content) {
-		case 0: // real life, buggy devices returning bad data
-			return IPAddress, nil, nil
-		case 4, 16:
-			return IPAddress, net.IP(content).String(), nil
+		case 0: // real life, devices returning bad data: the zero Addr
+			return Value{typ: IPAddress}, nil
+		case 4, 16: // 16 octets: devices returning IPv6
+			return Value{typ: IPAddress, data: content}, nil
 		default:
-			return 0, nil, fmt.Errorf("got ipaddress len %d, expected 4 or 16", len(content))
+			return Value{}, fmt.Errorf("got ipaddress len %d, expected 4 or 16", len(content))
 		}
 	case kindNull:
-		return tag, nil, nil
+		return Value{typ: tag}, nil
 	default:
-		return UnknownType, nil, nil
+		return Value{}, nil
 	}
 }
 
@@ -121,30 +287,36 @@ const opaqueExtensionTag = 0x80 | 0x1f
 // its second identifier octet on, and octets after it are ignored. Content of
 // up to two octets, empty included, is never such a TLV; anything else is a
 // raw Opaque.
-func decodeOpaque(content []byte) (ValueType, any, error) {
+func decodeOpaque(content []byte) (Value, error) {
 	if len(content) <= 2 || content[0] != opaqueExtensionTag {
-		return Opaque, content, nil
+		return OpaqueValue(content), nil
 	}
 	tag := ValueType(content[1])
 	if tag != OpaqueFloat && tag != OpaqueDouble {
-		return Opaque, content, nil
+		return OpaqueValue(content), nil
 	}
 
 	r := ber.NewReader(content[1:])
 	_, inner, err := r.Next()
 	if err != nil {
-		return 0, nil, fmt.Errorf("invalid %v: %w", tag, err)
+		return Value{}, fmt.Errorf("invalid %v: %w", tag, err)
 	}
-	var v any
+	var v Value
 	if tag == OpaqueFloat {
-		v, err = ber.Float32(inner)
+		var f float32
+		if f, err = ber.Float32(inner); err == nil {
+			v = OpaqueFloatValue(f)
+		}
 	} else {
-		v, err = ber.Float64(inner)
+		var f float64
+		if f, err = ber.Float64(inner); err == nil {
+			v = OpaqueDoubleValue(f)
+		}
 	}
 	if err != nil {
-		return 0, nil, fmt.Errorf("invalid %v: %w", tag, err)
+		return Value{}, fmt.Errorf("invalid %v: %w", tag, err)
 	}
-	return tag, v, nil
+	return v, nil
 }
 
 // valueKind is the rule a value type follows on the wire; the types of one
@@ -163,9 +335,10 @@ const (
 	kindOpaqueFloat                  // OpaqueFloat and OpaqueDouble, wrapped in an Opaque
 )
 
-// valueKinds holds the kind of each value tag; a tag without one has
-// kindNone. BitString has none: it is not an SMIv2 type (RFC 2578 section
-// 7.1.4 encodes BITS as an OCTET STRING).
+// valueKinds holds the kind of each value tag; a tag without one, UnknownType
+// and the ASN.1 types SMIv2 does not use included, has kindNone: BIT STRING,
+// for one, is not an SMIv2 type (RFC 2578 section 7.1.4 encodes BITS as an
+// OCTET STRING).
 var valueKinds = [256]valueKind{ //nolint:gochecknoglobals // a read-only table
 	Null:             kindNull,
 	NoSuchObject:     kindNull,
@@ -185,96 +358,31 @@ var valueKinds = [256]valueKind{ //nolint:gochecknoglobals // a read-only table
 	OpaqueDouble:     kindOpaqueFloat,
 }
 
-// appendValue appends the TLV of a varbind value with the given tag, by the
-// tag's kind (valueKinds). The Go types it accepts per tag:
-//
-//   - Integer: int within the int32 range
-//   - Counter32, Gauge32, TimeTicks, Uinteger32: uint32, or uint up to
-//     4294967295
-//   - Counter64: uint64
-//   - OctetString, Opaque: []byte or string, written as is
-//   - ObjectIdentifier: dotted string
-//   - IPAddress: []byte of 4 or 16 octets, or an address as text: an IPv4
-//     address (an IPv4-mapped one included) in 4 octets, another IPv6 address
-//     in 16
-//   - OpaqueFloat: float32; OpaqueDouble: float64 (see appendOpaqueFloat)
-//   - Null, NoSuchObject, NoSuchInstance, EndOfMibView: any, ignored
-//
-// Other tags, BitString included, and types are errors.
-func appendValue(dst []byte, tag ValueType, value any) ([]byte, error) {
-	switch valueKinds[tag] {
+// appendValue appends the TLV of a varbind value by its type's kind
+// (valueKinds); its constructors make a value of each type hold its Go type.
+// An IPAddress must have 4 or 16 octets, an ObjectIdentifier must encode
+// (ber.AppendOID); UnknownType is an error.
+func appendValue(dst []byte, v Value) ([]byte, error) {
+	switch valueKinds[v.typ] {
 	case kindNull:
-		return append(dst, byte(tag), 0), nil
+		return append(dst, byte(v.typ), 0), nil
 	case kindInteger:
-		v, ok := value.(int)
-		if !ok {
-			return nil, errors.New("unable to marshal PDU Integer; not int")
-		}
-		out, err := appendInt32(dst, Integer, v)
-		if err != nil {
-			return nil, fmt.Errorf("unable to marshal PDU Integer: %w", err)
-		}
-		return out, nil
-	case kindUnsigned32:
-		var v uint32
-		switch value := value.(type) {
-		case uint32:
-			v = value
-		case uint:
-			if uint64(value) > math.MaxUint32 {
-				return nil, fmt.Errorf("unable to marshal PDU %v: %d overflows uint32", tag, value)
-			}
-			v = uint32(value)
-		default:
-			return nil, fmt.Errorf("unable to marshal pdu.Type %v; unknown pdu.Value %v[type=%T]", tag, value, value)
-		}
-		return appendUint(dst, tag, uint64(v)), nil
-	case kindCounter64:
-		v, ok := value.(uint64)
-		if !ok {
-			return nil, fmt.Errorf("unable to marshal PDU Counter64; not uint64")
-		}
-		return appendUint(dst, Counter64, v), nil
+		return appendInt(dst, int64(v.num)), nil //nolint:gosec // the two's complement IntegerValue stored
+	case kindUnsigned32, kindCounter64:
+		return appendUint(dst, v.typ, v.num), nil
 	case kindOctets:
-		switch value := value.(type) {
-		case []byte:
-			return appendOctets(dst, tag, value), nil
-		case string:
-			return appendOctets(dst, tag, value), nil
-		default:
-			return nil, fmt.Errorf("unable to marshal PDU OctetString; not []byte or string")
-		}
+		return appendOctets(dst, v.typ, v.data), nil
 	case kindOID:
-		v, ok := value.(string)
-		if !ok {
-			return nil, errors.New("unable to marshal PDU ObjectIdentifier; not string")
-		}
-		return appendObjectIdentifier(dst, v)
+		return appendObjectIdentifier(dst, v.oid)
 	case kindIPAddress:
-		return appendIPAddress(dst, value)
+		if len(v.data) != 4 && len(v.data) != 16 {
+			return nil, fmt.Errorf("unable to marshal PDU IPAddress: %d octets, not 4 or 16", len(v.data))
+		}
+		return appendOctets(dst, IPAddress, v.data), nil
 	case kindOpaqueFloat:
-		return appendOpaqueFloat(dst, tag, value)
+		return appendOpaqueFloat(dst, v), nil
 	default:
-		return nil, fmt.Errorf("unable to marshal PDU: %v is not an SNMP value type", tag)
-	}
-}
-
-// appendIPAddress appends an IpAddress value (see appendValue).
-func appendIPAddress(dst []byte, value any) ([]byte, error) {
-	switch value := value.(type) {
-	case []byte:
-		if len(value) != 4 && len(value) != 16 {
-			return nil, fmt.Errorf("unable to marshal PDU IPAddress: %d octets, not 4 or 16", len(value))
-		}
-		return appendOctets(dst, IPAddress, value), nil
-	case string:
-		ip, n, err := parseIPAddress(value)
-		if err != nil {
-			return nil, fmt.Errorf("unable to marshal PDU IPAddress: %w", err)
-		}
-		return appendOctets(dst, IPAddress, ip[:n]), nil
-	default:
-		return nil, fmt.Errorf("unable to marshal PDU IPAddress; not []byte or string")
+		return nil, fmt.Errorf("unable to marshal PDU: %v is not an SNMP value type", v.typ)
 	}
 }
 
@@ -283,18 +391,9 @@ func appendOctets[T string | []byte](dst []byte, tag ValueType, v T) []byte {
 	return append(ber.AppendHeader(dst, byte(tag), len(v)), v...)
 }
 
-// appendInt32 appends a TLV holding v as an INTEGER; v must be within the
-// int32 range, as SNMP Integer32 values are.
-func appendInt32(dst []byte, tag ValueType, v int) ([]byte, error) {
-	if v < math.MinInt32 || v > math.MaxInt32 {
-		return nil, fmt.Errorf("%d overflows int32", v)
-	}
-	return appendInt(dst, tag, int64(v)), nil
-}
-
 // appendInt appends a TLV holding v as an INTEGER.
-func appendInt(dst []byte, tag ValueType, v int64) []byte {
-	dst, start := ber.Begin(dst, byte(tag))
+func appendInt(dst []byte, v int64) []byte {
+	dst, start := ber.Begin(dst, byte(Integer))
 	return ber.End(ber.AppendInt64(dst, v), start)
 }
 
@@ -307,37 +406,13 @@ func appendUint(dst []byte, tag ValueType, v uint64) []byte {
 // appendOpaqueFloat appends a float or double the way net-snmp wraps it in an
 // Opaque: an Opaque TLV holding a TLV whose identifier is the extension octet
 // 0x9f followed by the OpaqueFloat or OpaqueDouble tag (see decodeOpaque).
-func appendOpaqueFloat(dst []byte, tag ValueType, value any) ([]byte, error) {
+func appendOpaqueFloat(dst []byte, v Value) []byte {
 	dst, start := ber.Begin(dst, byte(Opaque))
 	dst = append(dst, opaqueExtensionTag)
-	switch v := value.(type) {
-	case float32:
-		if tag != OpaqueFloat {
-			break
-		}
-		return ber.End(ber.AppendFloat32(ber.AppendHeader(dst, byte(OpaqueFloat), 4), v), start), nil
-	case float64:
-		if tag != OpaqueDouble {
-			break
-		}
-		return ber.End(ber.AppendFloat64(ber.AppendHeader(dst, byte(OpaqueDouble), 8), v), start), nil
+	if v.typ == OpaqueFloat {
+		return ber.End(ber.AppendFloat32(ber.AppendHeader(dst, byte(OpaqueFloat), 4), math.Float32frombits(uint32(v.num))), start) //nolint:gosec // stored from 32 bits
 	}
-	return nil, fmt.Errorf("unable to marshal PDU %v; got %T", tag, value)
-}
-
-// parseIPAddress returns the octets of an IpAddress written as text, in an
-// array and a length so that the parsed address stays on the stack: four for
-// an IPv4 address, an IPv4-mapped IPv6 address included, sixteen for another
-// IPv6 address.
-func parseIPAddress(s string) (ip [16]byte, n int, err error) {
-	parsed := net.ParseIP(s)
-	if parsed == nil {
-		return ip, 0, fmt.Errorf("%q is not an IP address", s)
-	}
-	if v4 := parsed.To4(); v4 != nil {
-		return ip, copy(ip[:], v4), nil
-	}
-	return ip, copy(ip[:], parsed), nil
+	return ber.End(ber.AppendFloat64(ber.AppendHeader(dst, byte(OpaqueDouble), 8), math.Float64frombits(v.num)), start)
 }
 
 // appendObjectIdentifier appends an OBJECT IDENTIFIER TLV for the dotted OID

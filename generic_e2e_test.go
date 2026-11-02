@@ -125,10 +125,10 @@ func TestGenericBasicGet(t *testing.T) {
 	if len(result.VarBinds) != 1 {
 		t.Fatalf("Expected result of size 1")
 	}
-	if result.VarBinds[0].Type != OctetString {
+	if result.VarBinds[0].Value.Type() != OctetString {
 		t.Fatalf("Expected sysDescr to be OctetString")
 	}
-	sysDescr := result.VarBinds[0].Value.([]byte)
+	sysDescr, _ := result.VarBinds[0].Value.Bytes()
 	if len(sysDescr) == 0 {
 		t.Fatalf("Got a zero length sysDescr")
 	}
@@ -151,7 +151,7 @@ func TestGenericMultiGet(t *testing.T) {
 		t.Fatalf("Expected result of size 2")
 	}
 	for _, v := range result.VarBinds {
-		if v.Type != OctetString {
+		if v.Value.Type() != OctetString {
 			t.Fatalf("Expected OctetString")
 		}
 	}
@@ -295,10 +295,10 @@ func TestSnmpV3Users(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Get() failed with error => %v", err)
 			}
-			if len(result.VarBinds) != 1 || result.VarBinds[0].Type != OctetString {
+			if len(result.VarBinds) != 1 || result.VarBinds[0].Value.Type() != OctetString {
 				t.Fatalf("Expected one OctetString sysDescr, got %v", result.VarBinds)
 			}
-			if sysDescr := result.VarBinds[0].Value.([]byte); len(sysDescr) == 0 {
+			if sysDescr, _ := result.VarBinds[0].Value.Bytes(); len(sysDescr) == 0 {
 				t.Fatalf("Got a zero length sysDescr")
 			}
 

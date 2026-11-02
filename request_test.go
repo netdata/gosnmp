@@ -79,7 +79,7 @@ func TestEncodeMessageErrors(t *testing.T) {
 		},
 		"unencodable varbind": {
 			x:       &Client{Version: Version2c, Community: "public"},
-			pdus:    []VarBind{{Name: "not an oid", Type: Null}},
+			pdus:    []VarBind{{Name: "not an oid", Value: NullValue()}},
 			wantErr: "invalid object identifier",
 		},
 	}
@@ -102,7 +102,7 @@ func TestEncodeMessageEmptyKey(t *testing.T) {
 		SecurityLevel: AuthNoPriv,
 		User:          User{Name: "codec-user", AuthProtocol: SHA, AuthPassphrase: "codec-auth-pass"},
 	}
-	out, err := x.EncodeMessage(GetRequest, []VarBind{{Name: engineOID, Type: Null}}, 0, 0)
+	out, err := x.EncodeMessage(GetRequest, []VarBind{{Name: engineOID, Value: NullValue()}}, 0, 0)
 	require.EqualError(t, err, "usm: no authentication key, want 20 octets")
 	assert.Equal(t, []byte{}, out)
 	assert.Empty(t, x.engine.keys.auth, "key derived")
@@ -124,7 +124,7 @@ func TestRequestAndMsgIDs(t *testing.T) {
 	}
 	ids := func(x *Client) [2]uint32 {
 		t.Helper()
-		data, err := x.EncodeMessage(GetRequest, []VarBind{{Name: engineOID, Type: Null}}, 0, 0)
+		data, err := x.EncodeMessage(GetRequest, []VarBind{{Name: engineOID, Value: NullValue()}}, 0, 0)
 		require.NoError(t, err)
 		p, err := x.DecodeMessage(data)
 		require.NoError(t, err)

@@ -63,18 +63,6 @@ encode: 302602010104067075626c6963a0190201ff020100020100300e300c06082b0601020101
 == v2c/version-2
 encode: error
 
-== v2c/set-request/counter32-uint-2^32
-encode: error
-
-== v2c/set-request/gauge32-uint-2^32
-encode: error
-
-== v2c/set-request/timeticks-uint-2^32
-encode: error
-
-== v2c/set-request/uinteger32-uint-2^32
-encode: error
-
 == v2c/community-empty
 encode: 30200201010400a019020101020100020100300e300c06082b060102010101000500
 
@@ -180,9 +168,6 @@ encode: 303702010004067075626c6963a42a06082b06010401819f144004c00002010201060201
 == v1-trap/agent-address-ipv6
 encode: error
 
-== v1-trap/agent-address-invalid
-encode: error
-
 == v1-trap/enterprise-empty
 encode: error
 
@@ -192,17 +177,8 @@ encode: 303702010004067075626c6963a42a06082b06010401819f144004c00002010201ff0201
 == v1-trap/specific-max-int32
 encode: 303a02010004067075626c6963a42d06082b06010401819f144004c000020102010602047fffffff43020100300e300c06082b060102010101000500
 
-== v1-trap/generic-2^31
-encode: error
-
-== v1-trap/specific-2^31
-encode: error
-
 == v1-trap/timestamp-max-uint32
 encode: 303a02010004067075626c6963a42d06082b06010401819f144004c000020102010602012a430500ffffffff300e300c06082b060102010101000500
-
-== v1-trap/timestamp-2^32
-encode: error
 
 == v1-trap/in-v2c-message
 encode: 303702010104067075626c6963a42a06082b06010401819f144004c000020102010602012a43020100300e300c06082b060102010101000500

@@ -50,7 +50,7 @@ func (x *Client) oidRequest(pdutype PDUType, oids []string, maxRepetitions uint3
 	}
 	pdus := make([]VarBind, 0, len(oids))
 	for _, oid := range oids {
-		pdus = append(pdus, VarBind{Name: oid, Type: Null, Value: nil})
+		pdus = append(pdus, VarBind{Name: oid, Value: NullValue()})
 	}
 	return x.NewMessage(pdutype, pdus, 0, maxRepetitions), nil
 }

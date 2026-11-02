@@ -11,7 +11,6 @@ package gosnmp
 import (
 	"context"
 	"fmt"
-	"math/big"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -163,22 +162,17 @@ type Client struct {
 	attempt runningAttempt
 }
 
-// VarBind is a variable binding (varbind): the name of an object, and the
-// type and value of its value. Requests, answers and traps carry them in
-// Message.VarBinds.
+// VarBind is a variable binding (varbind): the name of an object and its
+// value. Requests, answers and traps carry them in Message.VarBinds.
 type VarBind struct {
-	// Value is the value, whose Go type depends on Type (see the package
-	// documentation). The requests of Get and the walks send nil.
-	Value any
-
 	// Name is the object's OID in dotted form, such as ".1.3.6.1.2.1.1.1.0":
 	// with the leading dot when decoded from an OBJECT IDENTIFIER, with or
 	// without it when sent. A name a device sent as an OCTET STRING or an
 	// IpAddress is kept as text.
 	Name string
 
-	// Type is the type of the value.
-	Type ValueType
+	// Value is the value; the requests of Get and the walks send Null.
+	Value Value
 }
 
 //go:generate go tool -modfile=tools/go.mod stringer -type ValueType
@@ -186,34 +180,28 @@ type VarBind struct {
 // ValueType is the BER tag of a varbind value, which names its type.
 type ValueType byte
 
-// The value types: ASN.1's, those of the SMI (RFC 2578), net-snmp's
-// OpaqueFloat and OpaqueDouble, the tags of the floats it wraps in an Opaque,
-// and the exceptions of RFC 3416 (NoSuchObject, NoSuchInstance, EndOfMibView).
-// The decoder gives UnknownType, which shares 0x00 with EndOfContents, for a
-// value of a type it does not decode.
+// The value types: the SMI's (RFC 2578), ASN.1's Null, net-snmp's OpaqueFloat
+// and OpaqueDouble, which it wraps in an Opaque, and the exceptions of RFC 3416
+// (NoSuchObject, NoSuchInstance, EndOfMibView). UnknownType is a value of a
+// type the decoder does not decode, such as ASN.1's BOOLEAN or BIT STRING.
 const (
-	EndOfContents     ValueType = 0x00
-	UnknownType       ValueType = 0x00
-	Boolean           ValueType = 0x01
-	Integer           ValueType = 0x02
-	BitString         ValueType = 0x03
-	OctetString       ValueType = 0x04
-	Null              ValueType = 0x05
-	ObjectIdentifier  ValueType = 0x06
-	ObjectDescription ValueType = 0x07
-	IPAddress         ValueType = 0x40
-	Counter32         ValueType = 0x41
-	Gauge32           ValueType = 0x42
-	TimeTicks         ValueType = 0x43
-	Opaque            ValueType = 0x44
-	NsapAddress       ValueType = 0x45
-	Counter64         ValueType = 0x46
-	Uinteger32        ValueType = 0x47
-	OpaqueFloat       ValueType = 0x78
-	OpaqueDouble      ValueType = 0x79
-	NoSuchObject      ValueType = 0x80
-	NoSuchInstance    ValueType = 0x81
-	EndOfMibView      ValueType = 0x82
+	UnknownType      ValueType = 0x00
+	Integer          ValueType = 0x02
+	OctetString      ValueType = 0x04
+	Null             ValueType = 0x05
+	ObjectIdentifier ValueType = 0x06
+	IPAddress        ValueType = 0x40
+	Counter32        ValueType = 0x41
+	Gauge32          ValueType = 0x42
+	TimeTicks        ValueType = 0x43
+	Opaque           ValueType = 0x44
+	Counter64        ValueType = 0x46
+	Uinteger32       ValueType = 0x47
+	OpaqueFloat      ValueType = 0x78
+	OpaqueDouble     ValueType = 0x79
+	NoSuchObject     ValueType = 0x80
+	NoSuchInstance   ValueType = 0x81
+	EndOfMibView     ValueType = 0x82
 )
 
 //go:generate go tool -modfile=tools/go.mod stringer -type ErrorStatus
@@ -335,41 +323,4 @@ func (x *Client) DecodeMessage(data []byte) (*Message, error) {
 		return result, fmt.Errorf("unable to decode packet body: %w", err)
 	}
 	return result, nil
-}
-
-// ToBigInt converts an integer varbind value (an int, int8, int16, int32,
-// int64, uint, uint8, uint16, uint32 or uint64, not a uintptr or a named
-// type), or a string holding a decimal integer of any size, to a new big.Int,
-// and anything else to zero. It saves a type switch over the integer types
-// values decode to.
-func ToBigInt(value any) *big.Int {
-	switch value := value.(type) { // shadow
-	case int:
-		return big.NewInt(int64(value))
-	case int8:
-		return big.NewInt(int64(value))
-	case int16:
-		return big.NewInt(int64(value))
-	case int32:
-		return big.NewInt(int64(value))
-	case int64:
-		return big.NewInt(value)
-	case uint8:
-		return big.NewInt(int64(value))
-	case uint16:
-		return big.NewInt(int64(value))
-	case uint32:
-		return big.NewInt(int64(value))
-	case uint: // may not fit an int64
-		return new(big.Int).SetUint64(uint64(value))
-	case uint64:
-		return new(big.Int).SetUint64(value)
-	case string:
-		// The syntax strconv.ParseInt accepts in base 10: an optional sign
-		// and digits.
-		if v, ok := new(big.Int).SetString(value, 10); ok {
-			return v
-		}
-	}
-	return new(big.Int)
 }

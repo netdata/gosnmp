@@ -154,7 +154,7 @@ func netSnmpPduPkt(fname string, gopdu gosnmp.VarBind, gosess *gosnmp.Client, re
 	}
 	cval := C.CString(valToString(gopdu))
 	defer C.free(unsafe.Pointer(cval))
-	ctype, err := berToSnmpValType(gopdu.Type)
+	ctype, err := berToSnmpValType(gopdu.Value.Type())
 	if err != nil {
 		return nil, err
 	}
@@ -204,18 +204,27 @@ func oidStringToInts(in string) []int {
 }
 
 func valToString(gopdu gosnmp.VarBind) string {
-	var val any
-	switch gopdu.Type {
-	case gosnmp.OctetString:
-		b, ok := gopdu.Value.([]byte)
-		if ok {
-			val = string(b)
-		} else {
-			val = gopdu.Value
-		}
-	default:
-		val = gopdu.Value
-
+	v := gopdu.Value
+	if b, ok := v.Bytes(); ok {
+		return string(b)
 	}
-	return fmt.Sprintf("%v", val)
+	if n, ok := v.Int64(); ok {
+		return strconv.FormatInt(n, 10)
+	}
+	if n, ok := v.Uint64(); ok {
+		return strconv.FormatUint(n, 10)
+	}
+	if oid, ok := v.OID(); ok {
+		return oid
+	}
+	if a, ok := v.IP(); ok {
+		return a.String()
+	}
+	if f, ok := v.Float32(); ok {
+		return fmt.Sprint(f)
+	}
+	if f, ok := v.Float64(); ok {
+		return fmt.Sprint(f)
+	}
+	return ""
 }
