@@ -243,6 +243,10 @@
 // ([IntegerValue], [Counter32Value], and so on), so it holds its Go type; the
 // encoder refuses UnknownType, an IPAddress that is not 4 or 16 octets (the
 // zero Addr) and an ObjectIdentifier that does not encode.
+// [Value.String] prints a value as fmt's %v printed it before values were
+// typed: numbers in decimal, octets as a byte list ("[1 2]"), an
+// ObjectIdentifier dotted, an address as text, and "<nil>" for an empty
+// IpAddress and the types without a value.
 //
 // The encoder also checks the message's fields: SNMPv1, SNMPv2c or SNMPv3; a
 // PDU type the package knows; max-repetitions up to 2147483647; an SNMPv1

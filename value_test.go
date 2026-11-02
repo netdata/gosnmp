@@ -339,3 +339,43 @@ func TestIPAddressValueAliasesInput(t *testing.T) {
 		})
 	}
 }
+
+// TestValueString pins String for every type: the text %v printed for the
+// value decoded as an any before values were typed.
+func TestValueString(t *testing.T) {
+	tests := map[string]struct {
+		value Value
+		want  string
+	}{
+		"Integer -1":               {value: IntegerValue(-1), want: "-1"},
+		"Integer MinInt32":         {value: IntegerValue(math.MinInt32), want: "-2147483648"},
+		"Counter32":                {value: Counter32Value(math.MaxUint32), want: "4294967295"},
+		"Gauge32":                  {value: Gauge32Value(5), want: "5"},
+		"TimeTicks":                {value: TimeTicksValue(6), want: "6"},
+		"Uinteger32":               {value: Uinteger32Value(7), want: "7"},
+		"Counter64":                {value: Counter64Value(math.MaxUint64), want: "18446744073709551615"},
+		"OctetString":              {value: OctetStringValue([]byte("ab")), want: "[97 98]"},
+		"OctetString empty":        {value: OctetStringValue([]byte{}), want: "[]"},
+		"OctetString nil":          {value: OctetStringValue(nil), want: "[]"},
+		"Opaque":                   {value: OpaqueValue([]byte{1, 2}), want: "[1 2]"},
+		"ObjectIdentifier":         {value: ObjectIdentifierValue(".1.3.6.1"), want: ".1.3.6.1"},
+		"IPAddress":                {value: IPAddressValue(netip.MustParseAddr("192.0.2.1")), want: "192.0.2.1"},
+		"IPAddress IPv6":           {value: IPAddressValue(netip.MustParseAddr("2001:db8::1")), want: "2001:db8::1"},
+		"IPAddress empty":          {value: decodedIPAddress(t, []byte{}), want: "<nil>"},
+		"IPAddress IPv4-mapped 16": {value: decodedIPAddress(t, netip.MustParseAddr("::ffff:192.0.2.1").AsSlice()), want: "192.0.2.1"},
+		"OpaqueFloat":              {value: OpaqueFloatValue(0.1), want: "0.1"},
+		"OpaqueDouble":             {value: OpaqueDoubleValue(-2.25), want: "-2.25"},
+		"Null":                     {value: NullValue(), want: "<nil>"},
+		"NoSuchObject":             {value: NoSuchObjectValue(), want: "<nil>"},
+		"NoSuchInstance":           {value: NoSuchInstanceValue(), want: "<nil>"},
+		"EndOfMibView":             {value: EndOfMibViewValue(), want: "<nil>"},
+		"the zero Value":           {value: Value{}, want: "<nil>"},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := fmt.Sprintf("%v", tc.value); got != tc.want {
+				t.Errorf("%%v = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
