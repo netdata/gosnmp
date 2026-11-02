@@ -55,6 +55,10 @@ func main() {
 		} else if n, ok := variable.Value.Int64(); ok {
 			// ... or often you're just interested in numeric values.
 			fmt.Printf("number: %d\n", n)
+		} else if n, ok := variable.Value.Uint64(); ok {
+			fmt.Printf("number: %d\n", n)
+		} else {
+			fmt.Printf("type: %v\n", variable.Value.Type())
 		}
 	}
 }

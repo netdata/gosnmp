@@ -231,7 +231,7 @@
 //     ([Value.OID])
 //   - IPAddress: a netip.Addr ([Value.IP]): an IPv4 address, or what some
 //     devices send instead: the zero Addr for an empty one, an IPv6 address
-//     for 16 octets
+//     for 16 octets (an IPv4-mapped one reads as the IPv4 address)
 //   - OpaqueFloat: float32 ([Value.Float32]); OpaqueDouble: float64
 //     ([Value.Float64]); net-snmp's floats, wrapped in an Opaque
 //   - Null, NoSuchObject, NoSuchInstance, EndOfMibView: no value
@@ -293,7 +293,7 @@
 // devices), an IPAddress value may be empty or of 16 octets, an SNMPv1 agent
 // address an empty IpAddress, a varbind name an OCTET STRING or an IpAddress,
 // kept as text, and an unsigned value that is empty or too long decodes as
-// UnknownType with a nil value instead of failing its message. Other
+// UnknownType, with no value, instead of failing its message. Other
 // differences from net-snmp v5.9.4:
 //
 //   - an empty OBJECT IDENTIFIER reads as .0.0, not .0
@@ -317,7 +317,8 @@
 // The decoders never write their input. [Client.DecodeMessage] and
 // [Client.UnmarshalTrap] return OctetString, Opaque and IPAddress values that
 // alias the input, or, in an encrypted message, the buffer the scoped PDU is
-// decrypted into: copy their octets to reuse the input. A decoded message's SecurityParameters
+// decrypted into: copy the octets ([Value.Bytes]) and read the addresses
+// ([Value.IP]) before reusing the input. A decoded message's SecurityParameters
 // and ContextEngineID are copies. The answers to requests are copied from the
 // receive buffer, so their values stay valid.
 //
