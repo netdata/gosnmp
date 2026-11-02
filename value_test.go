@@ -7,9 +7,98 @@ package gosnmp
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"net/netip"
+	"reflect"
+	"strings"
 	"testing"
 )
+
+// TestValueAccessors pins each accessor's type set: for a value of every type,
+// the accessors that return ok and what they return, in the order Int32,
+// Uint32, Int64, Uint64, Bytes, OID, IP, Float32, Float64.
+func TestValueAccessors(t *testing.T) {
+	tests := map[string]struct {
+		value Value
+		want  string
+	}{
+		"Integer -1":         {value: IntegerValue(-1), want: "Integer: Int32 -1, Int64 -1"},
+		"Integer MinInt32":   {value: IntegerValue(math.MinInt32), want: "Integer: Int32 -2147483648, Int64 -2147483648"},
+		"Counter32":          {value: Counter32Value(math.MaxUint32), want: "Counter32: Uint32 4294967295, Int64 4294967295, Uint64 4294967295"},
+		"Gauge32":            {value: Gauge32Value(5), want: "Gauge32: Uint32 5, Int64 5, Uint64 5"},
+		"TimeTicks":          {value: TimeTicksValue(6), want: "TimeTicks: Uint32 6, Int64 6, Uint64 6"},
+		"Uinteger32":         {value: Uinteger32Value(7), want: "Uinteger32: Uint32 7, Int64 7, Uint64 7"},
+		"Counter64":          {value: Counter64Value(math.MaxUint64), want: "Counter64: Uint64 18446744073709551615"},
+		"OctetString":        {value: OctetStringValue([]byte("x")), want: `OctetString: Bytes "x"`},
+		"Opaque":             {value: OpaqueValue([]byte{1}), want: `Opaque: Bytes "\x01"`},
+		"ObjectIdentifier":   {value: ObjectIdentifierValue(".1.3"), want: `ObjectIdentifier: OID ".1.3"`},
+		"IPAddress":          {value: IPAddressValue(netip.MustParseAddr("192.0.2.1")), want: "IPAddress: IP 192.0.2.1"},
+		"IPAddress IPv6":     {value: IPAddressValue(netip.MustParseAddr("2001:db8::1")), want: "IPAddress: IP 2001:db8::1"},
+		"IPAddress zero":     {value: IPAddressValue(netip.Addr{}), want: "IPAddress: IP invalid IP"},
+		"OpaqueFloat":        {value: OpaqueFloatValue(1.5), want: "OpaqueFloat: Float32 1.5, Float64 1.5"},
+		"OpaqueDouble":       {value: OpaqueDoubleValue(-2.25), want: "OpaqueDouble: Float64 -2.25"},
+		"Null":               {value: NullValue(), want: "Null:"},
+		"NoSuchObject":       {value: NoSuchObjectValue(), want: "NoSuchObject:"},
+		"NoSuchInstance":     {value: NoSuchInstanceValue(), want: "NoSuchInstance:"},
+		"EndOfMibView":       {value: EndOfMibViewValue(), want: "EndOfMibView:"},
+		"the zero Value":     {value: Value{}, want: "UnknownType:"},
+		"decoded IPv4-in-16": {value: decodedValue(t, IPAddress, netip.MustParseAddr("::ffff:192.0.2.1").AsSlice()), want: "IPAddress: IP ::ffff:192.0.2.1"},
+		"decoded empty IP":   {value: decodedValue(t, IPAddress, []byte{}), want: "IPAddress: IP invalid IP"},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := describeAccessors(tc.value); got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+	if !reflect.DeepEqual(decodedValue(t, IPAddress, []byte{}), IPAddressValue(netip.Addr{})) {
+		t.Error("a decoded empty IPAddress differs from IPAddressValue(netip.Addr{})")
+	}
+}
+
+// decodedValue decodes content with tag.
+func decodedValue(t *testing.T, tag ValueType, content []byte) Value {
+	t.Helper()
+	v, err := decodeValue(tag, content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+// describeAccessors lists the type and the accessors that return ok.
+func describeAccessors(v Value) string {
+	var parts []string
+	if x, ok := v.Int32(); ok {
+		parts = append(parts, fmt.Sprintf("Int32 %d", x))
+	}
+	if x, ok := v.Uint32(); ok {
+		parts = append(parts, fmt.Sprintf("Uint32 %d", x))
+	}
+	if x, ok := v.Int64(); ok {
+		parts = append(parts, fmt.Sprintf("Int64 %d", x))
+	}
+	if x, ok := v.Uint64(); ok {
+		parts = append(parts, fmt.Sprintf("Uint64 %d", x))
+	}
+	if x, ok := v.Bytes(); ok {
+		parts = append(parts, fmt.Sprintf("Bytes %q", x))
+	}
+	if x, ok := v.OID(); ok {
+		parts = append(parts, fmt.Sprintf("OID %q", x))
+	}
+	if x, ok := v.IP(); ok {
+		parts = append(parts, "IP "+x.String())
+	}
+	if x, ok := v.Float32(); ok {
+		parts = append(parts, fmt.Sprintf("Float32 %v", x))
+	}
+	if x, ok := v.Float64(); ok {
+		parts = append(parts, fmt.Sprintf("Float64 %v", x))
+	}
+	return strings.TrimSpace(v.Type().String() + ": " + strings.Join(parts, ", "))
+}
 
 // TestIPAddressVarbindValue decodes IpAddress varbind values with various
 // BER encodings.
