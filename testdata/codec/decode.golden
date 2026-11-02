@@ -648,6 +648,12 @@ reencode: identical
 == crafted/version/2
 decode: error (ErrBadVersion)
 
+== crafted/version/2-trailing-octets
+decode: error (ErrASNParse)
+
+== crafted/version/1-trailing-octets
+decode: error (ErrASNParse)
+
 == crafted/version/3-with-community
 decode: error (ErrASNParse)
 
