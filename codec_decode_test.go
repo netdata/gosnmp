@@ -628,6 +628,7 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/value/ip-address/3-octets", in: craftedValue(tlv(byte(IPAddress), []byte{192, 0, 2}))},
 		{name: "crafted/value/ip-address/5-octets", in: craftedValue(tlv(byte(IPAddress), []byte{192, 0, 2, 1, 7}))},
 		{name: "crafted/value/ip-address/16-octets", in: craftedValue(tlv(byte(IPAddress), []byte{0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}))},
+		{name: "crafted/value/ip-address/16-octets-ipv4-mapped", in: craftedValue(tlv(byte(IPAddress), []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 0, 2, 1}))},
 		{name: "crafted/value/opaque/raw", in: craftedValue(tlv(byte(Opaque), []byte{0x01, 0x02}))},
 		{name: "crafted/value/opaque/empty", in: craftedValue(tlv(byte(Opaque)))},
 		{name: "crafted/value/opaque/float", in: craftedValue(tlv(byte(Opaque), []byte{0x9f, 0x78, 0x04, 0x41, 0x20, 0x00, 0x00}))},
