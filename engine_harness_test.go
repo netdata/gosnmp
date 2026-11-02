@@ -581,8 +581,6 @@ func describeEngineResult(p *Message, err error) string {
 	switch {
 	case p == nil:
 		sb.WriteString("packet nil")
-	case p.PDUType == 0 && p.Version == 0 && len(p.VarBinds) == 0:
-		sb.WriteString("packet empty")
 	case p.Version == Version3:
 		fmt.Fprintf(&sb, "packet 3 msgID=%d %s %v id=%d context=%q/%q", p.MsgID, describeFlags(p.SecurityLevel), p.PDUType,
 			p.RequestID, p.ContextEngineID, p.ContextName)

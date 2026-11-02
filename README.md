@@ -35,7 +35,8 @@ GoSNMP has the following SNMP functions:
 * **EncodeMessage** and **DecodeMessage** - encode and decode messages for other transports and for tests.
 
 The library writes no log or other output and never exits the process: every function reports through its results and
-errors.
+errors. A call that fails returns no result with its error, but a walk, which also returns the values it collected
+before the error.
 
 Each varbind holds a `Value` of one Go type per SMI type (an Integer is an `int32`, a Counter32 a `uint32`, an IpAddress
 a `netip.Addr`, ...), read through its accessor (`Int32`, `Uint32`, `IP`, ...) and built by its constructor
