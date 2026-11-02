@@ -5,6 +5,7 @@
 package gosnmp
 
 import (
+	"net/netip"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -25,9 +26,10 @@ type decodedFields struct {
 	errorStatus                  ErrorStatus
 	errorIndex, nonRepeaters     uint8
 	maxRepetitions               uint32
-	enterprise, agentAddress     string
-	genericTrap, specificTrap    int
-	timestamp                    uint
+	enterprise                   string
+	agentAddress                 netip.Addr
+	genericTrap, specificTrap    int32
+	timestamp                    uint32
 	variables                    []VarBind
 }
 
@@ -68,7 +70,7 @@ func fieldsOf(p *Message) decodedFields {
 func TestDecodeFailurePartialResults(t *testing.T) {
 	bad := tlv(0x05) // a NULL where a field goes: a field of another tag
 	vbl := craftedVBL(craftedVB(intTLV(5)))
-	firstVB := []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Type: Integer, Value: 5}}
+	firstVB := []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Value: IntegerValue(5)}}
 	secondVB := func(vb []byte) []byte {
 		return craftedMsg(1, tlv(byte(Response), intTLV(7), intTLV(2), intTLV(3), craftedVBL(craftedVB(intTLV(5)), vb)))
 	}
@@ -142,13 +144,13 @@ func TestDecodeFailurePartialResults(t *testing.T) {
 		"v1 trap enterprise":    {in: craftedV1Trap(bad, craftedAgentAddress, intTLV(6), intTLV(1), craftedTimestamp, vbl), wantErr: trapV1 + "enterprise" + ": not an OBJECT IDENTIFIER", want: v1Trap},
 		"v1 trap agent address": {in: craftedV1Trap(craftedEnterprise, bad, intTLV(6), intTLV(1), craftedTimestamp, vbl), wantErr: trapV1 + "agent address" + ": not an IpAddress or OCTET STRING", want: with(v1Trap, func(d *decodedFields) { d.enterprise = ".1.3.6.1.4.1.20372" })},
 		"v1 trap generic trap": {in: craftedV1Trap(craftedEnterprise, craftedAgentAddress, bad, intTLV(1), craftedTimestamp, vbl), wantErr: trapV1 + "generic trap" + notInt, want: with(v1Trap, func(d *decodedFields) {
-			d.enterprise, d.agentAddress = ".1.3.6.1.4.1.20372", "192.0.2.1"
+			d.enterprise, d.agentAddress = ".1.3.6.1.4.1.20372", netip.MustParseAddr("192.0.2.1")
 		})},
 		"v1 trap specific trap": {in: craftedV1Trap(craftedEnterprise, craftedAgentAddress, intTLV(6), bad, craftedTimestamp, vbl), wantErr: trapV1 + "specific trap" + notInt, want: with(v1Trap, func(d *decodedFields) {
-			d.enterprise, d.agentAddress, d.genericTrap = ".1.3.6.1.4.1.20372", "192.0.2.1", 6
+			d.enterprise, d.agentAddress, d.genericTrap = ".1.3.6.1.4.1.20372", netip.MustParseAddr("192.0.2.1"), 6
 		})},
 		"v1 trap timestamp": {in: craftedV1Trap(craftedEnterprise, craftedAgentAddress, intTLV(6), intTLV(1), bad, vbl), wantErr: trapV1 + "timestamp" + ": not TimeTicks or another unsigned type", want: with(v1Trap, func(d *decodedFields) {
-			d.enterprise, d.agentAddress, d.genericTrap, d.specificTrap = ".1.3.6.1.4.1.20372", "192.0.2.1", 6, 1
+			d.enterprise, d.agentAddress, d.genericTrap, d.specificTrap = ".1.3.6.1.4.1.20372", netip.MustParseAddr("192.0.2.1"), 6, 1
 		})},
 
 		// SNMPv3 header.

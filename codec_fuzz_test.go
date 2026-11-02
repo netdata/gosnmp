@@ -98,13 +98,14 @@ func FuzzDecodeReencode(f *testing.F) {
 // unsigned value that does not decode), an empty IpAddress value or SNMPv1
 // agent address, or a varbind name sent as text that is not an OID.
 func decodeQuirk(p *Message) bool {
-	if p.PDUType == Trap && p.AgentAddress == "" {
+	if p.PDUType == Trap && !p.AgentAddress.IsValid() {
 		return true
 	}
 	return slices.ContainsFunc(p.VarBinds, func(v VarBind) bool {
 		if _, err := ber.AppendOID(nil, v.Name); err != nil {
 			return true
 		}
-		return v.Type == UnknownType || v.Type == IPAddress && v.Value == nil
+		ip, isIP := v.Value.IP()
+		return v.Value.Type() == UnknownType || isIP && !ip.IsValid()
 	})
 }

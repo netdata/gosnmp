@@ -393,7 +393,7 @@ func (a *fakeV3Agent) answer(req agentRequest, ans agentAnswer) *agentOut {
 		a.counters[ans.report]++
 		out.PDUType = Report
 		out.ContextEngineID, out.ContextName = []byte(a.engineID), ""
-		out.VarBinds = []VarBind{{Name: ans.report, Type: Counter32, Value: a.counters[ans.report]}}
+		out.VarBinds = []VarBind{{Name: ans.report, Value: Counter32Value(a.counters[ans.report])}}
 	}
 	if ans.edit != nil {
 		ans.edit(out)

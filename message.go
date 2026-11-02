@@ -4,6 +4,8 @@
 
 package gosnmp
 
+import "net/netip"
+
 // Version is the SNMP version of a message, as it is encoded. Its String
 // is "1", "2c" or "3", and "Version(N)" for another value.
 type Version uint8
@@ -67,15 +69,16 @@ type Message struct {
 	TrapV1Header
 }
 
-// TrapV1Header is the SNMPv1 trap header (RFC 1157): the enterprise OID, the
-// agent's IPv4 address, the generic and specific trap numbers and the
-// timestamp in TimeTicks.
+// TrapV1Header is the SNMPv1 trap header (RFC 1157): the enterprise OID in
+// dotted form, the agent's IPv4 address (the zero Addr for the empty one some
+// devices send), the generic and specific trap numbers and the timestamp in
+// TimeTicks, each of the Go type of its SMI type (see Value).
 type TrapV1Header struct {
 	Enterprise   string
-	AgentAddress string
-	GenericTrap  int
-	SpecificTrap int
-	Timestamp    uint
+	AgentAddress netip.Addr
+	GenericTrap  int32
+	SpecificTrap int32
+	Timestamp    uint32
 }
 
 // PDUType is the BER tag of a PDU, which names its type.

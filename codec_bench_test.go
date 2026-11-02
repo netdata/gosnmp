@@ -5,6 +5,7 @@
 package gosnmp
 
 import (
+	"net/netip"
 	"slices"
 	"strconv"
 	"testing"
@@ -44,7 +45,7 @@ func BenchmarkDecode(b *testing.B) {
 func BenchmarkEncode(b *testing.B) {
 	oids := make([]VarBind, 10)
 	for i := range oids {
-		oids[i] = VarBind{Name: ".1.3.6.1.2.1.2.2.1.10." + strconv.Itoa(i+1), Type: Null}
+		oids[i] = VarBind{Name: ".1.3.6.1.2.1.2.2.1.10." + strconv.Itoa(i+1), Value: NullValue()}
 	}
 	response, err := (&Client{}).DecodeMessage(kyoceraResponseBytes())
 	if err != nil {
@@ -77,7 +78,7 @@ func BenchmarkEncode(b *testing.B) {
 		{"kyoceraResponse", response, nil},
 		{"v1Trap", &Message{
 			Version: Version1, Community: "public", PDUType: Trap, VarBinds: slices.Clone(response.VarBinds),
-			Enterprise: ".1.3.6.1.4.1.20372", AgentAddress: "192.0.2.1", GenericTrap: 6, SpecificTrap: 1,
+			Enterprise: ".1.3.6.1.4.1.20372", AgentAddress: netip.MustParseAddr("192.0.2.1"), GenericTrap: 6, SpecificTrap: 1,
 		}, nil},
 		{"v3NoAuthGetRequest10", v3Request(NoAuthNoPriv), &User{Name: "codec-user"}},
 		{"v3AuthSHAGetRequest10", v3Request(AuthNoPriv), &shaUser},
@@ -103,11 +104,11 @@ func getBulkResponse50() []byte {
 	for i := range 10 {
 		row := "." + strconv.Itoa(i+1)
 		vbs = append(vbs,
-			VarBind{Name: ".1.3.6.1.2.1.31.1.1.1.1" + row, Type: OctetString, Value: []byte("GigabitEthernet0/" + strconv.Itoa(i))},
-			VarBind{Name: ".1.3.6.1.2.1.31.1.1.1.6" + row, Type: Counter64, Value: uint64(1)<<40 + uint64(i)},
-			VarBind{Name: ".1.3.6.1.2.1.2.2.1.11" + row, Type: Counter32, Value: uint32(3000000000) + uint32(i)},
-			VarBind{Name: ".1.3.6.1.2.1.2.2.1.5" + row, Type: Gauge32, Value: uint32(1000000000)},
-			VarBind{Name: ".1.3.6.1.2.1.2.2.1.9" + row, Type: TimeTicks, Value: uint32(123456 + i)},
+			VarBind{Name: ".1.3.6.1.2.1.31.1.1.1.1" + row, Value: OctetStringValue([]byte("GigabitEthernet0/" + strconv.Itoa(i)))},
+			VarBind{Name: ".1.3.6.1.2.1.31.1.1.1.6" + row, Value: Counter64Value(uint64(1)<<40 + uint64(i))},
+			VarBind{Name: ".1.3.6.1.2.1.2.2.1.11" + row, Value: Counter32Value(uint32(3000000000) + uint32(i))},
+			VarBind{Name: ".1.3.6.1.2.1.2.2.1.5" + row, Value: Gauge32Value(1000000000)},
+			VarBind{Name: ".1.3.6.1.2.1.2.2.1.9" + row, Value: TimeTicksValue(uint32(123456 + i))},
 		)
 	}
 	return mustMarshal(&Message{Version: Version2c, Community: "public", PDUType: Response, RequestID: 1, VarBinds: vbs})
@@ -117,15 +118,15 @@ func getBulkResponse50() []byte {
 // then integers, strings and counters.
 func snmpv2Trap20() []byte {
 	vbs := []VarBind{
-		{Name: ".1.3.6.1.2.1.1.3.0", Type: TimeTicks, Value: uint32(987654)},
-		{Name: ".1.3.6.1.6.3.1.1.4.1.0", Type: ObjectIdentifier, Value: ".1.3.6.1.4.1.20372.0.1"},
+		{Name: ".1.3.6.1.2.1.1.3.0", Value: TimeTicksValue(987654)},
+		{Name: ".1.3.6.1.6.3.1.1.4.1.0", Value: ObjectIdentifierValue(".1.3.6.1.4.1.20372.0.1")},
 	}
 	for i := range 6 {
 		n := ".1.3.6.1.4.1.20372.1." + strconv.Itoa(i+1)
 		vbs = append(vbs,
-			VarBind{Name: n + ".1", Type: Integer, Value: 100 + i},
-			VarBind{Name: n + ".2", Type: OctetString, Value: []byte("trap-field-" + strconv.Itoa(i))},
-			VarBind{Name: n + ".3", Type: Counter32, Value: uint32(42 + i)},
+			VarBind{Name: n + ".1", Value: IntegerValue(int32(100 + i))},
+			VarBind{Name: n + ".2", Value: OctetStringValue([]byte("trap-field-" + strconv.Itoa(i)))},
+			VarBind{Name: n + ".3", Value: Counter32Value(uint32(42 + i))},
 		)
 	}
 	return mustMarshal(&Message{Version: Version2c, Community: "public", PDUType: SNMPv2Trap, RequestID: 7, VarBinds: vbs})

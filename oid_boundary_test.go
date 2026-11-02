@@ -6,6 +6,7 @@ package gosnmp
 
 import (
 	"bytes"
+	"net/netip"
 	"testing"
 )
 
@@ -24,7 +25,7 @@ func TestOIDPackedFirstSubidentifier(t *testing.T) {
 	} {
 		t.Run(tc.oid, func(t *testing.T) {
 			oid := tlv(byte(ObjectIdentifier), tc.content)
-			trap := TrapV1Header{Enterprise: tc.oid, AgentAddress: "192.0.2.1", GenericTrap: 6, SpecificTrap: 42, Timestamp: 256}
+			trap := TrapV1Header{Enterprise: tc.oid, AgentAddress: netip.MustParseAddr("192.0.2.1"), GenericTrap: 6, SpecificTrap: 42, Timestamp: 256}
 			for _, field := range []struct {
 				name   string
 				packet *Message
@@ -35,7 +36,7 @@ func TestOIDPackedFirstSubidentifier(t *testing.T) {
 					name: "varbind name",
 					packet: &Message{
 						Version: Version2c, Community: "public", PDUType: GetRequest, RequestID: 1,
-						VarBinds: []VarBind{{Name: tc.oid, Type: Null}},
+						VarBinds: []VarBind{{Name: tc.oid, Value: NullValue()}},
 					},
 					wire: craftedMsg(1, craftedPDU(GetRequest, craftedVBL(tlv(0x30, oid, tlv(byte(Null)))))),
 					read: func(p *Message) string { return p.VarBinds[0].Name },
@@ -44,10 +45,10 @@ func TestOIDPackedFirstSubidentifier(t *testing.T) {
 					name: "varbind value",
 					packet: &Message{
 						Version: Version2c, Community: "public", PDUType: Response, RequestID: 1,
-						VarBinds: []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Type: ObjectIdentifier, Value: tc.oid}},
+						VarBinds: []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Value: ObjectIdentifierValue(tc.oid)}},
 					},
 					wire: craftedValue(oid),
-					read: func(p *Message) string { return p.VarBinds[0].Value.(string) },
+					read: func(p *Message) string { oid, _ := p.VarBinds[0].Value.OID(); return oid },
 				},
 				{
 					name: "SNMPv1 enterprise",

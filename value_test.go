@@ -7,6 +7,7 @@ package gosnmp
 import (
 	"bytes"
 	"fmt"
+	"net/netip"
 	"testing"
 )
 
@@ -15,36 +16,36 @@ import (
 func TestIPAddressVarbindValue(t *testing.T) {
 	tests := map[string]struct {
 		value   []byte
-		want    any
+		want    netip.Addr
 		wantErr bool
 	}{
 		"short-form IPv4": {
 			value: []byte{0x40, 0x04, 192, 168, 1, 1},
-			want:  "192.168.1.1",
+			want:  netip.MustParseAddr("192.168.1.1"),
 		},
 		"short-form IPv4 loopback": {
 			value: []byte{0x40, 0x04, 127, 0, 0, 1},
-			want:  "127.0.0.1",
+			want:  netip.MustParseAddr("127.0.0.1"),
 		},
 		"short-form IPv6": {
 			value: []byte{0x40, 0x10, 0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
-			want:  "2001:db8::1",
+			want:  netip.MustParseAddr("2001:db8::1"),
 		},
 		"short-form IPv6 all bytes set": {
 			value: []byte{0x40, 0x10, 0x20, 0x01, 0x0d, 0xb8, 0x85, 0xa3, 0x00, 0x00, 0x8a, 0x2e, 0x03, 0x70, 0x73, 0x34, 0xab, 0xcd},
-			want:  "2001:db8:85a3:0:8a2e:370:7334:abcd",
+			want:  netip.MustParseAddr("2001:db8:85a3:0:8a2e:370:7334:abcd"),
 		},
 		"long-form IPv4": {
 			value: []byte{0x40, 0x81, 0x04, 192, 168, 1, 1},
-			want:  "192.168.1.1",
+			want:  netip.MustParseAddr("192.168.1.1"),
 		},
 		"long-form IPv6": {
 			value: []byte{0x40, 0x81, 0x10, 0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
-			want:  "2001:db8::1",
+			want:  netip.MustParseAddr("2001:db8::1"),
 		},
 		"null IPAddress (length 0)": {
 			value: []byte{0x40, 0x00},
-			want:  nil,
+			want:  netip.Addr{},
 		},
 		"truncated IPv4 data": {
 			value:   []byte{0x40, 0x04, 192, 168},
@@ -76,9 +77,12 @@ func TestIPAddressVarbindValue(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			want := []VarBind{{Name: ".1.3.6.1", Type: IPAddress, Value: tt.want}}
-			if len(vars) != 1 || vars[0] != want[0] {
-				t.Errorf("got %v, want %v", vars, want)
+			if len(vars) != 1 {
+				t.Fatalf("got %v, want one varbind", vars)
+			}
+			got, ok := vars[0].Value.IP()
+			if vars[0].Name != ".1.3.6.1" || !ok || got != tt.want {
+				t.Errorf("got %s %v %v, want .1.3.6.1 IPAddress %v", vars[0].Name, vars[0].Value.Type(), got, tt.want)
 			}
 		})
 	}
@@ -119,9 +123,9 @@ func TestVarbindValueAliasesInput(t *testing.T) {
 			if len(vars) != 1 {
 				t.Fatalf("got %d varbinds, want 1", len(vars))
 			}
-			got, ok := vars[0].Value.([]byte)
+			got, ok := vars[0].Value.Bytes()
 			if !ok || !bytes.Equal(got, tt.want) {
-				t.Fatalf("got %v, want %v", vars[0].Value, tt.want)
+				t.Fatalf("got %s, want %x", dumpValue(vars[0].Value), tt.want)
 			}
 
 			for i := range packet {

@@ -6,6 +6,7 @@ package gosnmp
 
 import (
 	"fmt"
+	"net/netip"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,13 +24,13 @@ const (
 	rtEngineID = "\x80\x00\x1f\x88\x04trap-sender"
 )
 
-// rtVarbinds are the varbinds of every round-trip packet. Their Go types are
-// the ones UnmarshalTrap returns, so the decoded list must equal them.
+// rtVarbinds are the varbinds of every round-trip packet. Their values are
+// built as UnmarshalTrap decodes them, so the decoded list must equal them.
 var rtVarbinds = []VarBind{
-	{Name: ".1.3.6.1.2.1.1.3.0", Type: TimeTicks, Value: uint32(12345)},
-	{Name: ".1.3.6.1.6.3.1.1.4.1.0", Type: ObjectIdentifier, Value: ".1.3.6.1.4.1.20372.1.2"},
-	{Name: ".1.3.6.1.4.1.20372.1.2.1", Type: OctetString, Value: []byte("trap-payload")},
-	{Name: ".1.3.6.1.4.1.20372.1.2.2", Type: Integer, Value: -7},
+	{Name: ".1.3.6.1.2.1.1.3.0", Value: TimeTicksValue(12345)},
+	{Name: ".1.3.6.1.6.3.1.1.4.1.0", Value: ObjectIdentifierValue(".1.3.6.1.4.1.20372.1.2")},
+	{Name: ".1.3.6.1.4.1.20372.1.2.1", Value: OctetStringValue([]byte("trap-payload"))},
+	{Name: ".1.3.6.1.4.1.20372.1.2.2", Value: IntegerValue(-7)},
 }
 
 var (
@@ -152,10 +153,10 @@ type trapView struct {
 	RequestID       uint32
 	IsInform        bool
 	Enterprise      string
-	AgentAddress    string
-	GenericTrap     int
-	SpecificTrap    int
-	Timestamp       uint
+	AgentAddress    netip.Addr
+	GenericTrap     int32
+	SpecificTrap    int32
+	Timestamp       uint32
 	VarBinds        []VarBind
 }
 
@@ -192,7 +193,7 @@ func TestTrapRoundTripV1V2c(t *testing.T) {
 				Community:    "public",
 				PDUType:      Trap,
 				Enterprise:   ".1.3.6.1.4.1.20372",
-				AgentAddress: "192.0.2.1",
+				AgentAddress: netip.MustParseAddr("192.0.2.1"),
 				GenericTrap:  6,
 				SpecificTrap: 42,
 				Timestamp:    12345,
@@ -203,7 +204,7 @@ func TestTrapRoundTripV1V2c(t *testing.T) {
 				Community:    "public",
 				PDUType:      Trap,
 				Enterprise:   ".1.3.6.1.4.1.20372",
-				AgentAddress: "192.0.2.1",
+				AgentAddress: netip.MustParseAddr("192.0.2.1"),
 				GenericTrap:  6,
 				SpecificTrap: 42,
 				Timestamp:    12345,

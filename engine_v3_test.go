@@ -106,7 +106,7 @@ func encodeThenGet(what string, change func(x *Client)) func(x *Client, a *fakeV
 // message as the fake agent reads it, whether its digest checks with the
 // agent's key of its user, and the client's engine state.
 func encodeMessage(x *Client, a *fakeV3Agent) {
-	out, err := x.EncodeMessage(GetRequest, []VarBind{{Name: engineOID, Type: Null}}, 0, 0)
+	out, err := x.EncodeMessage(GetRequest, []VarBind{{Name: engineOID, Value: NullValue()}}, 0, 0)
 	if err != nil {
 		a.tr.addf("EncodeMessage: error %v; client %s", err, describeEngineState(&x.engine))
 		return

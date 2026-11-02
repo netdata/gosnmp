@@ -6,6 +6,7 @@ package gosnmp
 
 import (
 	"encoding/base64"
+	"net/netip"
 	"testing"
 
 	"github.com/netdata/gosnmp/internal/ber"
@@ -38,7 +39,7 @@ func TestReadAgentAddress(t *testing.T) {
 	tests := []struct {
 		name       string
 		data       []byte
-		wantIP     string
+		wantIP     netip.Addr
 		wantLength int
 		wantNull   bool
 		wantErr    bool
@@ -47,20 +48,20 @@ func TestReadAgentAddress(t *testing.T) {
 		{
 			name:       "short-form IPv4",
 			data:       []byte{0x40, 0x04, 192, 168, 1, 1},
-			wantIP:     "192.168.1.1",
+			wantIP:     netip.MustParseAddr("192.168.1.1"),
 			wantLength: 6,
 		},
 		{
 			name:       "short-form IPv4 loopback",
 			data:       []byte{0x40, 0x04, 127, 0, 0, 1},
-			wantIP:     "127.0.0.1",
+			wantIP:     netip.MustParseAddr("127.0.0.1"),
 			wantLength: 6,
 		},
 		// Long-form BER
 		{
 			name:       "long-form IPv4",
 			data:       []byte{0x40, 0x81, 0x04, 10, 0, 0, 1},
-			wantIP:     "10.0.0.1",
+			wantIP:     netip.MustParseAddr("10.0.0.1"),
 			wantLength: 7,
 		},
 		// Edge cases
@@ -107,13 +108,13 @@ func TestReadAgentAddress(t *testing.T) {
 				t.Errorf("readAgentAddress() length = %v, want %v", length, tt.wantLength)
 			}
 			if tt.wantNull {
-				if ip != "" {
-					t.Errorf("readAgentAddress() = %q, want an empty address", ip)
+				if ip.IsValid() {
+					t.Errorf("readAgentAddress() = %v, want the zero Addr", ip)
 				}
 				return
 			}
 			if ip != tt.wantIP {
-				t.Errorf("readAgentAddress() = %q, want %v", ip, tt.wantIP)
+				t.Errorf("readAgentAddress() = %v, want %v", ip, tt.wantIP)
 			}
 		})
 	}

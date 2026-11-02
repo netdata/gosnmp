@@ -217,33 +217,36 @@
 //
 // # Values
 //
-// A varbind ([VarBind]) holds its value as an any whose Go type depends on its
-// Type. Decoding gives:
+// A varbind ([VarBind]) holds a [Value]: its type and one Go type per type,
+// the same on every platform, read through the type's accessor (each returns
+// false for a value of another type):
 //
-//   - Integer: int, within the int32 range; Uinteger32: uint32; Counter32,
-//     Gauge32: uint, below 2^32; TimeTicks: uint32; Counter64: uint64
-//   - OctetString, Opaque: []byte, empty included; OpaqueFloat: float32,
-//     OpaqueDouble: float64 (net-snmp's floats, wrapped in an Opaque)
-//   - ObjectIdentifier: a dotted string with a leading dot
-//   - IPAddress: an IPv4 or IPv6 address as a string, or nil when empty
-//   - Null, NoSuchObject, NoSuchInstance, EndOfMibView: nil
-//   - any other type, Boolean and BitString included, and a Uinteger32,
-//     Counter32, Gauge32, TimeTicks or Counter64 that is empty or too long:
-//     UnknownType, nil
+//   - Integer: int32 ([Value.Int32])
+//   - Counter32, Gauge32, TimeTicks, Uinteger32: uint32 ([Value.Uint32])
+//   - Counter64: uint64 ([Value.Uint64])
+//   - OctetString, Opaque: []byte, empty included ([Value.Bytes])
+//   - ObjectIdentifier: a dotted string, with a leading dot when decoded
+//     ([Value.OID])
+//   - IPAddress: a netip.Addr ([Value.IP]): an IPv4 address, or what some
+//     devices send instead: the zero Addr for an empty one, an IPv6 address
+//     for 16 octets
+//   - OpaqueFloat: float32 ([Value.Float32]); OpaqueDouble: float64
+//     ([Value.Float64]); net-snmp's floats, wrapped in an Opaque
+//   - Null, NoSuchObject, NoSuchInstance, EndOfMibView: no value
+//   - UnknownType, the zero Value: no value; the decoder gives it for a type
+//     it does not decode (ASN.1's BOOLEAN or BIT STRING: SMIv2 sends BITS as an
+//     OctetString) and for a Uinteger32, Counter32, Gauge32, TimeTicks or
+//     Counter64 that is empty or too long
 //
-// Encoding takes an int within the int32 range for Integer; uint32, or uint up
-// to 4294967295, for Counter32, Gauge32, TimeTicks and Uinteger32; uint64 for
-// Counter64; []byte or string for OctetString and Opaque; a dotted string for
-// ObjectIdentifier; for IPAddress, []byte of 4 or 16 octets or an address as
-// text (an IPv4 address, an IPv4-mapped one included, in 4 octets, another IPv6
-// address in 16); float32 and float64 for OpaqueFloat and OpaqueDouble;
-// anything, ignored, for Null and the exceptions. Other types are errors,
-// BitString included: SMIv2 sends BITS as an OctetString. [ToBigInt] converts
-// the integer types.
+// [Value.Int64] and [Value.Uint64] read every integer type that fits them,
+// [Value.Float64] both floats. A Value is built by its type's constructor
+// ([IntegerValue], [Counter32Value], and so on), so it holds its Go type; the
+// encoder refuses UnknownType, an IPAddress that is not 4 or 16 octets (the
+// zero Addr) and an ObjectIdentifier that does not encode.
 //
 // The encoder also checks the message's fields: SNMPv1, SNMPv2c or SNMPv3; a
 // PDU type the package knows; max-repetitions up to 2147483647; an SNMPv1
-// trap's agent address an IPv4 address and its timestamp up to 4294967295; for
+// trap's agent address an IPv4 address (an IPv4-mapped one included); for
 // SNMPv3, a msgID up to 2147483647, a MsgMaxSize of 0 or 484..2147483647, one
 // of the three security levels, engine boots and time up to 2147483647 and a
 // user name of at most 32 octets (RFC 3412 section 6, RFC 3414 section 2.4).
@@ -310,9 +313,9 @@
 //     message
 //
 // The decoders never write their input. [Client.DecodeMessage] and
-// [Client.UnmarshalTrap] return OctetString and Opaque values that alias the
-// input, or, in an encrypted message, the buffer the scoped PDU is decrypted
-// into: copy them to reuse the input. A decoded message's SecurityParameters
+// [Client.UnmarshalTrap] return OctetString, Opaque and IPAddress values that
+// alias the input, or, in an encrypted message, the buffer the scoped PDU is
+// decrypted into: copy their octets to reuse the input. A decoded message's SecurityParameters
 // and ContextEngineID are copies. The answers to requests are copied from the
 // receive buffer, so their values stay valid.
 //
