@@ -137,30 +137,3 @@ func (s *engineTimes) admit(key engineTimeKey, boots, engineTime uint32) error {
 	}
 	return c.admit(boots, engineTime, s.now())
 }
-
-// probe applies step 7 b for a message of a user the receiver is learning,
-// whose key may have no record yet: to the record of key when there is one,
-// otherwise to a new clock, which it returns with made set, for install once
-// the user is registered.
-func (s *engineTimes) probe(key engineTimeKey, boots, engineTime uint32) (engineClock, bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	now := s.now()
-	if c := s.records[key]; c != nil {
-		return engineClock{}, false, c.admit(boots, engineTime, now)
-	}
-	var c engineClock
-	err := c.admit(boots, engineTime, now)
-	return c, true, err
-}
-
-// install makes clock the record of key, unless key has one already.
-func (s *engineTimes) install(key engineTimeKey, clock engineClock) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.records[key] == nil {
-		s.records[key] = &clock
-	}
-}

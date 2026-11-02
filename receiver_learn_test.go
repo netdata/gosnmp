@@ -5,7 +5,9 @@
 package gosnmp
 
 import (
+	"crypto/fips140"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -87,6 +89,18 @@ func TestNewReceiverConfig(t *testing.T) {
 		"learnable users of one name": {
 			config: ReceiverConfig{LearnUsers: []User{lrAuth, lrPlain}, MaxLearned: 1},
 		},
+		"a user without a name": {
+			config:  ReceiverConfig{Users: []EngineUser{at(lrEngineA, User{})}},
+			wantErr: "ReceiverConfig.Users[0]: User.Name is required",
+		},
+		"a name of 33 octets": {
+			config:  ReceiverConfig{Users: []EngineUser{at(lrEngineA, User{Name: strings.Repeat("n", 33)})}},
+			wantErr: "ReceiverConfig.Users[0]: User.Name is 33 octets, more than 32",
+		},
+		"a learnable user without a name": {
+			config:  ReceiverConfig{LearnUsers: []User{lrAuth, {}}, MaxLearned: 1},
+			wantErr: "ReceiverConfig.LearnUsers[1]: User.Name is required",
+		},
 		"a user without an engine ID": {
 			config:  ReceiverConfig{Users: []EngineUser{at(lrEngineA, lrAuth), {User: lrOther}}},
 			wantErr: "ReceiverConfig.Users[1]: an engine ID is required",
@@ -113,7 +127,7 @@ func TestNewReceiverConfig(t *testing.T) {
 		},
 		"a learnable protocol without a passphrase": {
 			config:  ReceiverConfig{LearnUsers: []User{{Name: "u", PrivProtocol: AES}}, MaxLearned: 1},
-			wantErr: "ReceiverConfig.LearnUsers[0]: User.PrivPassphrase is required when a privacy protocol is specified",
+			wantErr: "ReceiverConfig.LearnUsers[0]: usm: no privacy key, want 16 octets",
 		},
 		"an unsupported learnable protocol": {
 			config:  ReceiverConfig{LearnUsers: []User{{Name: "u", PrivProtocol: PrivProtocol(99)}}, MaxLearned: 1},
@@ -134,13 +148,34 @@ func TestNewReceiverConfig(t *testing.T) {
 	}
 }
 
+// TestNewReceiverFIPS140OnlyLearnUser pins, in FIPS 140-only mode, that a
+// LearnUser whose keys the mode refuses (MD5) fails NewReceiver as a
+// registered one does, instead of failing every registration of its name, and
+// one it allows (SHA-256) does not.
+func TestNewReceiverFIPS140OnlyLearnUser(t *testing.T) {
+	if !fips140.Enforced() {
+		t.Skip("needs GODEBUG=fips140=only")
+	}
+	md5 := User{Name: "lr-user", AuthProtocol: MD5, AuthPassphrase: "lr-auth-pass"}
+	_, err := NewReceiver(ReceiverConfig{Users: []EngineUser{{EngineID: []byte(lrEngineA), User: md5}}})
+	require.Error(t, err)
+	sha256 := User{Name: "lr-user", AuthProtocol: SHA256, AuthPassphrase: "lr-auth-pass"}
+	_, err = NewReceiver(ReceiverConfig{LearnUsers: []User{sha256}, MaxLearned: 1})
+	require.NoError(t, err)
+	_, err = NewReceiver(ReceiverConfig{LearnUsers: []User{sha256, md5}, MaxLearned: 1})
+	require.ErrorContains(t, err, "ReceiverConfig.LearnUsers[1]: ")
+	require.ErrorContains(t, err, "FIPS 140-only")
+}
+
 // lrStep is a message a learning test sends and what the receiver does with
 // it: the error it unwraps to, or whether it learned the message's user.
 type lrStep struct {
 	msg     lrMessage
 	wait    time.Duration
 	wantErr error
-	learned bool
+	// wantText is the error's text, when set.
+	wantText string
+	learned  bool
 }
 
 // TestReceiveLearning pins how a receiver learns a user name for an engine ID
@@ -157,6 +192,10 @@ func TestReceiveLearning(t *testing.T) {
 	rejected := func(m lrMessage, err error) lrStep { return lrStep{msg: m, wantErr: err} }
 	wrongPass := lrAuth
 	wrongPass.AuthPassphrase = "lr-wrong-pass"
+	wrongPriv := lrPriv
+	wrongPriv.PrivPassphrase = "lr-wrong-priv"
+	wrongPassPriv := wrongPriv
+	wrongPassPriv.AuthPassphrase = "lr-wrong-pass"
 
 	tests := map[string]struct {
 		config ReceiverConfig
@@ -197,6 +236,33 @@ func TestReceiveLearning(t *testing.T) {
 			steps: []lrStep{
 				rejected(lrMessage{engineID: lrEngineA, user: lrAuth, level: AuthNoPriv, pdu: lrInform}, ErrUnknownEngineID),
 				ok(trap(lrEngineA, lrAuth, AuthNoPriv), true),
+			},
+		},
+		"a request learns nothing": {
+			config: ReceiverConfig{LearnUsers: []User{lrAuth}, MaxLearned: 1},
+			steps: []lrStep{
+				rejected(lrMessage{engineID: lrEngineA, user: lrAuth, level: AuthNoPriv, pdu: GetRequest}, ErrUnknownEngineID),
+				ok(trap(lrEngineA, lrAuth, AuthNoPriv), true),
+			},
+		},
+		"the first error of the learnable users on a tie": {
+			// Both fail RFC 3414 section 3.2 step 5, each with its own text.
+			config: ReceiverConfig{LearnUsers: []User{lrPlain, lrAuth}, MaxLearned: 1},
+			steps: []lrStep{{
+				msg: trap(lrEngineA, lrPriv, AuthPriv), wantErr: ErrUnknownSecurityLevel,
+				wantText: "no credentials successfully unmarshaled trap: " + errNoAuthForMsg.Error(),
+			}},
+		},
+		"the furthest error of the learnable users": {
+			// The first decrypts with the wrong key, the second fails the digest.
+			config: ReceiverConfig{LearnUsers: []User{wrongPriv, wrongPassPriv}, MaxLearned: 1},
+			steps:  []lrStep{rejected(trap(lrEngineA, lrPriv, AuthPriv), ErrDecryption)},
+		},
+		"a trap at the maximum boots leaves no record before learning": {
+			config: ReceiverConfig{LearnUsers: []User{lrAuth}, MaxLearned: 1},
+			steps: []lrStep{
+				rejected(lrMessage{engineID: lrEngineA, user: lrAuth, level: AuthNoPriv, boots: maxEngineValue, time: 10}, ErrNotInTimeWindow),
+				ok(lrMessage{engineID: lrEngineA, user: lrAuth, level: AuthNoPriv, boots: 3, time: 1}, true),
 			},
 		},
 		"an inform to an engine with users learns nothing": {
@@ -248,6 +314,9 @@ func TestReceiveLearning(t *testing.T) {
 				n, err := r.Receive(lrEncode(t, s.msg))
 				if s.wantErr != nil {
 					require.ErrorIs(t, err, s.wantErr, "message %d", i)
+					if s.wantText != "" {
+						require.EqualError(t, err, s.wantText, "message %d", i)
+					}
 					assert.Nil(t, n, "message %d", i)
 					continue
 				}
@@ -289,6 +358,18 @@ func TestReceiveRecordsPerCredential(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, r.times.records, 2)
 	})
+	t.Run("a learned user and a registered one", func(t *testing.T) {
+		// lr-reg shares lrAuth's credential at the engine: the record its trap
+		// made decides lrAuth's first trap there.
+		reg := lrAuth
+		reg.Name = "lr-reg"
+		r, _ := newTestReceiver(t, ReceiverConfig{Users: []EngineUser{at(reg)}, LearnUsers: []User{lrAuth}, MaxLearned: 1})
+		_, err := r.Receive(msg(reg, 5, 1000))
+		require.NoError(t, err)
+		_, err = r.Receive(msg(lrAuth, 4, 1))
+		require.ErrorIs(t, err, ErrNotInTimeWindow)
+		assert.Zero(t, r.learned)
+	})
 	t.Run("another receiver", func(t *testing.T) {
 		config := ReceiverConfig{Users: []EngineUser{at(lrAuth)}}
 		first, _ := newTestReceiver(t, config)
@@ -298,6 +379,98 @@ func TestReceiveRecordsPerCredential(t *testing.T) {
 		_, err = second.Receive(msg(lrAuth, 4, 1))
 		require.NoError(t, err)
 	})
+}
+
+// TestReceiverRegister pins register's own rules, which concurrent learners
+// of one key reach in either order: a name is learned once (a lost race is no
+// learning), MaxLearned holds for a new name, and an authenticated trap is
+// decided again on the record as it is at registration, so step 7 b stays in
+// one order: an older trap that registers first does not hide a newer one.
+func TestReceiverRegister(t *testing.T) {
+	key := keyOf([]byte(lrEngineA), &usmKeys{authProtocol: SHA, auth: []byte("k")})
+	probed := func(r *Receiver, boots, engineTime uint32) *learnProbe {
+		p := &learnProbe{now: r.times.now}
+		require.NoError(t, p.admit(key, boots, engineTime))
+		return p
+	}
+	newReceiver := func(t *testing.T) *Receiver {
+		r, _ := newTestReceiver(t, ReceiverConfig{LearnUsers: []User{lrAuth, lrOther}, MaxLearned: 1})
+		return r
+	}
+
+	t.Run("once, then the cap", func(t *testing.T) {
+		r := newReceiver(t)
+		learned, err := r.register([]byte(lrEngineA), "lr-user", []User{lrAuth}, &learnProbe{})
+		require.NoError(t, err)
+		assert.True(t, learned)
+		learned, err = r.register([]byte(lrEngineA), "lr-user", []User{lrAuth}, &learnProbe{})
+		require.NoError(t, err)
+		assert.False(t, learned, "a lost race")
+		_, err = r.register([]byte(lrEngineB), "lr-user", []User{lrAuth}, &learnProbe{})
+		require.ErrorIs(t, err, ErrUnknownEngineID)
+		_, err = r.register([]byte(lrEngineA), "lr-other", []User{lrOther}, &learnProbe{})
+		require.ErrorIs(t, err, ErrUnknownUsername)
+		assert.Equal(t, 1, r.learned)
+	})
+	t.Run("a lost race through learn", func(t *testing.T) {
+		r := newReceiver(t)
+		trap := lrEncode(t, lrMessage{engineID: lrEngineA, user: lrAuth, level: AuthNoPriv})
+		first, err := r.Receive(trap)
+		require.NoError(t, err)
+		require.True(t, first.Learned)
+		// The loser read the header before the winner registered the name.
+		n := new(Notification)
+		_, w, err := unmarshalHeader(trap, &n.Message)
+		require.NoError(t, err)
+		n, err = r.learn(trap, w, n, false)
+		require.NoError(t, err)
+		assert.False(t, n.Learned)
+	})
+	t.Run("an older trap registers first", func(t *testing.T) {
+		r := newReceiver(t)
+		older, newer := probed(r, 4, 500), probed(r, 5, 1)
+		learned, err := r.register([]byte(lrEngineA), "lr-user", []User{lrAuth}, older)
+		require.NoError(t, err)
+		require.True(t, learned)
+		learned, err = r.register([]byte(lrEngineA), "lr-user", []User{lrAuth}, newer)
+		require.NoError(t, err, "the newer trap updates the record")
+		require.False(t, learned)
+		require.ErrorIs(t, r.times.admit(key, 4, 600), ErrNotInTimeWindow, "the record is the newer trap's")
+	})
+	t.Run("a newer trap registers first", func(t *testing.T) {
+		r := newReceiver(t)
+		older, newer := probed(r, 4, 500), probed(r, 5, 1)
+		_, err := r.register([]byte(lrEngineA), "lr-user", []User{lrAuth}, newer)
+		require.NoError(t, err)
+		_, err = r.register([]byte(lrEngineA), "lr-user", []User{lrAuth}, older)
+		require.ErrorIs(t, err, ErrNotInTimeWindow, "the older trap is decided on the newer's record")
+	})
+}
+
+// TestReceiveLearningPastTheCapDerivesNoKey pins, with the size of the
+// package's key cache, that once the receiver learned MaxLearned names a
+// message of a learnable name derives no key: a user of a Reeder-extended
+// protocol (AES-256 Cisco) caches one password-to-key result per engine ID
+// its privacy key derives for. The learnable user's privacy passphrase differs
+// from the sender's, whose keys are cached when its message is made.
+func TestReceiveLearningPastTheCapDerivesNoKey(t *testing.T) {
+	stamp := time.Now().UnixNano()
+	receiver := User{
+		Name: "lr-reeder", AuthProtocol: SHA, AuthPassphrase: "lr-auth-pass",
+		PrivProtocol: AES256C, PrivPassphrase: fmt.Sprintf("lr-receiver-priv-%d", stamp),
+	}
+	sender := receiver
+	sender.PrivPassphrase = "lr-sender-priv"
+	r, _ := newTestReceiver(t, ReceiverConfig{LearnUsers: []User{lrAuth, receiver}, MaxLearned: 1})
+	_, err := r.Receive(lrEncode(t, lrMessage{engineID: lrEngineA, user: lrAuth, level: AuthNoPriv}))
+	require.NoError(t, err)
+
+	newEngine := func() string { return fmt.Sprintf("\x80\x00\x1f\x88\x04lr-cap-%d", stamp) }
+	trap := lrEncode(t, lrMessage{engineID: newEngine(), user: sender, level: AuthPriv})
+	before := passwordCache.Len()
+	_, err = r.Receive(trap)
+	require.ErrorIs(t, err, ErrUnknownEngineID)
+	assert.Equal(t, before, passwordCache.Len())
 }
 
 // TestReceiveConcurrent receives traps from several goroutines, which learn
@@ -363,6 +536,21 @@ func TestReadEnvelope(t *testing.T) {
 	got, err = ReadEnvelope(v2c)
 	require.NoError(t, err)
 	assert.Equal(t, Envelope{Version: Version2c}, got)
+
+	// The reportable flag alone (a discovery request's 0x04), and
+	// authentication alone (an authNoPriv trap's 0x01).
+	probe := lrEncode(t, lrMessage{engineID: lrEngineA, user: lrPlain, level: NoAuthNoPriv, pdu: GetRequest})
+	got, err = ReadEnvelope(probe)
+	require.NoError(t, err)
+	assert.Equal(t, SecurityLevel(0x04), wireFlags(t, probe))
+	assert.True(t, got.Reportable)
+	assert.Equal(t, NoAuthNoPriv, got.SecurityLevel)
+	signed := lrEncode(t, lrMessage{engineID: lrEngineA, user: lrAuth, level: AuthNoPriv})
+	got, err = ReadEnvelope(signed)
+	require.NoError(t, err)
+	assert.Equal(t, SecurityLevel(0x01), wireFlags(t, signed))
+	assert.False(t, got.Reportable)
+	assert.Equal(t, AuthNoPriv, got.SecurityLevel)
 
 	for name, tc := range map[string]struct {
 		in   []byte

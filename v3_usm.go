@@ -288,13 +288,23 @@ func (u *User) validate(level SecurityLevel) error {
 	if err := checkLevel(u.AuthProtocol, u.PrivProtocol, level); err != nil {
 		return err
 	}
+	if err := u.checkName(); err != nil {
+		return err
+	}
+	return u.checkPassphrases()
+}
+
+// checkName rejects a user name outside 1..32 octets (RFC 3414 section 2.4:
+// msgUserName is an SnmpAdminString of 0..32 octets, and the empty one names
+// no user).
+func (u *User) checkName() error {
 	if u.Name == "" {
 		return fmt.Errorf("User.Name is required")
 	}
 	if len(u.Name) > maxUserNameLen {
 		return fmt.Errorf("User.Name is %d octets, more than %d", len(u.Name), maxUserNameLen)
 	}
-	return u.checkPassphrases()
+	return nil
 }
 
 // checkPassphrases rejects a protocol without a passphrase to derive its key

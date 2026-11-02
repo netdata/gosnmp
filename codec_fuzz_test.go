@@ -26,8 +26,7 @@ func codecFuzzSeeds(tb testing.TB) [][]byte {
 
 // FuzzUnmarshal checks that DecodeMessage returns quickly, does not panic
 // and does not write into its input, and that its errors and those of a
-// receiver with the zero user, registered for the engine ID the input names
-// (receiverFor), each have one category and come without a message. Its
+// receiver without users each have one category and come without a message. Its
 // corpus in testdata/fuzz/FuzzUnmarshal is also pinned by
 // TestDecodeCharacterization.
 func FuzzUnmarshal(f *testing.F) {
@@ -36,13 +35,16 @@ func FuzzUnmarshal(f *testing.F) {
 	}
 
 	vhandle := Client{}
+	// A receiver without users decodes SNMPv1 and SNMPv2c and rejects SNMPv3
+	// (FuzzDecodeV3 decodes SNMPv3 with users).
+	noUsers, _ := newTestReceiver(f, ReceiverConfig{})
 	f.Fuzz(func(t *testing.T, data []byte) {
 		stime := time.Now()
 		in := bytes.Clone(data)
 		msg, err := vhandle.DecodeMessage(in)
 		checkCategory(t, "DecodeMessage", err)
 		checkNoMessage(t, "DecodeMessage", msg, err)
-		msg, err = usmFuzzReceive(receiverFor(t, data, User{}), bytes.Clone(data))
+		msg, err = usmFuzzReceive(noUsers, bytes.Clone(data))
 		checkCategory(t, "Receive", err)
 		checkNoMessage(t, "Receive", msg, err)
 
