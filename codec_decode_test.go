@@ -658,6 +658,7 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/v3/flags-reserved-bits", in: craftedV3(intTLV(42), intTLV(65507), octets("\xfc"), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},
 		{name: "crafted/v3/flags-integer", in: craftedV3(intTLV(42), intTLV(65507), intTLV(0), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},
 		{name: "crafted/v3/security-model-2", in: craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(2), craftedNoAuthUSM, craftedScopedResp)},
+		{name: "crafted/v3/msg-global-data-empty", in: craftedV3(nil, nil, nil, nil, craftedNoAuthUSM, craftedScopedResp)},
 		{name: "crafted/v3/msg-id-negative", in: craftedV3(intTLV(-1), intTLV(65507), octets("\x00"), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},
 		{name: "crafted/v3/msg-id-octet-string", in: craftedV3(octets("\x2a"), intTLV(65507), octets("\x00"), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},
 		{name: "crafted/v3/msg-id-2147483647", in: craftedV3(intTLV(math.MaxInt32), intTLV(65507), octets("\x00"), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},
