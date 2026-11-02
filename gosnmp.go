@@ -265,17 +265,17 @@ func (x *Client) prepare() error {
 // and time received, not advanced as a request's attempt advances them. It runs
 // no discovery: before the client knows the agent's engine the message has no
 // engine ID and no keys, so an authenticated or private one fails. On an error
-// it returns an empty message.
+// it returns no message.
 func (x *Client) EncodeMessage(pduType PDUType, varBinds []VarBind, nonRepeaters uint8, maxRepetitions uint32) ([]byte, error) {
 	if err := x.prepare(); err != nil {
-		return []byte{}, err
+		return nil, err
 	}
 	pkt := x.NewMessage(pduType, varBinds, nonRepeaters, maxRepetitions)
 	pkt.RequestID = x.nextRequestID()
 	var keys usmKeys
 	if x.Version == Version3 {
 		if err := x.startEngine(); err != nil {
-			return []byte{}, err
+			return nil, err
 		}
 		x.engine.stamp(pkt)
 		pkt.SecurityParameters.AuthoritativeEngineBoots = x.engine.clock.boots
@@ -283,11 +283,7 @@ func (x *Client) EncodeMessage(pduType PDUType, varBinds []VarBind, nonRepeaters
 		keys = x.engine.keys
 		pkt.MsgID = x.nextMsgID()
 	}
-	out, err := pkt.marshalMsg(&keys)
-	if err != nil {
-		return []byte{}, err
-	}
-	return out, nil
+	return pkt.marshalMsg(&keys)
 }
 
 // DecodeMessage decodes a message, from another transport or for tests,
@@ -299,28 +295,28 @@ func (x *Client) EncodeMessage(pduType PDUType, varBinds []VarBind, nonRepeaters
 // asks for, and the message is decrypted exactly when it asks for privacy; it
 // checks neither the user name, the digest nor the time window, nor any
 // minimum level. It does not write data (see the package documentation for the
-// values that alias it). On an error it returns what it decoded so far.
+// values that alias it). On an error it returns no message.
 func (x *Client) DecodeMessage(data []byte) (*Message, error) {
-	result := &Message{}
 	if err := x.prepare(); err != nil {
-		return result, err
+		return nil, err
 	}
 
+	result := new(Message)
 	cursor, w, err := unmarshalHeader(data, result)
 	if err != nil {
-		return result, fmt.Errorf("unable to decode packet header: %w", err)
+		return nil, fmt.Errorf("unable to decode packet header: %w", err)
 	}
 	if result.Version == Version3 {
 		var in inbound
 		if in, err = receiveV3(data, w, result, &x.User, nil); err != nil {
-			return result, fmt.Errorf("unable to decode packet header: %w", err)
+			return nil, fmt.Errorf("unable to decode packet header: %w", err)
 		}
 		if data, cursor, err = in.scopedPDU(result); err != nil {
-			return result, err
+			return nil, err
 		}
 	}
 	if err = unmarshalPayload(data, cursor, result); err != nil {
-		return result, fmt.Errorf("unable to decode packet body: %w", err)
+		return nil, fmt.Errorf("unable to decode packet body: %w", err)
 	}
 	return result, nil
 }

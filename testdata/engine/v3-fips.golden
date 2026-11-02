@@ -2,8 +2,8 @@
 
 == v3-fips/discovery/md5
 0s    client: user="codec-md5" authNoPriv timeout=1s retries=2
-0s    first Get: packet empty, error "crypto/md5: use of MD5 is not allowed in FIPS 140-only mode" *errors.errorString
-0s    result: packet empty, error "crypto/md5: use of MD5 is not allowed in FIPS 140-only mode" *errors.errorString
+0s    first Get: packet nil, error "crypto/md5: use of MD5 is not allowed in FIPS 140-only mode" *errors.errorString
+0s    result: packet nil, error "crypto/md5: use of MD5 is not allowed in FIPS 140-only mode" *errors.errorString
 0s    client after: engine="" boots=0 time=0 keys=none context engine=""
 
 == v3-fips/discovery/noauth
@@ -31,8 +31,8 @@
 
 == v3-fips/discovery/sha-aes
 0s    client: user="codec-sha-aes" authPriv timeout=1s retries=2
-0s    first Get: packet empty, error "crypto/sha1: use of SHA-1 is not allowed in FIPS 140-only mode" *errors.errorString
-0s    result: packet empty, error "crypto/sha1: use of SHA-1 is not allowed in FIPS 140-only mode" *errors.errorString
+0s    first Get: packet nil, error "crypto/sha1: use of SHA-1 is not allowed in FIPS 140-only mode" *errors.errorString
+0s    result: packet nil, error "crypto/sha1: use of SHA-1 is not allowed in FIPS 140-only mode" *errors.errorString
 0s    client after: engine="" boots=0 time=0 keys=none context engine=""
 
 == v3-fips/discovery/sha256-aes

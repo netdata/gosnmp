@@ -6,7 +6,9 @@
 // with GetNext or GetBulk requests over UDP, with SNMPv1, SNMPv2c and SNMPv3
 // (the User-based Security Model), and decodes received traps and informs. It
 // writes no log or other output and never exits the process: its functions
-// report through their results and errors.
+// report through their results and errors. A call that fails returns no
+// result with its error, but a walk, which also returns the values it
+// collected before the error.
 //
 // # Lifecycle
 //
@@ -188,8 +190,7 @@
 // of its counter, [ErrUnknownUsername] or [ErrWrongDigest] for example, and
 // [ErrUnknownReportPDU] for a counter the library does not know or none, and a
 // usmStatsUnknownEngineIDs Report without an engine ID with an error that
-// matches [ErrUnknownEngineID]; a request, unlike the discovery, returns the
-// Report with the error.
+// matches [ErrUnknownEngineID].
 //
 // A request that discarded an authentic answer outside the time window and
 // ends without an answer (its attempts ran out, the Context ended it, Close,

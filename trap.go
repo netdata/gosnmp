@@ -71,9 +71,8 @@ func (x *Client) unmarshalTrapByUser(trap []byte) (*Message, error) {
 	var furthest error
 	var reached trapStep
 	for _, entry := range entries {
-		// The attempts share the header's empty variable list and its USM
-		// fields: they run one after the other, and only the last one's
-		// result is kept.
+		// The attempts share the header's USM fields: they run one after the
+		// other, and only the last one's result is kept.
 		result := new(Message)
 		*result = header
 		step, err := decodeTrapV3(trap, w, result, &entry.user, entry, trapRule{})

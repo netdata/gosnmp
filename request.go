@@ -32,7 +32,8 @@ func (x *Client) NewMessage(pduType PDUType, varBinds []VarBind, nonRepeaters ui
 }
 
 // Get sends a GET request for oids, at most MaxOids of them, and returns the
-// answer.
+// answer, a Response whatever its error-status; on an error it returns no
+// message, also when an SNMPv3 Report answered the request.
 func (x *Client) Get(oids []string) (result *Message, err error) {
 	packetOut, err := x.oidRequest(GetRequest, oids, 0)
 	if err != nil {

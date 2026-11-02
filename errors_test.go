@@ -71,6 +71,15 @@ func checkCategory(t *testing.T, what string, err error) {
 	}
 }
 
+// checkNoMessage fails a call that returned a message with an error: a failed
+// call returns no result.
+func checkNoMessage(t *testing.T, what string, msg *Message, err error) {
+	t.Helper()
+	if err != nil && msg != nil {
+		t.Errorf("%s: returned a message with the error %q", what, err)
+	}
+}
+
 // TestRejectionCategories pins the category of rejections no golden reaches
 // through its entry point: UnmarshalTrap's version check and the PDU of an
 // SNMPv1 and an SNMPv2c trap and of an SNMPv3 trap past security processing,
