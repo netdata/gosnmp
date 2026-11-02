@@ -71,6 +71,58 @@ func checkCategory(t *testing.T, what string, err error) {
 	}
 }
 
+// TestRejectionCategories pins the category of rejections no golden reaches
+// through its entry point: UnmarshalTrap's version check and the PDU of an
+// SNMPv1 and an SNMPv2c trap and of an SNMPv3 trap past security processing,
+// on both paths, and an encrypted message without its scoped PDU.
+func TestRejectionCategories(t *testing.T) {
+	useEngineTimes(t)
+	user := usmUser(NoAuth, "", NoPriv, "")
+	single := func(data []byte) error {
+		_, err := (&Client{Version: Version3, User: user}).UnmarshalTrap(data, true)
+		return err
+	}
+	table := func(data []byte) error {
+		tb := NewSnmpV3SecurityParametersTable()
+		if err := tb.Add(user, nil); err != nil {
+			return err
+		}
+		_, err := (&Client{Version: Version3, TrapSecurityParametersTable: tb}).UnmarshalTrap(data, false)
+		return err
+	}
+	decode := func(data []byte) error {
+		_, err := (&Client{User: usmUser(SHA, "codec-auth-pass", AES, "codec-priv-pass")}).DecodeMessage(data)
+		return err
+	}
+	// A PDU whose error status is missing.
+	badPDU := tlv(byte(SNMPv2Trap), intTLV(1))
+	v3Trap := craftedV3NoAuth(tlv(0x30, craftedEngineID, octets(""), badPDU))
+	authPrivWithoutScopedPDU := craftedV3(intTLV(42), intTLV(65507), octets("\x03"), intTLV(3),
+		craftedUSM(craftedEngineID, intTLV(7), intTLV(1234), octets("codec-user"), octets(string(make([]byte, 12))),
+			octets(string(make([]byte, 8)))), nil)
+
+	tests := map[string]struct {
+		decode func([]byte) error
+		in     []byte
+		want   string
+	}{
+		"trap of version 2":             {single, craftedMsg(2, craftedPDU(SNMPv2Trap, craftedVBL(craftedVB(intTLV(5))))), "ErrBadVersion"},
+		"SNMPv1 trap PDU":               {single, craftedV1Trap(octets("x"), craftedAgentAddress, intTLV(6), intTLV(1), craftedTimestamp, craftedVBL()), "ErrASNParse"},
+		"SNMPv2c trap PDU":              {single, craftedMsg(1, badPDU), "ErrASNParse"},
+		"SNMPv3 trap PDU, single path":  {single, v3Trap, "ErrASNParse"},
+		"SNMPv3 trap PDU, table path":   {table, v3Trap, "ErrASNParse"},
+		"authPriv without a scoped PDU": {decode, authPrivWithoutScopedPDU, "ErrASNParse"},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			err := tc.decode(tc.in)
+			if got := categoriesOf(err); len(got) != 1 || got[0] != tc.want {
+				t.Errorf("%q: categories %v, want [%s]", err, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestUnmatchedReplyReasons checks that every reason a request discards a
 // decoded reply for is ErrUnmatchedReply, the one of a msgID that names no
 // attempt included, which never reaches a caller (rankOf records no message
