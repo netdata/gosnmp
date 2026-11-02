@@ -502,7 +502,8 @@ func replyTo(req []byte, edit func(*Message), vbs ...VarBind) []byte {
 	return b
 }
 
-// engineSentinels are the errors an engine result is checked against.
+// engineSentinels are the errors an engine result is checked against besides
+// the categories (errorCategories).
 var engineSentinels = []struct {
 	name string
 	err  error
@@ -517,16 +518,6 @@ var engineSentinels = []struct {
 	{"syscall.EHOSTUNREACH", syscall.EHOSTUNREACH},
 	{"syscall.EACCES", syscall.EACCES},
 	{"errEngineWrite", errEngineWrite},
-	{"ErrDecryption", ErrDecryption},
-	{"ErrInvalidMsgs", ErrInvalidMsgs},
-	{"ErrNotInTimeWindow", ErrNotInTimeWindow},
-	{"ErrUnknownEngineID", ErrUnknownEngineID},
-	{"ErrUnknownPDUHandlers", ErrUnknownPDUHandlers},
-	{"ErrUnknownReportPDU", ErrUnknownReportPDU},
-	{"ErrUnknownSecurityLevel", ErrUnknownSecurityLevel},
-	{"ErrUnknownSecurityModels", ErrUnknownSecurityModels},
-	{"ErrUnknownUsername", ErrUnknownUsername},
-	{"ErrWrongDigest", ErrWrongDigest},
 }
 
 // describeEngineError gives the text of err and what it is: the sentinels it
@@ -535,7 +526,7 @@ var engineSentinels = []struct {
 func describeEngineError(err error) string {
 	text := err.Error()
 	var equals, is []string
-	for _, s := range engineSentinels {
+	for _, s := range slices.Concat(engineSentinels, errorCategories) {
 		switch {
 		case err == s.err: //nolint:errorlint // the identity is what is described
 			equals = append(equals, s.name)

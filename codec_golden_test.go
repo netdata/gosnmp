@@ -203,45 +203,24 @@ func readGoldenFile(path string) ([]goldenSection, error) {
 	return sections, nil
 }
 
-// codecSentinels are the exported errors a codec result is matched against.
-var codecSentinels = []struct {
-	name string
-	err  error
-}{
-	{"ErrBase128IntegerTooLarge", ErrBase128IntegerTooLarge},
-	{"ErrBase128IntegerTruncated", ErrBase128IntegerTruncated},
-	{"ErrFloatBufferTooShort", ErrFloatBufferTooShort},
-	{"ErrFloatTooLarge", ErrFloatTooLarge},
-	{"ErrIntegerTooLarge", ErrIntegerTooLarge},
-	{"ErrInvalidOidLength", ErrInvalidOidLength},
-	{"ErrInvalidPacketLength", ErrInvalidPacketLength},
-	{"ErrZeroByteBuffer", ErrZeroByteBuffer},
-	{"ErrZeroLenInteger", ErrZeroLenInteger},
-	{"ErrDecryption", ErrDecryption},
-	{"ErrInvalidMsgs", ErrInvalidMsgs},
-	{"ErrNotInTimeWindow", ErrNotInTimeWindow},
-	{"ErrUnknownEngineID", ErrUnknownEngineID},
-	{"ErrUnknownPDUHandlers", ErrUnknownPDUHandlers},
-	{"ErrUnknownReportPDU", ErrUnknownReportPDU},
-	{"ErrUnknownSecurityLevel", ErrUnknownSecurityLevel},
-	{"ErrUnknownSecurityModels", ErrUnknownSecurityModels},
-	{"ErrUnknownUsername", ErrUnknownUsername},
-	{"ErrWrongDigest", ErrWrongDigest},
-}
-
-// dumpError describes an error by the exported sentinels it matches; the
-// message text is not part of the pinned behavior.
+// dumpError describes an error by the categories it matches and the
+// unexported decode errors it wraps besides (decodeDetails); the message text
+// is not part of the pinned behavior.
 func dumpError(err error) string {
-	var matched []string
-	for _, s := range codecSentinels {
-		if errors.Is(err, s.err) {
-			matched = append(matched, s.name)
+	out := "error"
+	if names := categoriesOf(err); len(names) > 0 {
+		out += " (" + strings.Join(names, ", ") + ")"
+	}
+	var details []string
+	for _, d := range decodeDetails {
+		if errors.Is(err, d.err) {
+			details = append(details, d.name)
 		}
 	}
-	if len(matched) == 0 {
-		return "error"
+	if len(details) > 0 {
+		out += " detail (" + strings.Join(details, ", ") + ")"
 	}
-	return "error (" + strings.Join(matched, ", ") + ")"
+	return out
 }
 
 // observe runs fn and reports whether it panicked and whether it wrote to

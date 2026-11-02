@@ -439,7 +439,7 @@ func TestV3ReplyDecode(t *testing.T) {
 		reply, verified, err := e.decode(report, nil)
 		assert.Nil(t, reply, "no msgID was read")
 		assert.False(t, verified)
-		require.ErrorIs(t, err, ErrInvalidMsgs)
+		require.ErrorIs(t, err, ErrASNParse)
 	})
 
 	// A message naming no attempt, or of another version, is discarded before
@@ -473,7 +473,7 @@ func TestV3ReplyDecode(t *testing.T) {
 	t.Run("authentic reply whose scoped PDU does not decode", func(t *testing.T) {
 		e, _ := request(AuthNoPriv, NoPriv)
 		reply, verified, err := e.decode(signedReply(tlv(0x30, craftedEngineID)), earlier)
-		require.ErrorIs(t, err, ErrInvalidMsgs)
+		require.ErrorIs(t, err, ErrASNParse)
 		assert.True(t, verified)
 		require.NotNil(t, reply, "the message as far as decode read it")
 		assert.Equal(t, uint32(42), reply.MsgID)
@@ -703,7 +703,7 @@ func TestV3DigestField(t *testing.T) {
 		in   []byte
 		want error
 	}{
-		"the digest in an OBJECT IDENTIFIER": {signedWith(byte(ObjectIdentifier), 12), ErrInvalidMsgs},
+		"the digest in an OBJECT IDENTIFIER": {signedWith(byte(ObjectIdentifier), 12), ErrASNParse},
 		"a field of 64 octets":               {signedWith(byte(OctetString), 64), errNotAuthentic},
 	}
 	for name, tc := range tests {

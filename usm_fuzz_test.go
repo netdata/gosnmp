@@ -138,12 +138,14 @@ func FuzzDecodeV3(f *testing.F) {
 			start := time.Now()
 			// No spare capacity, so a write past the input panics.
 			in := bytes.Clone(data)[:len(data):len(data)]
-			if v, stack := recoverPanic(func() { _ = r.decode(in) }); v != nil {
+			var err error
+			if v, stack := recoverPanic(func() { err = r.decode(in) }); v != nil {
 				t.Fatalf("%s with %v/%v credentials panicked: %v\ninput: %x\n%s", r.name, p.auth, p.priv, v, data, stack)
 			}
 			if !bytes.Equal(in, data) {
 				t.Fatalf("%s with %v/%v credentials wrote into its input: %x", r.name, p.auth, p.priv, data)
 			}
+			checkCategory(t, r.name, err)
 			if e := time.Since(start); e > time.Second {
 				t.Errorf("%s took %s", r.name, e)
 			}

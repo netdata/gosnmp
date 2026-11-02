@@ -173,43 +173,59 @@ func readWhole(b []byte) ([]byte, error) {
 // -- Messages and PDUs --------------------------------------------------------
 
 // errEmptyPacket is the error of a message shorter than a TLV header.
-var errEmptyPacket = fmt.Errorf("%w: cannot unmarshal empty packet", ErrInvalidPacketLength)
+var errEmptyPacket = fmt.Errorf("%w: cannot unmarshal empty packet", ber.ErrInvalidPacketLength)
 
 // readVersion reads the message SEQUENCE, which must span the whole packet,
 // and its version field, an INTEGER of SNMPv1 (0), SNMPv2c (1) or SNMPv3 (3).
-// It returns the version and the offset of the field after it.
+// It returns the version and the offset of the field after it. Another
+// version is ErrBadVersion (RFC 3412 section 4.2.1: the version is known once
+// the SEQUENCE's declared extent and the version field parse, octets after the
+// message or not), a message that does not parse ErrASNParse.
 func readVersion(packet []byte) (Version, int, error) {
+	r, version, after, err := readVersionField(packet)
+	switch {
+	case err != nil:
+		return 0, 0, inCategory(ErrASNParse, err)
+	case version != int32(Version1) && version != int32(Version2c) && version != int32(Version3):
+		return 0, 0, inCategory(ErrBadVersion, fmt.Errorf("error parsing SNMP packet version: %d is not 0, 1 or 3", version))
+	case after != 0:
+		return 0, 0, inCategory(ErrASNParse, fmt.Errorf("error verifying packet sanity: %d bytes after the TLV", after))
+	case r.Len() == 0:
+		return 0, 0, inCategory(ErrASNParse, errors.New("error parsing SNMP packet: nothing after the version"))
+	}
+	return Version(version), len(packet) - r.Len(), nil //nolint:gosec // 0, 1 or 3
+}
+
+// readVersionField reads the message SEQUENCE, whose declared length must fit
+// the packet, and its first field, an INTEGER (readInt32); it returns the
+// reader of the fields after it and the number of octets after the SEQUENCE.
+func readVersionField(packet []byte) (ber.Reader, int32, int, error) {
 	if len(packet) < 2 {
-		return 0, 0, errEmptyPacket
+		return ber.Reader{}, 0, 0, errEmptyPacket
 	}
 	if packet[0] != ber.Sequence {
-		return 0, 0, errors.New("invalid packet header")
+		return ber.Reader{}, 0, 0, errors.New("invalid packet header")
 	}
-	msg, err := readWhole(packet)
+	whole := ber.NewReader(packet)
+	_, msg, err := whole.Next()
 	if err != nil {
-		return 0, 0, fmt.Errorf("error verifying packet sanity: %w", err)
+		return ber.Reader{}, 0, 0, fmt.Errorf("error verifying packet sanity: %w", err)
 	}
 
 	r := ber.NewReader(msg)
 	version, err := readInt32(&r)
 	if err != nil {
-		return 0, 0, fmt.Errorf("error parsing SNMP packet version: %w", err)
+		return ber.Reader{}, 0, 0, fmt.Errorf("error parsing SNMP packet version: %w", err)
 	}
-	if version != int32(Version1) && version != int32(Version2c) && version != int32(Version3) {
-		return 0, 0, fmt.Errorf("error parsing SNMP packet version: %d is not 0, 1 or 3", version)
-	}
-	if r.Len() == 0 {
-		return 0, 0, errors.New("error parsing SNMP packet: nothing after the version")
-	}
-	return Version(version), len(packet) - r.Len(), nil //nolint:gosec // 0, 1 or 3
+	return r, version, whole.Len(), nil
 }
 
 // unmarshalHeader reads the message header into response: the version and,
 // for SNMPv1 and SNMPv2c, the community, or for SNMPv3 the header (parseV3),
 // whose USM fields it returns for security processing, also those that
 // decoded before an error. It returns the offset of the PDU, or of the scoped
-// PDU. An SNMPv3 header error unwraps to ErrUnknownSecurityModels or
-// ErrInvalidMsgs (v3ParseError).
+// PDU. Its errors have their categories: the version's (readVersion), an
+// SNMPv3 header's (v3ParseError), ErrASNParse for the community.
 func unmarshalHeader(packet []byte, response *Message) (int, v3Wire, error) {
 	version, cursor, err := readVersion(packet)
 	// Known bug: a packet that is not too short to read presets the variables
@@ -233,15 +249,25 @@ func unmarshalHeader(packet []byte, response *Message) (int, v3Wire, error) {
 	r := ber.NewReader(packet[cursor:])
 	community, err := readOctets(&r)
 	if err != nil {
-		return 0, v3Wire{}, fmt.Errorf("error parsing community string: %w", err)
+		return 0, v3Wire{}, inCategory(ErrASNParse, fmt.Errorf("error parsing community string: %w", err))
 	}
 	response.Community = string(community)
 	return len(packet) - r.Len(), v3Wire{}, nil
 }
 
 // unmarshalPayload reads the PDU at packet[cursor:], which must span the rest
-// of the packet.
+// of the packet (readPayload); its errors are ErrASNParse (RFC 3412 section
+// 7.2 step 7, an unknown PDU type included, as net-snmp v5.9.4 treats it).
 func unmarshalPayload(packet []byte, cursor int, response *Message) error {
+	if err := readPayload(packet, cursor, response); err != nil {
+		return inCategory(ErrASNParse, err)
+	}
+	return nil
+}
+
+// readPayload reads the PDU at packet[cursor:], which must span the rest of
+// the packet.
+func readPayload(packet []byte, cursor int, response *Message) error {
 	if len(packet) == 0 {
 		return errors.New("cannot unmarshal nil or empty payload packet")
 	}
@@ -397,6 +423,9 @@ func unmarshalVBL(packet []byte, response *Message) error {
 	return nil
 }
 
+// errNoValue is the error of a varbind without a value.
+var errNoValue = errors.New("error decoding value: zero byte buffer")
+
 // readVarbind reads the next varbind: a SEQUENCE of the name (readName) and
 // the value TLV, which must span the rest of it.
 func readVarbind(r *ber.Reader) (VarBind, error) {
@@ -416,7 +445,7 @@ func readVarbind(r *ber.Reader) (VarBind, error) {
 
 	value := fields.Rest()
 	if len(value) == 0 {
-		return VarBind{}, fmt.Errorf("error decoding value: %w", ErrZeroByteBuffer)
+		return VarBind{}, errNoValue
 	}
 	length, header, err := ber.Length(value)
 	if err != nil {

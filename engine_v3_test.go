@@ -1636,6 +1636,42 @@ func v3Scenarios() map[string]v3Scenario {
 			}
 			return agentAnswer{}, false
 		}},
+		// Every attempt answered with a reply that names it but does not
+		// answer it, by one reason each: the request's error ends with the
+		// reason and matches its category.
+		"discard/every-attempt/other-version": {user: "codec-noauth", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+			return agentAnswer{why: "SNMPv2c Response", edit: asV2c}, n > 1
+		}},
+		"discard/every-attempt/reflected-request": {user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+			return agentAnswer{reflect: true, why: "the request sent back"}, n > 1
+		}},
+		"discard/every-attempt/other-request-id": {user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+			return agentAnswer{
+				level: AuthNoPriv, why: "Response for another request", edit: func(p *agentOut) { p.RequestID += 100 },
+			}, n > 1
+		}},
+		"discard/every-attempt/other-level": {user: "codec-sha-aes", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+			return agentAnswer{level: AuthNoPriv, why: "Response without encryption"}, n > 1
+		}},
+		// Security processing rejects another user's name; the empty one of
+		// discovery passes it, and step 12 b discards it.
+		"discard/every-attempt/empty-user": {user: "codec-noauth", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+			return agentAnswer{
+				why: "Response without a user name", edit: func(p *agentOut) { p.SecurityParameters.UserName = "" },
+			}, n > 1
+		}},
+		"discard/every-attempt/other-engine": {user: "codec-noauth", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+			return agentAnswer{
+				why:  "Response naming the other engine ID",
+				edit: func(p *agentOut) { p.SecurityParameters.AuthoritativeEngineID = []byte(agentOtherEngineID) },
+			}, n > 1
+		}},
+		"discard/every-attempt/other-context": {user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
+			return agentAnswer{
+				level: AuthNoPriv, why: "Response with another context name",
+				edit: func(p *agentOut) { p.ContextName = "codec-other-name" },
+			}, n > 1
+		}},
 		// Every attempt answered with lower boots, then the request sent back
 		// unchanged: the request's error is the time window's.
 		"discard/not-in-time-window-then-reflected": {

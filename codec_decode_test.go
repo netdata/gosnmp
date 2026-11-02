@@ -456,6 +456,10 @@ func decodeCraftedCases() []decodeCase {
 		// Version and community.
 		{name: "crafted/version/0", in: craftedMsg(0, craftedPDU(Response, craftedVBL(nullVB)))},
 		{name: "crafted/version/2", in: craftedMsg(2, craftedPDU(Response, craftedVBL(nullVB)))},
+		// The version is known before the octets after the message: a bad
+		// version (RFC 3412 section 4.2.1).
+		{name: "crafted/version/2-trailing-octets", in: append(craftedMsg(2, craftedPDU(Response, craftedVBL(nullVB))), 0x00)},
+		{name: "crafted/version/1-trailing-octets", in: append(craftedMsg(1, craftedPDU(Response, craftedVBL(nullVB))), 0x00)},
 		{name: "crafted/version/3-with-community", in: craftedMsg(3, craftedPDU(Response, craftedVBL(nullVB)))},
 		{name: "crafted/version/256", in: craftedMsg(256, craftedPDU(Response, craftedVBL(nullVB)))},
 		{name: "crafted/version/-1", in: craftedMsg(-1, craftedPDU(Response, craftedVBL(nullVB)))},
@@ -658,6 +662,7 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/v3/flags-reserved-bits", in: craftedV3(intTLV(42), intTLV(65507), octets("\xfc"), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},
 		{name: "crafted/v3/flags-integer", in: craftedV3(intTLV(42), intTLV(65507), intTLV(0), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},
 		{name: "crafted/v3/security-model-2", in: craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(2), craftedNoAuthUSM, craftedScopedResp)},
+		{name: "crafted/v3/msg-global-data-empty", in: craftedV3(nil, nil, nil, nil, craftedNoAuthUSM, craftedScopedResp)},
 		{name: "crafted/v3/msg-id-negative", in: craftedV3(intTLV(-1), intTLV(65507), octets("\x00"), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},
 		{name: "crafted/v3/msg-id-octet-string", in: craftedV3(octets("\x2a"), intTLV(65507), octets("\x00"), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},
 		{name: "crafted/v3/msg-id-2147483647", in: craftedV3(intTLV(math.MaxInt32), intTLV(65507), octets("\x00"), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},

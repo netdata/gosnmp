@@ -114,6 +114,10 @@ func TestDecodeFailurePartialResults(t *testing.T) {
 		"not a sequence": {in: cat([]byte{0x31}, craftedValue(intTLV(5))[1:]), wantErr: header + "invalid packet header", want: with(decodedFields{}, func(*decodedFields) {})},
 		"version":        {in: tlv(0x30, bad, octets("public"), vbl), wantErr: header + "error parsing SNMP packet version" + notInt, want: with(decodedFields{}, func(*decodedFields) {})},
 		"community":      {in: tlv(0x30, intTLV(1), bad, vbl), wantErr: header + "error parsing community string" + notStr, want: with(decodedFields{version: Version2c}, func(*decodedFields) {})},
+		"octet after the message": {
+			in: cat(craftedMsg(1, craftedPDU(Response, vbl)), []byte{0x00}), wantErr: header + "error verifying packet sanity: 1 bytes after the TLV",
+			want: with(decodedFields{}, func(*decodedFields) {}),
+		},
 
 		// PDU header.
 		"request ID":      {in: craftedMsg(1, tlv(byte(Response), bad, intTLV(2), intTLV(3), vbl)), wantErr: body + "error parsing SNMP packet request ID" + notInt, want: resp},
@@ -208,7 +212,7 @@ func TestDecodeFailurePartialResults(t *testing.T) {
 // TestDecodeUSMFields pins RFC 3414 section 3.2 step 1: each USM field must
 // be of its type, and the engine boots and time within 0..2147483647 once cut
 // to 32 bits (as net-snmp v5.9.4 reads them); anything else fails the header
-// parse with ErrInvalidMsgs, on the raw path too.
+// parse with ErrASNParse, on the raw path too.
 func TestDecodeUSMFields(t *testing.T) {
 	const engineID = "\x80\x00\x1f\x88\x04codec-engine"
 	fields := func(edit func(f [][]byte)) []byte {
@@ -238,7 +242,7 @@ func TestDecodeUSMFields(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_, err := (&Client{}).DecodeMessage(tc.in)
 			if tc.invalid {
-				assert.ErrorIs(t, err, ErrInvalidMsgs)
+				assert.ErrorIs(t, err, ErrASNParse)
 			} else {
 				assert.NoError(t, err)
 			}
