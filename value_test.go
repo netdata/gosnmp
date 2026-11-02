@@ -290,6 +290,14 @@ func TestIPAddressMappedDecodesAsIPv4(t *testing.T) {
 			content: netip.MustParseAddr("::c000:201").AsSlice(), want: netip.MustParseAddr("::c000:201"),
 		},
 		"empty": {content: []byte{}, want: netip.Addr{}},
+		"a nonzero octet before 0xffff": {
+			content: []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0xff, 0xff, 192, 0, 2, 1},
+			want:    netip.AddrFrom16([16]byte{9: 1, 10: 0xff, 11: 0xff, 12: 192, 14: 2, 15: 1}),
+		},
+		"one 0xff": {
+			content: []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 192, 0, 2, 1},
+			want:    netip.AddrFrom16([16]byte{11: 0xff, 12: 192, 14: 2, 15: 1}),
+		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
