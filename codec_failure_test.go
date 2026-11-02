@@ -114,6 +114,10 @@ func TestDecodeFailurePartialResults(t *testing.T) {
 		"not a sequence": {in: cat([]byte{0x31}, craftedValue(intTLV(5))[1:]), wantErr: header + "invalid packet header", want: with(decodedFields{}, func(*decodedFields) {})},
 		"version":        {in: tlv(0x30, bad, octets("public"), vbl), wantErr: header + "error parsing SNMP packet version" + notInt, want: with(decodedFields{}, func(*decodedFields) {})},
 		"community":      {in: tlv(0x30, intTLV(1), bad, vbl), wantErr: header + "error parsing community string" + notStr, want: with(decodedFields{version: Version2c}, func(*decodedFields) {})},
+		"octet after the message": {
+			in: cat(craftedMsg(1, craftedPDU(Response, vbl)), []byte{0x00}), wantErr: header + "error verifying packet sanity: 1 bytes after the TLV",
+			want: with(decodedFields{}, func(*decodedFields) {}),
+		},
 
 		// PDU header.
 		"request ID":      {in: craftedMsg(1, tlv(byte(Response), bad, intTLV(2), intTLV(3), vbl)), wantErr: body + "error parsing SNMP packet request ID" + notInt, want: resp},
