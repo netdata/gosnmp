@@ -456,6 +456,10 @@ func decodeCraftedCases() []decodeCase {
 		// Version and community.
 		{name: "crafted/version/0", in: craftedMsg(0, craftedPDU(Response, craftedVBL(nullVB)))},
 		{name: "crafted/version/2", in: craftedMsg(2, craftedPDU(Response, craftedVBL(nullVB)))},
+		// The version is known before the octets after the message: a bad
+		// version (RFC 3412 section 4.2.1).
+		{name: "crafted/version/2-trailing-octets", in: append(craftedMsg(2, craftedPDU(Response, craftedVBL(nullVB))), 0x00)},
+		{name: "crafted/version/1-trailing-octets", in: append(craftedMsg(1, craftedPDU(Response, craftedVBL(nullVB))), 0x00)},
 		{name: "crafted/version/3-with-community", in: craftedMsg(3, craftedPDU(Response, craftedVBL(nullVB)))},
 		{name: "crafted/version/256", in: craftedMsg(256, craftedPDU(Response, craftedVBL(nullVB)))},
 		{name: "crafted/version/-1", in: craftedMsg(-1, craftedPDU(Response, craftedVBL(nullVB)))},
