@@ -1976,6 +1976,9 @@ decode: error (ErrInvalidMsgs)
 == crafted/v3/security-model-2
 decode: error (ErrUnknownSecurityModels)
 
+== crafted/v3/msg-global-data-empty
+decode: error (ErrInvalidMsgs)
+
 == crafted/v3/msg-id-negative
 decode: error (ErrInvalidMsgs)
 
