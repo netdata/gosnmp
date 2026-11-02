@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"net/netip"
 
 	"github.com/netdata/gosnmp/internal/ber"
 )
@@ -85,27 +86,27 @@ func readCount(r *ber.Reader) (uint8, error) {
 }
 
 // readAgentAddress reads an SNMPv1 trap's agent address (RFC 1157's
-// NetworkAddress) as dotted text: an IpAddress of four octets, or an OCTET
-// STRING of four octets, as some agents send it; an empty IpAddress, from
-// buggy agents, reads as "".
-func readAgentAddress(r *ber.Reader) (string, error) {
+// NetworkAddress): an IpAddress of four octets, or an OCTET STRING of four
+// octets, as some agents send it; an empty IpAddress, from buggy agents, reads
+// as the zero Addr.
+func readAgentAddress(r *ber.Reader) (netip.Addr, error) {
 	tag, ok := r.Peek()
 	switch {
 	case !ok:
-		return "", errNoField
+		return netip.Addr{}, errNoField
 	case ValueType(tag) != IPAddress && ValueType(tag) != OctetString:
-		return "", errors.New("not an IpAddress or OCTET STRING")
+		return netip.Addr{}, errors.New("not an IpAddress or OCTET STRING")
 	}
 	_, content, err := r.Next()
 	switch {
 	case err != nil:
-		return "", err
+		return netip.Addr{}, err
 	case len(content) == 4:
-		return net.IP(content).String(), nil
+		return netip.AddrFrom4([4]byte(content)), nil
 	case len(content) == 0 && ValueType(tag) == IPAddress:
-		return "", nil
+		return netip.Addr{}, nil
 	}
-	return "", fmt.Errorf("%d octets, not 4", len(content))
+	return netip.Addr{}, fmt.Errorf("%d octets, not 4", len(content))
 }
 
 // readTimestamp reads an SNMPv1 trap's time-stamp: a TimeTicks, or another
@@ -379,21 +380,15 @@ func unmarshalTrapV1(packet []byte, response *Message) error {
 	if response.AgentAddress, err = readAgentAddress(&r); err != nil {
 		return fmt.Errorf("error parsing SNMPv1 trap agent address: %w", err)
 	}
-	generic, err := readInt32(&r)
-	if err != nil {
+	if response.GenericTrap, err = readInt32(&r); err != nil {
 		return fmt.Errorf("error parsing SNMPv1 trap generic trap: %w", err)
 	}
-	response.GenericTrap = int(generic)
-	specific, err := readInt32(&r)
-	if err != nil {
+	if response.SpecificTrap, err = readInt32(&r); err != nil {
 		return fmt.Errorf("error parsing SNMPv1 trap specific trap: %w", err)
 	}
-	response.SpecificTrap = int(specific)
-	timestamp, err := readTimestamp(&r)
-	if err != nil {
+	if response.Timestamp, err = readTimestamp(&r); err != nil {
 		return fmt.Errorf("error parsing SNMPv1 trap timestamp: %w", err)
 	}
-	response.Timestamp = uint(timestamp)
 	return unmarshalVBL(r.Rest(), response)
 }
 
@@ -462,11 +457,11 @@ func readVarbind(r *ber.Reader) (VarBind, error) {
 	case length < uint64(len(value)):
 		return VarBind{}, fmt.Errorf("value TLV length mismatch in varbind (TLV %d, remaining %d)", length, len(value))
 	}
-	typ, val, err := decodeValue(tag, value[header:])
+	val, err := decodeValue(tag, value[header:])
 	if err != nil {
 		return VarBind{}, fmt.Errorf("error decoding value: %w", err)
 	}
-	return VarBind{Name: name, Type: typ, Value: val}, nil
+	return VarBind{Name: name, Value: val}, nil
 }
 
 // marshalMsg encodes the message: a SEQUENCE of the version, then the
@@ -508,13 +503,8 @@ func (packet *Message) sizeHint() int {
 		n += 128
 	}
 	for i := range packet.VarBinds {
-		n += 16 + len(packet.VarBinds[i].Name)
-		switch v := packet.VarBinds[i].Value.(type) {
-		case []byte:
-			n += len(v)
-		case string:
-			n += len(v)
-		}
+		vb := &packet.VarBinds[i]
+		n += 16 + len(vb.Name) + len(vb.Value.data) + len(vb.Value.oid)
 	}
 	return n
 }
@@ -536,7 +526,7 @@ func (packet *Message) appendPDU(dst []byte) ([]byte, error) {
 	requestID := int64(int32(packet.RequestID)) //nolint:gosec // the Integer32's two's complement
 	switch packet.PDUType {
 	case GetBulkRequest:
-		dst = appendInt(dst, Integer, requestID)
+		dst = appendInt(dst, requestID)
 		dst = appendUint(dst, Integer, uint64(packet.NonRepeaters))
 		dst = appendUint(dst, Integer, uint64(packet.MaxRepetitions))
 	case Trap:
@@ -545,7 +535,7 @@ func (packet *Message) appendPDU(dst []byte) ([]byte, error) {
 			return nil, err
 		}
 	default:
-		dst = appendInt(dst, Integer, requestID)
+		dst = appendInt(dst, requestID)
 		dst = appendUint(dst, Integer, uint64(packet.ErrorStatus))
 		dst = appendUint(dst, Integer, uint64(packet.ErrorIndex))
 	}
@@ -557,31 +547,21 @@ func (packet *Message) appendPDU(dst []byte) ([]byte, error) {
 }
 
 // appendTrapV1Header appends the SNMPv1 trap fields before the varbind list:
-// enterprise, the agent address (an IPv4 address, RFC 1157's NetworkAddress),
-// generic and specific trap within the int32 range, and the timestamp of at
-// most 4294967295.
+// enterprise, the agent address (an IPv4 address, an IPv4-mapped one included:
+// RFC 1157's NetworkAddress), generic and specific trap and the timestamp.
 func (packet *Message) appendTrapV1Header(dst []byte) ([]byte, error) {
-	if uint64(packet.Timestamp) > math.MaxUint32 {
-		return nil, fmt.Errorf("unable to marshal SNMPv1 Timestamp: %d overflows uint32", packet.Timestamp)
-	}
 	dst, err := appendObjectIdentifier(dst, packet.Enterprise)
 	if err != nil {
 		return nil, err
 	}
-	agentAddress, n, err := parseIPAddress(packet.AgentAddress)
-	if err == nil && n != 4 {
-		err = fmt.Errorf("%q is not an IPv4 address", packet.AgentAddress)
+	agentAddress := packet.AgentAddress.Unmap()
+	if !agentAddress.Is4() {
+		return nil, fmt.Errorf("unable to marshal SNMPv1 AgentAddress: %v is not an IPv4 address", packet.AgentAddress)
 	}
-	if err != nil {
-		return nil, fmt.Errorf("unable to marshal SNMPv1 AgentAddress: %w", err)
-	}
-	dst = appendOctets(dst, IPAddress, agentAddress[:n])
-	if dst, err = appendInt32(dst, Integer, packet.GenericTrap); err != nil {
-		return nil, fmt.Errorf("unable to marshal SNMPv1 GenericTrap: %w", err)
-	}
-	if dst, err = appendInt32(dst, Integer, packet.SpecificTrap); err != nil {
-		return nil, fmt.Errorf("unable to marshal SNMPv1 SpecificTrap: %w", err)
-	}
+	octets := agentAddress.As4()
+	dst = appendOctets(dst, IPAddress, octets[:])
+	dst = appendInt(dst, int64(packet.GenericTrap))
+	dst = appendInt(dst, int64(packet.SpecificTrap))
 	return appendUint(dst, TimeTicks, uint64(packet.Timestamp)), nil
 }
 
@@ -605,7 +585,7 @@ func appendVarbind(dst []byte, pdu *VarBind) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if dst, err = appendValue(dst, pdu.Type, pdu.Value); err != nil {
+	if dst, err = appendValue(dst, pdu.Value); err != nil {
 		return nil, err
 	}
 	return ber.End(dst, start), nil

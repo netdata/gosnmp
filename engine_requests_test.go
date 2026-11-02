@@ -13,6 +13,7 @@ import (
 	"io"
 	"maps"
 	"net"
+	"net/netip"
 	"os"
 	"os/exec"
 	"runtime"
@@ -75,7 +76,7 @@ var errEngineCause = errors.New("engine test cause")
 // msgData is the Report PDU itself, without the scoped PDU around it, so that
 // a v1/v2c client reads it as the PDU after the SNMPv3 header.
 func bareV3Report(req []byte, counter string) []byte {
-	return bareV3Answer(req, 7, Report, VarBind{Name: counter, Type: Counter32, Value: uint32(1)})
+	return bareV3Answer(req, 7, Report, VarBind{Name: counter, Value: Counter32Value(1)})
 }
 
 // bareV3Answer is bareV3Report with msgID for a PDU of type pduType with vbs.
@@ -175,7 +176,7 @@ func answerRaw(edit func(reply []byte) []byte) engineAgent {
 	}
 }
 
-var sysDescr = VarBind{Name: engineOID, Type: OctetString, Value: []byte("codec agent")}
+var sysDescr = VarBind{Name: engineOID, Value: OctetStringValue([]byte("codec agent"))}
 
 // answerSplit is an agent that answers every request with its reply with vb,
 // cut at the offsets cuts, its parts 10ms apart: a read each.
@@ -196,7 +197,7 @@ func answerSplit(vb VarBind, cuts ...int) engineAgent {
 func replySized(req []byte, size int) []byte {
 	n := size - 100
 	for {
-		r := replyTo(req, nil, VarBind{Name: engineOID, Type: OctetString, Value: bytes.Repeat([]byte{'x'}, n)})
+		r := replyTo(req, nil, VarBind{Name: engineOID, Value: OctetStringValue(bytes.Repeat([]byte{'x'}, n))})
 		if len(r) == size {
 			return r
 		}
@@ -300,7 +301,7 @@ func engineScenarios() map[string]engineScenario {
 		"get":    {agent: answer(sysDescr)},
 		"get/v1": {v1: true, agent: answer(sysDescr)},
 		"mk-snmp-packet": {agent: answer(sysDescr), run: func(x *Client) (*Message, error) {
-			return x.send(x.NewMessage(GetBulkRequest, []VarBind{{Name: ".1.3.6.1.2.1.1", Type: Null}}, 2, 7))
+			return x.send(x.NewMessage(GetBulkRequest, []VarBind{{Name: ".1.3.6.1.2.1.1", Value: NullValue()}}, 2, 7))
 		}},
 		"get/invalid-oid": {agent: answer(), run: getOIDs(".1.3.6.1.x")},
 
@@ -407,7 +408,7 @@ func engineScenarios() map[string]engineScenario {
 			},
 			agent: func(n int, req []byte) []agentReply {
 				value := fmt.Sprintf("codec agent %d", n)
-				return []agentReply{{data: replyTo(req, nil, VarBind{Name: engineOID, Type: OctetString, Value: []byte(value)})}}
+				return []agentReply{{data: replyTo(req, nil, VarBind{Name: engineOID, Value: OctetStringValue([]byte(value))})}}
 			},
 		},
 		"answer/wrong-id": {agent: answerWith(func(p *Message) { p.RequestID += 100 }, sysDescr)},
@@ -418,7 +419,7 @@ func engineScenarios() map[string]engineScenario {
 			agent: func(int, []byte) []agentReply {
 				trap := &Message{
 					Version: Version1, Community: "public", PDUType: Trap, VarBinds: []VarBind{sysDescr},
-					Enterprise: ".1.3.6.1.4.1.8072", AgentAddress: "127.0.0.2", GenericTrap: 6, SpecificTrap: 1,
+					Enterprise: ".1.3.6.1.4.1.8072", AgentAddress: netip.MustParseAddr("127.0.0.2"), GenericTrap: 6, SpecificTrap: 1,
 				}
 				b, err := trap.Encode(nil)
 				if err != nil {
@@ -432,7 +433,7 @@ func engineScenarios() map[string]engineScenario {
 			agent: answerWith(func(p *Message) { p.RequestID += 100 }),
 		},
 		"answer/empty-with-error-status-wrong-id": {agent: answerWith(func(p *Message) { p.RequestID += 100; p.ErrorStatus = GenErr })},
-		"answer/error-status":                     {agent: answerWith(func(p *Message) { p.ErrorStatus, p.ErrorIndex = NoSuchName, 1 }, VarBind{Name: engineOID, Type: Null})},
+		"answer/error-status":                     {agent: answerWith(func(p *Message) { p.ErrorStatus, p.ErrorIndex = NoSuchName, 1 }, VarBind{Name: engineOID, Value: NullValue()})},
 		"answer/not-a-response": {
 			agent: answerWith(func(p *Message) { p.PDUType = GetRequest }, sysDescr),
 		},
@@ -479,7 +480,7 @@ func engineScenarios() map[string]engineScenario {
 		},
 		"answer/other-version-v3-msg-id-zero": {
 			agent: func(_ int, req []byte) []agentReply {
-				return []agentReply{{data: bareV3Answer(req, 0, Report, VarBind{Name: usmStatsUnknownUserNames, Type: Counter32, Value: uint32(1)})}}
+				return []agentReply{{data: bareV3Answer(req, 0, Report, VarBind{Name: usmStatsUnknownUserNames, Value: Counter32Value(1)})}}
 			},
 		},
 		"answer/other-version-v3-get-response": {
@@ -1190,10 +1191,10 @@ func TestEngineRequestTimeoutError(t *testing.T) {
 func BenchmarkSendOneRequest(b *testing.B) {
 	const oid = ".1.3.6.1.2.1.31.1.1.1.10.1"
 	c := newFakeTransport(nil, func(_ int, req []byte) []agentReply {
-		return []agentReply{{data: replyTo(req, nil, VarBind{Name: oid, Type: Counter64, Value: uint64(3825929753)})}}
+		return []agentReply{{data: replyTo(req, nil, VarBind{Name: oid, Value: Counter64Value(3825929753)})}}
 	})
 	x := newEngineClient(b, nil, Version2c, fakePacketTransport{c})
-	pkt := x.NewMessage(GetRequest, []VarBind{{Name: oid, Type: Null}}, 0, 0)
+	pkt := x.NewMessage(GetRequest, []VarBind{{Name: oid, Value: NullValue()}}, 0, 0)
 	cfg := x.prepareRequest()
 
 	b.ReportAllocs()
@@ -1335,7 +1336,7 @@ func TestExchangeAnswers(t *testing.T) {
 	usm := func(p *Message) *SecurityParameters { return &p.SecurityParameters }
 	report := func(counter string) func(p *Message) {
 		return func(p *Message) {
-			p.PDUType, p.RequestID, p.SecurityLevel, p.VarBinds = Report, 0, NoAuthNoPriv, []VarBind{{Name: counter, Type: Counter32, Value: uint32(1)}}
+			p.PDUType, p.RequestID, p.SecurityLevel, p.VarBinds = Report, 0, NoAuthNoPriv, []VarBind{{Name: counter, Value: Counter32Value(1)}}
 			p.ContextEngineID, p.ContextName = []byte("engine"), ""
 		}
 	}
@@ -1404,7 +1405,7 @@ func TestExchangeAnswers(t *testing.T) {
 // the counter's OID and one instance sub-identifier of any value, as net-snmp
 // does; anything else is ErrUnknownReportPDU.
 func TestReportKindOf(t *testing.T) {
-	counter := func(name string) VarBind { return VarBind{Name: name, Type: Counter32, Value: uint32(1)} }
+	counter := func(name string) VarBind { return VarBind{Name: name, Value: Counter32Value(1)} }
 	tests := map[string]struct {
 		version Version
 		pduType PDUType

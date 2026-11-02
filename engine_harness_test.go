@@ -15,6 +15,7 @@ import (
 	"os"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -461,20 +462,43 @@ func describeV3Message(b []byte) string {
 func describeVarbinds(vbs []VarBind) string {
 	parts := make([]string, 0, len(vbs))
 	for _, vb := range vbs {
-		if vb.Type == Null {
+		if vb.Value.Type() == Null {
 			parts = append(parts, vb.Name)
 			continue
 		}
-		value := vb.Value
-		if b, ok := value.([]byte); ok {
-			value = fmt.Sprintf("%q", b)
-			if len(b) > 64 {
-				value = fmt.Sprintf("%q... (%d octets)", b[:16], len(b))
-			}
-		}
-		parts = append(parts, fmt.Sprintf("%s=%v:%v", vb.Name, vb.Type, value))
+		parts = append(parts, fmt.Sprintf("%s=%v:%s", vb.Name, vb.Value.Type(), describeValue(vb.Value)))
 	}
 	return "[" + strings.Join(parts, " ") + "]"
+}
+
+// describeValue prints a value for a transcript: octets quoted, a long run cut,
+// and "<nil>" for a value without one.
+func describeValue(v Value) string {
+	if b, ok := v.Bytes(); ok {
+		if len(b) > 64 {
+			return fmt.Sprintf("%q... (%d octets)", b[:16], len(b))
+		}
+		return fmt.Sprintf("%q", b)
+	}
+	if i, ok := v.Int64(); ok {
+		return strconv.FormatInt(i, 10)
+	}
+	if u, ok := v.Uint64(); ok {
+		return strconv.FormatUint(u, 10)
+	}
+	if oid, ok := v.OID(); ok {
+		return oid
+	}
+	if a, ok := v.IP(); ok && a.IsValid() {
+		return a.String()
+	}
+	if f, ok := v.Float32(); ok {
+		return fmt.Sprint(f)
+	}
+	if f, ok := v.Float64(); ok {
+		return fmt.Sprint(f)
+	}
+	return "<nil>"
 }
 
 // replyTo encodes the answer of an agent to req: a Response with req's

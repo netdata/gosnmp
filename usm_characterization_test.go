@@ -202,8 +202,8 @@ func usmCharPacket(t testing.TB, priv PrivProtocol, variables []VarBind) *Messag
 }
 
 var usmCharVarbinds = []VarBind{
-	{Name: ".1.3.6.1.2.1.1.3.0", Type: TimeTicks, Value: uint32(12345)},
-	{Name: ".1.3.6.1.6.3.1.1.4.1.0", Type: ObjectIdentifier, Value: ".1.3.6.1.4.1.8072.2.3.0.1"},
+	{Name: ".1.3.6.1.2.1.1.3.0", Value: TimeTicksValue(12345)},
+	{Name: ".1.3.6.1.6.3.1.1.4.1.0", Value: ObjectIdentifierValue(".1.3.6.1.4.1.8072.2.3.0.1")},
 }
 
 // usmCharSalt is the salt of usmCharTrap's message, the one the USM goldens
@@ -354,7 +354,7 @@ func usmFlagsTrap(t testing.TB, priv PrivProtocol, flags SecurityLevel, saltLen 
 var usmMalformedV3Header = tlv(0x30, intTLV(3), tlv(0x31, intTLV(1)))
 
 // usmPlainVars are the variable bindings of usmPlainTrap.
-var usmPlainVars = []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Type: Integer, Value: 5}}
+var usmPlainVars = []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Value: IntegerValue(5)}}
 
 // usmPlainTrap is a noAuthNoPriv SNMPv2-Trap with a plaintext scoped PDU,
 // the given security model, engine ID and user name, and no digest or salt.
@@ -531,7 +531,7 @@ func TestUSMAuthFieldEmpty(t *testing.T) {
 func TestUSMPrivacyPadding(t *testing.T) {
 	for _, priv := range usmPrivProtocols[1:] {
 		for n := range 16 {
-			vbs := []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Type: OctetString, Value: bytes.Repeat([]byte{'x'}, n)}}
+			vbs := []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Value: OctetStringValue(bytes.Repeat([]byte{'x'}, n))}}
 			plain := splitV3Message(t, usmCharTrap(t, NoPriv, vbs))
 			secured := splitV3Message(t, usmCharTrap(t, priv, vbs))
 

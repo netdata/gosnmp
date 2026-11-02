@@ -37,9 +37,9 @@ GoSNMP has the following SNMP functions:
 The library writes no log or other output and never exits the process: every function reports through its results and
 errors.
 
-GoSNMP has the following **helper** functions:
-
-* **ToBigInt** - treat returned integer values as `*big.Int`
+Each varbind holds a `Value` of one Go type per SMI type (an Integer is an `int32`, a Counter32 a `uint32`, an IpAddress
+a `netip.Addr`, ...), read through its accessor (`Int32`, `Uint32`, `IP`, ...) and built by its constructor
+(`IntegerValue`, `Counter32Value`, ...); `String` prints it as `%v` printed the untyped value.
 
 The [package documentation](https://pkg.go.dev/github.com/netdata/gosnmp) describes request attempts and timeouts,
 hooks, SNMPv3 engine discovery and Reports, the Go type of each value type, and how messages are decoded.
@@ -84,16 +84,16 @@ if err2 != nil {
 for i, variable := range result.VarBinds {
     fmt.Printf("%d: oid: %s ", i, variable.Name)
 
-    // The Go type of a Value depends on its Type (see the package
-    // documentation). You could do a type switch...
-    switch variable.Type {
-    case g.OctetString:
-        fmt.Printf("string: %s\n", string(variable.Value.([]byte)))
-    default:
-        // ... or often you're just interested in numeric values.
-        // ToBigInt() will return the Value as a BigInt, for plugging
-        // into your calculations.
-        fmt.Printf("number: %d\n", g.ToBigInt(variable.Value))
+    // Each value type has its accessor (see Value): text for an
+    // OctetString, a number for the integer types (Uint64 for Counter64), ...
+    if b, ok := variable.Value.Bytes(); ok {
+        fmt.Printf("string: %s\n", string(b))
+    } else if n, ok := variable.Value.Int64(); ok {
+        fmt.Printf("number: %d\n", n)
+    } else if n, ok := variable.Value.Uint64(); ok {
+        fmt.Printf("number: %d\n", n)
+    } else {
+        fmt.Printf("type: %v\n", variable.Value.Type())
     }
 }
 ```

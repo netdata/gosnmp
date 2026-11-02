@@ -182,8 +182,7 @@ func (m *mockAgentUnknownUserNames) marshalUnknownUserNamesReport(req *Message) 
 		RequestID:          req.RequestID,
 		VarBinds: []VarBind{{
 			Name:  usmStatsUnknownUserNames,
-			Value: 1,
-			Type:  Integer,
+			Value: IntegerValue(1),
 		}},
 	}
 	return pkt.Encode(nil)
@@ -205,8 +204,7 @@ func (m *mockAgentUnknownUserNames) marshalResponse(req *Message) ([]byte, error
 		ContextEngineID:    []byte(m.engineID),
 		VarBinds: []VarBind{{
 			Name:  ".1.3.6.1.2.1.1.1.0",
-			Value: "mock sysDescr",
-			Type:  OctetString,
+			Value: OctetStringValue([]byte("mock sysDescr")),
 		}},
 	}
 	return pkt.Encode(nil)
@@ -288,7 +286,7 @@ func TestV3GetWithDiscoveryUnknownUserNames(t *testing.T) {
 	require.NotNil(t, result)
 	require.Len(t, result.VarBinds, 1)
 	require.Equal(t, ".1.3.6.1.2.1.1.1.0", result.VarBinds[0].Name)
-	require.Equal(t, []byte("mock sysDescr"), result.VarBinds[0].Value)
+	require.Equal(t, OctetStringValue([]byte("mock sysDescr")), result.VarBinds[0].Value)
 }
 
 // TestV3DiscoveryUnknownUserNamesNoEngineID verifies that ErrUnknownUsername is
