@@ -378,14 +378,15 @@
 // category, an exported error named after the counter RFC 3412, RFC 3414 or
 // RFC 3418 counts the message in, as net-snmp v5.9.4 counts it, with a text of
 // its own: an error of DecodeMessage, of UnmarshalTrap, and the reason a
-// request discards a reply for. In the order a message meets them:
+// request discards a reply for. The categories:
 //
 //   - [ErrASNParse] (snmpInASNParseErrs): the message does not parse, of any
 //     version: its encoding, a header field of another type or outside its
-//     range, the USM parameters (RFC 3414 section 3.2 step 1), a scoped PDU of
-//     the other type than the privFlag asks for or one that does not parse in
-//     plaintext, the PDU, an unknown PDU type and a varbind (RFC 3412 section
-//     7.2 steps 2 and 7);
+//     range, the USM parameters (RFC 3414 section 3.2 step 1; net-snmp counts
+//     msgPrivacyParameters that do not parse in usmStatsDecryptionErrors), a
+//     scoped PDU of the other type than the privFlag asks for or one that does
+//     not parse in plaintext, the PDU, an unknown PDU type and a varbind (RFC
+//     3412 section 7.2 steps 2 and 7);
 //   - [ErrBadVersion] (snmpInBadVersions): a version other than SNMPv1, SNMPv2c
 //     and SNMPv3 (RFC 3412 section 4.2.1);
 //   - [ErrUnknownSecurityModels]: another security model (step 4);
@@ -393,8 +394,9 @@
 //   - [ErrUnknownEngineID] through [ErrDecryption]: the security processing
 //     (RFC 3414 section 3.2 steps 3 to 8), [ErrUnknownSecurityLevel] for a
 //     trap receiver's minimum level too, and [ErrDecryption] for a decrypted
-//     scoped PDU that does not parse, as a wrong privacy key yields (net-snmp
-//     counts it in snmpInASNParseErrs);
+//     plaintext that is not a SEQUENCE of a contextEngineID and a contextName,
+//     as a wrong privacy key yields (net-snmp counts it in snmpInASNParseErrs;
+//     a PDU that does not parse after them is [ErrASNParse]);
 //   - [ErrUnmatchedReply]: a reply that does not answer the request: of another
 //     version, naming none of its attempts, neither a Response nor a Report,
 //     or with another request ID, security level, user name, engine ID or
@@ -412,8 +414,8 @@
 // matches none of them, nor does a transport error or a timeout without a
 // discarded reply.
 //
-// The categories are variables only so that errors.Is can match them: the
-// library returns the values they had when the package was initialized, so
-// after a caller assigns another value to one, the library's errors no longer
-// match it.
+// The categories are variables only so that errors.Is can match them; do not
+// assign to them. The library makes some of its errors with their values when
+// the package is initialized and others when the error occurs, so after an
+// assignment its errors match the old value or the new one.
 package gosnmp

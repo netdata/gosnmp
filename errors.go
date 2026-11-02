@@ -16,15 +16,17 @@ import "errors"
 // key that does not derive or a protocol FIPS 140-only mode refuses, matches
 // none of them.
 //
-// They are variables only so that errors.Is can match them: the library
-// returns the values they had when the package was initialized, so after a
-// caller assigns another value to one, the library's errors no longer match
-// it.
+// They are variables only so that errors.Is can match them; do not assign to
+// them. The library makes some of its errors with their values when the
+// package is initialized and others when the error occurs, so after an
+// assignment its errors match the old value or the new one.
 var (
 	// ErrASNParse is a message that does not parse, of any version: its
 	// encoding, a header field, the USM parameters, a plaintext scoped PDU, the
 	// PDU or a varbind, an unknown PDU type included (snmpInASNParseErrs, RFC
-	// 3412 section 7.2 steps 2 and 7, RFC 3414 section 3.2 step 1).
+	// 3412 section 7.2 steps 2 and 7, RFC 3414 section 3.2 step 1; net-snmp
+	// v5.9.4 counts msgPrivacyParameters that do not parse in
+	// usmStatsDecryptionErrors).
 	ErrASNParse = errors.New("ASN.1 parse error")
 	// ErrBadVersion is a message of another version than SNMPv1, SNMPv2c and
 	// SNMPv3 (snmpInBadVersions, RFC 3412 section 4.2.1).
@@ -50,8 +52,9 @@ var (
 	// ErrNotInTimeWindow is an authentic SNMPv3 message outside the time
 	// window (step 7).
 	ErrNotInTimeWindow = errors.New("not in time window")
-	// ErrDecryption is an SNMPv3 message that does not decrypt (step 8),
-	// or whose decrypted scoped PDU does not parse.
+	// ErrDecryption is an SNMPv3 message that does not decrypt (step 8), or
+	// whose decrypted plaintext is not a SEQUENCE of a contextEngineID and a
+	// contextName (a PDU that does not parse after them is ErrASNParse).
 	ErrDecryption = errors.New("decryption error")
 	// ErrUnknownPDUHandlers is a Report of snmpUnknownPDUHandlers (RFC 3412).
 	ErrUnknownPDUHandlers = errors.New("unknown pdu handlers")
