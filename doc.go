@@ -68,14 +68,15 @@
 // "request timeout (after N retries)", which matches the attempt's reason with
 // [errors.Is] and [errors.As] (the timeout, a [net.Error]). When the request
 // discarded messages, such an error, and one at the Context's deadline, also
-// matches the reason of the one that came closest to answering it (the last
-// authentic reply naming the request, by its SNMPv3 msgID, else the last naming
-// it, by that msgID or as an SNMPv1 or SNMPv2c Response with one of its
-// request IDs, else the last one whose ID could not be read, as one of another
-// SNMP version; messages to other requests do not count), and its text ends
-// with ": last discarded reply: " and that reason's text. An answer's error
-// status ([Message].ErrorStatus) is not an error of the request. Connect uses
-// Timeout and the Context too, for its lookup of Target and its dial together.
+// matches the reason, and so the category (see Errors), of the one that came
+// closest to answering it (the last authentic reply naming the request, by its
+// SNMPv3 msgID, else the last naming it, by that msgID or as an SNMPv1 or
+// SNMPv2c Response with one of its request IDs, else the last one whose ID
+// could not be read, as one of another SNMP version; messages to other
+// requests do not count), and its text ends with ": last discarded reply: "
+// and that reason's text. An answer's error status ([Message].ErrorStatus) is
+// not an error of the request. Connect uses Timeout and the Context too, for
+// its lookup of Target and its dial together.
 //
 // # Hooks
 //
@@ -151,7 +152,8 @@
 // b; one that differs leaves the request outstanding, as in net-snmp). A reply
 // that fails is discarded like one that does not decode; the error of a request
 // that then times out or ends at the Context's deadline also matches the
-// step's, [ErrNotInTimeWindow] for the time window (see Attempts and timeouts).
+// step's, [ErrNotInTimeWindow] for the time window, and [ErrUnmatchedReply]
+// for a reply that does not answer (see Attempts and timeouts).
 //
 // The client takes the engine ID of each answer whose digest it checked and of
 // each Response, which name the request's (security processing, the rule
@@ -370,22 +372,46 @@
 //
 // # Errors
 //
-// The errors named after the counters a Report carries ([ErrUnknownUsername],
-// [ErrWrongDigest] and the others) are also the categories of the library's
-// own rejections of a message: an error of decoding an SNMPv3 message, a trap
-// or a reply, unwraps ([errors.Is]) to the counter of the RFC 3412 section 7.2
-// or RFC 3414 section 3.2 step that rejected it, with its own text:
-// [ErrUnknownSecurityModels] for another security model, [ErrInvalidMsgs] for
-// privacy without authentication and, in place of snmpInASNParseErrs, which
-// has no error of its own, for a header or a scoped PDU that does not parse
-// before decryption, [ErrUnknownEngineID] through [ErrDecryption] for the
-// security processing, [ErrUnknownSecurityLevel] for a trap receiver's minimum
-// level too. A decode error also unwraps to [ErrInvalidPacketLength] when a
-// length caused it, besides its category: after a wrong privacy key, a
-// decrypted scoped PDU whose length runs past its plaintext matches both
-// [ErrDecryption] and [ErrInvalidPacketLength]. A request that times out or
-// ends at the Context's deadline after discarded replies fails with an error
-// that also matches the reason of the one that came closest to answering it (see Attempts and timeouts), so it matches
-// these errors without a Report. A local failure, such as a key that does not
-// fit its protocol, matches none of them.
+// Every error of an incoming message unwraps ([errors.Is]) to exactly one
+// category, an exported error named after the counter RFC 3412, RFC 3414 or
+// RFC 3418 counts the message in, as net-snmp v5.9.4 counts it, with a text of
+// its own: an error of DecodeMessage, of UnmarshalTrap, and the reason a
+// request discards a reply for. In the order a message meets them:
+//
+//   - [ErrASNParse] (snmpInASNParseErrs): the message does not parse, of any
+//     version: its encoding, a header field of another type or outside its
+//     range, the USM parameters (RFC 3414 section 3.2 step 1), a scoped PDU of
+//     the other type than the privFlag asks for or one that does not parse in
+//     plaintext, the PDU, an unknown PDU type and a varbind (RFC 3412 section
+//     7.2 steps 2 and 7);
+//   - [ErrBadVersion] (snmpInBadVersions): a version other than SNMPv1, SNMPv2c
+//     and SNMPv3 (RFC 3412 section 4.2.1);
+//   - [ErrUnknownSecurityModels]: another security model (step 4);
+//   - [ErrInvalidMsgs]: privacy without authentication (step 5 d);
+//   - [ErrUnknownEngineID] through [ErrDecryption]: the security processing
+//     (RFC 3414 section 3.2 steps 3 to 8), [ErrUnknownSecurityLevel] for a
+//     trap receiver's minimum level too, and [ErrDecryption] for a decrypted
+//     scoped PDU that does not parse, as a wrong privacy key yields (net-snmp
+//     counts it in snmpInASNParseErrs);
+//   - [ErrUnmatchedReply]: a reply that does not answer the request: of another
+//     version, naming none of its attempts, neither a Response nor a Report,
+//     or with another request ID, security level, user name, engine ID or
+//     context (RFC 3412 section 7.2 steps 10 a and 12 b).
+//
+// A request answered by an SNMPv3 Report fails with the error of the Report's
+// counter, the same errors ([ErrUnknownPDUHandlers] too), or
+// [ErrUnknownReportPDU] for a counter the library does not know. A request
+// that times out or ends at the Context's deadline after discarded replies
+// fails with an error that also matches the category of the one that came
+// closest to answering it (see Attempts and timeouts). So a category says why
+// a message was rejected, by the agent or by the library, not who rejected
+// it. A local failure, such as a configuration error, a key that does not
+// derive or fit its protocol, or a protocol FIPS 140-only mode refuses,
+// matches none of them, nor does a transport error or a timeout without a
+// discarded reply.
+//
+// The categories are variables only so that errors.Is can match them: the
+// library returns the values they had when the package was initialized, so
+// after a caller assigns another value to one, the library's errors no longer
+// match it.
 package gosnmp

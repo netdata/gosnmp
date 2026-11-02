@@ -136,7 +136,7 @@ func TestTrapTimeliness(t *testing.T) {
 	}
 	// invalid boots or time fail the header parse (RFC 3414 section 3.2 step 1).
 	invalid := func(boots, time uint32) timelyMessage {
-		return timelyMessage{boots: boots, time: time, want: ErrInvalidMsgs}
+		return timelyMessage{boots: boots, time: time, want: ErrASNParse}
 	}
 	after := func(wait time.Duration, m timelyMessage) timelyMessage { m.wait = wait; return m }
 	inform := func(m timelyMessage) timelyMessage { m.inform = true; return m }

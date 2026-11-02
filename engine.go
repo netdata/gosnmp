@@ -630,17 +630,21 @@ func receiveReply(level SecurityLevel, got, want *SecurityParameters, keys *usmK
 }
 
 // The reasons a message is discarded for after the header decoded, besides
-// security processing's (RFC 3412 section 7.2 steps 3, 10 and 12 b).
+// security processing's (RFC 3412 section 7.2 steps 3, 10 and 12 b): the
+// message does not answer the request, ErrUnmatchedReply.
 var (
-	errOtherVersion   = errors.New("the reply is of another SNMP version than the request")
-	errOtherMessage   = errors.New("the reply's msgID names no attempt of the request")
-	errNotAnswer      = errors.New("the reply is neither a Response nor an SNMPv3 Report")
-	errOtherRequestID = errors.New("the reply's request ID does not match the request")
-	errOtherLevel     = errors.New("the reply's security level is not the request's")
-	errOtherUser      = errors.New("the reply's user name is not the request's")
-	errOtherEngine    = errors.New("the reply's engine ID is not the request's")
-	errOtherContext   = errors.New("the reply's context is not the request's")
+	errOtherVersion   = unmatched("the reply is of another SNMP version than the request")
+	errOtherMessage   = unmatched("the reply's msgID names no attempt of the request")
+	errNotAnswer      = unmatched("the reply is neither a Response nor an SNMPv3 Report")
+	errOtherRequestID = unmatched("the reply's request ID does not match the request")
+	errOtherLevel     = unmatched("the reply's security level is not the request's")
+	errOtherUser      = unmatched("the reply's user name is not the request's")
+	errOtherEngine    = unmatched("the reply's engine ID is not the request's")
+	errOtherContext   = unmatched("the reply's context is not the request's")
 )
+
+// unmatched returns the error with text, of ErrUnmatchedReply.
+func unmatched(text string) error { return inCategory(ErrUnmatchedReply, errors.New(text)) }
 
 // answers reports whether reply, a message decode read for the request,
 // answers it, with the error of a Report that does, or else the reason it does
@@ -699,23 +703,6 @@ const (
 	snmpUnknownSecurityModels    = ".1.3.6.1.6.3.11.2.1.1.0"
 	snmpInvalidMsgs              = ".1.3.6.1.6.3.11.2.1.2.0"
 	snmpUnknownPDUHandlers       = ".1.3.6.1.6.3.11.2.1.3.0"
-)
-
-// The errors of a request answered by a Report: one per Report counter the
-// library knows, and ErrUnknownReportPDU for any other counter. The library's
-// own rejections of a message unwrap to the counter's error too (see the
-// package documentation, Errors).
-var (
-	ErrDecryption            = errors.New("decryption error")
-	ErrInvalidMsgs           = errors.New("invalid messages")
-	ErrNotInTimeWindow       = errors.New("not in time window")
-	ErrUnknownEngineID       = errors.New("unknown engine id")
-	ErrUnknownPDUHandlers    = errors.New("unknown pdu handlers")
-	ErrUnknownReportPDU      = errors.New("unknown report pdu")
-	ErrUnknownSecurityLevel  = errors.New("unknown security level")
-	ErrUnknownSecurityModels = errors.New("unknown security models")
-	ErrUnknownUsername       = errors.New("unknown username")
-	ErrWrongDigest           = errors.New("wrong digest")
 )
 
 // reportKind is what the counter an SNMPv3 Report carries means to a request.

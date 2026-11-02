@@ -15,8 +15,8 @@ import (
 	"strconv"
 )
 
-// Errors returned by the decoders. The root package exports them under the
-// same names.
+// Errors returned by the decoders. The root package does not export them: its
+// decode errors wrap them besides their category.
 var (
 	ErrBase128IntegerTooLarge  = errors.New("base 128 integer too large")
 	ErrBase128IntegerTruncated = errors.New("base 128 integer truncated")

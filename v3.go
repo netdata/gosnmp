@@ -78,37 +78,24 @@ func (packet *Message) sign(msg []byte, auth int, keys *usmKeys) ([]byte, error)
 // digest wrap: the message is not authentic.
 var errNotAuthentic = errors.New("incoming packet is not authentic, discarding")
 
-// categorized is an error of SNMPv3 message processing: it has the text of
-// err and unwraps to err and to category, the exported error named after the
-// counter of the RFC 3412 or RFC 3414 step that rejected the message
-// (ErrInvalidMsgs stands in for snmpInASNParseErrs).
-type categorized struct {
-	// errs holds err and category, so that Unwrap allocates nothing.
-	errs [2]error
-}
-
-func (e *categorized) Error() string { return e.errs[0].Error() }
-
-func (e *categorized) Unwrap() []error { return e.errs[:] }
-
-// inCategory returns err, which unwraps to category too.
-func inCategory(category, err error) error {
-	return &categorized{errs: [2]error{err, category}}
-}
-
 // The rejections of the security processing (RFC 3414 section 3.2), in the
 // order of its steps; the minimum level a trap receiver requires comes after
 // them.
 var (
-	errNoEngineID    = inCategory(ErrUnknownEngineID, errors.New("incoming packet names no authoritative engine ID, discarding"))
-	errUnknownUser   = inCategory(ErrUnknownUsername, errNotAuthentic)
-	errNoAuthForMsg  = inCategory(ErrUnknownSecurityLevel, errors.New("error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message"))
-	errNoPrivForMsg  = inCategory(ErrUnknownSecurityLevel, errors.New("error parsing SNMPv3 User Security Model: privacy parameters are not configured to parse incoming encrypted message"))
-	errWrongDigest   = inCategory(ErrWrongDigest, errNotAuthentic)
-	errNotInTime     = inCategory(ErrNotInTimeWindow, errors.New("incoming packet is not in the time window, discarding"))
-	errScopedPDUType = inCategory(ErrInvalidMsgs, errors.New("error parsing SNMPV3 scoped PDU: its type does not match the privacy flag"))
-	errBelowMinimum  = inCategory(ErrUnknownSecurityLevel, errors.New("incoming packet has a lower security level than its user requires, discarding"))
+	errNoEngineID   = inCategory(ErrUnknownEngineID, errors.New("incoming packet names no authoritative engine ID, discarding"))
+	errUnknownUser  = inCategory(ErrUnknownUsername, errNotAuthentic)
+	errNoAuthForMsg = inCategory(ErrUnknownSecurityLevel, errors.New("error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message"))
+	errNoPrivForMsg = inCategory(ErrUnknownSecurityLevel, errors.New("error parsing SNMPv3 User Security Model: privacy parameters are not configured to parse incoming encrypted message"))
+	errWrongDigest  = inCategory(ErrWrongDigest, errNotAuthentic)
+	errNotInTime    = inCategory(ErrNotInTimeWindow, errors.New("incoming packet is not in the time window, discarding"))
+	errBelowMinimum = inCategory(ErrUnknownSecurityLevel, errors.New("incoming packet has a lower security level than its user requires, discarding"))
 )
+
+// errScopedPDUType is the error of a scoped PDU whose type does not match the
+// privFlag: a SEQUENCE in plaintext, an OCTET STRING encrypted (RFC 3412
+// section 6.7, ScopedPduData). The message does not parse, as net-snmp v5.9.4
+// counts both cases.
+var errScopedPDUType = inCategory(ErrASNParse, errors.New("error parsing SNMPV3 scoped PDU: its type does not match the privacy flag"))
 
 // appendV3 appends the SNMPv3 part of a message after the version: the header
 // (msgGlobalData), the security parameters in an OCTET STRING and the scoped
@@ -242,14 +229,19 @@ var errMsgFlags = errors.New("error parsing SNMPV3 msgFlags: not an OCTET STRING
 // without authentication (RFC 3412 section 7.2 step 5 d).
 var errPrivWithoutAuth = errors.New("error parsing SNMPV3 msgFlags: privacy without authentication")
 
-// v3ParseError returns err, an error of parseV3, unwrapping to the exported
-// error of its counter: ErrUnknownSecurityModels for another security model
-// (RFC 3412 section 7.2 step 4), ErrInvalidMsgs for the rest.
+// v3ParseError returns err, an error of parseV3, in the category of its
+// counter, as net-snmp v5.9.4 counts it: ErrUnknownSecurityModels for another
+// security model (RFC 3412 section 7.2 step 4), ErrInvalidMsgs for privacy
+// without authentication (step 5 d), ErrASNParse for the rest, a header field
+// outside its range included (step 2, RFC 3414 section 3.2 step 1).
 func v3ParseError(err error) error {
-	if errors.Is(err, errNotUSM) {
+	switch {
+	case errors.Is(err, errNotUSM):
 		return inCategory(ErrUnknownSecurityModels, err)
+	case errors.Is(err, errPrivWithoutAuth):
+		return inCategory(ErrInvalidMsgs, err)
 	}
-	return inCategory(ErrInvalidMsgs, err)
+	return inCategory(ErrASNParse, err)
 }
 
 // parseV3 reads the SNMPv3 header at packet[cursor:]: the message ID, maximum
@@ -430,13 +422,13 @@ func tlvAt(packet []byte, off, end int) (start, stop int, err error) {
 // read against the rest of the message, whatever its declared length. The
 // decrypted plaintext must be a SEQUENCE, which cuts off the padding, and
 // contextEngineID and contextName OCTET STRINGs. A scoped PDU of the other
-// type, or one that does not parse before decryption, is ErrInvalidMsgs; a
+// type, or one that does not parse before decryption, is ErrASNParse; a
 // decryption failure, or a decrypted plaintext that does not parse, as with a
-// wrong key, ErrDecryption; a key the process cannot decrypt with
-// (usm.Priv.CheckUse) neither.
+// wrong key, ErrDecryption (net-snmp counts the latter as a parse error); a key
+// the process cannot decrypt with (usm.Priv.CheckUse) neither.
 func unmarshalScopedPDU(packet []byte, cursor int, response *Message, encrypted bool, keys *usmKeys) ([]byte, int, error) {
 	if cursor >= len(packet) {
-		return nil, 0, inCategory(ErrInvalidMsgs, errors.New("error parsing SNMPV3: truncated packet"))
+		return nil, 0, inCategory(ErrASNParse, errors.New("error parsing SNMPV3: truncated packet"))
 	}
 
 	var r ber.Reader
@@ -445,11 +437,11 @@ func unmarshalScopedPDU(packet []byte, cursor int, response *Message, encrypted 
 		return nil, 0, errScopedPDUType
 	}
 	if tag != ber.Sequence && tag != byte(OctetString) {
-		return nil, 0, inCategory(ErrInvalidMsgs, errors.New("error parsing SNMPV3 scoped PDU"))
+		return nil, 0, inCategory(ErrASNParse, errors.New("error parsing SNMPV3 scoped PDU"))
 	}
 	start, stop, err := tlvAt(packet, cursor, len(packet))
 	if err != nil {
-		return nil, 0, inCategory(ErrInvalidMsgs, fmt.Errorf("error parsing SNMPV3 scoped PDU: %w", err))
+		return nil, 0, inCategory(ErrASNParse, fmt.Errorf("error parsing SNMPV3 scoped PDU: %w", err))
 	}
 	if encrypted {
 		if err := keys.privProtocol.spec().CheckUse(keys.priv); err != nil {
@@ -477,7 +469,7 @@ func unmarshalScopedPDU(packet []byte, cursor int, response *Message, encrypted 
 		if encrypted {
 			return nil, 0, inCategory(ErrDecryption, err)
 		}
-		return nil, 0, inCategory(ErrInvalidMsgs, err)
+		return nil, 0, inCategory(ErrASNParse, err)
 	}
 	return packet, len(packet) - r.Len(), nil
 }
