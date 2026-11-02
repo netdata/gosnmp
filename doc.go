@@ -38,8 +38,8 @@
 // ends without a reply fails with an error wrapping [net.ErrClosed], whatever
 // else ended the attempt, a done Context included, and so do later requests
 // until Connect opens a connection or Conn is set. The hooks run on the
-// goroutine of the request. A [SnmpV3SecurityParametersTable] and the key cache
-// of [PasswordCaching] are safe for concurrent use.
+// goroutine of the request. A [SnmpV3SecurityParametersTable] and the
+// package's key cache are safe for concurrent use.
 //
 // # Attempts and timeouts
 //
@@ -100,47 +100,39 @@
 //
 // # SNMPv3
 //
-// The client keeps what it knows of the agent's engine, its engine state (RFC
-// 3414 section 2.3): the engine ID, the user's keys localized to it, the engine
-// boots and time, and the context engine ID of requests. Every request reads
-// it; only an answer that matched a request changes it, whole, once the new
-// state is valid. A request without an engine ID first discovers it (RFC 3414
-// section 4): it sends an unauthenticated, empty Get and takes the engine ID,
-// boots and time of the answer, with keys derived for that engine ID. The
-// answer is usually a usmStatsUnknownEngineIDs Report; a
+// The client's configuration holds the user ([User]: name, protocols and
+// passphrases), the security level and the context name. What the client
+// learns of the agent's engine is its engine state (RFC 3414 section 2.3),
+// internal to it: the engine ID, the user's keys localized to it and the engine
+// boots and time; requests take the engine ID as their context engine ID. Every
+// request reads it; only an answer that matched a request changes it, whole,
+// once the new state is valid. A request without an engine ID first discovers
+// it (RFC 3414 section 4): it sends an unauthenticated, empty Get and takes the
+// engine ID, boots and time of the answer, with keys derived for that engine
+// ID. The answer is usually a usmStatsUnknownEngineIDs Report; a
 // usmStatsUnknownUserNames Report that carries an engine ID, as some devices
 // send, serves too (a Response answers discovery only with neither an engine
 // ID nor a context engine ID: see below). An answer without an engine ID ends
 // the request with an error that matches [ErrUnknownEngineID]: the client
 // learns nothing, and the next request discovers again. Keys that do not derive
-// (FIPS 140-only mode refuses MD5 and SHA-1) end the request with the
-// derivation's error, before any discovery. A client given the engine ID
-// derives its keys instead.
+// (a protocol without a passphrase; FIPS 140-only mode refuses MD5 and SHA-1)
+// end the request with the derivation's error, before any discovery.
 //
 // The engine boots and time are a clock: the latest values received and when,
 // advancing with the local clock (RFC 3414 section 2.3); each attempt of a
 // request carries its current values, wrapping into the next boots past
 // 2147483647. Every request the client sends is a read request (Get, GetNext,
 // GetBulk), which a copy replayed on path could only repeat, so any clock signs
-// it: one from an authenticated answer, discovery, an unauthenticated answer or
-// the caller (net-snmp signs with unauthenticated time too). A request without
+// it: one from an authenticated answer, discovery or an unauthenticated answer
+// (net-snmp signs with unauthenticated time too). A request without
 // authentication carries the clock's values (as net-snmp; RFC 3414 section 3.1
 // step 6 c sends zeros).
 //
-// The engine state shows in the client's fields: the engine ID, boots, time and
-// keys of SecurityParameters, and ContextEngineID, which requests take from the
-// engine ID unless the caller sets one. The boots and time fields show the
-// latest values received, not the advancing ones. The client writes a field
-// only while it holds what the client last wrote or read there. A field the
-// caller changed, also from a hook during a request, is the caller's from the
-// next request on: an engine ID (empty: discover again; another one has no
-// clock until an answer gives one), boots and time (a clock received then, as
-// an unauthenticated one; zeros: none), a key, which must be localized to the
-// engine ID (empty: derive), a context engine ID (empty: the engine ID again).
-// Another SecurityParameters value is the caller's whole, and a changed
-// protocol or passphrase derives the keys the client derived again. A value the
-// caller sets that equals the client's is the client's; a SecurityParameters
-// value serves one client.
+// A request takes the configuration into the engine state at its start: another
+// User, also one a hook set during the last request, keeps the engine ID and
+// clock and derives its keys for the engine ID. [Client.ForgetEngine] makes the
+// next request start over and discover the engine again; a request that is
+// running keeps the state it has.
 //
 // A reply whose msgID names none of the request's attempts is discarded before
 // security processing. A reply then goes through the security processing of RFC
@@ -210,8 +202,11 @@
 // [ErrNotInTimeWindow] (a deviation from RFC 3414 section 3.2 step 7 b and
 // net-snmp, which reject it until their cached time is cleared).
 //
-// An application that expects a replaced device clears the engine ID to
-// discover again.
+// So the client never leaves an engine ID by itself: after a request that fails
+// with [ErrUnknownEngineID], an application calls [Client.ForgetEngine], which
+// recovers both a replaced device and an engine ID a forged discovery answer
+// gave the client (the agent answers the authenticated request with a
+// usmStatsUnknownEngineIDs Report).
 //
 // # Walks
 //
@@ -315,8 +310,9 @@
 // The decoders never write their input. [Client.DecodeMessage] and
 // [Client.UnmarshalTrap] return OctetString and Opaque values that alias the
 // input, or, in an encrypted message, the buffer the scoped PDU is decrypted
-// into: copy them to reuse the input. The answers to requests are copied from
-// the receive buffer, so their values stay valid.
+// into: copy them to reuse the input. A decoded message's SecurityParameters
+// and ContextEngineID are copies. The answers to requests are copied from the
+// receive buffer, so their values stay valid.
 //
 // # Keys
 //
@@ -324,32 +320,31 @@
 // protocol's hash (RFC 3414, RFC 7860), a privacy key the cipher's key (AES's,
 // or DES's 16 octets of key and pre-IV); the salt of an encrypted message is 8
 // octets. Signing, verifying, encrypting and decrypting refuse anything else,
-// and AES-CFB in FIPS 140-only mode, with an error. Keys derive from non-empty
-// passphrases of any length (RFC 3414 section 11.2 asks for at least 8 octets);
-// a key given without a passphrase serves only the engine ID it was localized
-// to: parameters holding one decode no trap, inform or DecodeMessage message
-// naming another engine ID, whatever its security level, and a client holding
-// one takes no engine ID but the first one the caller gives it: discovery, or
-// the caller giving it another one, ends the request with an error. A key its
-// passphrase derives counts as one the client derived: other credentials derive
-// it again. Decoding derives keys for another engine ID a message names only on
-// those paths, the authentication key when the message asks for authentication,
-// the privacy key only to decrypt it (on the trap paths, once its digest
-// checked); decoding a reply derives none, while discovery and, without
-// authentication, an answer the client takes or a lent Report localize the
-// client's keys to the engine ID it names. The SecurityParameters of a
-// request's message and answer share the client's keys: do not write into them.
-// Deriving a key starts with hashing a megabyte of the passphrase (RFC 3414
-// appendix A.2.1). The package caches that result for every client, by
-// passphrase and hash, until [PasswordCaching] turns the cache off; it holds
-// the passphrases in memory meanwhile.
+// and AES-CFB in FIPS 140-only mode, with an error. A [User] holds
+// passphrases, not keys: the keys derive from non-empty passphrases of any
+// length (RFC 3414 section 11.2 asks for at least 8 octets), localized to the
+// engine ID at hand (RFC 3414 section 2.6). A client derives them when its
+// engine state takes an engine ID (discovery, an answer it takes, a Report lent
+// to a resend) or another User; decoding a reply derives none.
+// [Client.DecodeMessage] and [Client.UnmarshalTrap] derive them for the engine
+// ID a message names, the authentication key when the message asks for
+// authentication, the privacy key only to decrypt it (on the trap paths, once
+// its digest checked), and a table user's were derived for its engine ID when
+// it was added. [Message.Encode] derives them for the message's engine ID. No
+// message carries keys or passphrases. Deriving a key starts with hashing a
+// megabyte of the passphrase (RFC 3414 appendix A.2.1). The package caches that
+// result for every client and receiver, by passphrase and hash, for the life of
+// the process; it holds the passphrases in memory meanwhile. The Reeder key
+// extension (AES192C, AES256C) hashes the localized key the same way, so it
+// adds a result per user and engine ID, and DecodeMessage, which decrypts
+// without checking the digest, one per engine ID its messages name.
 //
 // # Traps
 //
 // [Client.UnmarshalTrap] decodes a received trap or inform: an SNMPv3 message
-// with the client's SecurityParameters, or, when TrapSecurityParametersTable
-// is set, with the parameter sets the table holds for the message's user name,
-// tried in the order they were added. Its doc gives the security processing
+// with the client's User, or, when TrapSecurityParametersTable is set, with the
+// users the table holds for the message's user name, tried in the order they
+// were added. Its doc gives the security processing
 // and the minimum level a receiver requires. The library does not listen for
 // traps or answer informs.
 //

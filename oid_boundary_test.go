@@ -61,7 +61,7 @@ func TestOIDPackedFirstSubidentifier(t *testing.T) {
 			} {
 				t.Run(field.name, func(t *testing.T) {
 					t.Run("encode", func(t *testing.T) {
-						got, err := field.packet.Encode()
+						got, err := field.packet.Encode(nil)
 						if err != nil {
 							t.Fatal(err)
 						}
@@ -77,7 +77,7 @@ func TestOIDPackedFirstSubidentifier(t *testing.T) {
 						if value := field.read(got); value != tc.oid {
 							t.Errorf("decoded %q, want %q", value, tc.oid)
 						}
-						back, err := got.Encode()
+						back, err := got.Encode(nil)
 						if err != nil || !bytes.Equal(back, field.wire) {
 							t.Errorf("reencoded %x, %v; want %x", back, err, field.wire)
 						}

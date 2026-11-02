@@ -372,20 +372,15 @@ func newEngineClientFrom(tb testing.TB, tr *engineTranscript, conn net.Conn, x *
 }
 
 // configOf returns the client's configuration a request must not write: its
-// exported fields, but for the hooks (user code), Conn (the
-// connection) and the SNMPv3 engine state the client learns
-// (SecurityParameters, ContextEngineID).
+// exported fields, the SNMPv3 User included, but for the hooks (user code) and
+// Conn (the connection).
 func configOf(x *Client) map[string]any {
 	v := reflect.ValueOf(x).Elem()
 	cfg := make(map[string]any)
 	for i := range v.NumField() {
 		f := v.Type().Field(i)
 		switch {
-		case !f.IsExported(), f.Type.Kind() == reflect.Func:
-			continue
-		}
-		switch f.Name {
-		case "Conn", "SecurityParameters", "ContextEngineID":
+		case !f.IsExported(), f.Type.Kind() == reflect.Func, f.Name == "Conn":
 			continue
 		}
 		cfg[f.Name] = v.Field(i).Interface()
@@ -500,7 +495,7 @@ func replyTo(req []byte, edit func(*Message), vbs ...VarBind) []byte {
 	if edit != nil {
 		edit(out)
 	}
-	b, err := out.marshalMsg()
+	b, err := out.Encode(nil)
 	if err != nil {
 		panic(fmt.Sprintf("agent cannot encode the reply: %v", err))
 	}
@@ -576,10 +571,9 @@ func describeEngineResult(p *Message, err error) string {
 	case p.Version == Version3:
 		fmt.Fprintf(&sb, "packet 3 msgID=%d %s %v id=%d context=%q/%q", p.MsgID, describeFlags(p.SecurityLevel), p.PDUType,
 			p.RequestID, p.ContextEngineID, p.ContextName)
-		if usp := usmOf(p.SecurityParameters); usp != nil {
-			fmt.Fprintf(&sb, " usm=%q/%q/%d/%d", usp.UserName, usp.AuthoritativeEngineID, usp.AuthoritativeEngineBoots,
-				usp.AuthoritativeEngineTime)
-		}
+		h := &p.SecurityParameters
+		fmt.Fprintf(&sb, " usm=%q/%q/%d/%d", h.UserName, h.AuthoritativeEngineID, h.AuthoritativeEngineBoots,
+			h.AuthoritativeEngineTime)
 		if p.ErrorStatus != NoError || p.ErrorIndex != 0 {
 			fmt.Fprintf(&sb, " error=%v index=%d", p.ErrorStatus, p.ErrorIndex)
 		}

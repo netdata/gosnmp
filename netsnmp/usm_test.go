@@ -7,6 +7,7 @@ package netsnmp
 import (
 	"bufio"
 	"bytes"
+	"crypto"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -26,9 +27,10 @@ import (
 // each case net-snmp localizes the authentication and privacy keys (with its
 // key extension for AES-192/256), encrypts the scoped PDU and computes the
 // HMAC of an SNMPv3 trap whose framing (headers and the plaintext scoped PDU)
-// comes from gosnmp. The test then requires that gosnmp derives the same keys,
-// that Message.Encode produces exactly the net-snmp-secured message, and that
-// UnmarshalTrap authenticates and decrypts it. Without `-tags netsnmp` the
+// comes from gosnmp. The test then requires that gosnmp's key derivation
+// (internal/usm, with the protocols' parameters of oracleKeys) gives the same
+// keys, that Message.Encode produces exactly the net-snmp-secured message, and
+// that UnmarshalTrap authenticates and decrypts it. Without `-tags netsnmp` the
 // net-snmp results come from testdata/TestUSM; `-rec` rewrites them. The
 // recordings also pin gosnmp's framing, so re-record only for an intended
 // change of the wire format.
@@ -48,13 +50,14 @@ func TestUSM(t *testing.T) {
 			fname := filepath.Join(recdir, c.name+".txt")
 
 			pkt := c.packet()
-			if err := pkt.SecurityParameters.InitSecurityKeys(); err != nil {
+			authKey, privKey, err := c.oracleKeys()
+			if err != nil {
 				t.Fatal(err)
 			}
-			sp := pkt.SecurityParameters.(*gosnmp.UsmSecurityParameters)
-			got := usmRecording{authKey: sp.SecretKey, privKey: sp.PrivacyKey}
+			got := usmRecording{authKey: authKey, privKey: privKey}
 			c.setNextSalt()
-			msg, err := pkt.Encode()
+			user := c.user()
+			msg, err := pkt.Encode(&user)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -206,14 +209,42 @@ func (c usmCase) flags() gosnmp.SecurityLevel {
 	return gosnmp.AuthPriv
 }
 
-func (c usmCase) usm() *gosnmp.UsmSecurityParameters {
-	return &gosnmp.UsmSecurityParameters{
-		UserName:                 usmUser,
-		AuthenticationProtocol:   c.auth,
-		AuthenticationPassphrase: c.authPass,
-		PrivacyProtocol:          c.priv,
-		PrivacyPassphrase:        c.privPass,
+func (c usmCase) user() gosnmp.User {
+	return gosnmp.User{
+		Name:           usmUser,
+		AuthProtocol:   c.auth,
+		AuthPassphrase: c.authPass,
+		PrivProtocol:   c.priv,
+		PrivPassphrase: c.privPass,
 	}
+}
+
+// oracleKeys returns the case's keys localized to its engine ID by
+// internal/usm, with the protocols' parameters (RFC 3414, RFC 3826, RFC 7860,
+// draft-blumenthal-aes-usm-04 and draft-reeder-snmpv3-usm-3desede); the
+// encoder derives the same from the library's own table, which the message
+// comparison checks.
+func (c usmCase) oracleKeys() (authKey, privKey []byte, err error) {
+	hashes := map[gosnmp.AuthProtocol]crypto.Hash{
+		gosnmp.MD5: crypto.MD5, gosnmp.SHA: crypto.SHA1, gosnmp.SHA224: crypto.SHA224,
+		gosnmp.SHA256: crypto.SHA256, gosnmp.SHA384: crypto.SHA384, gosnmp.SHA512: crypto.SHA512,
+	}
+	privs := map[gosnmp.PrivProtocol]usm.Priv{
+		gosnmp.DES:     {Cipher: usm.DESCBC, KeyLen: 16},
+		gosnmp.AES:     {Cipher: usm.AESCFB, KeyLen: 16},
+		gosnmp.AES192:  {Cipher: usm.AESCFB, KeyLen: 24, Extension: usm.Blumenthal},
+		gosnmp.AES256:  {Cipher: usm.AESCFB, KeyLen: 32, Extension: usm.Blumenthal},
+		gosnmp.AES192C: {Cipher: usm.AESCFB, KeyLen: 24, Extension: usm.Reeder},
+		gosnmp.AES256C: {Cipher: usm.AESCFB, KeyLen: 32, Extension: usm.Reeder},
+	}
+	cache := usm.NewCache()
+	if authKey, err = cache.LocalizedKey(hashes[c.auth], c.authPass, []byte(c.engineID)); err != nil {
+		return nil, nil, err
+	}
+	if p, ok := privs[c.priv]; ok {
+		privKey, err = cache.PrivacyKey(p, hashes[c.auth], c.privPass, []byte(c.engineID))
+	}
+	return authKey, privKey, err
 }
 
 // setNextSalt makes the case's salt the next one the encoder draws.
@@ -225,21 +256,21 @@ func (c usmCase) setNextSalt() {
 
 // packet is the SNMPv2-Trap the authoritative sender secures.
 func (c usmCase) packet() *gosnmp.Message {
-	sp := c.usm()
-	sp.AuthoritativeEngineID = c.engineID
-	sp.AuthoritativeEngineBoots = usmBoots
-	sp.AuthoritativeEngineTime = usmTime
 	return &gosnmp.Message{
 		Version:       gosnmp.Version3,
 		SecurityLevel: c.flags(),
-
-		SecurityParameters: sp,
-		ContextEngineID:    c.engineID,
-		ContextName:        usmContextName,
-		PDUType:            gosnmp.SNMPv2Trap,
-		MsgID:              usmMsgID,
-		RequestID:          usmRequestID,
-		VarBinds:           usmVarbinds,
+		SecurityParameters: gosnmp.SecurityParameters{
+			AuthoritativeEngineID:    []byte(c.engineID),
+			AuthoritativeEngineBoots: usmBoots,
+			AuthoritativeEngineTime:  usmTime,
+			UserName:                 usmUser,
+		},
+		ContextEngineID: []byte(c.engineID),
+		ContextName:     usmContextName,
+		PDUType:         gosnmp.SNMPv2Trap,
+		MsgID:           usmMsgID,
+		RequestID:       usmRequestID,
+		VarBinds:        usmVarbinds,
 	}
 }
 
@@ -249,8 +280,7 @@ func (c usmCase) receiver() *gosnmp.Client {
 	return &gosnmp.Client{
 		Version:       gosnmp.Version3,
 		SecurityLevel: c.flags(),
-
-		SecurityParameters: c.usm(),
+		User:          c.user(),
 	}
 }
 
@@ -315,11 +345,9 @@ func (c usmCase) secureWithNetSnmp() (usmRecording, error) {
 func (c usmCase) marshal(flags gosnmp.SecurityLevel) ([]byte, error) {
 	pkt := c.packet()
 	pkt.SecurityLevel = flags
-	if err := pkt.SecurityParameters.InitSecurityKeys(); err != nil {
-		return nil, err
-	}
 	c.setNextSalt()
-	return pkt.Encode()
+	user := c.user()
+	return pkt.Encode(&user)
 }
 
 // encrypt encrypts the scoped PDU with net-snmp. The IVs follow RFC 3414
@@ -404,18 +432,15 @@ type usmTrapView struct {
 }
 
 func newUSMTrapView(p *gosnmp.Message) usmTrapView {
-	v := usmTrapView{
-		ContextEngineID: p.ContextEngineID,
+	return usmTrapView{
+		UserName:        p.SecurityParameters.UserName,
+		EngineID:        string(p.SecurityParameters.AuthoritativeEngineID),
+		ContextEngineID: string(p.ContextEngineID),
 		ContextName:     p.ContextName,
 		PDUType:         p.PDUType,
 		RequestID:       p.RequestID,
 		VarBinds:        p.VarBinds,
 	}
-	if sp, ok := p.SecurityParameters.(*gosnmp.UsmSecurityParameters); ok {
-		v.UserName = sp.UserName
-		v.EngineID = sp.AuthoritativeEngineID
-	}
-	return v
 }
 
 // tlv locates one BER element in a message: the offsets of its tag, its

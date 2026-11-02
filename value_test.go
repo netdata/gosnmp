@@ -6,6 +6,7 @@ package gosnmp
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 )
 
@@ -132,5 +133,50 @@ func TestVarbindValueAliasesInput(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestDecodedHeaderCopiesInput pins that the SNMPv3 header fields a decoder
+// returns, the security parameters and the context engine ID, are copies of
+// the input, unlike OctetString values (TestVarbindValueAliasesInput): a
+// caller may reuse the input after DecodeMessage or UnmarshalTrap. The
+// authPriv message carries privacy parameters, the authNoPriv one a plaintext
+// context engine ID.
+func TestDecodedHeaderCopiesInput(t *testing.T) {
+	user := codecUser(SHA, AES)
+	table := NewSnmpV3SecurityParametersTable()
+	if err := table.Add(user, []byte(codecEngineID)); err != nil {
+		t.Fatal(err)
+	}
+	decoders := map[string]func(x *Client, in []byte) (*Message, error){
+		"DecodeMessage": func(x *Client, in []byte) (*Message, error) { return x.DecodeMessage(in) },
+		"UnmarshalTrap": func(x *Client, in []byte) (*Message, error) { return x.UnmarshalTrap(in, true) },
+		"UnmarshalTrap with a table": func(x *Client, in []byte) (*Message, error) {
+			x.TrapSecurityParametersTable = table
+			return x.UnmarshalTrap(in, true)
+		},
+	}
+	messages := map[string]func() []byte{"authPriv": v3AuthPrivSHAAESResponse, "authNoPriv": v3AuthNoPrivSHAResponse}
+	for name, decode := range decoders {
+		for level, message := range messages {
+			t.Run(name+"/"+level, func(t *testing.T) {
+				useEngineTimes(t)
+				in := message()
+				p, err := decode(&Client{Version: Version3, SecurityLevel: AuthPriv, User: user}, in)
+				if err != nil {
+					t.Fatal(err)
+				}
+				describe := func() string {
+					return fmt.Sprintf("%+v context engine ID %x", p.SecurityParameters, p.ContextEngineID)
+				}
+				want := describe()
+				for i := range in {
+					in[i] ^= 0xff
+				}
+				if got := describe(); got != want {
+					t.Fatalf("the header follows the input change:\n got %s\nwant %s", got, want)
+				}
+			})
+		}
 	}
 }

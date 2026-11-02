@@ -35,13 +35,15 @@ func (u snmpUser) msgFlags() SecurityLevel {
 	return NoAuthNoPriv
 }
 
-func (u snmpUser) securityParameters() *UsmSecurityParameters {
-	return &UsmSecurityParameters{
-		UserName:                 u.name,
-		AuthenticationProtocol:   u.auth,
-		AuthenticationPassphrase: u.authPass,
-		PrivacyProtocol:          u.priv,
-		PrivacyPassphrase:        u.privPass,
+// securityParameters returns u as the User of a client (the end-to-end tests
+// call it by this name).
+func (u snmpUser) securityParameters() User {
+	return User{
+		Name:           u.name,
+		AuthProtocol:   u.auth,
+		AuthPassphrase: u.authPass,
+		PrivProtocol:   u.priv,
+		PrivPassphrase: u.privPass,
 	}
 }
 

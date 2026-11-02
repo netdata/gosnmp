@@ -14,11 +14,9 @@ import (
 
 // Cache derives localized keys and memoizes their costly first step, the
 // password-to-key hash of a megabyte of the passphrase (RFC 3414 appendix
-// A.2.1), by hash and passphrase. NewCache returns a cache that is on; the zero
-// Cache is off. While off, it stores nothing and derives every key from
-// scratch.
+// A.2.1), by hash and passphrase, for as long as it lives: the passphrases
+// stay in memory meanwhile. Use NewCache.
 type Cache struct {
-	// mu guards keys, which is nil while the cache is off.
 	mu   sync.RWMutex
 	keys map[cacheKey][]byte
 }
@@ -28,30 +26,9 @@ type cacheKey struct {
 	password string
 }
 
-// NewCache returns an empty cache that is on.
+// NewCache returns an empty cache.
 func NewCache() *Cache {
 	return &Cache{keys: make(map[cacheKey][]byte)}
-}
-
-// SetEnabled turns the cache on or off. Turning it off drops what it holds,
-// so it is empty when turned back on.
-func (c *Cache) SetEnabled(enable bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	switch {
-	case !enable:
-		c.keys = nil
-	case c.keys == nil:
-		c.keys = make(map[cacheKey][]byte)
-	}
-}
-
-// Enabled reports whether the cache is on.
-func (c *Cache) Enabled() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.keys != nil
 }
 
 // Len returns the number of password-to-key results the cache holds.
@@ -64,7 +41,7 @@ func (c *Cache) Len() int {
 // LocalizedKey returns passphrase localized to engineID with hash h (RFC 3414
 // appendix A.2.2): the hash of the password-to-key result, the engine ID and
 // the password-to-key result again. An empty passphrase is an error.
-func (c *Cache) LocalizedKey(h crypto.Hash, passphrase, engineID string) ([]byte, error) {
+func (c *Cache) LocalizedKey(h crypto.Hash, passphrase string, engineID []byte) ([]byte, error) {
 	ku, err := c.passwordToKey(cacheKey{hash: h, password: passphrase}, h.New)
 	if err != nil {
 		return nil, err
@@ -74,7 +51,7 @@ func (c *Cache) LocalizedKey(h crypto.Hash, passphrase, engineID string) ([]byte
 	if _, err := local.Write(ku); err != nil {
 		return nil, err
 	}
-	if _, err := local.Write([]byte(engineID)); err != nil {
+	if _, err := local.Write(engineID); err != nil {
 		return nil, err
 	}
 	if _, err := local.Write(ku); err != nil {
@@ -87,7 +64,7 @@ func (c *Cache) LocalizedKey(h crypto.Hash, passphrase, engineID string) ([]byte
 // engineID with hash h, extended once when it is shorter than the cipher key,
 // and cut to the cipher key length; the result passes p's CheckKey, or fails
 // with its error (a key still too short).
-func (c *Cache) PrivacyKey(p Priv, h crypto.Hash, passphrase, engineID string) ([]byte, error) {
+func (c *Cache) PrivacyKey(p Priv, h crypto.Hash, passphrase string, engineID []byte) ([]byte, error) {
 	key, err := c.LocalizedKey(h, passphrase, engineID)
 	if err != nil {
 		return nil, err
@@ -113,7 +90,7 @@ func (c *Cache) PrivacyKey(p Priv, h crypto.Hash, passphrase, engineID string) (
 // extendReeder extends a localized key with the Reeder key extension
 // (draft-reeder-snmpv3-usm-3desede, used by Cisco and others): the key
 // followed by the key localized from it as a passphrase.
-func (c *Cache) extendReeder(h crypto.Hash, key []byte, engineID string) ([]byte, error) {
+func (c *Cache) extendReeder(h crypto.Hash, key, engineID []byte) ([]byte, error) {
 	next, err := c.LocalizedKey(h, string(key), engineID)
 	if err != nil {
 		return nil, err
@@ -130,8 +107,7 @@ func extendBlumenthal(h crypto.Hash, key []byte) []byte {
 }
 
 // passwordToKey returns the password-to-key result for k, hashing its password
-// with a hash from newHash when the cache does not hold it. The cache may be
-// turned off or on while the password is hashed.
+// with a hash from newHash when the cache does not hold it.
 func (c *Cache) passwordToKey(k cacheKey, newHash func() hash.Hash) ([]byte, error) {
 	c.mu.RLock()
 	key := c.keys[k]
@@ -146,9 +122,7 @@ func (c *Cache) passwordToKey(k cacheKey, newHash func() hash.Hash) ([]byte, err
 	}
 
 	c.mu.Lock()
-	if c.keys != nil {
-		c.keys[k] = key
-	}
+	c.keys[k] = key
 	c.mu.Unlock()
 	return key, nil
 }

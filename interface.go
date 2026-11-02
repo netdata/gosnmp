@@ -92,17 +92,14 @@ type Handler interface {
 	// SetSecurityLevel sets the SecurityLevel
 	SetSecurityLevel(securityLevel SecurityLevel)
 
-	// SecurityParameters gets the SecurityParameters
-	SecurityParameters() SnmpV3SecurityParameters
+	// User gets the User
+	User() User
 
-	// SetSecurityParameters sets the SecurityParameters
-	SetSecurityParameters(securityParameters SnmpV3SecurityParameters)
+	// SetUser sets the User
+	SetUser(user User)
 
-	// ContextEngineID gets the ContextEngineID
-	ContextEngineID() string
-
-	// SetContextEngineID sets the ContextEngineID
-	SetContextEngineID(contextEngineID string)
+	// ForgetEngine: see Client.ForgetEngine.
+	ForgetEngine()
 
 	// ContextName gets the ContextName
 	ContextName() string
@@ -206,20 +203,12 @@ func (x *snmpHandler) SetSecurityLevel(securityLevel SecurityLevel) {
 	x.Client.SecurityLevel = securityLevel
 }
 
-func (x *snmpHandler) SecurityParameters() SnmpV3SecurityParameters {
-	return x.Client.SecurityParameters
+func (x *snmpHandler) User() User {
+	return x.Client.User
 }
 
-func (x *snmpHandler) SetSecurityParameters(securityParameters SnmpV3SecurityParameters) {
-	x.Client.SecurityParameters = securityParameters
-}
-
-func (x *snmpHandler) ContextEngineID() string {
-	return x.Client.ContextEngineID
-}
-
-func (x *snmpHandler) SetContextEngineID(contextEngineID string) {
-	x.Client.ContextEngineID = contextEngineID
+func (x *snmpHandler) SetUser(user User) {
+	x.Client.User = user
 }
 
 func (x *snmpHandler) ContextName() string {

@@ -93,24 +93,19 @@ func TestEncodeMessageErrors(t *testing.T) {
 }
 
 // TestEncodeMessageEmptyKey checks that EncodeMessage does not sign an
-// authenticated SNMPv3 message without a key: it derives none, and the signer
-// refuses the empty key with the rule's error and an empty message.
+// authenticated SNMPv3 message before the client knows the agent's engine: the
+// engine state has no engine ID to derive a key for, and the signer refuses
+// the empty key with the rule's error and an empty message.
 func TestEncodeMessageEmptyKey(t *testing.T) {
 	x := &Client{
 		Version:       Version3,
 		SecurityLevel: AuthNoPriv,
-
-		SecurityParameters: &UsmSecurityParameters{
-			UserName:                 "codec-user",
-			AuthoritativeEngineID:    usmCharEngineID,
-			AuthenticationProtocol:   SHA,
-			AuthenticationPassphrase: "codec-auth-pass",
-		},
+		User:          User{Name: "codec-user", AuthProtocol: SHA, AuthPassphrase: "codec-auth-pass"},
 	}
 	out, err := x.EncodeMessage(GetRequest, []VarBind{{Name: engineOID, Type: Null}}, 0, 0)
 	require.EqualError(t, err, "usm: no authentication key, want 20 octets")
 	assert.Equal(t, []byte{}, out)
-	assert.Empty(t, x.SecurityParameters.usm().SecretKey, "key derived")
+	assert.Empty(t, x.engine.keys.auth, "key derived")
 }
 
 // TestRequestAndMsgIDs pins, through the encoded messages, the request ID and
@@ -124,8 +119,7 @@ func TestRequestAndMsgIDs(t *testing.T) {
 			Port:          unusedUDPPort(t),
 			Version:       Version3,
 			SecurityLevel: NoAuthNoPriv,
-
-			SecurityParameters: &UsmSecurityParameters{UserName: "codec-user"},
+			User:          User{Name: "codec-user"},
 		}
 	}
 	ids := func(x *Client) [2]uint32 {

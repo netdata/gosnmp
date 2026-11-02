@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/fips140"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -33,7 +34,7 @@ var agentCreds = map[string]agentUser{
 type v3Scenario struct {
 	user   string     // the client's user, with agentCreds credentials unless creds is set
 	creds  *agentUser // the client's credentials
-	setup  func(x *Client, sp *UsmSecurityParameters)
+	setup  func(x *Client)
 	script func(n int, req agentRequest) (agentAnswer, bool)
 	run    func(x *Client, a *fakeV3Agent) (*Message, error) // a Get of engineOID unless set
 }
@@ -73,16 +74,62 @@ func getThen(between func(a *fakeV3Agent), second func(x *Client) (*Message, err
 
 // changeThenGet runs a Get, then change, which the transcript names as what,
 // on the client 10 s later, then a second Get, whose result it returns.
-func changeThenGet(what string, change func(x *Client, sp *UsmSecurityParameters)) func(x *Client, a *fakeV3Agent) (*Message, error) {
+func changeThenGet(what string, change func(x *Client)) func(x *Client, a *fakeV3Agent) (*Message, error) {
 	return func(x *Client, a *fakeV3Agent) (*Message, error) {
 		if _, err := x.Get([]string{engineOID}); err != nil {
 			return nil, fmt.Errorf("first Get: %w", err)
 		}
 		time.Sleep(10 * time.Second)
 		a.tr.addf("caller %s", what)
-		change(x, x.SecurityParameters.usm())
+		change(x)
 		return x.Get([]string{engineOID})
 	}
+}
+
+// encodeThenGet runs a Get, then change, which the transcript names as what,
+// on the client 10 s later, then EncodeMessage (encodeMessage), then a second
+// Get, whose result it returns.
+func encodeThenGet(what string, change func(x *Client)) func(x *Client, a *fakeV3Agent) (*Message, error) {
+	return func(x *Client, a *fakeV3Agent) (*Message, error) {
+		if _, err := x.Get([]string{engineOID}); err != nil {
+			return nil, fmt.Errorf("first Get: %w", err)
+		}
+		time.Sleep(10 * time.Second)
+		a.tr.addf("caller %s", what)
+		change(x)
+		encodeMessage(x, a)
+		return x.Get([]string{engineOID})
+	}
+}
+
+// encodeMessage runs EncodeMessage of a Get and adds to the transcript the
+// message as the fake agent reads it, whether its digest checks with the
+// agent's key of its user, and the client's engine state.
+func encodeMessage(x *Client, a *fakeV3Agent) {
+	out, err := x.EncodeMessage(GetRequest, []VarBind{{Name: engineOID, Type: Null}}, 0, 0)
+	if err != nil {
+		a.tr.addf("EncodeMessage: error %v; client %s", err, describeEngineState(&x.engine))
+		return
+	}
+	m, err := parseV3Message(out)
+	if err != nil {
+		a.tr.addf("EncodeMessage: not an SNMPv3 message: %v", err)
+		return
+	}
+	req, err := readAgentRequest(m)
+	if err != nil {
+		a.tr.addf("EncodeMessage: unreadable: %v", err)
+		return
+	}
+	digest := "no digest"
+	if req.flags&AuthNoPriv != 0 {
+		ok := false
+		if u := a.users[req.user]; u != nil {
+			fips140.WithoutEnforcement(func() { ok = agentDigestOK(out, m, u) })
+		}
+		digest = map[bool]string{true: "digest checks", false: "digest wrong"}[ok]
+	}
+	a.tr.addf("EncodeMessage: %s, %s; client %s", describeAgentRequest(req), digest, describeEngineState(&x.engine))
 }
 
 // onFinishThenGet runs a Get whose call n of OnFinish also runs change, which
@@ -124,16 +171,27 @@ func onFirstPreSend(what string, change func(x *Client)) func(x *Client, a *fake
 	}
 }
 
-// userParameters returns new security parameters with the user's agentCreds
-// credentials.
-func userParameters(user string) *UsmSecurityParameters {
-	creds := agentCreds[user]
-	return &UsmSecurityParameters{
-		UserName:                 user,
-		AuthenticationProtocol:   creds.auth,
-		AuthenticationPassphrase: creds.authPass,
-		PrivacyProtocol:          creds.priv,
-		PrivacyPassphrase:        creds.privPass,
+// agentUserOf returns the User of the agentCreds credentials of name.
+func agentUserOf(name string) User {
+	return agentCreds[name].user(name)
+}
+
+// seedEngine gives the client the engine state a request learns of an agent
+// with engineID, boots and time (none for zeros, as for an engine ID taken
+// from a Report): the scenarios that start with the engine known.
+func seedEngine(engineID string, boots, engineTime uint32) func(*Client) {
+	return func(x *Client) {
+		if err := x.startEngine(); err != nil {
+			panic(err)
+		}
+		next, err := x.engine.withEngine([]byte(engineID))
+		if err != nil {
+			panic(err)
+		}
+		if boots != 0 || engineTime != 0 {
+			next.clock = clockOf(boots, engineTime, time.Now(), fromUnauthenticated)
+		}
+		x.commitEngine(next)
 	}
 }
 
@@ -180,29 +238,26 @@ func getsAt(levels ...SecurityLevel) func(x *Client, a *fakeV3Agent) (*Message, 
 }
 
 // otherKey encrypts an answer with a key the client does not have.
-func otherKey(p *Message) {
-	usp := p.SecurityParameters.usm()
-	usp.PrivacyKey = bytes.Repeat([]byte{0x5a}, len(usp.PrivacyKey))
+func otherKey(p *agentOut) {
+	p.keys.priv = bytes.Repeat([]byte{0x5a}, len(p.keys.priv))
 }
 
 // otherAuthKey signs an answer with a key the client does not have.
-func otherAuthKey(p *Message) {
-	usp := p.SecurityParameters.usm()
-	usp.SecretKey = bytes.Repeat([]byte{0x5a}, len(usp.SecretKey))
+func otherAuthKey(p *agentOut) {
+	p.keys.auth = bytes.Repeat([]byte{0x5a}, len(p.keys.auth))
 }
 
 // encryptedForAuthNoPriv encrypts an authNoPriv answer, with a privacy
 // protocol the user does not have.
-func encryptedForAuthNoPriv(p *Message) {
-	usp := p.SecurityParameters.usm()
+func encryptedForAuthNoPriv(p *agentOut) {
 	p.SecurityLevel = AuthPriv
-	usp.PrivacyProtocol, usp.PrivacyKey = AES, bytes.Repeat([]byte{0x5a}, 16)
+	p.keys.privProtocol, p.keys.priv = AES, bytes.Repeat([]byte{0x5a}, 16)
 }
 
 // olderBoots gives an answer engine boots lower than the agent's: an
 // authentic answer outside the client's time window.
-func olderBoots(p *Message) {
-	p.SecurityParameters.usm().AuthoritativeEngineBoots = agentBoots - 1
+func olderBoots(p *agentOut) {
+	p.SecurityParameters.AuthoritativeEngineBoots = agentBoots - 1
 }
 
 // garbage is a datagram that does not decode.
@@ -245,74 +300,45 @@ const snmpUnknownContexts = ".1.3.6.1.6.3.12.1.5.0"
 
 // forgeReport signs a Report with another key and gives it other engine
 // boots and time.
-func forgeReport(p *Message) {
-	usp := p.SecurityParameters.usm()
-	usp.SecretKey = bytes.Repeat([]byte{0x5a}, len(usp.SecretKey))
-	usp.AuthoritativeEngineBoots, usp.AuthoritativeEngineTime = 99, 5
+func forgeReport(p *agentOut) {
+	p.keys.auth = bytes.Repeat([]byte{0x5a}, len(p.keys.auth))
+	p.SecurityParameters.AuthoritativeEngineBoots, p.SecurityParameters.AuthoritativeEngineTime = 99, 5
 }
 
 // asV2c turns an answer into an SNMPv2c message with the same request ID.
-func asV2c(p *Message) {
+func asV2c(p *agentOut) {
 	p.Version, p.Community = Version2c, "public"
 }
 
 // withoutEngineID takes the engine ID out of an answer and its context.
-func withoutEngineID(p *Message) {
-	p.SecurityParameters.usm().AuthoritativeEngineID = ""
-	p.ContextEngineID = ""
+func withoutEngineID(p *agentOut) {
+	p.SecurityParameters.AuthoritativeEngineID = nil
+	p.ContextEngineID = nil
 }
 
 // fromOtherEngine makes an answer come from the agent's other engine ID.
-func fromOtherEngine(p *Message) {
-	p.SecurityParameters.usm().AuthoritativeEngineID = agentOtherEngineID
-	p.ContextEngineID = agentOtherEngineID
+func fromOtherEngine(p *agentOut) {
+	p.SecurityParameters.AuthoritativeEngineID = []byte(agentOtherEngineID)
+	p.ContextEngineID = []byte(agentOtherEngineID)
 }
 
 // signedByOtherEngine makes an answer come from the agent's other engine ID,
 // signed with the user's key localized to it: another agent with the same
 // credentials.
-func signedByOtherEngine(p *Message) {
+func signedByOtherEngine(p *agentOut) {
 	fromOtherEngine(p)
-	usp := p.SecurityParameters.usm()
-	creds := agentCreds[usp.UserName]
-	other := &UsmSecurityParameters{
-		UserName:                 usp.UserName,
-		AuthenticationProtocol:   creds.auth,
-		AuthenticationPassphrase: creds.authPass,
-		AuthoritativeEngineID:    agentOtherEngineID,
-	}
-	if err := other.InitSecurityKeys(); err != nil {
+	u := agentUserOf(p.SecurityParameters.UserName)
+	key, err := u.authKey([]byte(agentOtherEngineID))
+	if err != nil {
 		panic(err)
 	}
-	usp.SecretKey = other.SecretKey
-}
-
-// configuredKeys gives the client the user's keys localized to engineID, as
-// configured keys, and no passphrases.
-func configuredKeys(engineID string) func(*Client, *UsmSecurityParameters) {
-	return func(_ *Client, sp *UsmSecurityParameters) {
-		creds := agentCreds[sp.UserName]
-		k := &UsmSecurityParameters{
-			UserName:                 sp.UserName,
-			AuthenticationProtocol:   creds.auth,
-			AuthenticationPassphrase: creds.authPass,
-			PrivacyProtocol:          creds.priv,
-			PrivacyPassphrase:        creds.privPass,
-			AuthoritativeEngineID:    engineID,
-		}
-		if err := k.InitSecurityKeys(); err != nil {
-			panic(err)
-		}
-		sp.AuthoritativeEngineID, sp.SecretKey, sp.PrivacyKey = engineID, k.SecretKey, k.PrivacyKey
-		sp.AuthenticationPassphrase, sp.PrivacyPassphrase = "", ""
-	}
+	p.keys.auth = key
 }
 
 // otherEngineTime gives an answer engine boots and time the agent does not
 // have.
-func otherEngineTime(p *Message) {
-	usp := p.SecurityParameters.usm()
-	usp.AuthoritativeEngineBoots, usp.AuthoritativeEngineTime = 99, 5
+func otherEngineTime(p *agentOut) {
+	p.SecurityParameters.AuthoritativeEngineBoots, p.SecurityParameters.AuthoritativeEngineTime = 99, 5
 }
 
 // timeJump moves the agent's engine time ten days ahead with its boots
@@ -323,7 +349,7 @@ func timeJump(a *fakeV3Agent) { a.timeBase += 886000 }
 // window with a notInTimeWindow Report at noAuthNoPriv that carries its engine
 // boots and time, as some devices (UniFi access points) do against RFC 3414
 // section 3.2 step 7 a; edit, when set, changes each such Report.
-func unauthenticatedTimeWindow(a *fakeV3Agent, edit func(*Message)) {
+func unauthenticatedTimeWindow(a *fakeV3Agent, edit func(*agentOut)) {
 	a.script = func(_ int, req agentRequest) (agentAnswer, bool) {
 		if req.boots == a.boots && absDiff(req.engineTime, a.engineTime()) <= agentTimeWindow {
 			return agentAnswer{}, false
@@ -412,7 +438,7 @@ func v3Scenarios() map[string]v3Scenario {
 		// context engine, and without them.
 		"discovery/report-without-varbinds": {user: "codec-md5", script: onRequest(1, agentAnswer{
 			report: usmStatsUnknownEngineIDs, why: "answers discovery with a Report without varbinds",
-			edit: func(p *Message) { p.VarBinds = nil },
+			edit: func(p *agentOut) { p.VarBinds = nil },
 		})},
 		"discovery/get-response": {user: "codec-md5", script: onRequest(1, agentAnswer{
 			why: "answers discovery with a Response",
@@ -423,19 +449,16 @@ func v3Scenarios() map[string]v3Scenario {
 		"answer/unauthenticated-empty-identity": {
 			user: "codec-md5", script: onRequest(2, agentAnswer{
 				why: "Response without authentication, user name and engine ID",
-				edit: func(p *Message) {
-					usp := p.SecurityParameters.usm()
-					usp.UserName, usp.AuthoritativeEngineID = "", ""
+				edit: func(p *agentOut) {
+					usp := &p.SecurityParameters
+					usp.UserName, usp.AuthoritativeEngineID = "", nil
 				},
 			}),
 		},
 		"discovery/unknown-user-names-report": {user: "codec-md5", script: onRequest(1, agentAnswer{
 			report: usmStatsUnknownUserNames, why: "answers discovery like some devices",
 		})},
-		"discovery/context-engine-id-set": {user: "codec-md5", setup: func(x *Client, _ *UsmSecurityParameters) {
-			x.ContextEngineID = "codec-context"
-		}},
-		"discovery/context-name": {user: "codec-md5", setup: func(x *Client, _ *UsmSecurityParameters) {
+		"discovery/context-name": {user: "codec-md5", setup: func(x *Client) {
 			x.ContextName = "codec-vrf"
 		}},
 		"discovery/other-security-model": {
@@ -451,37 +474,24 @@ func v3Scenarios() map[string]v3Scenario {
 		},
 		"discovery/report-without-context-engine-id": {user: "codec-md5", script: onRequest(1, agentAnswer{
 			report: usmStatsUnknownEngineIDs, why: "discovery Report without a context engine ID",
-			edit: func(p *Message) { p.ContextEngineID = "" },
+			edit: func(p *agentOut) { p.ContextEngineID = nil },
 		})},
 		"discovery/context-engine-id-differs": {user: "codec-md5", script: onRequest(1, agentAnswer{
 			report: usmStatsUnknownEngineIDs, why: "discovery Report with another context engine ID",
-			edit: func(p *Message) { p.ContextEngineID = "codec-proxied-context" },
+			edit: func(p *agentOut) { p.ContextEngineID = []byte("codec-proxied-context") },
 		})},
 		"discovery/request-unanswered": {user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
 			return agentAnswer{drop: true, why: "silent after discovery"}, n > 1
 		}},
 
 		// Engine ID known in advance.
-		"known-engine/time-unknown": {user: "codec-md5", setup: func(_ *Client, sp *UsmSecurityParameters) {
-			sp.AuthoritativeEngineID = agentEngineID
-		}},
-		"known-engine/time-known": {user: "codec-sha-aes", setup: func(_ *Client, sp *UsmSecurityParameters) {
-			sp.AuthoritativeEngineID = agentEngineID
-			sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = agentBoots, agentTimeBase
-		}},
-		"known-engine/other-engine": {
-			user: "codec-md5", setup: func(_ *Client, sp *UsmSecurityParameters) {
-				sp.AuthoritativeEngineID = agentOtherEngineID
-			},
-		},
-		// Keys given without passphrases serve only the engine ID they were
-		// localized to, and a reply naming another one derives none: the
-		// client reads it as a client with passphrases does, so an
-		// unauthenticated unknownEngineIDs Report ends the request.
-		"known-engine/other-engine/keys-only": {user: "codec-sha-aes", setup: configuredKeys(agentOtherEngineID)},
-		// The same holds for a forged one from another engine.
-		"known-engine/keys-only/forged-report-from-other-engine": {
-			user: "codec-sha-aes", setup: configuredKeys(agentEngineID),
+		"known-engine/time-unknown": {user: "codec-md5", setup: seedEngine(agentEngineID, 0, 0)},
+		"known-engine/time-known":   {user: "codec-sha-aes", setup: seedEngine(agentEngineID, agentBoots, agentTimeBase)},
+		"known-engine/other-engine": {user: "codec-md5", setup: seedEngine(agentOtherEngineID, 0, 0)},
+		// An unauthenticated unknownEngineIDs Report forged from another
+		// engine ends an authenticated request: it lends no engine ID.
+		"known-engine/forged-report-from-other-engine": {
+			user: "codec-sha-aes", setup: seedEngine(agentEngineID, 0, 0),
 			script: onRequest(1, agentAnswer{report: usmStatsUnknownEngineIDs, why: "forged, unauthenticated", edit: fromOtherEngine}),
 		},
 
@@ -542,9 +552,9 @@ func v3Scenarios() map[string]v3Scenario {
 		// A notInTimeWindow Report lends its time only, not the other engine
 		// ID it names.
 		"unauthenticated-report/noauth-other-engine": {user: "codec-noauth", script: onRequest(2, agentAnswer{
-			report: usmStatsNotInTimeWindows, why: "not in time window, from the other engine", edit: func(p *Message) {
+			report: usmStatsNotInTimeWindows, why: "not in time window, from the other engine", edit: func(p *agentOut) {
 				fromOtherEngine(p)
-				p.SecurityParameters.usm().AuthoritativeEngineTime += 7
+				p.SecurityParameters.AuthoritativeEngineTime += 7
 			},
 		})},
 		"unauthenticated-report/engine-id-differs": {user: "codec-md5", run: getTwice(func(a *fakeV3Agent) {
@@ -568,7 +578,7 @@ func v3Scenarios() map[string]v3Scenario {
 		})},
 		"unauthenticated-report/other-msg-id": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			report: usmStatsUnknownUserNames, why: "unauthenticated, for another message",
-			edit: func(p *Message) { p.MsgID += 100 },
+			edit: func(p *agentOut) { p.MsgID += 100 },
 		})},
 		"unauthenticated-report/earlier-attempt": {user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
 			switch n {
@@ -577,14 +587,14 @@ func v3Scenarios() map[string]v3Scenario {
 			case 3:
 				return agentAnswer{
 					report: usmStatsUnknownUserNames, why: "unauthenticated, with the msgID of the first attempt",
-					edit: func(p *Message) { p.MsgID-- },
+					edit: func(p *agentOut) { p.MsgID-- },
 				}, true
 			}
 			return agentAnswer{}, false
 		}},
 		"unauthenticated-report/unknown-engine-other-msg-id": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			report: usmStatsUnknownEngineIDs, why: "unauthenticated, from the other engine, for another message",
-			edit: func(p *Message) {
+			edit: func(p *agentOut) {
 				fromOtherEngine(p)
 				p.MsgID += 100
 			},
@@ -595,11 +605,11 @@ func v3Scenarios() map[string]v3Scenario {
 		})},
 		"unauthenticated-report/two-varbinds": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			report: usmStatsUnknownUserNames, why: "unauthenticated, two varbinds",
-			edit: func(p *Message) { p.VarBinds = append(p.VarBinds, sysDescr) },
+			edit: func(p *agentOut) { p.VarBinds = append(p.VarBinds, sysDescr) },
 		})},
 		"unauthenticated-report/empty": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			report: usmStatsUnknownUserNames, why: "unauthenticated, no varbinds",
-			edit: func(p *Message) { p.VarBinds = nil },
+			edit: func(p *agentOut) { p.VarBinds = nil },
 		})},
 		"unauthenticated-report/without-scoped-pdu": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			report: usmStatsUnknownUserNames, why: "unauthenticated, ends after its security parameters",
@@ -622,7 +632,7 @@ func v3Scenarios() map[string]v3Scenario {
 		// 0 and only the msgID ties the Report to the request.
 		"unauthenticated-report/time-jump/request-id-zero": {user: "codec-sha-aes", run: getTwice(func(a *fakeV3Agent) {
 			timeJump(a)
-			unauthenticatedTimeWindow(a, func(p *Message) { p.RequestID = 0 })
+			unauthenticatedTimeWindow(a, func(p *agentOut) { p.RequestID = 0 })
 		})},
 		"unauthenticated-report/silent-after-unknown-engine": {user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
 			switch {
@@ -667,7 +677,7 @@ func v3Scenarios() map[string]v3Scenario {
 		// message or with the request's msgID, followed by two Gets.
 		"answer/other-agent-report/other-message": {user: "codec-md5", run: getThrice(nil), script: onRequest(2, agentAnswer{
 			report: snmpUnknownContexts, level: AuthNoPriv, why: "signed by another agent with the same credentials, for another message",
-			edit: func(p *Message) {
+			edit: func(p *agentOut) {
 				signedByOtherEngine(p)
 				p.MsgID += 100
 			},
@@ -679,9 +689,9 @@ func v3Scenarios() map[string]v3Scenario {
 		// An authentic Report for another message answers no request.
 		"answer/authentic-report/other-message": {user: "codec-md5", run: getThrice(nil), script: onRequest(2, agentAnswer{
 			report: snmpUnknownContexts, level: AuthNoPriv, why: "authentic, for another message, a later engine time",
-			edit: func(p *Message) {
+			edit: func(p *agentOut) {
 				p.MsgID += 100
-				p.SecurityParameters.usm().AuthoritativeEngineTime += 50
+				p.SecurityParameters.AuthoritativeEngineTime += 50
 			},
 		})},
 		// A reply naming another engine ID is not the request's answer, even
@@ -692,16 +702,16 @@ func v3Scenarios() map[string]v3Scenario {
 		})},
 		"answer/forged-report/empty-identity": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			report: usmStatsUnknownUserNames, level: AuthNoPriv, why: "Report signed with another key, without a user name and engine ID",
-			edit: func(p *Message) {
+			edit: func(p *agentOut) {
 				forgeReport(p)
-				usp := p.SecurityParameters.usm()
-				usp.UserName, usp.AuthoritativeEngineID = "", ""
+				usp := &p.SecurityParameters
+				usp.UserName, usp.AuthoritativeEngineID = "", nil
 			},
 		})},
 		// A client with authentication keys that sends at noAuthNoPriv does
 		// not check the digest of an authNoPriv answer.
 		"report-later/noauth-request-authenticated-report": {
-			user: "codec-md5", setup: func(x *Client, _ *UsmSecurityParameters) { x.SecurityLevel = NoAuthNoPriv },
+			user: "codec-md5", setup: func(x *Client) { x.SecurityLevel = NoAuthNoPriv },
 			run: getTwice(nil), script: onRequest(3, agentAnswer{
 				report: usmStatsUnknownUserNames, level: AuthNoPriv, why: "authNoPriv Report from another engine ID 10 s later",
 				edit: fromOtherEngine,
@@ -725,12 +735,15 @@ func v3Scenarios() map[string]v3Scenario {
 				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
 			}),
 		},
-		// A key given without a passphrase serves only the engine ID it was
-		// localized to, here none: discovery cannot give the client the agent's,
-		// and the request fails there, the client's engine fields unchanged.
-		"empty-key/key-only-user-empty-passphrase": {
-			user: "codec-md5", creds: &agentUser{auth: MD5, authPass: ""},
-			setup: func(_ *Client, sp *UsmSecurityParameters) { sp.SecretKey = bytes.Repeat([]byte{0x11}, 16) },
+		// A protocol without a passphrase has no key, which Connect rejects;
+		// a user changed after Connect fails the request at its start, before
+		// discovery and without traffic, the engine state empty.
+		"empty-passphrase/auth-protocol-without-passphrase": {
+			user: "codec-md5", run: func(x *Client, a *fakeV3Agent) (*Message, error) {
+				a.tr.addf("caller clears the authentication passphrase")
+				x.User.AuthPassphrase = ""
+				return x.Get([]string{engineOID})
+			},
 		},
 		"discovery/report-without-engine-id/sha256-des": {
 			user: "codec-sha256-des", script: onRequest(1, agentAnswer{
@@ -938,7 +951,7 @@ func v3Scenarios() map[string]v3Scenario {
 		"resync/report-for-other-request-id": {
 			user: "codec-md5", script: onRequest(2, agentAnswer{
 				report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "not in time window, for another request ID",
-				edit: func(p *Message) { p.RequestID += 100 },
+				edit: func(p *agentOut) { p.RequestID += 100 },
 			}),
 		},
 		"resync/retransmission-answered-by-authenticated-report": {
@@ -949,7 +962,7 @@ func v3Scenarios() map[string]v3Scenario {
 				case 3:
 					return agentAnswer{
 						report: snmpUnknownContexts, level: AuthNoPriv, why: "unknown context, a later engine time",
-						edit: func(p *Message) { p.SecurityParameters.usm().AuthoritativeEngineTime += 7 },
+						edit: func(p *agentOut) { p.SecurityParameters.AuthoritativeEngineTime += 7 },
 					}, true
 				}
 				return agentAnswer{}, false
@@ -972,8 +985,8 @@ func v3Scenarios() map[string]v3Scenario {
 				case 2:
 					return agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "not in time window"}, true
 				case 3:
-					return agentAnswer{level: AuthNoPriv, why: "a later engine time", edit: func(p *Message) {
-						p.SecurityParameters.usm().AuthoritativeEngineTime += 7
+					return agentAnswer{level: AuthNoPriv, why: "a later engine time", edit: func(p *agentOut) {
+						p.SecurityParameters.AuthoritativeEngineTime += 7
 					}}, true
 				}
 				return agentAnswer{}, false
@@ -982,7 +995,7 @@ func v3Scenarios() map[string]v3Scenario {
 		// Once the client has an engine ID it does not take another from an
 		// unauthenticated Report (RFC 3414 section 1.5.2; net-snmp neither):
 		// the request ends with ErrUnknownEngineID, and an application that
-		// expects a replaced device clears the engine ID to rediscover.
+		// expects a replaced device calls ForgetEngine to rediscover.
 		"engine-change": {
 			user: "codec-md5", run: getTwice(func(a *fakeV3Agent) { a.setEngineID(agentOtherEngineID) }),
 		},
@@ -993,6 +1006,22 @@ func v3Scenarios() map[string]v3Scenario {
 		// its context engine ID follows (net-snmp keeps the first one).
 		"engine-change/noauth": {
 			user: "codec-noauth", run: getThrice(func(a *fakeV3Agent) { a.setEngineID(agentOtherEngineID) }),
+		},
+		// The result of a request is the caller's: writing into its header
+		// leaves the engine state as it is, also after a request took the
+		// engine ID the result names.
+		"engine-change/noauth/caller-writes-result": {
+			user: "codec-noauth", run: func(x *Client, a *fakeV3Agent) (*Message, error) {
+				res, err := getTwice(func(a *fakeV3Agent) { a.setEngineID(agentOtherEngineID) })(x, a)
+				if err != nil {
+					return nil, fmt.Errorf("second Get: %w", err)
+				}
+				a.tr.addf("caller clears the second result's engine ID; client %s", describeEngineState(&x.engine))
+				clear(res.SecurityParameters.AuthoritativeEngineID)
+				a.tr.addf("client %s", describeEngineState(&x.engine))
+				time.Sleep(10 * time.Second)
+				return x.Get([]string{engineOID})
+			},
 		},
 		"unknown-engine-report/noauth-retransmit-unanswered": {
 			user: "codec-noauth", script: func(n int, _ agentRequest) (agentAnswer, bool) {
@@ -1027,126 +1056,96 @@ func v3Scenarios() map[string]v3Scenario {
 			}),
 		},
 
-		// The caller changes the engine fields between two requests: a change
-		// applies from the next request.
-		"caller/engine-id-reset": {user: "codec-md5", run: changeThenGet(
-			"clears the engine ID and the context engine ID", func(x *Client, sp *UsmSecurityParameters) {
-				sp.AuthoritativeEngineID, x.ContextEngineID = "", ""
-			})},
-		"caller/engine-id-reset/context-kept": {user: "codec-md5", run: changeThenGet(
-			"clears the engine ID", func(_ *Client, sp *UsmSecurityParameters) { sp.AuthoritativeEngineID = "" })},
-		"caller/other-engine-id": {user: "codec-md5", run: changeThenGet(
-			"sets the other engine ID", func(_ *Client, sp *UsmSecurityParameters) {
-				sp.AuthoritativeEngineID = agentOtherEngineID
-			})},
-		"caller/other-engine-id/keys-only": {
-			user: "codec-sha-aes", setup: configuredKeys(agentEngineID), run: changeThenGet(
-				"sets the other engine ID", func(_ *Client, sp *UsmSecurityParameters) {
-					sp.AuthoritativeEngineID = agentOtherEngineID
-				}),
-		},
-		// Keys given without the engine ID they were localized to cannot take
-		// the one discovery finds; the caller then sets it.
-		"caller/keys-only-engine-id-after-failed-discovery": {
-			user: "codec-sha-aes", setup: func(x *Client, sp *UsmSecurityParameters) {
-				configuredKeys(agentEngineID)(x, sp)
-				sp.AuthoritativeEngineID = ""
-			},
-			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				res, err := x.Get([]string{engineOID})
-				a.tr.addf("first Get: %s", describeEngineResult(res, err))
-				a.tr.addf("caller sets the engine ID the keys were localized to")
-				x.SecurityParameters.usm().AuthoritativeEngineID = agentEngineID
-				return x.Get([]string{engineOID})
-			},
-		},
-		// Keys derived into the parameters before they have an engine ID are
-		// localized to none: the engine ID the caller sets takes keys derived
-		// for it.
-		"caller/derived-keys-then-engine-id": {
-			user: "codec-md5", setup: func(_ *Client, sp *UsmSecurityParameters) {
-				if err := sp.InitSecurityKeys(); err != nil {
-					panic(err)
-				}
-			},
-			script: onRequest(1, agentAnswer{
-				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
+		// The caller makes the client forget the agent's engine between two
+		// requests (E30): the next request discovers it again.
+		"caller/forget-engine": {user: "codec-md5", run: changeThenGet(
+			"calls ForgetEngine", func(x *Client) { x.ForgetEngine() })},
+		// A forged answer to the discovery gives the client another engine ID
+		// (E29a): the agent answers the authenticated request with an
+		// unauthenticated unknownEngineIDs Report, which ends it with
+		// ErrUnknownEngineID; the caller forgets the engine (J7 (b)), and the
+		// next request discovers the agent's.
+		"caller/forged-discovery-then-forget-engine": {
+			user: "codec-md5", script: onRequest(1, agentAnswer{
+				report: usmStatsUnknownEngineIDs, why: "forged discovery answer, from the other engine", edit: fromOtherEngine,
 			}),
 			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
 				res, err := x.Get([]string{engineOID})
 				a.tr.addf("first Get: %s", describeEngineResult(res, err))
-				a.tr.addf("caller sets the agent's engine ID")
-				x.SecurityParameters.usm().AuthoritativeEngineID = agentEngineID
+				if !errors.Is(err, ErrUnknownEngineID) {
+					return res, err
+				}
+				a.tr.addf("caller calls ForgetEngine")
+				x.ForgetEngine()
 				return x.Get([]string{engineOID})
 			},
 		},
-		"caller/new-security-parameters": {user: "codec-md5", run: changeThenGet(
-			"sets new security parameters", func(x *Client, _ *UsmSecurityParameters) {
-				x.SecurityParameters = userParameters("codec-md5")
-			})},
+		// Another user keeps the engine ID and clock, and its keys derive for
+		// the engine ID.
+		"caller/other-user": {user: "codec-md5", run: changeThenGet(
+			"sets another user", func(x *Client) { x.User = agentUserOf("codec-sha-aes") })},
 		"caller/changed-passphrase": {
 			user: "codec-md5", run: changeThenGet(
-				"changes the authentication passphrase", func(_ *Client, sp *UsmSecurityParameters) {
-					sp.AuthenticationPassphrase = "codec-other-pass"
+				"changes the authentication passphrase", func(x *Client) {
+					x.User.AuthPassphrase = "codec-other-pass"
 				}),
 		},
-		"caller/context-engine-id/engine-change/noauth": {
-			user: "codec-noauth", setup: func(x *Client, _ *UsmSecurityParameters) { x.ContextEngineID = "codec-context" },
-			run: getThrice(func(a *fakeV3Agent) { a.setEngineID(agentOtherEngineID) }),
-		},
-		// A decode of a trap derives keys into the client's own parameters,
-		// for their engine ID, here none.
+		// A decode of a trap leaves the client's engine state as it was.
 		"caller/trap-decode-then-get": {user: "codec-md5", run: func(x *Client, a *fakeV3Agent) (*Message, error) {
 			_, err := x.UnmarshalTrap([]byte{0x30, 0x05, 0x02, 0x01, 0x03, 0x30, 0x00}, false)
-			a.tr.addf("UnmarshalTrap: %v; client keys=%s", err, describeKeys(x.SecurityParameters.usm()))
+			a.tr.addf("UnmarshalTrap: %v; client %s", err, describeEngineState(&x.engine))
 			return x.Get([]string{engineOID})
 		}},
+		// EncodeMessage takes the engine state as a request starts it: the
+		// engine ID, the keys localized to it and the latest boots and time
+		// received, not advanced; a ForgetEngine or another User since the
+		// last request applies to it as to a request.
 		"caller/encode-after-get/known-engine": {
-			user: "codec-md5", setup: func(_ *Client, sp *UsmSecurityParameters) { sp.AuthoritativeEngineID = agentEngineID },
+			user: "codec-md5", setup: seedEngine(agentEngineID, 0, 0),
 			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
 				res, err := x.Get([]string{engineOID})
-				out, encErr := x.EncodeMessage(GetRequest, []VarBind{{Name: engineOID, Type: Null}}, 0, 0)
-				a.tr.addf("EncodeMessage: %d octets, error %v", len(out), encErr)
+				time.Sleep(10 * time.Second)
+				encodeMessage(x, a)
 				return res, err
 			},
 		},
+		"caller/encode-after-forget-engine": {user: "codec-md5", run: encodeThenGet(
+			"calls ForgetEngine", func(x *Client) { x.ForgetEngine() })},
+		"caller/encode-after-forget-engine/noauth": {user: "codec-noauth", run: encodeThenGet(
+			"calls ForgetEngine", func(x *Client) { x.ForgetEngine() })},
+		"caller/encode-after-other-user": {user: "codec-md5", run: encodeThenGet(
+			"sets another user", func(x *Client) { x.User = agentUserOf("codec-sha-aes") })},
 
-		// A hook changes the engine fields during a request: the change applies
-		// from the next request.
-		"hooks/discovery-onfinish-clears-engine-id": {
-			user: "codec-md5", run: onFinishThenGet(1, "clears the engine ID", func(x *Client) {
-				x.SecurityParameters.usm().AuthoritativeEngineID = ""
+		// A hook forgets the engine or changes the user during a request: the
+		// change applies from the next request.
+		"hooks/discovery-onfinish-forgets-engine": {
+			user: "codec-md5", run: onFinishThenGet(1, "calls ForgetEngine", func(x *Client) { x.ForgetEngine() }),
+		},
+		// A user a hook sets during the discovery serves from the next request:
+		// the discovery's commit derives the keys of the user the request
+		// started with.
+		"hooks/discovery-presend-changes-user": {
+			user: "codec-md5", run: func(x *Client, a *fakeV3Agent) (*Message, error) {
+				res, err := onFirstPreSend("sets another user", func(x *Client) {
+					x.User = agentUserOf("codec-sha-aes")
+				})(x, a)
+				a.tr.addf("first Get: %s", describeEngineResult(res, err))
+				time.Sleep(10 * time.Second)
+				return x.Get([]string{engineOID})
+			},
+		},
+		"hooks/request-onfinish-changes-user": {
+			user: "codec-md5", run: onFinishThenGet(2, "sets another user", func(x *Client) {
+				x.User = agentUserOf("codec-sha-aes")
 			}),
 		},
-		"hooks/request-onfinish-replaces-security-parameters": {
-			user: "codec-md5", run: onFinishThenGet(2, "sets new security parameters", func(x *Client) {
-				x.SecurityParameters = userParameters("codec-md5")
-			}),
-		},
-		// A context engine ID the caller sets before the discovery's commit is
-		// the caller's: the commit keeps it, and the next request takes it.
-		"hooks/discovery-presend-sets-context-engine-id": {user: "codec-md5", run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-			if _, err := onFirstPreSend("sets the client's context engine ID", func(x *Client) { x.ContextEngineID = "codec-context" })(x, a); err != nil {
-				return nil, fmt.Errorf("first Get: %w", err)
-			}
-			time.Sleep(10 * time.Second)
-			return x.Get([]string{engineOID})
-		}},
 
 		// A Response to a request without authentication naming another
 		// engine ID than the request's answers nothing (RFC 3412 section 7.2
-		// step 12 b): without one, and from another engine to a client given
-		// keys without passphrases.
+		// step 12 b), here none.
 		"noauth/answer-without-engine-id": {
 			user: "codec-noauth", run: getTwice(nil),
 			script: onRequest(2, agentAnswer{why: "Response without an engine ID", edit: withoutEngineID}),
-		},
-		"noauth/keys-only-answer-from-other-engine": {
-			user: "codec-md5", setup: func(x *Client, sp *UsmSecurityParameters) {
-				configuredKeys(agentEngineID)(x, sp)
-				x.SecurityLevel = NoAuthNoPriv
-			},
-			script: onRequest(1, agentAnswer{why: "Response from the other engine", edit: fromOtherEngine}),
 		},
 		// An unknownEngineIDs Report without an engine ID has none to lend.
 		"noauth/unknown-engine-report-without-engine-id": {
@@ -1160,7 +1159,7 @@ func v3Scenarios() map[string]v3Scenario {
 		// it, and answers nothing, at another level than the request's: the
 		// resend times out with that reason.
 		"noauth/lent-engine-authenticated-answer": {
-			user: "codec-md5", setup: func(x *Client, _ *UsmSecurityParameters) { x.SecurityLevel = NoAuthNoPriv },
+			user: "codec-md5", setup: func(x *Client) { x.SecurityLevel = NoAuthNoPriv },
 			script: func(n int, _ agentRequest) (agentAnswer, bool) {
 				switch {
 				case n == 2:
@@ -1232,7 +1231,7 @@ func v3Scenarios() map[string]v3Scenario {
 		"clock/boots-max-after-update": {
 			user: "codec-md5", run: getThrice(nil), script: onRequest(3, agentAnswer{
 				level: AuthNoPriv, why: "Response with engine boots 2147483647",
-				edit: func(p *Message) { p.SecurityParameters.usm().AuthoritativeEngineBoots = maxEngineValue },
+				edit: func(p *agentOut) { p.SecurityParameters.AuthoritativeEngineBoots = maxEngineValue },
 			}),
 		},
 		// A client whose parameters have an authentication protocol and whose
@@ -1241,13 +1240,13 @@ func v3Scenarios() map[string]v3Scenario {
 		"clock/noauth/verified-old-time": {
 			user: "codec-md5", run: getsAt(AuthNoPriv, AuthNoPriv, NoAuthNoPriv), script: onRequest(3, agentAnswer{
 				level: AuthNoPriv, why: "authNoPriv answer with an engine time 200 s old",
-				edit: func(p *Message) { p.SecurityParameters.usm().AuthoritativeEngineTime -= 200 },
+				edit: func(p *agentOut) { p.SecurityParameters.AuthoritativeEngineTime -= 200 },
 			}),
 		},
 		"clock/noauth/authenticated-then-unauthenticated": {
 			user: "codec-md5", run: getsAt(AuthNoPriv, NoAuthNoPriv, NoAuthNoPriv), script: onRequest(3, agentAnswer{
 				why:  "noAuthNoPriv answer with an engine time 500 s ahead",
-				edit: func(p *Message) { p.SecurityParameters.usm().AuthoritativeEngineTime += 500 },
+				edit: func(p *agentOut) { p.SecurityParameters.AuthoritativeEngineTime += 500 },
 			}),
 		},
 		// Discovery's unauthenticated time is no notion step 7 checks the
@@ -1257,8 +1256,8 @@ func v3Scenarios() map[string]v3Scenario {
 			script: func(n int, _ agentRequest) (agentAnswer, bool) {
 				switch n {
 				case 1:
-					return agentAnswer{report: usmStatsUnknownEngineIDs, why: "unknown engine ID, an engine time 1000 s ahead", edit: func(p *Message) {
-						p.SecurityParameters.usm().AuthoritativeEngineTime += 1000
+					return agentAnswer{report: usmStatsUnknownEngineIDs, why: "unknown engine ID, an engine time 1000 s ahead", edit: func(p *agentOut) {
+						p.SecurityParameters.AuthoritativeEngineTime += 1000
 					}}, true
 				case 2:
 					return agentAnswer{level: AuthNoPriv, why: "authNoPriv answer"}, true
@@ -1284,13 +1283,6 @@ func v3Scenarios() map[string]v3Scenario {
 				}
 			}),
 		},
-		// The caller sets the engine boots and time without the engine ID
-		// (with it: known-engine/time-known).
-		"clock/caller-clock/no-engine-id": {
-			user: "codec-md5", setup: func(_ *Client, sp *UsmSecurityParameters) {
-				sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = agentBoots, agentTimeBase-500
-			},
-		},
 		// Two authenticated notInTimeWindow Reports with other engine times,
 		// to the request and to its resend.
 		"clock/second-resync-report-other-time": {
@@ -1299,8 +1291,8 @@ func v3Scenarios() map[string]v3Scenario {
 					return agentAnswer{}, false
 				}
 				ahead := uint32(50 * (n - 1)) //nolint:gosec // a small request count
-				return agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "not in time window", edit: func(p *Message) {
-					p.SecurityParameters.usm().AuthoritativeEngineTime += ahead
+				return agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "not in time window", edit: func(p *agentOut) {
+					p.SecurityParameters.AuthoritativeEngineTime += ahead
 				}}, true
 			},
 		},
@@ -1332,23 +1324,23 @@ func v3Scenarios() map[string]v3Scenario {
 		"answer/report-for-other-message": {
 			user: "codec-noauth", script: onRequest(2, agentAnswer{
 				report: usmStatsUnknownUserNames, why: "Report for another message",
-				edit: func(p *Message) { p.MsgID, p.RequestID = p.MsgID+100, p.RequestID+100 },
+				edit: func(p *agentOut) { p.MsgID, p.RequestID = p.MsgID+100, p.RequestID+100 },
 			}),
 		},
 		"answer/wrong-msg-id": {
 			user: "codec-md5", script: onRequest(2, agentAnswer{
-				level: AuthNoPriv, edit: func(p *Message) { p.MsgID += 100 }, why: "Response for another message",
+				level: AuthNoPriv, edit: func(p *agentOut) { p.MsgID += 100 }, why: "Response for another message",
 			}),
 		},
 		"answer/empty-other-message": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			level: AuthNoPriv, why: "empty Response for another message",
-			edit: func(p *Message) {
+			edit: func(p *agentOut) {
 				p.VarBinds = nil
 				p.MsgID += 100
 			},
 		})},
 		"answer/wrong-request-id": {user: "codec-md5", script: onRequest(2, agentAnswer{
-			level: AuthNoPriv, edit: func(p *Message) { p.RequestID += 100 }, why: "Response for another request",
+			level: AuthNoPriv, edit: func(p *agentOut) { p.RequestID += 100 }, why: "Response for another request",
 		})},
 		"answer/unauthenticated": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			why: "Response without authentication",
@@ -1374,17 +1366,19 @@ func v3Scenarios() map[string]v3Scenario {
 		"answer/other-context": {
 			user: "codec-md5", script: onRequest(2, agentAnswer{
 				level: AuthNoPriv, why: "Response in another context",
-				edit: func(p *Message) { p.ContextEngineID, p.ContextName = "codec-other-context", "codec-other-name" },
+				edit: func(p *agentOut) {
+					p.ContextEngineID, p.ContextName = []byte("codec-other-context"), "codec-other-name"
+				},
 			}),
 		},
 		"answer/other-user/noauth": {
 			user: "codec-noauth", script: onRequest(2, agentAnswer{
-				why: "Response for another user", edit: func(p *Message) { p.SecurityParameters.usm().UserName = "codec-other-user" },
+				why: "Response for another user", edit: func(p *agentOut) { p.SecurityParameters.UserName = "codec-other-user" },
 			}),
 		},
 		"answer/other-user/md5": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			level: AuthNoPriv, why: "Response for another user",
-			edit: func(p *Message) { p.SecurityParameters.usm().UserName = "codec-other-user" },
+			edit: func(p *agentOut) { p.SecurityParameters.UserName = "codec-other-user" },
 		})},
 		// The reportableFlag and the reserved bits of an answer's msgFlags are
 		// not part of its level: the Response answers.
@@ -1434,12 +1428,12 @@ func v3Scenarios() map[string]v3Scenario {
 		},
 		"hooks/privacy-protocol-changed-on-retry": {
 			user: "codec-sha-aes", script: onRequest(2, agentAnswer{drop: true, why: "no answer"}),
-			setup: func(x *Client, _ *UsmSecurityParameters) { x.Retries = 1 },
+			setup: func(x *Client) { x.Retries = 1 },
 			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
 				onRetry := x.OnRetry
 				x.OnRetry = func(x *Client) {
 					onRetry(x)
-					x.SecurityParameters.usm().PrivacyProtocol = DES
+					x.User.PrivProtocol = DES
 					a.tr.addf("hook OnRetry sets the client's privacy protocol to DES")
 				}
 				return x.Get([]string{engineOID})
@@ -1455,25 +1449,25 @@ func v3Scenarios() map[string]v3Scenario {
 		"answer/report-two-varbinds": {
 			user: "codec-noauth", script: onRequest(2, agentAnswer{
 				report: usmStatsNotInTimeWindows, why: "Report with two varbinds",
-				edit: func(p *Message) { p.VarBinds = append(p.VarBinds, sysDescr) },
+				edit: func(p *agentOut) { p.VarBinds = append(p.VarBinds, sysDescr) },
 			}),
 		},
 		"answer/report-two-varbinds-error-oid": {
 			user: "codec-noauth", script: onRequest(2, agentAnswer{
 				report: usmStatsUnknownUserNames, why: "Report with two varbinds",
-				edit: func(p *Message) { p.VarBinds = append(p.VarBinds, sysDescr) },
+				edit: func(p *agentOut) { p.VarBinds = append(p.VarBinds, sysDescr) },
 			}),
 		},
 		"answer/report-unknown-first-varbind": {
 			user: "codec-noauth", script: onRequest(2, agentAnswer{
 				report: usmStatsNotInTimeWindows, why: "Report whose first varbind is not a counter",
-				edit: func(p *Message) { p.VarBinds = append([]VarBind{sysDescr}, p.VarBinds...) },
+				edit: func(p *agentOut) { p.VarBinds = append([]VarBind{sysDescr}, p.VarBinds...) },
 			}),
 		},
 		"answer/report-without-varbinds": {
 			user: "codec-noauth", script: onRequest(2, agentAnswer{
 				report: usmStatsUnknownUserNames, why: "Report without varbinds",
-				edit: func(p *Message) { p.VarBinds = nil },
+				edit: func(p *agentOut) { p.VarBinds = nil },
 			}),
 		},
 		// Report counters named with another instance than 0, or without
@@ -1513,7 +1507,7 @@ func v3Scenarios() map[string]v3Scenario {
 		"time-window/older-time": {
 			user: "codec-md5", run: getTwice(nil), script: onRequest(3, agentAnswer{
 				level: AuthNoPriv, why: "Response with an older engine time",
-				edit: func(p *Message) { p.SecurityParameters.usm().AuthoritativeEngineTime = agentTimeBase - 100 },
+				edit: func(p *agentOut) { p.SecurityParameters.AuthoritativeEngineTime = agentTimeBase - 100 },
 			}),
 		},
 		"time-window/older-boots": {
@@ -1555,7 +1549,7 @@ func v3Scenarios() map[string]v3Scenario {
 		})},
 		"discard/other-user-then-answer": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			level: AuthNoPriv, why: "Response for another user", then: true,
-			edit: func(p *Message) { p.SecurityParameters.usm().UserName = "codec-other-user" },
+			edit: func(p *agentOut) { p.SecurityParameters.UserName = "codec-other-user" },
 		})},
 		"discard/wrong-digest-then-answer": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			level: AuthNoPriv, why: "Response signed with another key", edit: otherAuthKey, then: true,
@@ -1596,7 +1590,7 @@ func v3Scenarios() map[string]v3Scenario {
 		"discard/other-message-wrong-digest": {user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
 			return agentAnswer{
 				level: AuthNoPriv, why: "Response for another message, signed with another key",
-				edit: func(p *Message) { otherAuthKey(p); p.MsgID += 100 },
+				edit: func(p *agentOut) { otherAuthKey(p); p.MsgID += 100 },
 			}, n > 1
 		}},
 		// Responses with the request's msgID that differ from the request
@@ -1606,24 +1600,24 @@ func v3Scenarios() map[string]v3Scenario {
 			level: AuthNoPriv, why: "Response without encryption", then: true,
 		})},
 		"discard/authenticated-to-noauth-then-answer": {
-			user: "codec-md5", setup: func(x *Client, _ *UsmSecurityParameters) { x.SecurityLevel = NoAuthNoPriv },
+			user: "codec-md5", setup: func(x *Client) { x.SecurityLevel = NoAuthNoPriv },
 			script: onRequest(2, agentAnswer{level: AuthNoPriv, why: "authNoPriv Response", then: true}),
 		},
 		"discard/other-engine-then-answer": {user: "codec-noauth", script: onRequest(2, agentAnswer{
 			why: "Response naming the other engine ID", then: true,
-			edit: func(p *Message) { p.SecurityParameters.usm().AuthoritativeEngineID = agentOtherEngineID },
+			edit: func(p *agentOut) { p.SecurityParameters.AuthoritativeEngineID = []byte(agentOtherEngineID) },
 		})},
 		"discard/other-context-engine-then-answer": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			level: AuthNoPriv, why: "Response with another context engine ID", then: true,
-			edit: func(p *Message) { p.ContextEngineID = "codec-other-context" },
+			edit: func(p *agentOut) { p.ContextEngineID = []byte("codec-other-context") },
 		})},
 		"discard/other-context-name-then-answer": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			level: AuthNoPriv, why: "Response with another context name", then: true,
-			edit: func(p *Message) { p.ContextName = "codec-other-name" },
+			edit: func(p *agentOut) { p.ContextName = "codec-other-name" },
 		})},
 		"discard/empty-user-then-answer": {user: "codec-noauth", script: onRequest(2, agentAnswer{
 			why: "Response without a user name", then: true,
-			edit: func(p *Message) { p.SecurityParameters.usm().UserName = "" },
+			edit: func(p *agentOut) { p.SecurityParameters.UserName = "" },
 		})},
 		"discard/other-version-then-answer": {user: "codec-noauth", script: onRequest(2, agentAnswer{
 			why: "SNMPv2c Response", edit: asV2c, then: true,
@@ -1637,7 +1631,7 @@ func v3Scenarios() map[string]v3Scenario {
 			case 3:
 				return agentAnswer{
 					level: AuthNoPriv, why: "Response with the first attempt's request ID", then: true,
-					edit: func(p *Message) { p.RequestID-- },
+					edit: func(p *agentOut) { p.RequestID-- },
 				}, true
 			}
 			return agentAnswer{}, false
@@ -1797,14 +1791,9 @@ func runV3Polls(t *testing.T, setup func(a *fakeV3Agent)) string {
 	x := newEngineClientFrom(t, nil, fakePacketTransport{c}, &Client{
 		Version:       Version3,
 		SecurityLevel: AuthNoPriv,
-
-		SecurityParameters: &UsmSecurityParameters{
-			UserName:                 "codec-md5",
-			AuthenticationProtocol:   creds.auth,
-			AuthenticationPassphrase: creds.authPass,
-		},
-		Timeout: time.Second,
-		Retries: 2,
+		User:          creds.user("codec-md5"),
+		Timeout:       time.Second,
+		Retries:       2,
 	})
 	for range 60 {
 		if _, err := x.Get([]string{engineOID}); err != nil {
@@ -1812,8 +1801,7 @@ func runV3Polls(t *testing.T, setup func(a *fakeV3Agent)) string {
 		}
 		time.Sleep(10 * time.Second)
 	}
-	usp := x.SecurityParameters.usm()
-	tr.addf("client after: boots=%d time=%d", usp.AuthoritativeEngineBoots, usp.AuthoritativeEngineTime)
+	tr.addf("client after: boots=%d time=%d", x.engine.clock.boots, x.engine.clock.latest)
 	return tr.text()
 }
 
@@ -1859,13 +1847,6 @@ func runV3Scenario(t *testing.T, sc v3Scenario) string {
 	if !ok {
 		t.Fatalf("no credentials for %q", sc.user)
 	}
-	sp := &UsmSecurityParameters{
-		UserName:                 sc.user,
-		AuthenticationProtocol:   creds.auth,
-		AuthenticationPassphrase: creds.authPass,
-		PrivacyProtocol:          creds.priv,
-		PrivacyPassphrase:        creds.privPass,
-	}
 	flags := NoAuthNoPriv
 	switch {
 	case creds.priv > NoPriv:
@@ -1876,13 +1857,12 @@ func runV3Scenario(t *testing.T, sc v3Scenario) string {
 	x := &Client{
 		Version:       Version3,
 		SecurityLevel: flags,
-
-		SecurityParameters: sp,
-		Timeout:            time.Second,
-		Retries:            2,
+		User:          creds.user(sc.user),
+		Timeout:       time.Second,
+		Retries:       2,
 	}
 	if sc.setup != nil {
-		sc.setup(x, sp)
+		sc.setup(x)
 	}
 	x = newEngineClientFrom(t, tr, fakePacketTransport{c}, x)
 	run := sc.run
@@ -1900,34 +1880,32 @@ func runV3Scenario(t *testing.T, sc v3Scenario) string {
 		tr.addf("result: %s", describeEngineResult(res, err))
 	}
 	tr.addConfigChanges(before, x)
-	usp := x.SecurityParameters.usm()
-	tr.addf("client after: engine=%q boots=%d time=%d keys=%s context engine=%q", usp.AuthoritativeEngineID,
-		usp.AuthoritativeEngineBoots, usp.AuthoritativeEngineTime, describeKeys(usp), x.ContextEngineID)
+	tr.addf("client after: %s", describeEngineState(&x.engine))
 	return tr.text()
 }
 
-// describeKeys names the engine ID the keys of sp are localized to: "current"
+// describeEngineState describes the client's engine state: its engine ID,
+// the latest engine boots and time it received, the engine ID its keys are
+// localized to and the context engine ID of its requests.
+func describeEngineState(s *engineState) string {
+	return fmt.Sprintf("engine=%q boots=%d time=%d keys=%s context engine=%q", s.engineID, s.clock.boots,
+		s.clock.latest, describeKeys(s), s.contextEngineID())
+}
+
+// describeKeys names the engine ID the keys of s are localized to: "current"
 // for its own, "none" without keys.
-func describeKeys(sp *UsmSecurityParameters) string {
-	if len(sp.SecretKey) == 0 && len(sp.PrivacyKey) == 0 {
+func describeKeys(s *engineState) string {
+	if len(s.keys.auth) == 0 && len(s.keys.priv) == 0 {
 		return "none"
 	}
-	for _, id := range []string{sp.AuthoritativeEngineID, agentEngineID, agentOtherEngineID} {
-		want := &UsmSecurityParameters{
-			UserName:                 sp.UserName,
-			AuthenticationProtocol:   sp.AuthenticationProtocol,
-			AuthenticationPassphrase: sp.AuthenticationPassphrase,
-			PrivacyProtocol:          sp.PrivacyProtocol,
-			PrivacyPassphrase:        sp.PrivacyPassphrase,
-			AuthoritativeEngineID:    id,
-		}
+	for _, id := range []string{string(s.engineID), agentEngineID, agentOtherEngineID} {
+		var want usmKeys
 		var err error
-		fips140.WithoutEnforcement(func() { err = want.InitSecurityKeys() })
-		if err != nil || !bytes.Equal(want.SecretKey, sp.SecretKey) ||
-			!bytes.Equal(want.PrivacyKey, sp.PrivacyKey) {
+		fips140.WithoutEnforcement(func() { want, err = s.user.localize([]byte(id)) })
+		if err != nil || !bytes.Equal(want.auth, s.keys.auth) || !bytes.Equal(want.priv, s.keys.priv) {
 			continue
 		}
-		if id == sp.AuthoritativeEngineID {
+		if id == string(s.engineID) {
 			return "current"
 		}
 		return fmt.Sprintf("%q", id)
@@ -1945,14 +1923,9 @@ func BenchmarkGetV3(b *testing.B) {
 	x := newEngineClientFrom(b, nil, fakePacketTransport{c}, &Client{
 		Version:       Version3,
 		SecurityLevel: AuthNoPriv,
-
-		SecurityParameters: &UsmSecurityParameters{
-			UserName:                 "codec-md5",
-			AuthenticationProtocol:   creds.auth,
-			AuthenticationPassphrase: creds.authPass,
-		},
-		Timeout: time.Second,
-		Retries: 2,
+		User:          creds.user("codec-md5"),
+		Timeout:       time.Second,
+		Retries:       2,
 	})
 	if _, err := x.Get([]string{engineOID}); err != nil {
 		b.Fatal(err)

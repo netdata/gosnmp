@@ -123,23 +123,17 @@ type Client struct {
 	// requests and informs, clear for the others).
 	SecurityLevel SecurityLevel
 
-	// SecurityParameters are the SNMPv3 security parameters, a
-	// *UsmSecurityParameters, one value per client. The client keeps what it
-	// learns of the agent's engine to itself and shows it in their engine ID,
-	// boots, time and keys (see the package documentation, SNMPv3).
-	SecurityParameters SnmpV3SecurityParameters
+	// User is the SNMPv3 user. What the client learns of the agent's engine
+	// it keeps to itself (see the package documentation, SNMPv3, and
+	// ForgetEngine).
+	User User
 
-	// TrapSecurityParametersTable, when set, holds the security parameters
-	// UnmarshalTrap decodes SNMPv3 messages with, by user name, instead of
-	// SecurityParameters.
+	// TrapSecurityParametersTable, when set, holds the users UnmarshalTrap
+	// decodes SNMPv3 messages with, by name, instead of User.
 	TrapSecurityParametersTable *SnmpV3SecurityParametersTable
 
-	// ContextEngineID is the SNMPv3 context engine ID of requests; when it is
-	// empty, requests take the agent's engine ID, which the client then shows
-	// here.
-	ContextEngineID string
-
-	// ContextName is the SNMPv3 context name of requests.
+	// ContextName is the SNMPv3 context name of requests; their context
+	// engine ID is the agent's engine ID.
 	ContextName string
 
 	// requestID and msgID count the request IDs and the SNMPv3 msgIDs;
@@ -153,8 +147,11 @@ type Client struct {
 	// rx is the receive buffer, allocated by the first request.
 	rx *receiveBuffer // has to be pointer due to https://github.com/golang/go/issues/11728
 
-	// engine is the SNMPv3 engine state requests read and commit.
-	engine engineState
+	// engine is the SNMPv3 engine state requests read and commit, and
+	// forgetEngine reports that ForgetEngine ran since the last request
+	// started (startEngine).
+	engine       engineState
+	forgetEngine bool
 
 	// mu guards Conn, closed and attempt against Close, which may run on any
 	// goroutine: Connect and Close change them under it, each attempt reads
@@ -274,22 +271,31 @@ func (x *Client) prepare() error {
 // EncodeMessage encodes a request or trap, for another transport or for
 // tests: it prepares the client as Connect does, builds the message with
 // NewMessage and numbers it with the next request ID and, for SNMPv3, the
-// next msgID, as a request's attempt does. It runs no engine discovery and
-// derives no keys: an authenticated or private SNMPv3 message needs the keys
-// in SecurityParameters (InitSecurityKeys derives them), and fails without
-// them. It carries the engine boots and time of SecurityParameters as they
-// are: after a request, the latest values the client accepted, not advanced
-// as a request advances them. On an error it returns an empty message.
+// next msgID, as a request's attempt does. An SNMPv3 message takes the
+// client's engine state as a request starts it (startEngine): its engine ID
+// and context engine ID, the keys localized to it, and the latest engine boots
+// and time received, not advanced as a request's attempt advances them. It runs
+// no discovery: before the client knows the agent's engine the message has no
+// engine ID and no keys, so an authenticated or private one fails. On an error
+// it returns an empty message.
 func (x *Client) EncodeMessage(pduType PDUType, varBinds []VarBind, nonRepeaters uint8, maxRepetitions uint32) ([]byte, error) {
 	if err := x.prepare(); err != nil {
 		return []byte{}, err
 	}
 	pkt := x.NewMessage(pduType, varBinds, nonRepeaters, maxRepetitions)
 	pkt.RequestID = x.nextRequestID()
+	var keys usmKeys
 	if x.Version == Version3 {
+		if err := x.startEngine(); err != nil {
+			return []byte{}, err
+		}
+		x.engine.stamp(pkt)
+		pkt.SecurityParameters.AuthoritativeEngineBoots = x.engine.clock.boots
+		pkt.SecurityParameters.AuthoritativeEngineTime = x.engine.clock.latest
+		keys = x.engine.keys
 		pkt.MsgID = x.nextMsgID()
 	}
-	out, err := pkt.marshalMsg()
+	out, err := pkt.marshalMsg(&keys)
 	if err != nil {
 		return []byte{}, err
 	}
@@ -297,40 +303,28 @@ func (x *Client) EncodeMessage(pduType PDUType, varBinds []VarBind, nonRepeaters
 }
 
 // DecodeMessage decodes a message, from another transport or for tests,
-// with a copy of the client's security parameters, after preparing the client
-// as Connect does; for an SNMPv3 message from another engine ID it derives the
-// authentication key, and the privacy key to decrypt, so parameters with a key
-// given without its passphrase decode no such message. Of the security
-// processing (RFC 3414 section 3.2) it makes only the checks that need no
-// digest: the parameters must have the protocols the message asks for, and the
-// message is decrypted exactly when it asks for privacy; it checks neither the
-// user name, the digest nor the time window, nor any minimum level. It does not
-// write data (see the package documentation for the values that alias it). On
-// an error it returns what it decoded so far.
+// after preparing the client as Connect does; an SNMPv3 message with the
+// client's User, whose keys it derives for the message's engine ID: the
+// authentication key when the message asks for authentication, the privacy key
+// to decrypt. Of the security processing (RFC 3414 section 3.2) it makes only
+// the checks that need no digest: the user must have the protocols the message
+// asks for, and the message is decrypted exactly when it asks for privacy; it
+// checks neither the user name, the digest nor the time window, nor any
+// minimum level. It does not write data (see the package documentation for the
+// values that alias it). On an error it returns what it decoded so far.
 func (x *Client) DecodeMessage(data []byte) (*Message, error) {
 	result := &Message{}
 	if err := x.prepare(); err != nil {
 		return result, err
 	}
-	if sp := usmOf(x.SecurityParameters); sp != nil {
-		result.SecurityParameters = sp.Copy()
-	}
 
 	cursor, w, err := unmarshalHeader(data, result)
-	if result.Version == Version3 && result.SecurityParameters == nil {
-		result.SecurityParameters = &UsmSecurityParameters{}
-	}
 	if err != nil {
-		if result.Version == Version3 {
-			// The result returned with the error carries the USM fields
-			// that decoded.
-			_, _ = result.SecurityParameters.usm().receive(result.SecurityLevel, &w, false)
-		}
 		return result, fmt.Errorf("unable to decode packet header: %w", err)
 	}
 	if result.Version == Version3 {
 		var in inbound
-		if in, err = receiveV3(data, w, result, result.SecurityParameters.usm()); err != nil {
+		if in, err = receiveV3(data, w, result, &x.User, nil); err != nil {
 			return result, fmt.Errorf("unable to decode packet header: %w", err)
 		}
 		if data, cursor, err = in.scopedPDU(result); err != nil {
