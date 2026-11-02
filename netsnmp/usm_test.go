@@ -30,7 +30,7 @@ import (
 // comes from gosnmp. The test then requires that gosnmp's key derivation
 // (internal/usm, with the protocols' parameters of oracleKeys) gives the same
 // keys, that Message.Encode produces exactly the net-snmp-secured message, and
-// that UnmarshalTrap authenticates and decrypts it. Without `-tags netsnmp` the
+// that a receiver authenticates and decrypts it. Without `-tags netsnmp` the
 // net-snmp results come from testdata/TestUSM; `-rec` rewrites them. The
 // recordings also pin gosnmp's framing, so re-record only for an intended
 // change of the wire format.
@@ -87,9 +87,13 @@ func TestUSM(t *testing.T) {
 				t.Errorf("gosnmp differs from net-snmp (-net-snmp +gosnmp):\n%s", diff)
 			}
 
-			res, err := c.receiver().UnmarshalTrap(bytes.Clone(want.message), false)
+			r, err := c.receiver()
 			if err != nil {
-				t.Fatalf("UnmarshalTrap of the net-snmp-secured message: %v", err)
+				t.Fatal(err)
+			}
+			n, err := r.Receive(bytes.Clone(want.message))
+			if err != nil {
+				t.Fatalf("Receive of the net-snmp-secured message: %v", err)
 			}
 			wantView := usmTrapView{
 				UserName:        usmUser,
@@ -100,7 +104,7 @@ func TestUSM(t *testing.T) {
 				RequestID:       usmRequestID,
 				VarBinds:        usmVarbinds,
 			}
-			if diff := cmp.Diff(wantView, newUSMTrapView(res), cmp.AllowUnexported(gosnmp.Value{})); diff != "" {
+			if diff := cmp.Diff(wantView, newUSMTrapView(&n.Message), cmp.AllowUnexported(gosnmp.Value{})); diff != "" {
 				t.Errorf("decoded trap differs (-want +got):\n%s", diff)
 			}
 		})
@@ -274,14 +278,12 @@ func (c usmCase) packet() *gosnmp.Message {
 	}
 }
 
-// receiver is a trap receiver configured for the case's user, with keys
-// localized to the sender's engine ID when the trap arrives.
-func (c usmCase) receiver() *gosnmp.Client {
-	return &gosnmp.Client{
-		Version:       gosnmp.Version3,
-		SecurityLevel: c.flags(),
-		User:          c.user(),
-	}
+// receiver returns a receiver with the case's user registered for the case's
+// engine ID, the sender's, with its keys localized to it.
+func (c usmCase) receiver() (*gosnmp.Receiver, error) {
+	return gosnmp.NewReceiver(gosnmp.ReceiverConfig{
+		Users: []gosnmp.EngineUser{{EngineID: []byte(c.engineID), User: c.user()}},
+	})
 }
 
 // secureWithNetSnmp builds the expected message: gosnmp's framing of the

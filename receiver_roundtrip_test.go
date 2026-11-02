@@ -14,8 +14,7 @@ import (
 )
 
 // Socket-free trap and inform round trips: packets made by Message.Encode, the
-// way an agent sends them, are decoded by UnmarshalTrap the way trap
-// receivers use it.
+// way an agent sends them, are decoded by a Receiver.
 
 const (
 	rtUser     = "trap-user"
@@ -25,7 +24,7 @@ const (
 )
 
 // rtVarbinds are the varbinds of every round-trip packet. Their values are
-// built as UnmarshalTrap decodes them, so the decoded list must equal them.
+// built as Receive decodes them, so the decoded list must equal them.
 var rtVarbinds = []VarBind{
 	{Name: ".1.3.6.1.2.1.1.3.0", Value: TimeTicksValue(12345)},
 	{Name: ".1.3.6.1.6.3.1.1.4.1.0", Value: ObjectIdentifierValue(".1.3.6.1.4.1.20372.1.2")},
@@ -103,41 +102,40 @@ func rtEncodeV3(t *testing.T, sender rtCredentials, pduType PDUType) []byte {
 	return data
 }
 
-// rtReceiver builds the Client that calls UnmarshalTrap for the given credentials.
-type rtReceiver func(t *testing.T, creds ...rtCredentials) *Client
+// rtReceiver builds the receiver of the given credentials.
+type rtReceiver func(t *testing.T, creds ...rtCredentials) *Receiver
 
-// rtSingleUser configures one user and the security level it requires on the
-// receiving Client itself, without a credentials table.
-func rtSingleUser(t *testing.T, creds ...rtCredentials) *Client {
-	t.Helper()
-	require.Len(t, creds, 1)
-	return &Client{
-		Version:       Version3,
-		SecurityLevel: creds[0].flags(),
-		User:          creds[0].asUser(),
+// rtRegistered returns a receiver of the credentials, each registered for
+// engineID, as the Netdata trap receiver registers its users for each engine.
+func rtRegistered(engineID string) rtReceiver {
+	return func(t *testing.T, creds ...rtCredentials) *Receiver {
+		t.Helper()
+		users := make([]User, len(creds))
+		for i, c := range creds {
+			users[i] = c.asUser()
+		}
+		return receiverAt(t, []byte(engineID), users...)
 	}
 }
 
-// rtTable returns a receiver with a credentials table, as the Netdata trap
-// receiver builds it, with the table entries registered for engineID.
-func rtTable(engineID string) rtReceiver {
-	return func(t *testing.T, creds ...rtCredentials) *Client {
-		t.Helper()
-		table := NewSnmpV3SecurityParametersTable()
-		for _, c := range creds {
-			require.NoError(t, table.Add(c.asUser(), []byte(engineID)))
-		}
-		return &Client{Version: Version3, TrapSecurityParametersTable: table}
+// rtLearning returns a receiver that learns the credentials for any engine.
+func rtLearning(t *testing.T, creds ...rtCredentials) *Receiver {
+	t.Helper()
+	config := ReceiverConfig{MaxLearned: 1}
+	for _, c := range creds {
+		config.LearnUsers = append(config.LearnUsers, c.asUser())
 	}
+	r, _ := newTestReceiver(t, config)
+	return r
 }
 
 var rtReceivers = []struct {
 	name    string
 	receive rtReceiver
+	informs bool // the receiver accepts informs; a learning one learns none
 }{
-	{"single-user", rtSingleUser},
-	{"table", rtTable("")},
-	{"table-localized", rtTable(rtEngineID)},
+	{"registered", rtRegistered(rtEngineID), true},
+	{"learning", rtLearning, false},
 }
 
 // trapView is the part of a decoded trap the round-trip tests compare.
@@ -151,7 +149,6 @@ type trapView struct {
 	Community       string
 	PDUType         PDUType
 	RequestID       uint32
-	IsInform        bool
 	Enterprise      string
 	AgentAddress    netip.Addr
 	GenericTrap     int32
@@ -171,7 +168,6 @@ func newTrapView(p *Message) trapView {
 		Community:       p.Community,
 		PDUType:         p.PDUType,
 		RequestID:       p.RequestID,
-		IsInform:        p.IsInform,
 		Enterprise:      p.Enterprise,
 		AgentAddress:    p.AgentAddress,
 		GenericTrap:     p.GenericTrap,
@@ -182,7 +178,6 @@ func newTrapView(p *Message) trapView {
 }
 
 func TestTrapRoundTripV1V2c(t *testing.T) {
-	useEngineTimes(t)
 	tests := map[string]struct {
 		pkt  *Message
 		want trapView
@@ -222,7 +217,6 @@ func TestTrapRoundTripV1V2c(t *testing.T) {
 				Community: "public",
 				PDUType:   InformRequest,
 				RequestID: 42,
-				IsInform:  true,
 				VarBinds:  rtVarbinds,
 			},
 		},
@@ -233,7 +227,8 @@ func TestTrapRoundTripV1V2c(t *testing.T) {
 			data, err := tc.pkt.Encode(nil)
 			require.NoError(t, err)
 
-			got, err := (&Client{}).UnmarshalTrap(data, false)
+			r, _ := newTestReceiver(t, ReceiverConfig{})
+			got, err := receiveMessage(r, data)
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, newTrapView(got))
 		})
@@ -241,9 +236,9 @@ func TestTrapRoundTripV1V2c(t *testing.T) {
 }
 
 // TestTrapRoundTripV3 decodes a trap and an inform for every authentication
-// and privacy protocol combination with each kind of receiver.
+// and privacy protocol combination with each kind of receiver: a learning
+// receiver rejects the inform, whose engine it does not learn.
 func TestTrapRoundTripV3(t *testing.T) {
-	useEngineTimes(t)
 	for _, auth := range rtAuthProtocols {
 		for _, priv := range rtPrivProtocols {
 			if auth == NoAuth && priv != NoPriv {
@@ -260,7 +255,6 @@ func TestTrapRoundTripV3(t *testing.T) {
 					ContextName:     "trap-context",
 					PDUType:         pduType,
 					RequestID:       42,
-					IsInform:        pduType == InformRequest,
 					VarBinds:        rtVarbinds,
 				}
 
@@ -268,7 +262,12 @@ func TestTrapRoundTripV3(t *testing.T) {
 					t.Run(fmt.Sprintf("%v-%v/%v/%s", auth, priv, pduType, r.name), func(t *testing.T) {
 						data := rtEncodeV3(t, creds, pduType)
 
-						got, err := r.receive(t, creds).UnmarshalTrap(data, false)
+						got, err := receiveMessage(r.receive(t, creds), data)
+						if pduType == InformRequest && !r.informs {
+							require.ErrorIs(t, err, ErrUnknownEngineID)
+							assert.Nil(t, got)
+							return
+						}
 						require.NoError(t, err)
 						assert.Equal(t, want, newTrapView(got))
 					})
@@ -278,12 +277,11 @@ func TestTrapRoundTripV3(t *testing.T) {
 	}
 }
 
-// TestTrapSecurityOutcomes pins whether UnmarshalTrap accepts an SNMPv3 trap
-// whose credentials or security level differ from the receiver's: a user with
-// an authentication protocol needs an authenticated trap, privacy optional on
-// the table path, and the single user needs the level of its flags too.
+// TestTrapSecurityOutcomes pins whether a receiver accepts an SNMPv3 trap
+// whose credentials or security level differ from its user's: a user with an
+// authentication protocol needs an authenticated trap, privacy optional; a
+// learned user the same, and an unauthenticated trap a no-auth user only.
 func TestTrapSecurityOutcomes(t *testing.T) {
-	useEngineTimes(t)
 	withUser := func(c rtCredentials, user string) rtCredentials { c.user = user; return c }
 	withAuthPass := func(c rtCredentials, pass string) rtCredentials { c.authPass = pass; return c }
 	withPrivPass := func(c rtCredentials, pass string) rtCredentials { c.privPass = pass; return c }
@@ -291,59 +289,68 @@ func TestTrapSecurityOutcomes(t *testing.T) {
 	sha := rtCreds(SHA, NoPriv)
 	shaAES := rtCreds(SHA, AES)
 	noAuth := rtCreds(NoAuth, NoPriv)
+	registered := rtRegistered(rtEngineID)
 
 	tests := map[string]struct {
 		sender    rtCredentials
 		receiver  rtReceiver
 		receivers []rtCredentials
 		accepted  bool
+		wantErr   error
 	}{
-		"wrong auth passphrase, single user": {
-			sender: sha, receiver: rtSingleUser, receivers: []rtCredentials{withAuthPass(sha, "other-pass")},
+		"wrong auth passphrase": {
+			sender: sha, receiver: registered, receivers: []rtCredentials{withAuthPass(sha, "other-pass")},
+			wantErr: ErrWrongDigest,
 		},
-		"wrong auth passphrase, table": {
-			sender: sha, receiver: rtTable(""), receivers: []rtCredentials{withAuthPass(sha, "other-pass")},
+		"wrong privacy passphrase": {
+			sender: shaAES, receiver: registered, receivers: []rtCredentials{withPrivPass(shaAES, "other-pass")},
+			wantErr: ErrDecryption,
 		},
-		"wrong privacy passphrase, single user": {
-			sender: shaAES, receiver: rtSingleUser, receivers: []rtCredentials{withPrivPass(shaAES, "other-pass")},
+		"unknown user": {
+			sender: sha, receiver: registered, receivers: []rtCredentials{withUser(sha, "other-user")},
+			wantErr: ErrUnknownUsername,
 		},
-		"wrong privacy passphrase, table": {
-			sender: shaAES, receiver: rtTable(""), receivers: []rtCredentials{withPrivPass(shaAES, "other-pass")},
+		"noAuthNoPriv trap for an authNoPriv user": {
+			sender: noAuth, receiver: registered, receivers: []rtCredentials{sha},
+			wantErr: ErrUnknownSecurityLevel,
 		},
-		"unknown user, single user": {
-			sender: sha, receiver: rtSingleUser, receivers: []rtCredentials{withUser(sha, "other-user")},
-		},
-		"unknown user, table": {
-			sender: sha, receiver: rtTable(""), receivers: []rtCredentials{withUser(sha, "other-user")},
-		},
-		"noAuthNoPriv trap for an authNoPriv user, single user": {
-			sender: noAuth, receiver: rtSingleUser, receivers: []rtCredentials{sha},
-		},
-		"noAuthNoPriv trap for an authNoPriv user, table": {
-			sender: noAuth, receiver: rtTable(""), receivers: []rtCredentials{sha},
-		},
-		"authNoPriv trap for an authPriv user, single user": {
-			sender: sha, receiver: rtSingleUser, receivers: []rtCredentials{shaAES},
-		},
-		"authNoPriv trap for an authPriv user, table": {
-			sender: sha, receiver: rtTable(""), receivers: []rtCredentials{shaAES},
+		"authNoPriv trap for an authPriv user": {
+			sender: sha, receiver: registered, receivers: []rtCredentials{shaAES},
 			accepted: true,
 		},
-		"authPriv trap for an authNoPriv user, single user": {
-			sender: shaAES, receiver: rtSingleUser, receivers: []rtCredentials{sha},
+		"authPriv trap for an authNoPriv user": {
+			sender: shaAES, receiver: registered, receivers: []rtCredentials{sha},
+			wantErr: ErrUnknownSecurityLevel,
 		},
-		"authPriv trap for an authNoPriv user, table": {
-			sender: shaAES, receiver: rtTable(""), receivers: []rtCredentials{sha},
-		},
-		"same user name twice, second credentials match, table": {
+		"same user name twice, second credentials match": {
 			sender:    shaAES,
-			receiver:  rtTable(""),
+			receiver:  registered,
 			receivers: []rtCredentials{withPrivPass(withAuthPass(rtCreds(MD5, DES), "other-pass"), "other-pass"), shaAES},
 			accepted:  true,
 		},
-		"table entry localized to another engine ID": {
-			sender: shaAES, receiver: rtTable("\x80\x00\x1f\x88\x04other-engine"), receivers: []rtCredentials{shaAES},
+		"a user of another engine ID": {
+			sender: shaAES, receiver: rtRegistered("\x80\x00\x1f\x88\x04other-engine"), receivers: []rtCredentials{shaAES},
+			wantErr: ErrUnknownEngineID,
+		},
+		"learned, wrong auth passphrase": {
+			sender: sha, receiver: rtLearning, receivers: []rtCredentials{withAuthPass(sha, "other-pass")},
+			wantErr: ErrWrongDigest,
+		},
+		"learned, noAuthNoPriv trap for an authNoPriv user": {
+			sender: noAuth, receiver: rtLearning, receivers: []rtCredentials{sha},
+			wantErr: ErrUnknownSecurityLevel,
+		},
+		"learned, noAuthNoPriv trap for a no-auth user": {
+			sender: noAuth, receiver: rtLearning, receivers: []rtCredentials{noAuth},
 			accepted: true,
+		},
+		"learned, authPriv trap": {
+			sender: shaAES, receiver: rtLearning, receivers: []rtCredentials{sha, shaAES},
+			accepted: true,
+		},
+		"learned, unknown user": {
+			sender: sha, receiver: rtLearning, receivers: []rtCredentials{withUser(sha, "other-user")},
+			wantErr: ErrUnknownEngineID,
 		},
 	}
 
@@ -351,9 +358,9 @@ func TestTrapSecurityOutcomes(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			data := rtEncodeV3(t, tc.sender, SNMPv2Trap)
 
-			got, err := tc.receiver(t, tc.receivers...).UnmarshalTrap(data, false)
+			got, err := receiveMessage(tc.receiver(t, tc.receivers...), data)
 			if !tc.accepted {
-				assert.Error(t, err, "trap accepted")
+				require.ErrorIs(t, err, tc.wantErr, "trap accepted or another error")
 				assert.Nil(t, got, "a message with the error")
 				return
 			}
@@ -363,54 +370,41 @@ func TestTrapSecurityOutcomes(t *testing.T) {
 	}
 }
 
-// TestUnmarshalTrapFailureNoMessage pins that UnmarshalTrap returns no message
-// on the failures that come before a user decodes the message: the table's
-// version and engine ID checks and its user lookup, and the single path's
-// security level.
-func TestUnmarshalTrapFailureNoMessage(t *testing.T) {
-	useEngineTimes(t)
+// TestReceiveFailureNoMessage pins that Receive returns no message on the
+// failures that come before a user decodes the message: the engine ID and the
+// user lookup.
+func TestReceiveFailureNoMessage(t *testing.T) {
 	scoped := func(engineID []byte) []byte {
 		return tlv(0x30, engineID, octets(""), craftedPDU(SNMPv2Trap, craftedVBL(craftedVB(intTLV(5)))))
 	}
 	trap := craftedV3NoAuth(scoped(craftedEngineID))
 	noEngineID := craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3),
 		craftedUSM(octets(""), intTLV(7), intTLV(1234), octets("codec-user"), octets(""), octets("")), scoped(octets("")))
-	table := func(name string) *SnmpV3SecurityParametersTable {
-		tb := NewSnmpV3SecurityParametersTable()
-		require.NoError(t, tb.Add(User{Name: name}, nil))
-		return tb
-	}
 	tests := map[string]struct {
-		x       *Client
+		r       *Receiver
 		in      []byte
 		wantErr error
 	}{
-		"table, client not SNMPv3": {
-			x:  &Client{Version: Version2c, TrapSecurityParametersTable: table("codec-user")},
-			in: trap,
-		},
-		"table, no engine ID": {
-			x:       &Client{Version: Version3, TrapSecurityParametersTable: table("codec-user")},
+		"no engine ID": {
+			r:       receiverFor(t, trap, User{Name: "codec-user"}),
 			in:      noEngineID,
 			wantErr: ErrUnknownEngineID,
 		},
-		"table, user not in the table": {
-			x:       &Client{Version: Version3, TrapSecurityParametersTable: table("other-user")},
+		"no user for the engine ID": {
+			r:       receiverAt(t, []byte("\x80\x00\x1f\x88\x04other-engine"), User{Name: "codec-user"}),
+			in:      trap,
+			wantErr: ErrUnknownEngineID,
+		},
+		"no user of the name for the engine ID": {
+			r:       receiverFor(t, trap, User{Name: "other-user"}),
 			in:      trap,
 			wantErr: ErrUnknownUsername,
-		},
-		"single path, invalid security level": {
-			x:  &Client{Version: Version3, SecurityLevel: SecurityLevel(2), User: User{Name: "codec-user"}},
-			in: trap,
 		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, err := tc.x.UnmarshalTrap(tc.in, false)
-			require.Error(t, err)
-			if tc.wantErr != nil {
-				assert.ErrorIs(t, err, tc.wantErr)
-			}
+			got, err := tc.r.Receive(tc.in)
+			require.ErrorIs(t, err, tc.wantErr)
 			assert.Nil(t, got)
 		})
 	}

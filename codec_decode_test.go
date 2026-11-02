@@ -45,10 +45,9 @@ type decodeCase struct {
 	decoder func() *Client // nil means a zero Client
 }
 
-// dumpDecode decodes c with DecodeMessage and, for a trap, UnmarshalTrap,
-// with trap timeliness records of its own.
+// dumpDecode decodes c with DecodeMessage and, for a case with SNMPv3
+// credentials, with a receiver of its own (dumpReceive).
 func dumpDecode(t *testing.T, c decodeCase) string {
-	useEngineTimes(t)
 	x := &Client{}
 	if c.decoder != nil {
 		x = c.decoder()
@@ -73,7 +72,7 @@ func dumpDecode(t *testing.T, c decodeCase) string {
 		d.line("stdout: written")
 	}
 	if panicked || err != nil {
-		dumpUnmarshalTrap(&d, c)
+		dumpReceive(t, &d, c)
 		return d.String()
 	}
 
@@ -82,43 +81,45 @@ func dumpDecode(t *testing.T, c decodeCase) string {
 	}
 	dumpPacket(&d, p)
 	dumpReencode(&d, p, &x.User, c.in)
-	dumpUnmarshalTrap(&d, c)
+	dumpReceive(t, &d, c)
 	return d.String()
 }
 
-// dumpUnmarshalTrap records, for cases decoded with SNMPv3 credentials, what
-// UnmarshalTrap returns for the same input. It is the public decode path that
-// verifies the authentication digest, at the security level the decoder's
-// credentials imply.
-func dumpUnmarshalTrap(d *dumpWriter, c decodeCase) {
+// dumpReceive records, for cases decoded with SNMPv3 credentials, what a
+// receiver with the decoder's user, registered for the engine ID the input
+// names (receiverFor), returns for the same input. It is the public decode
+// path that verifies the authentication digest, at the user's own minimum
+// level (an authenticated message for a user with an authentication
+// protocol).
+func dumpReceive(t *testing.T, d *dumpWriter, c decodeCase) {
 	if c.decoder == nil {
 		return
 	}
-	x := c.decoder()
-	x.Version = Version3
-	switch {
-	case x.User.PrivProtocol > NoPriv:
-		x.SecurityLevel = AuthPriv
-	case x.User.AuthProtocol > NoAuth:
-		x.SecurityLevel = AuthNoPriv
+	// A user NewReceiver refuses, such as one with a protocol and no
+	// passphrase, is refused for every engine ID.
+	user := c.decoder().User
+	if _, err := NewReceiver(ReceiverConfig{Users: []EngineUser{{EngineID: []byte(codecEngineID), User: user}}}); err != nil {
+		d.line("receive: NewReceiver " + dumpError(err))
+		return
 	}
+	r := receiverFor(t, c.in, user)
 
 	in := bytes.Clone(c.in)
 	var err error
-	panicked, wroteStdout := observe(func() { _, err = x.UnmarshalTrap(in, false) })
+	panicked, wroteStdout := observe(func() { _, err = r.Receive(in) })
 	switch {
 	case panicked:
-		d.line("unmarshal-trap: panic")
+		d.line("receive: panic")
 	case err != nil:
-		d.line("unmarshal-trap: " + dumpError(err))
+		d.line("receive: " + dumpError(err))
 	default:
-		d.line("unmarshal-trap: ok")
+		d.line("receive: ok")
 	}
 	if wroteStdout {
-		d.line("unmarshal-trap-stdout: written")
+		d.line("receive-stdout: written")
 	}
 	if !bytes.Equal(in, c.in) {
-		d.line("unmarshal-trap-input: modified")
+		d.line("receive-input: modified")
 	}
 }
 
@@ -156,9 +157,6 @@ func dumpPacket(d *dumpWriter, p *Message) {
 		}
 		d.linef("trap-v1: enterprise=%q agent-address=%q generic=%d specific=%d timestamp=%d",
 			p.Enterprise, agentAddress, p.GenericTrap, p.SpecificTrap, p.Timestamp)
-	}
-	if p.IsInform {
-		d.line("inform: true")
 	}
 	if p.VarBinds == nil {
 		d.line("varbinds: nil")

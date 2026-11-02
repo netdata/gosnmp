@@ -61,10 +61,6 @@ type Message struct {
 	// VarBinds are the varbinds.
 	VarBinds []VarBind
 
-	// IsInform reports that the message is an InformRequest, which its sender
-	// expects an answer to, not a trap; SNMPv1 has no informs.
-	IsInform bool
-
 	// TrapV1Header is the SNMPv1 trap header.
 	TrapV1Header
 }

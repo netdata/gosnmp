@@ -285,7 +285,6 @@ func readPayload(packet []byte, cursor int, response *Message) error {
 	if err := unmarshalResponse(packet[cursor:], requestType, response); err != nil {
 		return fmt.Errorf("error in unmarshalResponse: %w", err)
 	}
-	response.IsInform = requestType == InformRequest
 	return nil
 }
 

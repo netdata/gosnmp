@@ -5,7 +5,6 @@
 package gosnmp
 
 import (
-	"container/list"
 	"crypto/sha256"
 	"encoding/binary"
 	"sync"
@@ -18,29 +17,19 @@ const (
 	maxEngineValue = 2147483647
 	// timeWindow is the time window in seconds (RFC 3414 section 2.2.3).
 	timeWindow = 150
-	// maxEngineTimes bounds the records of trapEngineTimes.
-	maxEngineTimes = 65536
 )
-
-// trapEngineTimes holds the records of the trap paths of every client in the
-// process, so that a receiver that decodes with tables or clients it builds
-// per message keeps them. Tests replace it.
-var trapEngineTimes = newEngineTimes(maxEngineTimes, time.Now) //nolint:gochecknoglobals // see above
 
 // engineTimes holds a receiver's notion of the engine boots and time of the
 // engines whose authenticated Unconfirmed-class messages (traps) it accepted,
 // one record per engine and credential, and decides with it whether such a
 // message is in the time window (RFC 3414 section 3.2 step 7 b, for the
-// receiver of a message whose sender is the authoritative engine). It holds
-// at most limit records: a new one then replaces the least recently updated,
-// whose engine starts over with its next message.
+// receiver of a message whose sender is the authoritative engine). Only the
+// receiver's users authenticate a message, each for its own engine ID, so the
+// records are at most one per user, of whom the receiver has a bounded number.
 type engineTimes struct {
 	mu      sync.Mutex
-	limit   int
 	now     func() time.Time
-	records map[engineTimeKey]*list.Element
-	// updated orders the records, the most recently updated first.
-	updated list.List
+	records map[engineTimeKey]*engineClock
 }
 
 // engineTimeKey identifies the records of one engine for one credential: the
@@ -49,13 +38,6 @@ type engineTimes struct {
 // record; another credential, which may authenticate any engine ID, cannot
 // change it.
 type engineTimeKey [sha256.Size]byte
-
-// engineTimeRecord is the receiver's notion of the time of an engine, for one
-// credential.
-type engineTimeRecord struct {
-	key   engineTimeKey
-	clock engineClock
-}
 
 // engineClock is a non-authoritative engine's notion of an authoritative
 // engine's time (RFC 3414 section 2.3): the boots and the latest engine time
@@ -113,8 +95,22 @@ func (c engineClock) inWindow(boots, engineTime uint32, now time.Time) bool {
 	return c.boots != maxEngineValue && boots >= c.boots && int64(engineTime)+timeWindow >= c.local(now)
 }
 
-func newEngineTimes(limit int, now func() time.Time) *engineTimes {
-	return &engineTimes{limit: limit, now: now, records: make(map[engineTimeKey]*list.Element)}
+// admit applies RFC 3414 section 3.2 step 7 b to c for an authenticated
+// message with engine boots and time received at now: b(1) updates c with a
+// strictly newer message (an exact replay of the latest is no update) or an
+// engine's first one, then b(2) decides on the updated clock, which keeps the
+// update whatever it decides: a message at boots maxEngineValue leaves the
+// clock there.
+func (c *engineClock) admit(boots, engineTime uint32, now time.Time) error {
+	*c, _ = c.update(boots, engineTime, now, false)
+	if !c.inWindow(boots, engineTime, now) {
+		return errNotInTime
+	}
+	return nil
+}
+
+func newEngineTimes(now func() time.Time) *engineTimes {
+	return &engineTimes{now: now, records: make(map[engineTimeKey]*engineClock)}
 }
 
 // keyOf returns the key of the records of an engine and a credential: the
@@ -128,41 +124,43 @@ func keyOf(engineID []byte, keys *usmKeys) engineTimeKey {
 	return sha256.Sum256(b)
 }
 
-// admit applies RFC 3414 section 3.2 step 7 b to an authenticated message
-// with engine boots and time, as one update under the lock: b(1) updates the
-// record with a strictly newer message (an exact replay of the latest is no
-// update) or creates it with an engine's first one, then b(2) decides on the
-// updated record, which keeps the update whatever it decides: a message at
-// boots maxEngineValue leaves the record there.
+// admit applies step 7 b (engineClock.admit) to the record of key, a key of
+// one of the receiver's users, made by the first message, under the lock.
 func (s *engineTimes) admit(key engineTimeKey, boots, engineTime uint32) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	now := s.now()
-	e, ok := s.records[key]
-	if !ok {
-		e = s.insert(key)
+	c := s.records[key]
+	if c == nil {
+		c = new(engineClock)
+		s.records[key] = c
 	}
-	r := e.Value.(*engineTimeRecord) //nolint:forcetypeassert // the list holds only records
-	var updated bool
-	if r.clock, updated = r.clock.update(boots, engineTime, now, false); updated {
-		s.updated.MoveToFront(e)
-	}
-	if !r.clock.inWindow(boots, engineTime, now) {
-		return errNotInTime
-	}
-	return nil
+	return c.admit(boots, engineTime, s.now())
 }
 
-// insert adds an empty record for key, removing the least recently updated
-// one when the records are at the limit.
-func (s *engineTimes) insert(key engineTimeKey) *list.Element {
-	if len(s.records) >= s.limit {
-		oldest := s.updated.Back()
-		delete(s.records, oldest.Value.(*engineTimeRecord).key) //nolint:forcetypeassert // the list holds only records
-		s.updated.Remove(oldest)
+// probe applies step 7 b for a message of a user the receiver is learning,
+// whose key may have no record yet: to the record of key when there is one,
+// otherwise to a new clock, which it returns with made set, for install once
+// the user is registered.
+func (s *engineTimes) probe(key engineTimeKey, boots, engineTime uint32) (engineClock, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := s.now()
+	if c := s.records[key]; c != nil {
+		return engineClock{}, false, c.admit(boots, engineTime, now)
 	}
-	e := s.updated.PushFront(&engineTimeRecord{key: key})
-	s.records[key] = e
-	return e
+	var c engineClock
+	err := c.admit(boots, engineTime, now)
+	return c, true, err
+}
+
+// install makes clock the record of key, unless key has one already.
+func (s *engineTimes) install(key engineTimeKey, clock engineClock) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.records[key] == nil {
+		s.records[key] = &clock
+	}
 }

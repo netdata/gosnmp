@@ -39,7 +39,7 @@ var secParamsList = []User{
 	},
 }
 
-var testsUnmarshalTrap = []struct {
+var receiveCases = []struct {
 	in   func() []byte
 	user User // the trap's user
 	out  *Message
@@ -72,81 +72,54 @@ var testsUnmarshalTrap = []struct {
 	},
 }
 
-func TestUnmarshalTrap(t *testing.T) {
-	useEngineTimes(t)
-	gs := newTestClient()
-	gs.Version = Version3
-
-SANITY:
-	for i, test := range testsUnmarshalTrap {
-		gs.User = test.user
+// TestReceive decodes net-snmp's traps with their user registered for their
+// engine ID.
+func TestReceive(t *testing.T) {
+	for i, test := range receiveCases {
 		buf := test.in()
-		res, err := gs.UnmarshalTrap(buf, true)
-		require.NoError(t, err, "unmarshalTrap failed")
-		if res == nil {
-			t.Errorf("#%d, UnmarshalTrap returned nil", i)
-			continue SANITY
-		}
+		res, err := receiveMessage(receiverFor(t, buf, test.user), buf)
+		require.NoError(t, err, "#%d", i)
 
 		// test enough fields to ensure unmarshalling was successful.
 		// full unmarshal testing is performed in TestUnmarshal
-		if res.Version != test.out.Version {
-			t.Errorf("#%d Version result: %v, test: %v", i, res.Version, test.out.Version)
-		}
-		if res.RequestID != test.out.RequestID {
-			t.Errorf("#%d RequestID result: %v, test: %v", i, res.RequestID, test.out.RequestID)
-		}
+		require.Equal(t, test.out.Version, res.Version, "#%d", i)
+		require.Equal(t, test.out.RequestID, res.RequestID, "#%d", i)
 	}
 }
 
-func TestUnmarshalTrapWithMultipleUsers(t *testing.T) {
-	useEngineTimes(t)
-	usmMap := NewSnmpV3SecurityParametersTable()
-	for _, user := range secParamsList {
-		require.NoError(t, usmMap.Add(user, nil))
-	}
-	gs := newTestClient()
-	gs.TrapSecurityParametersTable = usmMap
-	gs.Version = Version3
-SANITY:
-	for i, test := range testsUnmarshalTrap {
+// TestReceiveWithMultipleUsers decodes net-snmp's traps with all the users of
+// secParamsList registered for their engine ID: the trap of myuser2 fails with
+// the first user of its name (SHA, DES) and is accepted by the second.
+func TestReceiveWithMultipleUsers(t *testing.T) {
+	for i, test := range receiveCases {
 		buf := test.in()
-		res, err := gs.UnmarshalTrap(buf, true)
-		require.NoError(t, err, "unmarshalTrap failed")
-		if res == nil {
-			t.Errorf("#%d, UnmarshalTrap returned nil", i)
-			continue SANITY
-		}
+		res, err := receiveMessage(receiverFor(t, buf, secParamsList...), buf)
+		require.NoError(t, err, "#%d", i)
 
 		// test enough fields to ensure unmarshalling was successful.
 		// full unmarshal testing is performed in TestUnmarshal
-		require.Equal(t, test.out.Version, res.Version)
-		require.Equal(t, test.out.RequestID, res.RequestID)
+		require.Equal(t, test.out.Version, res.Version, "#%d", i)
+		require.Equal(t, test.out.RequestID, res.RequestID, "#%d", i)
 	}
 }
 
-// TestTableCopiesEngineID pins that the table keeps a copy of the engine ID
-// it derives a user's keys for: a caller that reuses the slice it gave Add
-// does not make the table take those keys for another engine ID, whose
-// messages would then fail the digest check.
-func TestTableCopiesEngineID(t *testing.T) {
-	useEngineTimes(t)
+// TestNewReceiverCopiesEngineID pins that the receiver registers a user for a
+// copy of the engine ID it is given: a caller that reuses the slice it gave
+// NewReceiver does not move the user to another engine ID.
+func TestNewReceiverCopiesEngineID(t *testing.T) {
 	const otherEngineID = "\x80\x00\x1f\x88\x04codec-enginf" // as long as codecEngineID
 	user := codecUser(SHA, NoPriv)
 	msg := &Message{
 		Version: Version3, SecurityLevel: AuthNoPriv, SecurityParameters: codecHeader(),
-		ContextEngineID: []byte(otherEngineID), PDUType: SNMPv2Trap, MsgID: 1, RequestID: 1,
+		ContextEngineID: []byte(codecEngineID), PDUType: SNMPv2Trap, MsgID: 1, RequestID: 1,
 	}
-	msg.SecurityParameters.AuthoritativeEngineID = []byte(otherEngineID)
 	trap, err := msg.Encode(&user)
 	require.NoError(t, err)
 
 	engineID := []byte(codecEngineID)
-	table := NewSnmpV3SecurityParametersTable()
-	require.NoError(t, table.Add(user, engineID))
+	r := receiverAt(t, engineID, user)
 	copy(engineID, otherEngineID)
-	x := &Client{Version: Version3, TrapSecurityParametersTable: table}
-	_, err = x.UnmarshalTrap(trap, true)
+	_, err = r.Receive(trap)
 	require.NoError(t, err)
 }
 
