@@ -63,6 +63,11 @@ type Message struct {
 
 	// TrapV1Header is the SNMPv1 trap header.
 	TrapV1Header
+
+	// echoed is a varbind list encoded already, which the encoder writes as
+	// it is instead of VarBinds: a received inform's, which a receiver's
+	// Response repeats (respond).
+	echoed []byte
 }
 
 // TrapV1Header is the SNMPv1 trap header (RFC 1157): the enterprise OID in

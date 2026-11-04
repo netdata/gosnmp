@@ -4,35 +4,42 @@
 
 package gosnmp
 
-// accept returns n, an accepted notification, with the Response to it when
-// it is an SNMPv2c or SNMPv3 InformRequest (respond): an SNMPv3 one names the
-// local engine, and user accepted it.
-func accept(n *Notification, user *tableUser, local *localEngine) (*Notification, []byte, error) {
+import "fmt"
+
+// accept returns n, an accepted notification whose PDU is pdu, with the
+// Response to it when it is an SNMPv2c or SNMPv3 InformRequest (respond): an
+// SNMPv3 one names the local engine, and user accepted it.
+func accept(n *Notification, pdu []byte, user *tableUser, local *localEngine) (*Notification, []byte, error) {
 	if n.Message.PDUType != InformRequest || n.Message.Version == Version1 {
 		return n, nil, nil
 	}
-	response, err := respond(&n.Message, user, local)
+	response, err := respond(&n.Message, pdu, user, local)
 	if err != nil {
 		return nil, nil, err
 	}
 	return n, response, nil
 }
 
-// respond returns the Response to inform (RFC 3416 section 4.2.7): its
-// request ID and varbinds, error status noError; for SNMPv2c with its
-// community; for SNMPv3 from the local engine, its ID, boots and time now
-// (RFC 3414 section 3.1 step 1 a), with the inform's msgID, level, user name
-// and context, signed and encrypted with user's keys, localized to the local
-// engine ID, as the level asks (RFC 3412 section 7.1 step 2). A Response
-// longer than the msgMaxSize of an SNMPv3 inform carries tooBig instead of
-// the varbinds.
-func respond(inform *Message, user *tableUser, local *localEngine) ([]byte, error) {
+// respond returns the Response to inform, whose PDU is pdu (RFC 3416
+// section 4.2.7): its request ID and its varbind list, the octets received,
+// so that a value the decoder takes and the encoder refuses (see Values) goes
+// back as it came; error status noError; for SNMPv2c with its community; for
+// SNMPv3 from the local engine, its ID, boots and time now (RFC 3414 section
+// 3.1 step 1 a), with the inform's msgID, level, user name and context, signed
+// and encrypted with user's keys, localized to the local engine ID, as the
+// level asks (RFC 3412 section 7.1 step 2). A Response longer than the
+// msgMaxSize of an SNMPv3 inform carries tooBig and no varbind instead.
+func respond(inform *Message, pdu []byte, user *tableUser, local *localEngine) ([]byte, error) {
+	varBinds, err := varBindList(pdu)
+	if err != nil {
+		return nil, err
+	}
 	response := Message{
 		Version:   inform.Version,
 		Community: inform.Community,
 		PDUType:   Response,
 		RequestID: inform.RequestID,
-		VarBinds:  inform.VarBinds,
+		echoed:    varBinds,
 	}
 	if inform.Version != Version3 {
 		return response.marshalMsg(&usmKeys{})
@@ -51,8 +58,22 @@ func respond(inform *Message, user *tableUser, local *localEngine) ([]byte, erro
 	if err != nil || uint64(len(data)) <= uint64(inform.MsgMaxSize) {
 		return data, err
 	}
-	response.ErrorStatus, response.VarBinds = TooBig, nil
+	response.ErrorStatus, response.echoed = TooBig, nil
 	return response.marshalMsg(&user.keys)
+}
+
+// varBindList returns the variable-bindings field of pdu, a PDU that decoded
+// and spans pdu, of another type than the SNMPv1 Trap-PDU: the TLV after the
+// request ID, the error status and the error index.
+func varBindList(pdu []byte) ([]byte, error) {
+	r, _, err := readRequestID(pdu)
+	for i := 0; err == nil && i < 2; i++ {
+		_, _, err = r.Next()
+	}
+	if err != nil {
+		return nil, fmt.Errorf("unable to read the inform's varbind list: %w", err)
+	}
+	return pdu[len(pdu)-r.Len():], nil
 }
 
 // report returns the Report (RFC 3412 section 7.1 step 3) of the SNMPv3

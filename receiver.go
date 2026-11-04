@@ -256,7 +256,7 @@ func (r *Receiver) Receive(datagram []byte) (*Notification, []byte, error) {
 		if err = unmarshalPayload(datagram, cursor, &n.Message); err != nil {
 			return nil, nil, err
 		}
-		return accept(n, nil, nil)
+		return accept(n, datagram[cursor:], nil, nil)
 	}
 	h := &n.Message.SecurityParameters
 	if r.local.is(h.AuthoritativeEngineID) {
@@ -272,7 +272,7 @@ func (r *Receiver) Receive(datagram []byte) (*Notification, []byte, error) {
 	r.mu.RUnlock()
 	switch {
 	case len(users) > 0:
-		if _, err = r.decodeWith(datagram, w, n, users, r.times.admitMessage); err != nil {
+		if _, _, err = r.decodeWith(datagram, w, n, users, r.times.admitMessage); err != nil {
 			return nil, nil, err
 		}
 		if n.Message.PDUType.confirmed() {
@@ -303,7 +303,7 @@ func (r *Receiver) receiveLocal(datagram []byte, w v3Wire, n *Notification) (*No
 	if len(users) == 0 {
 		return nil, nil, r.unknownUser(header.SecurityParameters.UserName, true)
 	}
-	u, err := r.decodeWith(datagram, w, n, users, r.local.admitMessage)
+	u, pdu, err := r.decodeWith(datagram, w, n, users, r.local.admitMessage)
 	if err != nil {
 		var report []byte
 		if errors.Is(err, ErrNotInTimeWindow) {
@@ -311,7 +311,7 @@ func (r *Receiver) receiveLocal(datagram []byte, w v3Wire, n *Notification) (*No
 		}
 		return nil, report, err
 	}
-	return accept(n, u, r.local)
+	return accept(n, pdu, u, r.local)
 }
 
 // rejectUnknownEngine returns err, the error of an SNMPv3 message whose engine
@@ -349,9 +349,9 @@ func (r *Receiver) unknownUser(name string, engineKnown bool) error {
 
 // decodeWith decodes the SNMPv3 message whose header is in n and w with
 // users, in order, deciding step 7 with admit; the first that accepts it wins
-// and is returned. When none does, the error wraps the one of the user that
-// got furthest, which is returned.
-func (r *Receiver) decodeWith(datagram []byte, w v3Wire, n *Notification, users []*tableUser, admit timeliness) (*tableUser, error) {
+// and is returned, with the PDU (decodeV3). When none does, the error wraps
+// the one of the user that got furthest, which is returned.
+func (r *Receiver) decodeWith(datagram []byte, w v3Wire, n *Notification, users []*tableUser, admit timeliness) (*tableUser, []byte, error) {
 	// The attempts share the header's USM fields: they run one after the
 	// other, each on a copy of the header.
 	header := n.Message
@@ -362,15 +362,15 @@ func (r *Receiver) decodeWith(datagram []byte, w v3Wire, n *Notification, users 
 		if i > 0 {
 			n.Message = header
 		}
-		step, err := decodeV3(datagram, w, &n.Message, &u.user, &u.keys, admit)
+		step, pdu, err := decodeV3(datagram, w, &n.Message, &u.user, &u.keys, admit)
 		if err == nil {
-			return u, nil
+			return u, pdu, nil
 		}
 		if furthest == nil || step > reached {
 			furthest, reached, who = err, step, u
 		}
 	}
-	return who, noUserAccepted(furthest)
+	return who, nil, noUserAccepted(furthest)
 }
 
 // noUserAccepted returns the error of a message no user accepted, err being
@@ -395,7 +395,7 @@ func (r *Receiver) learn(datagram []byte, w v3Wire, n *Notification) (*Notificat
 			n.Message = header
 		}
 		probe := learnProbe{times: r.times}
-		step, err := decodeV3(datagram, w, &n.Message, &candidates[i], nil, probe.admitMessage)
+		step, _, err := decodeV3(datagram, w, &n.Message, &candidates[i], nil, probe.admitMessage)
 		if err != nil {
 			if furthest == nil || step > reached {
 				furthest, reached = err, step
@@ -502,32 +502,35 @@ const (
 // they derive for it), and returns how far it got: the security processing
 // from RFC 3414 section 3.2 step 4 on, by the message's level and in the
 // RFC's order, with step 7 by admit for an authenticated message, the user's
-// minimum level, then the PDU.
-func decodeV3(msg []byte, w v3Wire, result *Message, user *User, keys *usmKeys, admit timeliness) (v3Step, error) {
+// minimum level, then the PDU, which it returns on success, decrypted.
+func decodeV3(msg []byte, w v3Wire, result *Message, user *User, keys *usmKeys, admit timeliness) (v3Step, []byte, error) {
 	in, err := receiveV3(msg, w, result, user, keys)
 	if err != nil {
 		if errors.Is(err, ErrUnknownSecurityLevel) {
-			return stepLevel, err
+			return stepLevel, nil, err
 		}
-		return stepUser, err
+		return stepUser, nil, err
 	}
 	flags := result.SecurityLevel
 	if flags.authFlag() {
 		if err = in.verify(); err != nil {
-			return stepDigest, err
+			return stepDigest, nil, err
 		}
 		if err = admit(&result.SecurityParameters, &in.keys); err != nil {
-			return stepTimeliness, err
+			return stepTimeliness, nil, err
 		}
 	}
 	scoped, cursor, err := in.scopedPDU(result)
 	if err != nil {
-		return stepPrivacy, err
+		return stepPrivacy, nil, err
 	}
 	if user.levelFloor().authFlag() && !flags.authFlag() {
-		return stepMinimum, errBelowMinimum
+		return stepMinimum, nil, errBelowMinimum
 	}
-	return stepPDU, unmarshalPayload(scoped, cursor, result)
+	if err = unmarshalPayload(scoped, cursor, result); err != nil {
+		return stepPDU, nil, err
+	}
+	return stepPDU, scoped[cursor:], nil
 }
 
 // Envelope is what a datagram's header says before any security processing:

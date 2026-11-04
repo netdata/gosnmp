@@ -13,9 +13,9 @@ import (
 )
 
 // TestReencodeDrawsNewSalt checks that a packet built from a decoded message,
-// as an inform response is (Netdata's trap receiver copies the inform's USM
-// header), is encrypted with a salt of its own: each encoding draws a new one,
-// neither the received salt nor the previous encoding's.
+// its USM header copied, is encrypted with a salt of its own: each encoding
+// draws a new one, neither the received salt nor the previous encoding's (a
+// receiver's Responses: TestInformResponse).
 func TestReencodeDrawsNewSalt(t *testing.T) {
 	for _, priv := range []PrivProtocol{DES, AES, AES256C} {
 		t.Run(priv.String(), func(t *testing.T) {

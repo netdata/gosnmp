@@ -401,28 +401,30 @@
 // it before any key is used.
 //
 // The answers. An accepted inform, SNMPv2c or SNMPv3, gets its Response (RFC
-// 3416 section 4.2.7): its request ID and varbinds; for SNMPv3 from the local
-// engine (its engine ID, boots and time), by the user that accepted the inform,
-// at its level, with its msgID and context; with tooBig instead of the
-// varbinds when it would exceed the inform's msgMaxSize. A rejected SNMPv3
-// message whose reportableFlag is set gets a Report (RFC 3412 section 7.1 step
-// 3) for two errors: an unknown engine ID (step 3, usmStatsUnknownEngineIDs,
-// unauthenticated), which answers discovery and gives a sender that holds
-// another engine ID the local one; and the local engine's time window (step 7
-// a, usmStatsNotInTimeWindows, at authNoPriv, signed by the user whose digest
-// checked), which gives a sender with stale boots, or one synchronizing with
-// boots and time zero (RFC 3414 section 4), the local engine's. A Report comes
-// from the local engine with the message's msgID and user name, the request ID
-// of a plaintext PDU (0 for an encrypted one) and the receiver's count of the
-// error. A message is answered only when its msgData is what its flags say: a
-// plaintext scoped PDU whose PDU decodes and is of the Confirmed Class, or an
-// encrypted one, an OCTET STRING. Unlike RFC 3412 section 7.2 step 6 a and
-// net-snmp, a receiver reports no unknown user name, unsupported security
-// level, wrong digest or decryption error: such Reports would tell any sender
-// which user names the receiver has and at which levels, and none lets a
-// sender recover by itself. Without a local engine, a receiver takes no SNMPv3
-// inform and sends no Report. A Report answers a datagram whose source anyone
-// can forge, so the caller decides whether to send it, and how often.
+// 3416 section 4.2.7): its request ID and its varbind list as received (a value
+// the decoder takes and the encoder refuses goes back as it came); for SNMPv3
+// from the local engine (its engine ID, boots and time), by the user that
+// accepted the inform, at its level, with its msgID and context; with tooBig
+// instead of the varbinds when it would exceed the inform's msgMaxSize. A
+// rejected SNMPv3 message whose reportableFlag is set gets a Report (RFC 3412
+// section 7.1 step 3) for two errors: an unknown engine ID (step 3,
+// usmStatsUnknownEngineIDs, unauthenticated), which answers discovery and gives
+// a sender that holds another engine ID the local one; and the local engine's
+// time window (step 7 a, usmStatsNotInTimeWindows, at authNoPriv, signed by the
+// user whose digest checked), which gives a sender with stale boots, or one
+// synchronizing with boots and time zero (RFC 3414 section 4), the local
+// engine's. A Report comes from the local engine with the message's msgID and
+// user name, the request ID of a plaintext PDU (0 for an encrypted one) and the
+// receiver's count of the error. A message is answered only when its msgData is
+// what its flags say: a plaintext scoped PDU whose PDU decodes and is of the
+// Confirmed Class, or an encrypted one, an OCTET STRING. Unlike RFC 3412
+// section 7.2 step 6 a and net-snmp, a receiver reports no unknown user name,
+// unsupported security level, wrong digest or decryption error: such Reports
+// would tell any sender which user names the receiver has and at which levels,
+// and none lets a sender recover by itself. Without a local engine, a receiver
+// takes no SNMPv3 inform and sends no Report. A Report answers a datagram whose
+// source anyone can forge, so the caller decides whether to send it, and how
+// often.
 //
 // An authenticated SNMPv3 message naming another engine ID, an agent's trap,
 // whatever its PDU and reportable flag, must be in the time window of its

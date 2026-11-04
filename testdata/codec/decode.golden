@@ -2430,6 +2430,15 @@ decode: error (ErrASNParse)
 == fuzz/11feb782f38ce3bb
 decode: error (ErrASNParse)
 
+== fuzz/139dce928172eb3f
+decode: ok
+version: 1 (2c)
+community: "000000"
+pdu: 0xa6 (InformRequest) request-id=48 error=48 (ErrorStatus(48)) error-index=48 non-repeaters=0 max-repetitions=0
+varbinds: 1
+vb[0]: .1.8.48.48.48.48.48.48.48 0x00 (UnknownType) <nil>
+reencode: error
+
 == fuzz/1424b8af6b20ae15
 decode: error (ErrASNParse)
 
