@@ -90,7 +90,7 @@ func checkNoMessage(t *testing.T, what string, msg *Message, err error) {
 func TestRejectionCategories(t *testing.T) {
 	user := usmUser(NoAuth, "", NoPriv, "")
 	receive := func(data []byte) error {
-		_, err := receiverFor(t, data, user).Receive(data)
+		_, _, err := receiverFor(t, data, user).Receive(data)
 		return err
 	}
 	decode := func(data []byte) error {
