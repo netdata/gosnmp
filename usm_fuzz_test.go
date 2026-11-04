@@ -159,8 +159,13 @@ func usmFuzzReceive(t *testing.T, r *Receiver, data []byte) (*Message, error) {
 func checkAnswer(t *testing.T, n *Notification, response []byte, err error) {
 	t.Helper()
 	inform := n != nil && n.Message.PDUType == InformRequest && n.Message.Version != Version1
-	if inform != (n != nil && response != nil) {
+	switch {
+	case n != nil && !inform && response != nil:
 		t.Fatalf("Receive answered %d octets to %+v", len(response), n)
+	case inform && response == nil && n.Message.Version != Version3:
+		// An SNMPv3 Response that does not fit the inform's msgMaxSize even
+		// with tooBig is dropped; an SNMPv2c inform is always answered.
+		t.Fatalf("Receive answered nothing to %+v", n)
 	}
 	if response == nil {
 		return

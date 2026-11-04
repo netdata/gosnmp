@@ -466,21 +466,28 @@ func readVarbind(r *ber.Reader) (VarBind, error) {
 // authentication. The version, which takes one octet, must be SNMPv1, SNMPv2c
 // or SNMPv3.
 func (packet *Message) marshalMsg(keys *usmKeys) ([]byte, error) {
+	return packet.marshalWith(keys, nil)
+}
+
+// marshalWith is marshalMsg with varBinds, when not nil, a varbind list
+// encoded already, which it writes as it is instead of VarBinds: a received
+// inform's, which a receiver's Response repeats (respond).
+func (packet *Message) marshalWith(keys *usmKeys, varBinds []byte) ([]byte, error) {
 	switch packet.Version {
 	case Version1, Version2c, Version3:
 	default:
 		return nil, fmt.Errorf("unable to marshal SNMP version %d: not 1, 2c or 3", packet.Version)
 	}
-	dst, start := ber.Begin(make([]byte, 0, packet.sizeHint()), ber.Sequence)
+	dst, start := ber.Begin(make([]byte, 0, packet.sizeHint()+len(varBinds)), ber.Sequence)
 	dst = append(dst, byte(Integer), 1, byte(packet.Version))
 	if packet.Version != Version3 {
-		msg, err := packet.appendPDU(appendOctets(dst, OctetString, packet.Community))
+		msg, err := packet.appendPDU(appendOctets(dst, OctetString, packet.Community), varBinds)
 		if err != nil {
 			return nil, err
 		}
 		return ber.End(msg, start), nil
 	}
-	dst, auth, err := packet.appendV3(dst, keys)
+	dst, auth, err := packet.appendV3(dst, keys, varBinds)
 	if err != nil {
 		return nil, err
 	}
@@ -493,7 +500,7 @@ func (packet *Message) marshalMsg(keys *usmKeys) ([]byte, error) {
 // the text fields, and per varbind its name in dotted form (no shorter than
 // its encoding), its headers and an OCTET STRING or Opaque value.
 func (packet *Message) sizeHint() int {
-	n := 64 + len(packet.Community) + len(packet.ContextEngineID) + len(packet.ContextName) + len(packet.echoed)
+	n := 64 + len(packet.Community) + len(packet.ContextEngineID) + len(packet.ContextName)
 	if packet.Version == Version3 {
 		n += 128
 	}
@@ -507,10 +514,10 @@ func (packet *Message) sizeHint() int {
 // appendPDU appends the PDU, of a type the codec knows: the request ID with
 // the non-repeaters and max-repetitions (at most 2147483647, RFC 3416) of a
 // GetBulkRequest or the error status and index of other PDUs, or the header of
-// an SNMPv1 trap, then the varbind list. The request ID is an Integer32 (RFC
-// 3416) whose two's complement RequestID holds, so IDs of 2^31 and up encode
-// as negative INTEGERs on every platform.
-func (packet *Message) appendPDU(dst []byte) ([]byte, error) {
+// an SNMPv1 trap, then the varbind list (appendVBL). The request ID is an
+// Integer32 (RFC 3416) whose two's complement RequestID holds, so IDs of 2^31
+// and up encode as negative INTEGERs on every platform.
+func (packet *Message) appendPDU(dst, varBinds []byte) ([]byte, error) {
 	if !packet.PDUType.known() {
 		return nil, fmt.Errorf("unable to marshal PDU type %#x: not a PDU type", byte(packet.PDUType))
 	}
@@ -534,7 +541,7 @@ func (packet *Message) appendPDU(dst []byte) ([]byte, error) {
 		dst = appendUint(dst, Integer, uint64(packet.ErrorStatus))
 		dst = appendUint(dst, Integer, uint64(packet.ErrorIndex))
 	}
-	dst, err := packet.appendVBL(dst)
+	dst, err := packet.appendVBL(dst, varBinds)
 	if err != nil {
 		return nil, fmt.Errorf("unable to marshal varbind list: %w", err)
 	}
@@ -560,12 +567,12 @@ func (packet *Message) appendTrapV1Header(dst []byte) ([]byte, error) {
 	return appendUint(dst, TimeTicks, uint64(packet.Timestamp)), nil
 }
 
-// appendVBL appends the varbind list: a SEQUENCE of varbinds, each a SEQUENCE
-// of the name's OBJECT IDENTIFIER and the value (see appendValue), or the
-// encoded list the packet echoes.
-func (packet *Message) appendVBL(dst []byte) ([]byte, error) {
-	if packet.echoed != nil {
-		return append(dst, packet.echoed...), nil
+// appendVBL appends the varbind list: varBinds, a list encoded already, when
+// not nil, else a SEQUENCE of VarBinds, each a SEQUENCE of the name's OBJECT
+// IDENTIFIER and the value (see appendValue).
+func (packet *Message) appendVBL(dst, varBinds []byte) ([]byte, error) {
+	if varBinds != nil {
+		return append(dst, varBinds...), nil
 	}
 	dst, start := ber.Begin(dst, ber.Sequence)
 	for i := range packet.VarBinds {

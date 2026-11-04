@@ -379,9 +379,11 @@
 // users of a new engine (RFC 3414 section 3.2 step 3): the LearnUsers of a
 // message's user name decode an unreportable message whose name and engine ID
 // it has no user for, and the first message one of them accepts, at the user's
-// own level, registers them all for its engine ID, up to MaxLearned names; an
-// inform is never learned, nor the receiver's own engine. Receive gives the
-// security processing and the minimum level a receiver requires.
+// own level, registers them all for its engine ID, up to MaxLearned names. An
+// inform is never learned, nor the receiver's own engine, nor an engine ID of
+// another size than 5..32 octets (RFC 3411's snmpEngineID; step 3 makes it
+// unknown). Receive gives the security processing and the minimum level a
+// receiver requires.
 //
 // A receiver is the authoritative engine (RFC 3414 section 1.5.1) of the
 // messages that name its own engine ID (ReceiverConfig.EngineID): informs. The
@@ -403,9 +405,10 @@
 // the decoder takes and the encoder refuses goes back as it came); for SNMPv3
 // from the local engine (its engine ID, boots and time), by the user that
 // accepted the inform, at its level, with its msgID and context; with tooBig
-// instead of the varbinds when it would exceed the inform's msgMaxSize. A
-// rejected SNMPv3 message whose reportableFlag is set gets a Report (RFC 3412
-// section 7.1 step 3) for two errors: an unknown engine ID (step 3,
+// instead of the varbinds when it would exceed the inform's msgMaxSize, and
+// none when it would exceed it even so (RFC 3418's snmpSilentDrops). A rejected
+// SNMPv3 message whose reportableFlag is set gets a Report (RFC 3412 section
+// 7.1 step 3) for two errors: an unknown engine ID (step 3,
 // usmStatsUnknownEngineIDs, unauthenticated), which answers discovery and gives
 // a sender that holds another engine ID the local one; and the local engine's
 // time window (step 7 a, usmStatsNotInTimeWindows, at authNoPriv, signed by the
@@ -415,14 +418,21 @@
 // user name, the request ID of a plaintext PDU (0 for an encrypted one) and the
 // receiver's count of the error. A message is answered only when its msgData is
 // what its flags say: a plaintext scoped PDU whose PDU decodes and is of the
-// Confirmed Class, or an encrypted one, an OCTET STRING. Unlike RFC 3412
-// section 7.2 step 6 a and net-snmp, a receiver reports no unknown user name,
-// unsupported security level, wrong digest or decryption error: such Reports
-// would tell any sender which user names the receiver has and at which levels,
-// and none lets a sender recover by itself. Without a local engine, a receiver
-// takes no SNMPv3 inform and sends no Report. A Report answers a datagram whose
-// source anyone can forge, so the caller decides whether to send it, and how
-// often.
+// Confirmed Class, or an encrypted one, an OCTET STRING that ends the datagram.
+//
+// Where a receiver answers less than RFC 3412 and net-snmp: it reports no
+// unknown user name, unsupported security level, wrong digest or decryption
+// error (section 7.2 step 6 a), since such Reports would tell any sender which
+// user names it has and at which levels, and none lets a sender recover by
+// itself; and a plaintext request or inform without the reportableFlag, which
+// section 6.4 forbids, gets no Report (section 7.1 step 3 b would send one).
+// What its answers tell: the unknownEngineIDs Report tells any sender, as
+// net-snmp's does, whether the receiver has users for an engine ID the sender
+// names. A Report answers a datagram whose source anyone can forge and can be
+// larger than it (the local engine ID appears twice: about 140 octets to a
+// 58-octet discovery request with an engine ID of 32 octets), so the caller
+// decides whether to send it, and how often. Without a local engine, a receiver
+// takes no SNMPv3 inform and sends no Report.
 //
 // An authenticated SNMPv3 message naming another engine ID, an agent's trap,
 // whatever its PDU and reportable flag, must be in the time window of its

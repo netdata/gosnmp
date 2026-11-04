@@ -438,7 +438,7 @@ func TestReceiverRegister(t *testing.T) {
 	probed := func(r *Receiver, boots, engineTime uint32) *learnProbe {
 		p := &learnProbe{times: r.times}
 		h := SecurityParameters{AuthoritativeEngineID: []byte(lrEngineA), AuthoritativeEngineBoots: boots, AuthoritativeEngineTime: engineTime}
-		require.NoError(t, p.admitMessage(&h, &keys))
+		require.NoError(t, p.admitMessage(&h, keys))
 		require.True(t, p.made)
 		return p
 	}

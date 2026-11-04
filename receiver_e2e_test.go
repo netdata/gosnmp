@@ -174,9 +174,9 @@ func e2eInformUsers() map[string]informUser {
 }
 
 // TestE2EInformDiscovery pins that snmpinform discovers the receiver's engine
-// (a usmStatsUnknownEngineIDs Report to its probe), synchronizes with its
-// time when the inform is authenticated (a usmStatsNotInTimeWindows Report to
-// boots and time zero) and gets its inform acknowledged, at every level.
+// ID, boots and time (a usmStatsUnknownEngineIDs Report to its probe), and gets
+// its inform acknowledged: the Response verified and decrypted by net-snmp,
+// at every level and for every protocol pair.
 func TestE2EInformDiscovery(t *testing.T) {
 	for name, u := range e2eInformUsers() {
 		t.Run(name, func(t *testing.T) {
@@ -186,36 +186,43 @@ func TestE2EInformDiscovery(t *testing.T) {
 			require.NoError(t, err, out)
 			receivedInform(t, s, u.level)
 			assert.Equal(t, uint32(1), r.local.unknownEngineIDs.Load(), "one discovery")
+			assert.Zero(t, r.local.notInTimeWindows.Load(), "the time from the discovery Report")
 		})
 	}
 }
 
 // TestE2EInformAcrossRestart pins the answers to a sender that kept the
 // receiver's engine boots and time from before a restart, which raised the
-// boots: a usmStatsNotInTimeWindows Report, from which the sender takes the
-// new ones, and the acknowledgment of its inform sent again. A sender that
-// knows only the engine ID synchronizes the same way (RFC 3414 section 4).
+// boots: a usmStatsNotInTimeWindows Report, which net-snmp verifies and takes
+// the new ones from, and the acknowledgment of its inform sent again; for
+// every authentication protocol and privacy protocol. A sender that knows only
+// the engine ID synchronizes the same way, with boots and time zero (RFC 3414
+// section 4).
 func TestE2EInformAcrossRestart(t *testing.T) {
-	u := e2eInformUsers()["sha-aes"]
 	engineID := hex.EncodeToString([]byte(e2eInformEngineID))
-	for name, args := range map[string][]string{
-		"the boots and time before the restart": {"-e", engineID, "-Z", "5,100"},
-		"the engine ID alone":                   {"-e", engineID},
-	} {
-		t.Run(name, func(t *testing.T) {
-			s := newInformServer(t, e2eInformReceiver(t, 5, u.user))
-			out, err := snmpinform(t, s, u.args...)
-			require.NoError(t, err, out)
-			receivedInform(t, s, u.level)
+	for userName, u := range e2eInformUsers() {
+		if u.level == NoAuthNoPriv {
+			continue // no time window
+		}
+		for name, args := range map[string][]string{
+			"the boots and time before the restart": {"-e", engineID, "-Z", "5,100"},
+			"the engine ID alone":                   {"-e", engineID},
+		} {
+			t.Run(userName+"/"+name, func(t *testing.T) {
+				s := newInformServer(t, e2eInformReceiver(t, 5, u.user))
+				out, err := snmpinform(t, s, u.args...)
+				require.NoError(t, err, out)
+				receivedInform(t, s, u.level)
 
-			restarted := e2eInformReceiver(t, 6, u.user)
-			s.receiver.Store(restarted)
-			out, err = snmpinform(t, s, append(append([]string(nil), u.args...), args...)...)
-			require.NoError(t, err, out)
-			receivedInform(t, s, u.level)
-			assert.Equal(t, uint32(1), restarted.local.notInTimeWindows.Load(), "one resynchronization")
-			assert.Zero(t, restarted.local.unknownEngineIDs.Load(), "no discovery")
-		})
+				restarted := e2eInformReceiver(t, 6, u.user)
+				s.receiver.Store(restarted)
+				out, err = snmpinform(t, s, append(append([]string(nil), u.args...), args...)...)
+				require.NoError(t, err, out)
+				receivedInform(t, s, u.level)
+				assert.Equal(t, uint32(1), restarted.local.notInTimeWindows.Load(), "one resynchronization")
+				assert.Zero(t, restarted.local.unknownEngineIDs.Load(), "no discovery")
+			})
+		}
 	}
 }
 

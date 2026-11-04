@@ -70,7 +70,8 @@ type ReceiverConfig struct {
 	// RFC 3411) and EngineBoots its engine boots (snmpEngineBoots,
 	// 1..2147483647), which the caller keeps across restarts and raises by
 	// one at each (RFC 3414 section 2.2.2); the receiver counts its engine
-	// time in seconds from NewReceiver on. Both are set, or neither. The
+	// time in seconds from NewReceiver on, from 0 again with the boots one
+	// higher past 2147483647 seconds. Both are set, or neither. The
 	// receiver is the authoritative engine of the messages that name EngineID
 	// (see the package documentation, Notifications): it decodes them with the
 	// Users registered for EngineID, which it never learns, answers their
@@ -217,29 +218,30 @@ func (r *Receiver) addLearnable(user User) error {
 // response only for a notification the caller accepts.
 //
 // An SNMPv3 message goes through the security processing of RFC 3414 section
-// 3.2, by its own flags, with the users registered for its user name and
-// engine ID, tried in the order added until one accepts it, and each
-// rejection unwraps (errors.Is) to the error named after the step's counter:
-// it must name an engine ID (ErrUnknownEngineID); the receiver must have a
-// user for the engine ID (ErrUnknownEngineID) and one of the user name for it
-// (ErrUnknownUsername), unless it learns one (ReceiverConfig.LearnUsers); the
-// user must have the protocols the message asks for
-// (ErrUnknownSecurityLevel); a message that asks for authentication must
-// carry a digest that checks with the user's key (ErrWrongDigest) and be in
-// the time window (ErrNotInTimeWindow): of the local engine for a message
-// naming its ID, of the record of the message's engine otherwise (see the
-// package documentation); a message is decrypted exactly when it asks for
-// privacy, with the privacy key derived, for a user being learned, only once
-// the digest checked (ErrDecryption). Then the receiver's minimum level
-// applies (ErrUnknownSecurityLevel): a user with an authentication protocol
-// accepts only authenticated messages. When no user accepts the message, the
-// error is the one of the user that got furthest through these steps, the
-// first on ties. A reportable message naming an engine ID the receiver has
-// no user for is ErrUnknownEngineID before any key is used and never learned:
-// it asks its authoritative engine, which the receiver is not. A request or an
-// inform naming another engine ID than the receiver's own is ErrUnknownEngineID
-// once decoded (RFC 3412 section 7.2 step 13 a): its answer would come from
-// that engine.
+// 3.2, by its own flags, with the users registered for its user name and engine
+// ID, tried in the order added until one accepts it, and each rejection unwraps
+// (errors.Is) to the error named after the step's counter: it must name an
+// engine ID (ErrUnknownEngineID); the receiver must have a user for the engine
+// ID (ErrUnknownEngineID) and one of the user name for it (ErrUnknownUsername),
+// unless it learns one (ReceiverConfig.LearnUsers); the user must have the
+// protocols the message asks for (ErrUnknownSecurityLevel); a message that asks
+// for authentication must carry a digest that checks with the user's key
+// (ErrWrongDigest) and be in the time window (ErrNotInTimeWindow): of the local
+// engine for a message naming its ID, of the record of the message's engine
+// otherwise (see the package documentation); a message is decrypted exactly
+// when it asks for privacy, with the privacy key derived, for a user being
+// learned, only once the digest checked (ErrDecryption). Then the receiver's
+// minimum level applies (ErrUnknownSecurityLevel): a user with an
+// authentication protocol accepts only authenticated messages. When no user
+// accepts the message, the error is the one of the user that got furthest
+// through these steps, the first on ties. A reportable message naming an engine
+// ID the receiver has no user for, and any message naming one of another size
+// than 5..32 octets it has no user for, is ErrUnknownEngineID before any key is
+// used and never learned: the first asks its authoritative engine, which the
+// receiver is not; the second names no engine (RFC 3414 section 3.2 step 3). A
+// request or an inform naming another engine ID than the receiver's own is
+// ErrUnknownEngineID once decoded (RFC 3412 section 7.2 step 13 a): its answer
+// would come from that engine.
 //
 // The notification's OctetString, Opaque and IPAddress values alias
 // datagram (see the package documentation).
@@ -276,6 +278,10 @@ func (r *Receiver) Receive(datagram []byte) (*Notification, []byte, error) {
 			return nil, nil, errNotLocalEngine
 		}
 		return n, nil, nil
+	case len(h.AuthoritativeEngineID) < minEngineIDLen || len(h.AuthoritativeEngineID) > maxEngineIDLen:
+		// An illegally sized engine ID is unknown, never learned (RFC 3414
+		// section 3.2 step 3).
+		return r.rejectUnknownEngine(datagram, w, n, errUnknownEngine)
 	case !w.reportable && learnable && len(r.learnable[h.UserName]) > 0:
 		if n, err = r.learn(datagram, w, n); err != nil {
 			return nil, nil, err
@@ -304,7 +310,8 @@ func (r *Receiver) receiveLocal(datagram []byte, w v3Wire, n *Notification) (*No
 	if err != nil {
 		var report []byte
 		if errors.Is(err, ErrNotInTimeWindow) {
-			report = r.report(datagram, w, &header, usmStatsNotInTimeWindows, r.local.notInTimeWindows.Load(), &u.keys)
+			count := r.local.notInTimeWindows.Add(1)
+			report = r.report(datagram, w, &header, usmStatsNotInTimeWindows, count, &u.keys)
 		}
 		return nil, report, err
 	}
@@ -464,8 +471,8 @@ type learnProbe struct {
 	made              bool
 }
 
-func (p *learnProbe) admitMessage(h *SecurityParameters, keys *usmKeys) error {
-	key := keyOf(h.AuthoritativeEngineID, keys)
+func (p *learnProbe) admitMessage(h *SecurityParameters, keys usmKeys) error {
+	key := keyOf(h.AuthoritativeEngineID, &keys)
 	made, err := p.times.probe(key, h.AuthoritativeEngineBoots, h.AuthoritativeEngineTime)
 	if made {
 		p.key, p.boots, p.engineTime, p.made = key, h.AuthoritativeEngineBoots, h.AuthoritativeEngineTime, true
@@ -477,7 +484,7 @@ func (p *learnProbe) admitMessage(h *SecurityParameters, keys *usmKeys) error {
 // message whose USM header is h, processed with keys: step 7 a for the local
 // engine (localEngine.admitMessage), 7 b for another (engineTimes.admitMessage,
 // learnProbe.admitMessage).
-type timeliness func(h *SecurityParameters, keys *usmKeys) error
+type timeliness func(h *SecurityParameters, keys usmKeys) error
 
 // v3Step is how far an SNMPv3 message got through decodeV3 with one user: the
 // steps of RFC 3414 section 3.2 from step 4 on, in order, the minimum level,
@@ -513,7 +520,7 @@ func decodeV3(msg []byte, w v3Wire, result *Message, user *User, keys *usmKeys, 
 		if err = in.verify(); err != nil {
 			return stepDigest, nil, err
 		}
-		if err = admit(&result.SecurityParameters, &in.keys); err != nil {
+		if err = admit(&result.SecurityParameters, in.keys); err != nil {
 			return stepTimeliness, nil, err
 		}
 	}

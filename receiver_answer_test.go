@@ -6,6 +6,7 @@ package gosnmp
 
 import (
 	"bytes"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netdata/gosnmp/internal/ber"
 )
 
 // The receiver as the authoritative engine of the messages naming its own
@@ -56,6 +59,7 @@ type ansMessage struct {
 	pdu         PDUType
 	maxSize     uint32
 	varbinds    []VarBind
+	contextName string // "inform-context" when empty
 }
 
 func ansEncode(t *testing.T, m ansMessage) []byte {
@@ -69,6 +73,9 @@ func ansEncode(t *testing.T, m ansMessage) []byte {
 	if m.varbinds == nil {
 		m.varbinds = rtVarbinds
 	}
+	if m.contextName == "" {
+		m.contextName = "inform-context"
+	}
 	data, err := (&Message{
 		Version:       Version3,
 		SecurityLevel: m.level,
@@ -79,7 +86,7 @@ func ansEncode(t *testing.T, m ansMessage) []byte {
 			UserName:                 m.user.Name,
 		},
 		ContextEngineID: []byte(m.engineID),
-		ContextName:     "inform-context",
+		ContextName:     m.contextName,
 		PDUType:         m.pdu,
 		MsgID:           21,
 		RequestID:       42,
@@ -207,12 +214,14 @@ func TestInformResponse(t *testing.T) {
 		// An unknown value type and an empty IpAddress decode (see Values)
 		// but do not encode: the Response repeats the inform's octets.
 		quirky := craftedVBL(craftedVB(tlv(0x88, []byte("x"))), craftedVB(tlv(byte(IPAddress))))
-		v2c, err := (&Message{Version: Version2c, Community: "public", PDUType: InformRequest, RequestID: 42, echoed: quirky}).Encode(nil)
+		v2c, err := (&Message{Version: Version2c, Community: "public", PDUType: InformRequest, RequestID: 42}).marshalWith(&usmKeys{}, quirky)
+		require.NoError(t, err)
+		keys, err := ansPriv.localize([]byte(ansLocalID))
 		require.NoError(t, err)
 		v3, err := (&Message{
-			Version: Version3, SecurityLevel: AuthPriv, PDUType: InformRequest, MsgID: 21, RequestID: 42, echoed: quirky,
+			Version: Version3, SecurityLevel: AuthPriv, PDUType: InformRequest, MsgID: 21, RequestID: 42,
 			SecurityParameters: SecurityParameters{AuthoritativeEngineID: []byte(ansLocalID), AuthoritativeEngineBoots: ansBoots, UserName: "ans-user"},
-		}).Encode(&ansPriv)
+		}).marshalWith(&keys, quirky)
 		require.NoError(t, err)
 		for name, inform := range map[string][]byte{"SNMPv2c": v2c, "SNMPv3": v3} {
 			t.Run(name, func(t *testing.T) {
@@ -244,6 +253,46 @@ func TestInformResponse(t *testing.T) {
 		want.ErrorStatus = TooBig
 		assert.Equal(t, want, *got)
 		assert.LessOrEqual(t, len(response), 484)
+	})
+
+	t.Run("tooBig at one octet past the inform's msgMaxSize", func(t *testing.T) {
+		big := []VarBind{{Name: ".1.3.6.1.4.1.20372.1.2.9", Value: OctetStringValue(bytes.Repeat([]byte{'x'}, 600))}}
+		at := func(maxSize uint32) *Message {
+			r, _ := ansReceiver(t, ansAuth)
+			_, response, err := r.Receive(ansEncode(t, ansMessage{user: ansAuth, level: AuthNoPriv, boots: ansBoots, maxSize: maxSize, varbinds: big}))
+			require.NoError(t, err)
+			return decodeAnswer(t, response, &ansAuth)
+		}
+		r, _ := ansReceiver(t, ansAuth)
+		_, response, err := r.Receive(ansEncode(t, ansMessage{user: ansAuth, level: AuthNoPriv, boots: ansBoots, varbinds: big}))
+		require.NoError(t, err)
+		size := uint32(len(response)) //nolint:gosec // a datagram
+		assert.Equal(t, NoError, at(size).ErrorStatus, "a Response of exactly msgMaxSize octets")
+		assert.Equal(t, TooBig, at(size-1).ErrorStatus)
+	})
+
+	t.Run("no Response when tooBig does not fit either", func(t *testing.T) {
+		r, _ := ansReceiver(t, ansAuth)
+		n, response, err := r.Receive(ansEncode(t, ansMessage{
+			user: ansAuth, level: AuthNoPriv, boots: ansBoots, maxSize: 484, contextName: string(bytes.Repeat([]byte{'c'}, 600)),
+		}))
+		require.NoError(t, err)
+		require.NotNil(t, n, "the inform is accepted")
+		assert.Nil(t, response)
+	})
+
+	t.Run("noError whatever the inform's error fields", func(t *testing.T) {
+		inform, err := (&Message{
+			Version: Version2c, Community: "public", PDUType: InformRequest, RequestID: 42,
+			ErrorStatus: GenErr, ErrorIndex: 2, VarBinds: rtVarbinds,
+		}).Encode(nil)
+		require.NoError(t, err)
+		r, _ := newTestReceiver(t, ReceiverConfig{})
+		_, response, err := r.Receive(inform)
+		require.NoError(t, err)
+		got, err := new(Client).DecodeMessage(response)
+		require.NoError(t, err)
+		assert.Equal(t, [2]uint8{0, 0}, [2]uint8{uint8(got.ErrorStatus), got.ErrorIndex})
 	})
 
 	t.Run("SNMPv2c", func(t *testing.T) {
@@ -321,23 +370,26 @@ func TestLocalEngineTimeliness(t *testing.T) {
 		boots   uint32 // the local boots, ansBoots when zero
 		want    error
 	}{
-		"on time":                  {elapsed: 100 * time.Second, msg: inform(ansBoots, 100)},
-		"150 s ahead":              {elapsed: 100 * time.Second, msg: inform(ansBoots, 250)},
-		"151 s ahead":              {elapsed: 100 * time.Second, msg: inform(ansBoots, 251), want: ErrNotInTimeWindow},
-		"150 s behind":             {elapsed: 200 * time.Second, msg: inform(ansBoots, 50)},
-		"151 s behind":             {elapsed: 200 * time.Second, msg: inform(ansBoots, 49), want: ErrNotInTimeWindow},
-		"lower boots":              {msg: inform(ansBoots-1, 0), want: ErrNotInTimeWindow},
-		"higher boots":             {msg: inform(ansBoots+1, 0), want: ErrNotInTimeWindow},
-		"boots and time zero":      {msg: inform(0, 0), want: ErrNotInTimeWindow},
-		"local boots at the max":   {msg: inform(maxEngineValue, 0), boots: maxEngineValue, want: ErrNotInTimeWindow},
-		"authNoPriv, lower boots":  {msg: at(ansAuth, AuthNoPriv, InformRequest, ansBoots-1, 0), want: ErrNotInTimeWindow},
-		"unauthenticated, stale":   {msg: at(ansPlain, NoAuthNoPriv, InformRequest, 0, 0)},
-		"a trap, on time":          {elapsed: time.Hour, msg: at(ansAuth, AuthNoPriv, SNMPv2Trap, ansBoots, 3600)},
-		"a trap, lower boots":      {msg: at(ansAuth, AuthNoPriv, SNMPv2Trap, ansBoots-1, 0), want: ErrNotInTimeWindow},
-		"a trap, 151 s ahead":      {msg: at(ansAuth, AuthNoPriv, SNMPv2Trap, ansBoots, 151), want: ErrNotInTimeWindow},
-		"a request, lower boots":   {msg: at(ansAuth, AuthNoPriv, GetRequest, ansBoots-1, 0), want: ErrNotInTimeWindow},
-		"a day later, on time":     {elapsed: 24 * time.Hour, msg: inform(ansBoots, 86400)},
-		"a day later, a day stale": {elapsed: 24 * time.Hour, msg: inform(ansBoots, 0), want: ErrNotInTimeWindow},
+		"on time":                 {elapsed: 100 * time.Second, msg: inform(ansBoots, 100)},
+		"150 s ahead":             {elapsed: 100 * time.Second, msg: inform(ansBoots, 250)},
+		"151 s ahead":             {elapsed: 100 * time.Second, msg: inform(ansBoots, 251), want: ErrNotInTimeWindow},
+		"150 s behind":            {elapsed: 200 * time.Second, msg: inform(ansBoots, 50)},
+		"151 s behind":            {elapsed: 200 * time.Second, msg: inform(ansBoots, 49), want: ErrNotInTimeWindow},
+		"lower boots":             {msg: inform(ansBoots-1, 0), want: ErrNotInTimeWindow},
+		"higher boots":            {msg: inform(ansBoots+1, 0), want: ErrNotInTimeWindow},
+		"boots and time zero":     {msg: inform(0, 0), want: ErrNotInTimeWindow},
+		"local boots at the max":  {msg: inform(maxEngineValue, 0), boots: maxEngineValue, want: ErrNotInTimeWindow},
+		"authNoPriv, lower boots": {msg: at(ansAuth, AuthNoPriv, InformRequest, ansBoots-1, 0), want: ErrNotInTimeWindow},
+		"unauthenticated, stale":  {msg: at(ansPlain, NoAuthNoPriv, InformRequest, 0, 0)},
+		"a trap, on time":         {elapsed: time.Hour, msg: at(ansAuth, AuthNoPriv, SNMPv2Trap, ansBoots, 3600)},
+		"a trap, lower boots":     {msg: at(ansAuth, AuthNoPriv, SNMPv2Trap, ansBoots-1, 0), want: ErrNotInTimeWindow},
+		"a trap, 151 s ahead":     {msg: at(ansAuth, AuthNoPriv, SNMPv2Trap, ansBoots, 151), want: ErrNotInTimeWindow},
+		"a request, lower boots":  {msg: at(ansAuth, AuthNoPriv, GetRequest, ansBoots-1, 0), want: ErrNotInTimeWindow},
+		"a day later, on time":    {elapsed: 24 * time.Hour, msg: inform(ansBoots, 86400)},
+		// Past 2147483647 s the time starts again at 0, the boots one higher.
+		"after the wrap, on time":   {elapsed: (maxEngineValue + 101) * time.Second, msg: inform(ansBoots+1, 100)},
+		"after the wrap, old boots": {elapsed: (maxEngineValue + 101) * time.Second, msg: inform(ansBoots, 100), want: ErrNotInTimeWindow},
+		"a day later, a day stale":  {elapsed: 24 * time.Hour, msg: inform(ansBoots, 0), want: ErrNotInTimeWindow},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -388,7 +440,43 @@ func TestLocalEngineTimeliness(t *testing.T) {
 		stale := rewireV3(t, m.bytes(), &ansPriv, []byte(ansAgentID), AuthPriv, 4, 100)
 		_, _, err = r.Receive(stale)
 		require.ErrorIs(t, err, ErrNotInTimeWindow)
+
+		// An authentic message that does not decrypt passed step 7 b, so it
+		// moved the record: a later trap of the old boots is outside it.
+		newer := rewireV3(t, m.bytes(), &ansPriv, []byte(ansAgentID), AuthPriv, 7, 100)
+		_, _, err = r.Receive(newer)
+		require.ErrorIs(t, err, ErrDecryption)
+		_, _, err = r.Receive(ansEncode(t, ansMessage{user: ansPriv, level: AuthPriv, engineID: ansAgentID, pdu: SNMPv2Trap, boots: 5, time: 101}))
+		require.ErrorIs(t, err, ErrNotInTimeWindow)
 	})
+}
+
+// TestLocalEngineClock pins the local engine's boots and time (RFC 3414
+// section 2.2.2): the time counts whole seconds from the receiver's
+// construction, and past 2147483647 starts again at 0 with the boots one
+// higher, which stop at 2147483647.
+func TestLocalEngineClock(t *testing.T) {
+	type at struct{ boots, time uint32 }
+	tests := map[string]struct {
+		boots   uint32
+		elapsed time.Duration
+		want    at
+	}{
+		"at the start":        {boots: 9, want: at{9, 0}},
+		"1.9 s later":         {boots: 9, elapsed: 1900 * time.Millisecond, want: at{9, 1}},
+		"at the maximum time": {boots: 9, elapsed: maxEngineValue * time.Second, want: at{9, maxEngineValue}},
+		"one second past it":  {boots: 9, elapsed: (maxEngineValue + 1) * time.Second, want: at{10, 0}},
+		"two wraps":           {boots: 9, elapsed: 2*(maxEngineValue+1)*time.Second + 5*time.Second, want: at{11, 5}},
+		"boots at the max":    {boots: maxEngineValue, elapsed: (maxEngineValue + 1) * time.Second, want: at{maxEngineValue, 0}},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			r, advance := newTestReceiver(t, ReceiverConfig{EngineID: []byte(ansLocalID), EngineBoots: tc.boots})
+			advance(tc.elapsed)
+			boots, engineTime := r.local.bootsAndTime()
+			assert.Equal(t, tc.want, at{boots, engineTime})
+		})
+	}
 }
 
 // TestLocalEngineNeverLearned pins that a receiver learns no user for its own
@@ -512,6 +600,84 @@ func TestReports(t *testing.T) {
 		}
 	})
 
+	t.Run("counted once per message", func(t *testing.T) {
+		// Two users of the name share the authentication credential: both
+		// check the digest, and the message counts once.
+		r, _ := ansReceiver(t, ansAuth, ansPriv)
+		_, data, err := r.Receive(ansEncode(t, ansMessage{user: ansAuth, level: AuthNoPriv, boots: 1}))
+		require.ErrorIs(t, err, ErrNotInTimeWindow)
+		assert.Equal(t, notInTimeWindows(1), decodeAnswer(t, data, &ansAuth).VarBinds)
+		assert.Equal(t, uint32(1), r.local.notInTimeWindows.Load())
+	})
+
+	t.Run("an unknown engine derives no key", func(t *testing.T) {
+		// A LearnUser with the sender's credentials would check the digest
+		// and derive the Reeder privacy key for the engine, which the key
+		// cache keeps: a reportable message is decided first.
+		stamp := time.Now().UnixNano()
+		user := User{
+			Name: "ans-reeder", AuthProtocol: SHA, AuthPassphrase: "ans-auth-pass",
+			PrivProtocol: AES256C, PrivPassphrase: fmt.Sprintf("ans-priv-%d", stamp),
+		}
+		r, _ := newTestReceiver(t, ReceiverConfig{
+			EngineID: []byte(ansLocalID), EngineBoots: ansBoots, LearnUsers: []User{user}, MaxLearned: 4,
+		})
+		inform := ansEncode(t, ansMessage{user: user, level: AuthPriv, engineID: fmt.Sprintf("\x80\x00\x1f\x88\x04ans-%d", stamp)})
+		before := passwordCache.Len()
+		_, data, err := r.Receive(inform)
+		require.ErrorIs(t, err, ErrUnknownEngineID)
+		assert.NotNil(t, data)
+		assert.Equal(t, before, passwordCache.Len())
+	})
+
+	t.Run("an unknown engine past MaxLearned is counted", func(t *testing.T) {
+		r, _ := newTestReceiver(t, ReceiverConfig{
+			EngineID: []byte(ansLocalID), EngineBoots: ansBoots, LearnUsers: []User{ansAuth}, MaxLearned: 1,
+		})
+		for i, engineID := range []string{ansAgentID, "\x80\x00\x1f\x88\x04agent-other"} {
+			_, _, err := r.Receive(ansEncode(t, ansMessage{user: ansAuth, level: AuthNoPriv, engineID: engineID, pdu: SNMPv2Trap}))
+			if i == 0 {
+				require.NoError(t, err)
+				continue
+			}
+			require.ErrorIs(t, err, ErrUnknownEngineID)
+		}
+		_, data, err := r.Receive(ansProbe(t, ""))
+		require.ErrorIs(t, err, ErrUnknownEngineID)
+		assert.Equal(t, unknownEngineIDs(2), decodeAnswer(t, data, nil).VarBinds)
+	})
+
+	t.Run("a name learned past MaxLearned meanwhile is counted", func(t *testing.T) {
+		// Receive found room to learn, a concurrent message took it before
+		// registration: the engine is unknown, and counted as such.
+		r, _ := newTestReceiver(t, ReceiverConfig{
+			EngineID: []byte(ansLocalID), EngineBoots: ansBoots, LearnUsers: []User{ansAuth}, MaxLearned: 1,
+		})
+		learned, err := r.register([]byte(ansAgentID), "ans-user", []User{ansAuth}, &learnProbe{})
+		require.NoError(t, err)
+		require.True(t, learned)
+		_, err = r.register([]byte("\x80\x00\x1f\x88\x04agent-other"), "ans-user", []User{ansAuth}, &learnProbe{})
+		require.ErrorIs(t, err, ErrUnknownEngineID)
+		assert.Equal(t, uint32(1), r.local.unknownEngineIDs.Load())
+	})
+
+	t.Run("an engine ID of an illegal size", func(t *testing.T) {
+		// Unknown at any size but 5..32 octets (RFC 3414 section 3.2 step
+		// 3): reported when reportable, never learned.
+		for _, engineID := range []string{"\x80\x00\x01", string(bytes.Repeat([]byte{0x80}, 33))} {
+			r, _ := newTestReceiver(t, ReceiverConfig{
+				EngineID: []byte(ansLocalID), EngineBoots: ansBoots, LearnUsers: []User{ansAuth}, MaxLearned: 4,
+			})
+			_, data, err := r.Receive(ansEncode(t, ansMessage{user: ansAuth, level: AuthNoPriv, engineID: engineID}))
+			require.ErrorIs(t, err, ErrUnknownEngineID)
+			assert.NotNil(t, data, "%x: a reportable inform", engineID)
+			_, data, err = r.Receive(ansEncode(t, ansMessage{user: ansAuth, level: AuthNoPriv, engineID: engineID, pdu: SNMPv2Trap}))
+			require.ErrorIs(t, err, ErrUnknownEngineID)
+			assert.Nil(t, data)
+			assert.Zero(t, r.learned, "%x", engineID)
+		}
+	})
+
 	t.Run("signed by the user whose digest checked", func(t *testing.T) {
 		first, second := ansAuth, ansAuth
 		second.AuthPassphrase = "ans-auth-pass-2"
@@ -553,6 +719,8 @@ func TestReports(t *testing.T) {
 			}), want: ErrUnknownEngineID},
 			"encrypted msgData without privacy": {data: with(probe, func(m *v3Message) { m.scopedTag = byte(OctetString) }), want: ErrUnknownEngineID},
 			"plaintext msgData with privacy":    {data: with(probe, msgFlagsOctets(byte(AuthPriv)|reportableFlag)), want: ErrUnknownEngineID},
+			"encrypted msgData past the end":    {data: encryptedProbe(t, probe, []byte{0x04, 0x05, 0x01, 0x02}), want: ErrUnknownEngineID},
+			"octets after encrypted msgData":    {data: encryptedProbe(t, probe, []byte{0x04, 0x02, 0x01, 0x02, 0x04, 0x00}), want: ErrUnknownEngineID},
 			"an invalid header":                 {data: with(probe, func(m *v3Message) { m.header[0] = byte(OctetString) }), want: ErrASNParse},
 			"no local engine":                   {data: probe, want: ErrUnknownEngineID, noLocal: true},
 			"a wrong digest":                    {data: badDigest.bytes(), want: ErrWrongDigest},
@@ -592,6 +760,18 @@ func TestReports(t *testing.T) {
 			})
 		}
 	})
+}
+
+// encryptedProbe returns probe, an SNMPv3 message, at authPriv and
+// reportable, with tail in place of its msgData, as it is.
+func encryptedProbe(t *testing.T, probe, tail []byte) []byte {
+	t.Helper()
+	m := splitV3Message(t, bytes.Clone(probe))
+	msgFlagsOctets(byte(AuthPriv) | reportableFlag)(&m)
+	head := ber.NewReader(probeWithout(t, m.bytes()))
+	_, content, err := head.Next()
+	require.NoError(t, err)
+	return tlv(0x30, content, tail)
 }
 
 // probeWithout returns probe, an SNMPv3 message, without its msgData.
