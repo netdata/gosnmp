@@ -119,7 +119,7 @@ func TestNewReceiverCopiesEngineID(t *testing.T) {
 	engineID := []byte(codecEngineID)
 	r := receiverAt(t, engineID, user)
 	copy(engineID, otherEngineID)
-	_, err = r.Receive(trap)
+	_, _, err = r.Receive(trap)
 	require.NoError(t, err)
 }
 

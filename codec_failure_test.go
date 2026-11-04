@@ -208,7 +208,7 @@ func TestUnknownPDUTypeError(t *testing.T) {
 			assert.EqualError(t, err, "unable to decode packet body: "+tc.want, "SNMPv3")
 
 			r, _ := newTestReceiver(t, ReceiverConfig{})
-			_, err = r.Receive(craftedMsg(1, pdu(tc.tag)))
+			_, _, err = r.Receive(craftedMsg(1, pdu(tc.tag)))
 			assert.EqualError(t, err, tc.want, "Receive")
 		})
 	}

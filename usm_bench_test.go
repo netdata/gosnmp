@@ -61,7 +61,7 @@ func BenchmarkUSMDecode(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				copy(in, data)
-				if _, err := r.Receive(in); err != nil {
+				if _, _, err := r.Receive(in); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -83,7 +83,7 @@ func BenchmarkUSMDecodeTable(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				copy(in, data)
-				if _, err := r.Receive(in); err != nil {
+				if _, _, err := r.Receive(in); err != nil {
 					b.Fatal(err)
 				}
 			}
