@@ -471,6 +471,9 @@ func dumpEncode(encode func() ([]byte, error)) string {
 		d.line("encode: panic")
 	case err != nil:
 		d.line("encode: " + dumpError(err))
+		if out != nil {
+			d.linef("bytes with the error: %d", len(out))
+		}
 	default:
 		d.line("encode: " + dumpBytes(out))
 	}
@@ -874,5 +877,25 @@ func encodeCases(t *testing.T) []encodeCase {
 			seedEngine(codecEngineID, 7, 1234)(x)
 			return x.EncodeMessage(GetRequest, nullVar, 0, 0)
 		}},
+	}
+}
+
+// TestMessageEncodeKeyError pins that Message.Encode returns no message when
+// the user's keys for the message's level do not derive.
+func TestMessageEncodeKeyError(t *testing.T) {
+	msg := &Message{
+		Version:       Version3,
+		SecurityLevel: AuthNoPriv,
+		SecurityParameters: SecurityParameters{
+			UserName:              "codec-user",
+			AuthoritativeEngineID: []byte("\x80\x00\x1f\x88\x04codec-engine"),
+		},
+		PDUType:  GetRequest,
+		VarBinds: []VarBind{{Name: engineOID, Value: NullValue()}},
+	}
+	out, err := msg.Encode(&User{Name: "codec-user", AuthProtocol: AuthProtocol(99), AuthPassphrase: "codec-auth-pass"})
+	require.EqualError(t, err, "User.AuthProtocol AuthProtocol(99) is not supported")
+	if out != nil {
+		t.Errorf("returned %d octets with the error", len(out))
 	}
 }

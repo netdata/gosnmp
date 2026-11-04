@@ -66,9 +66,18 @@ func TestWalkRequestChecks(t *testing.T) {
 	}
 }
 
-// TestEncodeMessageErrors pins that EncodeMessage returns an empty,
-// non-nil message with each of its errors.
+// TestEncodeMessageErrors pins that EncodeMessage returns no message with each
+// of its errors: the client's configuration, the message's version, a varbind,
+// and the SNMPv3 keys an authenticated or private message needs before the
+// client knows the agent's engine (TestEncodeMessageEmptyKey).
 func TestEncodeMessageErrors(t *testing.T) {
+	authPriv := User{
+		Name:           "codec-user",
+		AuthProtocol:   SHA,
+		AuthPassphrase: "codec-auth-pass",
+		PrivProtocol:   AES,
+		PrivPassphrase: "codec-priv-pass",
+	}
 	tests := map[string]struct {
 		x       *Client
 		pdus    []VarBind
@@ -77,17 +86,26 @@ func TestEncodeMessageErrors(t *testing.T) {
 		"invalid parameters": {
 			x: &Client{Version: Version2c, MaxOids: -1}, wantErr: "field MaxOids cannot be less than 0",
 		},
+		"unknown version": {
+			x:       &Client{Version: Version(7)},
+			wantErr: "unable to marshal SNMP version 7: not 1, 2c or 3",
+		},
 		"unencodable varbind": {
 			x:       &Client{Version: Version2c, Community: "public"},
 			pdus:    []VarBind{{Name: "not an oid", Value: NullValue()}},
 			wantErr: "invalid object identifier",
+		},
+		"private before the engine is known": {
+			x:       &Client{Version: Version3, SecurityLevel: AuthPriv, User: authPriv},
+			pdus:    []VarBind{{Name: engineOID, Value: NullValue()}},
+			wantErr: "usm: encrypting: no privacy key, want 16 octets",
 		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			out, err := tc.x.EncodeMessage(GetRequest, tc.pdus, 0, 0)
 			assert.ErrorContains(t, err, tc.wantErr)
-			assert.Equal(t, []byte{}, out)
+			assert.Nil(t, out)
 		})
 	}
 }
@@ -95,7 +113,7 @@ func TestEncodeMessageErrors(t *testing.T) {
 // TestEncodeMessageEmptyKey checks that EncodeMessage does not sign an
 // authenticated SNMPv3 message before the client knows the agent's engine: the
 // engine state has no engine ID to derive a key for, and the signer refuses
-// the empty key with the rule's error and an empty message.
+// the empty key with the rule's error and no message.
 func TestEncodeMessageEmptyKey(t *testing.T) {
 	x := &Client{
 		Version:       Version3,
@@ -104,7 +122,7 @@ func TestEncodeMessageEmptyKey(t *testing.T) {
 	}
 	out, err := x.EncodeMessage(GetRequest, []VarBind{{Name: engineOID, Value: NullValue()}}, 0, 0)
 	require.EqualError(t, err, "usm: no authentication key, want 20 octets")
-	assert.Equal(t, []byte{}, out)
+	assert.Nil(t, out)
 	assert.Empty(t, x.engine.keys.auth, "key derived")
 }
 

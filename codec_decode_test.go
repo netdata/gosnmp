@@ -27,7 +27,7 @@ import (
 // fixture, crafted edge case and fuzz corpus entry: the error (by exported
 // sentinel only) or the complete packet with the Go type of every value,
 // whether the input buffer was modified, and what Message.Encode makes of the
-// result. Partial results returned together with an error are not pinned.
+// result. A failed decode must return no message.
 func TestDecodeCharacterization(t *testing.T) {
 	cases := slices.Concat(decodeFixtureCases(t), decodeCraftedCases(), decodeV3ParseCases(), decodeFuzzCorpusCases(t))
 
@@ -58,6 +58,7 @@ func dumpDecode(t *testing.T, c decodeCase) string {
 	var p *Message
 	var err error
 	panicked, wroteStdout := observe(func() { p, err = x.DecodeMessage(in) })
+	checkNoMessage(t, c.name+": DecodeMessage", p, err)
 
 	var d dumpWriter
 	switch {
