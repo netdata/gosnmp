@@ -493,7 +493,7 @@ func (packet *Message) marshalMsg(keys *usmKeys) ([]byte, error) {
 // the text fields, and per varbind its name in dotted form (no shorter than
 // its encoding), its headers and an OCTET STRING or Opaque value.
 func (packet *Message) sizeHint() int {
-	n := 64 + len(packet.Community) + len(packet.ContextEngineID) + len(packet.ContextName)
+	n := 64 + len(packet.Community) + len(packet.ContextEngineID) + len(packet.ContextName) + len(packet.echoed)
 	if packet.Version == Version3 {
 		n += 128
 	}
@@ -561,8 +561,12 @@ func (packet *Message) appendTrapV1Header(dst []byte) ([]byte, error) {
 }
 
 // appendVBL appends the varbind list: a SEQUENCE of varbinds, each a SEQUENCE
-// of the name's OBJECT IDENTIFIER and the value (see appendValue).
+// of the name's OBJECT IDENTIFIER and the value (see appendValue), or the
+// encoded list the packet echoes.
 func (packet *Message) appendVBL(dst []byte) ([]byte, error) {
+	if packet.echoed != nil {
+		return append(dst, packet.echoed...), nil
+	}
 	dst, start := ber.Begin(dst, ber.Sequence)
 	for i := range packet.VarBinds {
 		var err error

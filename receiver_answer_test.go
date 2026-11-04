@@ -176,6 +176,22 @@ func TestInformResponse(t *testing.T) {
 		})
 	}
 
+	t.Run("a salt of its own", func(t *testing.T) {
+		r, _ := ansReceiver(t, ansPriv)
+		inform := ansEncode(t, ansMessage{user: ansPriv, level: AuthPriv, boots: ansBoots})
+		salts := [][]byte{splitV3Message(t, inform).usm[5]}
+		for range 2 {
+			_, response, err := r.Receive(bytes.Clone(inform))
+			require.NoError(t, err)
+			salt := splitV3Message(t, response).usm[5]
+			require.Len(t, salt, 8)
+			for _, s := range salts {
+				require.NotEqual(t, s, salt, "the inform's salt or another Response's")
+			}
+			salts = append(salts, salt)
+		}
+	})
+
 	t.Run("by the user that accepted it", func(t *testing.T) {
 		first, second := ansPriv, ansPriv
 		second.AuthPassphrase, second.PrivPassphrase = "ans-auth-pass-2", "ans-priv-pass-2"
@@ -185,6 +201,37 @@ func TestInformResponse(t *testing.T) {
 		decodeAnswer(t, response, &second)
 		_, err = receiveMessage(receiverAt(t, []byte(ansLocalID), first), response)
 		require.ErrorIs(t, err, ErrWrongDigest, "signed by the first user")
+	})
+
+	t.Run("varbinds the encoder refuses, as they came", func(t *testing.T) {
+		// An unknown value type and an empty IpAddress decode (see Values)
+		// but do not encode: the Response repeats the inform's octets.
+		quirky := craftedVBL(craftedVB(tlv(0x88, []byte("x"))), craftedVB(tlv(byte(IPAddress))))
+		v2c, err := (&Message{Version: Version2c, Community: "public", PDUType: InformRequest, RequestID: 42, echoed: quirky}).Encode(nil)
+		require.NoError(t, err)
+		v3, err := (&Message{
+			Version: Version3, SecurityLevel: AuthPriv, PDUType: InformRequest, MsgID: 21, RequestID: 42, echoed: quirky,
+			SecurityParameters: SecurityParameters{AuthoritativeEngineID: []byte(ansLocalID), AuthoritativeEngineBoots: ansBoots, UserName: "ans-user"},
+		}).Encode(&ansPriv)
+		require.NoError(t, err)
+		for name, inform := range map[string][]byte{"SNMPv2c": v2c, "SNMPv3": v3} {
+			t.Run(name, func(t *testing.T) {
+				r, _ := ansReceiver(t, ansPriv)
+				n, response, err := r.Receive(inform)
+				require.NoError(t, err)
+				require.NotNil(t, response)
+				var got *Message
+				if name == "SNMPv2c" {
+					assert.True(t, bytes.Contains(response, quirky), "the varbind list's octets")
+					got, err = new(Client).DecodeMessage(response)
+					require.NoError(t, err)
+				} else {
+					got = decodeAnswer(t, response, &ansPriv)
+				}
+				assert.Equal(t, Response, got.PDUType)
+				assert.Equal(t, n.Message.VarBinds, got.VarBinds)
+			})
+		}
 	})
 
 	t.Run("tooBig past the inform's msgMaxSize", func(t *testing.T) {
