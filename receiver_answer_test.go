@@ -614,15 +614,19 @@ func TestReports(t *testing.T) {
 		// A LearnUser with the sender's credentials would check the digest
 		// and derive the Reeder privacy key for the engine, which the key
 		// cache keeps: a reportable message is decided first.
+		// The sender's privacy passphrase is another, so that encoding the
+		// inform puts no key of the LearnUser's in the cache.
 		stamp := time.Now().UnixNano()
 		user := User{
 			Name: "ans-reeder", AuthProtocol: SHA, AuthPassphrase: "ans-auth-pass",
 			PrivProtocol: AES256C, PrivPassphrase: fmt.Sprintf("ans-priv-%d", stamp),
 		}
+		sender := user
+		sender.PrivPassphrase = "ans-sender-priv"
 		r, _ := newTestReceiver(t, ReceiverConfig{
 			EngineID: []byte(ansLocalID), EngineBoots: ansBoots, LearnUsers: []User{user}, MaxLearned: 4,
 		})
-		inform := ansEncode(t, ansMessage{user: user, level: AuthPriv, engineID: fmt.Sprintf("\x80\x00\x1f\x88\x04ans-%d", stamp)})
+		inform := ansEncode(t, ansMessage{user: sender, level: AuthPriv, engineID: fmt.Sprintf("\x80\x00\x1f\x88\x04ans-%d", stamp)})
 		before := passwordCache.Len()
 		_, data, err := r.Receive(inform)
 		require.ErrorIs(t, err, ErrUnknownEngineID)
@@ -664,7 +668,7 @@ func TestReports(t *testing.T) {
 	t.Run("an engine ID of an illegal size", func(t *testing.T) {
 		// Unknown at any size but 5..32 octets (RFC 3414 section 3.2 step
 		// 3): reported when reportable, never learned.
-		for _, engineID := range []string{"\x80\x00\x01", string(bytes.Repeat([]byte{0x80}, 33))} {
+		for _, engineID := range []string{"\x80\x00\x01", "\x80\x00\x01\x02", string(bytes.Repeat([]byte{0x80}, 33))} {
 			r, _ := newTestReceiver(t, ReceiverConfig{
 				EngineID: []byte(ansLocalID), EngineBoots: ansBoots, LearnUsers: []User{ansAuth}, MaxLearned: 4,
 			})
@@ -675,6 +679,35 @@ func TestReports(t *testing.T) {
 			require.ErrorIs(t, err, ErrUnknownEngineID)
 			assert.Nil(t, data)
 			assert.Zero(t, r.learned, "%x", engineID)
+		}
+	})
+
+	t.Run("an engine ID of 5 octets is learned", func(t *testing.T) {
+		r, _ := newTestReceiver(t, ReceiverConfig{LearnUsers: []User{ansAuth}, MaxLearned: 4})
+		n, _, err := r.Receive(ansEncode(t, ansMessage{user: ansAuth, level: AuthNoPriv, engineID: "\x80\x00\x01\x02\x03", pdu: SNMPv2Trap}))
+		require.NoError(t, err)
+		assert.True(t, n.Learned)
+	})
+
+	t.Run("an engine ID of an illegal size with users", func(t *testing.T) {
+		// Its users decode their messages; another user name is unknown as
+		// at any engine with users: no Report, no count, never learned.
+		for _, engineID := range []string{"\x80\x00\x01\x02", string(bytes.Repeat([]byte{0x80}, 33))} {
+			r, _ := newTestReceiver(t, ReceiverConfig{
+				EngineID: []byte(ansLocalID), EngineBoots: ansBoots,
+				Users:      []EngineUser{{EngineID: []byte(engineID), User: lrAuth}},
+				LearnUsers: []User{ansAuth}, MaxLearned: 4,
+			})
+			_, _, err := r.Receive(ansEncode(t, ansMessage{user: lrAuth, level: AuthNoPriv, engineID: engineID, pdu: SNMPv2Trap}))
+			require.NoError(t, err, "%x: its user", engineID)
+			for _, pdu := range []PDUType{InformRequest, SNMPv2Trap} {
+				n, data, err := r.Receive(ansEncode(t, ansMessage{user: ansAuth, level: AuthNoPriv, engineID: engineID, pdu: pdu}))
+				require.ErrorIs(t, err, ErrUnknownUsername, "%x: %v", engineID, pdu)
+				assert.Nil(t, n)
+				assert.Nil(t, data)
+			}
+			assert.Zero(t, r.local.unknownEngineIDs.Load())
+			assert.Zero(t, r.learned)
 		}
 	})
 
@@ -757,6 +790,9 @@ func TestReports(t *testing.T) {
 				require.ErrorIs(t, err, tc.want)
 				assert.Nil(t, n)
 				assert.Nil(t, data)
+				if r.local != nil && tc.want != ErrNotInTimeWindow {
+					assert.Zero(t, r.local.notInTimeWindows.Load(), "counts only the time window")
+				}
 			})
 		}
 	})

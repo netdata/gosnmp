@@ -238,10 +238,11 @@ func (r *Receiver) addLearnable(user User) error {
 // ID the receiver has no user for, and any message naming one of another size
 // than 5..32 octets it has no user for, is ErrUnknownEngineID before any key is
 // used and never learned: the first asks its authoritative engine, which the
-// receiver is not; the second names no engine (RFC 3414 section 3.2 step 3). A
-// request or an inform naming another engine ID than the receiver's own is
-// ErrUnknownEngineID once decoded (RFC 3412 section 7.2 step 13 a): its answer
-// would come from that engine.
+// receiver is not; the second names no engine (RFC 3414 section 3.2 step 3;
+// with users of other names there, it is ErrUnknownUsername, still never
+// learned). A request or an inform naming another engine ID than the receiver's
+// own is ErrUnknownEngineID once decoded (RFC 3412 section 7.2 step 13 a): its
+// answer would come from that engine.
 //
 // The notification's OctetString, Opaque and IPAddress values alias
 // datagram (see the package documentation).
@@ -269,6 +270,10 @@ func (r *Receiver) Receive(datagram []byte) (*Notification, []byte, error) {
 	users := byName[h.UserName]
 	learnable := r.learned < r.maxLearned
 	r.mu.RUnlock()
+	// An engine ID of another size than snmpEngineID's is unknown unless the
+	// caller registered users for it, and never learned (RFC 3414 section 3.2
+	// step 3).
+	legal := len(h.AuthoritativeEngineID) >= minEngineIDLen && len(h.AuthoritativeEngineID) <= maxEngineIDLen
 	switch {
 	case len(users) > 0:
 		if _, _, err = r.decodeWith(datagram, w, n, users, r.times.admitMessage); err != nil {
@@ -278,11 +283,7 @@ func (r *Receiver) Receive(datagram []byte) (*Notification, []byte, error) {
 			return nil, nil, errNotLocalEngine
 		}
 		return n, nil, nil
-	case len(h.AuthoritativeEngineID) < minEngineIDLen || len(h.AuthoritativeEngineID) > maxEngineIDLen:
-		// An illegally sized engine ID is unknown, never learned (RFC 3414
-		// section 3.2 step 3).
-		return r.rejectUnknownEngine(datagram, w, n, errUnknownEngine)
-	case !w.reportable && learnable && len(r.learnable[h.UserName]) > 0:
+	case !w.reportable && legal && learnable && len(r.learnable[h.UserName]) > 0:
 		if n, err = r.learn(datagram, w, n); err != nil {
 			return nil, nil, err
 		}

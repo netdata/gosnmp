@@ -381,9 +381,9 @@
 // it has no user for, and the first message one of them accepts, at the user's
 // own level, registers them all for its engine ID, up to MaxLearned names. An
 // inform is never learned, nor the receiver's own engine, nor an engine ID of
-// another size than 5..32 octets (RFC 3411's snmpEngineID; step 3 makes it
-// unknown). Receive gives the security processing and the minimum level a
-// receiver requires.
+// another size than 5..32 octets (RFC 3411's snmpEngineID), which step 3 makes
+// unknown unless the caller registered users for it. Receive gives the security
+// processing and the minimum level a receiver requires.
 //
 // A receiver is the authoritative engine (RFC 3414 section 1.5.1) of the
 // messages that name its own engine ID (ReceiverConfig.EngineID): informs. The
@@ -424,15 +424,18 @@
 // unknown user name, unsupported security level, wrong digest or decryption
 // error (section 7.2 step 6 a), since such Reports would tell any sender which
 // user names it has and at which levels, and none lets a sender recover by
-// itself; and a plaintext request or inform without the reportableFlag, which
-// section 6.4 forbids, gets no Report (section 7.1 step 3 b would send one).
-// What its answers tell: the unknownEngineIDs Report tells any sender, as
-// net-snmp's does, whether the receiver has users for an engine ID the sender
-// names. A Report answers a datagram whose source anyone can forge and can be
-// larger than it (the local engine ID appears twice: about 140 octets to a
-// 58-octet discovery request with an engine ID of 32 octets), so the caller
-// decides whether to send it, and how often. Without a local engine, a receiver
-// takes no SNMPv3 inform and sends no Report.
+// itself; and it takes a plaintext request or inform without the
+// reportableFlag, which section 6.4 forbids its sender, as the flag says rather
+// than as section 6.4 asks of its receiver: it gets no Report (section 7.1 step
+// 3 b would send one), and at an engine without users the LearnUsers of its
+// name decode it, then reject it as a message for another engine, learning
+// nothing. What its answers tell: the unknownEngineIDs Report tells any sender,
+// as net-snmp's does, whether the receiver has users for an engine ID the
+// sender names. A Report answers a datagram whose source anyone can forge and
+// can be larger than it (the local engine ID appears twice: about 140 octets to
+// a 58-octet discovery request, with a local engine ID of 32 octets), so the
+// caller decides whether to send it, and how often. Without a local engine, a
+// receiver takes no SNMPv3 inform and sends no Report.
 //
 // An authenticated SNMPv3 message naming another engine ID, an agent's trap,
 // whatever its PDU and reportable flag, must be in the time window of its

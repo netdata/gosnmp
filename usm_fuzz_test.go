@@ -146,25 +146,26 @@ func FuzzDecodeV3(f *testing.F) {
 // response (checkAnswer).
 func usmFuzzReceive(t *testing.T, r *Receiver, data []byte) (*Message, error) {
 	n, response, err := r.Receive(data)
-	checkAnswer(t, n, response, err)
+	checkAnswer(t, data, n, response, err)
 	if n == nil {
 		return nil, err
 	}
 	return &n.Message, err
 }
 
-// checkAnswer checks what Receive returned against its contract: a response
-// to exactly an accepted SNMPv2c or SNMPv3 inform, a Response, or else only
-// with ErrUnknownEngineID or ErrNotInTimeWindow, a Report; each one decodes.
-func checkAnswer(t *testing.T, n *Notification, response []byte, err error) {
+// checkAnswer checks what Receive returned for data against its contract: a
+// response to exactly an accepted SNMPv2c or SNMPv3 inform, a Response, but
+// for an SNMPv3 inform whose msgMaxSize even a tooBig Response could exceed
+// (one no longer than the inform but for a few octets of its own header
+// fields), or else only with ErrUnknownEngineID or ErrNotInTimeWindow, a
+// Report; each one decodes.
+func checkAnswer(t *testing.T, data []byte, n *Notification, response []byte, err error) {
 	t.Helper()
 	inform := n != nil && n.Message.PDUType == InformRequest && n.Message.Version != Version1
 	switch {
 	case n != nil && !inform && response != nil:
 		t.Fatalf("Receive answered %d octets to %+v", len(response), n)
-	case inform && response == nil && n.Message.Version != Version3:
-		// An SNMPv3 Response that does not fit the inform's msgMaxSize even
-		// with tooBig is dropped; an SNMPv2c inform is always answered.
+	case inform && response == nil && (n.Message.Version != Version3 || int(n.Message.MsgMaxSize) >= len(data)+16):
 		t.Fatalf("Receive answered nothing to %+v", n)
 	}
 	if response == nil {
