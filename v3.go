@@ -104,12 +104,13 @@ var errScopedPDUType = inCategory(ErrASNParse, errors.New("error parsing SNMPV3 
 // appendV3 appends the SNMPv3 part of a message after the version: the header
 // (msgGlobalData), the security parameters in an OCTET STRING and the scoped
 // PDU, once the header fields (checkV3Header) fit and keys has the protocols
-// the level needs. It also returns the offset of the
-// msgAuthenticationParameters content in dst, where sign writes the digest. A
+// the level needs, with varBinds as appendPDU takes them. It also returns the
+// offset of the msgAuthenticationParameters content in dst, where sign writes
+// the digest. A
 // message the level encrypts gets the next salt of usm.Salts, never the
 // packet's PrivacyParameters, so that no two messages share one, whatever the
 // caller copied into the packet.
-func (packet *Message) appendV3(dst []byte, keys *usmKeys) ([]byte, int, error) {
+func (packet *Message) appendV3(dst []byte, keys *usmKeys, varBinds []byte) ([]byte, int, error) {
 	if err := packet.checkV3Header(); err != nil {
 		return nil, 0, err
 	}
@@ -128,7 +129,7 @@ func (packet *Message) appendV3(dst []byte, keys *usmKeys) ([]byte, int, error) 
 	dst, start := ber.Begin(dst, byte(OctetString))
 	dst, auth := packet.SecurityParameters.marshal(dst, packet.SecurityLevel, keys.authProtocol, salt)
 	dst, auth = ber.EndMoving(dst, start, auth)
-	dst, err := packet.appendV3ScopedPDU(dst, keys, salt)
+	dst, err := packet.appendV3ScopedPDU(dst, keys, salt, varBinds)
 	return dst, auth, err
 }
 
@@ -188,13 +189,13 @@ func (packet *Message) appendV3Header(dst []byte) []byte {
 // appendV3ScopedPDU appends the scoped PDU: a SEQUENCE of the context engine
 // ID, the context name and the PDU, encrypted with keys and salt into an OCTET
 // STRING when there is a salt (appendV3 draws it when the level asks for
-// privacy).
-func (packet *Message) appendV3ScopedPDU(dst []byte, keys *usmKeys, salt []byte) ([]byte, error) {
+// privacy); the PDU with varBinds as appendPDU takes them.
+func (packet *Message) appendV3ScopedPDU(dst []byte, keys *usmKeys, salt, varBinds []byte) ([]byte, error) {
 	scoped := len(dst)
 	dst, start := ber.Begin(dst, ber.Sequence)
 	dst = appendOctets(dst, OctetString, packet.ContextEngineID)
 	dst = appendOctets(dst, OctetString, packet.ContextName)
-	dst, err := packet.appendPDU(dst)
+	dst, err := packet.appendPDU(dst, varBinds)
 	if err != nil {
 		return nil, err
 	}

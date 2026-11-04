@@ -143,8 +143,8 @@ func (s *engineTimes) admit(key engineTimeKey, boots, engineTime uint32) error {
 // admitMessage applies step 7 b (admit) to an authenticated message whose
 // USM header is h, processed with keys, a user's keys localized to its engine
 // ID.
-func (s *engineTimes) admitMessage(h *SecurityParameters, keys *usmKeys) error {
-	return s.admit(keyOf(h.AuthoritativeEngineID, keys), h.AuthoritativeEngineBoots, h.AuthoritativeEngineTime)
+func (s *engineTimes) admitMessage(h *SecurityParameters, keys usmKeys) error {
+	return s.admit(keyOf(h.AuthoritativeEngineID, &keys), h.AuthoritativeEngineBoots, h.AuthoritativeEngineTime)
 }
 
 // probe applies step 7 b for a message of a user the receiver is learning:
@@ -166,20 +166,20 @@ func (s *engineTimes) probe(key engineTimeKey, boots, engineTime uint32) (made b
 
 // localEngine is a receiver's own SNMP engine: its engine ID, and its boots
 // and time (RFC 3414 section 2.2.2), the time counted in whole seconds since
-// the receiver was built, by the monotonic clock; past 2147483647 seconds the
-// time wraps and the boots go up by one (engineClock.at). It counts the
-// errors whose Reports carry their counters: usmStatsUnknownEngineIDs (RFC
-// 3414 section 3.2 step 3) and usmStatsNotInTimeWindows (step 7 a).
+// the receiver was built (start), by the monotonic clock. It counts the errors
+// whose Reports carry their counters: usmStatsUnknownEngineIDs (RFC 3414
+// section 3.2 step 3) and usmStatsNotInTimeWindows (step 7 a).
 type localEngine struct {
 	id    []byte
-	clock engineClock
+	boots uint32
+	start time.Time
 	now   func() time.Time
 
 	unknownEngineIDs, notInTimeWindows atomic.Uint32
 }
 
 func newLocalEngine(id []byte, boots uint32, now func() time.Time) *localEngine {
-	return &localEngine{id: bytes.Clone(id), clock: engineClock{boots: boots, received: now()}, now: now}
+	return &localEngine{id: bytes.Clone(id), boots: boots, start: now(), now: now}
 }
 
 // is reports whether engineID is the local engine's ID; a receiver without a
@@ -188,21 +188,26 @@ func (e *localEngine) is(engineID []byte) bool {
 	return e != nil && bytes.Equal(engineID, e.id)
 }
 
-// bootsAndTime returns the local engine boots and time now.
+// bootsAndTime returns the local engine boots and time now: past 2147483647
+// the time starts again at 0 and the boots go up by one, as at a
+// re-initialization, up to 2147483647 (RFC 3414 section 2.2.2).
 func (e *localEngine) bootsAndTime() (boots, engineTime uint32) {
-	return e.clock.at(e.now())
+	elapsed := max(int64(e.now().Sub(e.start)/time.Second), 0)
+	wraps := elapsed / (maxEngineValue + 1)
+	boots = uint32(min(int64(e.boots)+wraps, maxEngineValue)) //nolint:gosec // at most maxEngineValue
+	return boots, uint32(elapsed % (maxEngineValue + 1))
 }
 
 // admitMessage applies RFC 3414 section 3.2 step 7 a to an authenticated
 // message naming the local engine ID, whose USM header is h: it is outside
-// the time window, and counted, when the local boots are 2147483647, its boots
-// differ from them, or its time is more than 150 seconds off the local engine
-// time. The local engine has one time for every user, so keys go unused.
-func (e *localEngine) admitMessage(h *SecurityParameters, _ *usmKeys) error {
+// the time window when the local boots are 2147483647, its boots differ from
+// them, or its time is more than 150 seconds off the local engine time. The
+// local engine has one time for every user, so keys go unused; the receiver
+// counts a message outside the window once, whatever users it tried.
+func (e *localEngine) admitMessage(h *SecurityParameters, _ usmKeys) error {
 	boots, engineTime := e.bootsAndTime()
 	off := int64(h.AuthoritativeEngineTime) - int64(engineTime)
 	if boots == maxEngineValue || h.AuthoritativeEngineBoots != boots || off > timeWindow || off < -timeWindow {
-		e.notInTimeWindows.Add(1)
 		return errNotInTime
 	}
 	return nil

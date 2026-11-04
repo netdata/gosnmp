@@ -28,7 +28,8 @@ func accept(n *Notification, pdu []byte, user *tableUser, local *localEngine) (*
 // 3.1 step 1 a), with the inform's msgID, level, user name and context, signed
 // and encrypted with user's keys, localized to the local engine ID, as the
 // level asks (RFC 3412 section 7.1 step 2). A Response longer than the
-// msgMaxSize of an SNMPv3 inform carries tooBig and no varbind instead.
+// msgMaxSize of an SNMPv3 inform carries tooBig and no varbind instead, and
+// one that does not fit even so is no Response (nil).
 func respond(inform *Message, pdu []byte, user *tableUser, local *localEngine) ([]byte, error) {
 	varBinds, err := varBindList(pdu)
 	if err != nil {
@@ -39,10 +40,9 @@ func respond(inform *Message, pdu []byte, user *tableUser, local *localEngine) (
 		Community: inform.Community,
 		PDUType:   Response,
 		RequestID: inform.RequestID,
-		echoed:    varBinds,
 	}
 	if inform.Version != Version3 {
-		return response.marshalMsg(&usmKeys{})
+		return response.marshalWith(&usmKeys{}, varBinds)
 	}
 	boots, engineTime := local.bootsAndTime()
 	response.SecurityLevel = inform.SecurityLevel
@@ -54,12 +54,22 @@ func respond(inform *Message, pdu []byte, user *tableUser, local *localEngine) (
 	}
 	response.ContextEngineID, response.ContextName = inform.ContextEngineID, inform.ContextName
 	response.MsgID = inform.MsgID
-	data, err := response.marshalMsg(&user.keys)
-	if err != nil || uint64(len(data)) <= uint64(inform.MsgMaxSize) {
+	data, err := response.marshalWith(&user.keys, varBinds)
+	if err != nil || fits(data, inform) {
 		return data, err
 	}
-	response.ErrorStatus, response.echoed = TooBig, nil
-	return response.marshalMsg(&user.keys)
+	response.ErrorStatus = TooBig
+	if data, err = response.marshalMsg(&user.keys); err != nil || fits(data, inform) {
+		return data, err
+	}
+	// Too big even without the varbinds (the context fields): dropped, as
+	// RFC 3418's snmpSilentDrops counts it.
+	return nil, nil
+}
+
+// fits reports whether the Response data fits the msgMaxSize of inform.
+func fits(data []byte, inform *Message) bool {
+	return uint64(len(data)) <= uint64(inform.MsgMaxSize)
 }
 
 // varBindList returns the variable-bindings field of pdu, a PDU that decoded
@@ -135,8 +145,8 @@ func reportedRequestID(datagram []byte, w v3Wire, level SecurityLevel) (uint32, 
 		if w.scoped >= len(datagram) || datagram[w.scoped] != byte(OctetString) {
 			return 0, false
 		}
-		_, _, err := tlvAt(datagram, w.scoped, len(datagram))
-		return 0, err == nil
+		_, stop, err := tlvAt(datagram, w.scoped, len(datagram))
+		return 0, err == nil && stop == len(datagram)
 	}
 	var m Message
 	scoped, cursor, err := unmarshalScopedPDU(datagram, w.scoped, &m, false, nil)

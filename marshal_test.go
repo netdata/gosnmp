@@ -279,7 +279,7 @@ func TestEnmarshalVBL(t *testing.T) {
 			VarBinds:  vbPosPdus(test),
 		}
 
-		testBytes, err := x.appendVBL(nil)
+		testBytes, err := x.appendVBL(nil, nil)
 		if err != nil {
 			t.Errorf("#%s: appendVBL() err returned: %v", test.funcName, err)
 		}
@@ -298,7 +298,7 @@ func TestEnmarshalPDU(t *testing.T) {
 			VarBinds:  vbPosPdus(test),
 		}
 
-		testBytes, err := x.appendPDU(nil)
+		testBytes, err := x.appendPDU(nil, nil)
 		if err != nil {
 			t.Errorf("#%s: appendPDU() err returned: %v", test.funcName, err)
 		}
