@@ -274,10 +274,11 @@ func (m v3Message) bytes() []byte {
 }
 
 // TestUSMDecryptCharacterization pins what DecodeMessage (which decrypts
-// without checking the digest) and UnmarshalTrap (which checks it first) make
-// of an authPriv trap whose privacy parameters, ciphertext or msgFlags are
-// changed, or whose receiver has other privacy settings. Both derive the
-// user's keys for the message's engine ID.
+// without checking the digest) and Receiver.Receive (which checks it first)
+// make of an authPriv trap whose privacy parameters, ciphertext or msgFlags
+// are changed, or whose receiver has other privacy settings. Both use the
+// user's keys localized to the message's engine ID: DecodeMessage derives
+// them, the receiver has its user registered for the engine ID.
 func TestUSMDecryptCharacterization(t *testing.T) {
 	var results []goldenCase
 	for _, priv := range usmPrivProtocols[1:] {
@@ -364,17 +365,16 @@ func usmPlainTrap(model int64, engineID, user string) []byte {
 	return craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(model), usm, scoped)
 }
 
-// TestUSMTrapUnauthenticated pins what UnmarshalTrap does, for a single user
-// requiring authPriv and through a credentials table, with messages that
-// carry no digest it can check or ask for less than their user needs: each is
-// rejected at its step of the security processing (RFC 3412 section 7.2, RFC
-// 3414 section 3.2), whose error it unwraps to. Privacy without
-// authentication fails the header parse, a scoped PDU whose type does not
-// match the privacy flag is invalid, and nothing is decrypted without a
-// checked digest; an empty user name and engine ID, as in engine discovery,
-// name no engine.
+// TestUSMTrapUnauthenticated pins what Receiver.Receive does, for a receiver
+// whose user, with authentication and the case's privacy protocol, is
+// registered for the messages' engine ID, with messages that carry no digest
+// it can check or ask for less than their user needs: each is rejected at its
+// step of the security processing (RFC 3412 section 7.2, RFC 3414 section
+// 3.2), whose error it unwraps to. Privacy without authentication fails the
+// header parse, a scoped PDU whose type does not match the privacy flag is
+// invalid, and nothing is decrypted without a checked digest; an empty user
+// name and engine ID, as in engine discovery, name no engine.
 func TestUSMTrapUnauthenticated(t *testing.T) {
-	useEngineTimes(t)
 	// wrappedTrap carries the plaintext scoped PDU's fields in an OCTET
 	// STRING, where an encrypted scoped PDU goes.
 	wrappedTrap := func() []byte {
@@ -402,95 +402,64 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 		return data
 	}
 
-	type receiverKind int
-	const (
-		single receiverKind = iota
-		table
-	)
-	receiver := func(priv PrivProtocol, kind receiverKind) *Client {
-		user := usmUser(SHA, "codec-auth-pass", priv, "codec-priv-pass")
-		if kind == single {
-			return &Client{Version: Version3, SecurityLevel: AuthPriv, User: user}
-		}
-		tb := NewSnmpV3SecurityParametersTable()
-		require.NoError(t, tb.Add(user, []byte(usmCharEngineID)))
-		return &Client{Version: Version3, TrapSecurityParametersTable: tb}
-	}
-
 	tests := map[string]struct {
-		in       func() []byte
-		priv     PrivProtocol
-		receiver receiverKind
-		is       error // the exported error the rejection unwraps to
+		in   func() []byte
+		priv PrivProtocol
+		is   error // the exported error the rejection unwraps to
 	}{
-		"privacy-only DES, single user": {
+		"privacy-only DES": {
 			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 8) }, priv: DES, is: ErrInvalidMsgs,
 		},
-		"privacy-only DES, table": {
-			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 8) }, priv: DES, receiver: table, is: ErrInvalidMsgs,
+		"privacy-only AES": {
+			in: func() []byte { return usmFlagsTrap(t, AES, usmPrivacyFlag, 8) }, priv: AES, is: ErrInvalidMsgs,
 		},
-		"privacy-only AES, table": {
-			in: func() []byte { return usmFlagsTrap(t, AES, usmPrivacyFlag, 8) }, priv: AES, receiver: table, is: ErrInvalidMsgs,
-		},
-		"noAuthNoPriv flags, encrypted AES, table": {
-			in: func() []byte { return usmFlagsTrap(t, AES, NoAuthNoPriv, 8) }, priv: AES, receiver: table, is: ErrASNParse,
-		},
-		"noAuthNoPriv flags, encrypted AES, single user": {
+		"noAuthNoPriv flags, encrypted AES": {
 			in: func() []byte { return usmFlagsTrap(t, AES, NoAuthNoPriv, 8) }, priv: AES, is: ErrASNParse,
 		},
-		"noAuthNoPriv flags, OCTET STRING scoped PDU, table without privacy": {
-			in: wrappedTrap, priv: NoPriv, receiver: table, is: ErrASNParse,
+		"noAuthNoPriv flags, OCTET STRING scoped PDU, user without privacy": {
+			in: wrappedTrap, priv: NoPriv, is: ErrASNParse,
 		},
-		"privacy-only DES with a 7-octet salt, single user": {
+		"privacy-only DES with a 7-octet salt": {
 			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 7) }, priv: DES, is: ErrInvalidMsgs,
 		},
-		"privacy-only DES with a 7-octet salt, table": {
-			in: func() []byte { return usmFlagsTrap(t, DES, usmPrivacyFlag, 7) }, priv: DES, receiver: table, is: ErrInvalidMsgs,
+		"noAuthNoPriv flags, encrypted DES with a 7-octet salt": {
+			in: func() []byte { return usmFlagsTrap(t, DES, NoAuthNoPriv, 7) }, priv: DES, is: ErrASNParse,
 		},
-		"noAuthNoPriv flags, encrypted DES with a 7-octet salt, table": {
-			in: func() []byte { return usmFlagsTrap(t, DES, NoAuthNoPriv, 7) }, priv: DES, receiver: table, is: ErrASNParse,
+		"privacy-only AES with a 7-octet salt": {
+			in: func() []byte { return usmFlagsTrap(t, AES, usmPrivacyFlag, 7) }, priv: AES, is: ErrInvalidMsgs,
 		},
-		"privacy-only AES with a 7-octet salt, table": {
-			in: func() []byte { return usmFlagsTrap(t, AES, usmPrivacyFlag, 7) }, priv: AES, receiver: table, is: ErrInvalidMsgs,
+		"authNoPriv signed with the empty key": {
+			in: emptyKeyTrap, priv: NoPriv, is: ErrWrongDigest,
 		},
-		"authNoPriv signed with the empty key, table": {
-			in: emptyKeyTrap, priv: NoPriv, receiver: table, is: ErrWrongDigest,
+		"noAuthNoPriv plaintext, AES user": {
+			in: func() []byte { return usmPlainTrap(3, usmCharEngineID, "codec-user") }, priv: AES, is: ErrUnknownSecurityLevel,
 		},
-		"noAuthNoPriv plaintext, AES table": {
-			in: func() []byte { return usmPlainTrap(3, usmCharEngineID, "codec-user") }, priv: AES, receiver: table, is: ErrUnknownSecurityLevel,
-		},
-		"security model 2, plaintext, single user": {
+		"security model 2, plaintext": {
 			in: func() []byte { return usmPlainTrap(2, usmCharEngineID, "codec-user") }, priv: AES, is: ErrUnknownSecurityModels,
 		},
-		"security model 2, authPriv flags, table": {
-			in: func() []byte { return encryptedWithModel(AES, 2, 8) }, priv: AES, receiver: table, is: ErrUnknownSecurityModels,
+		"security model 2, authPriv flags": {
+			in: func() []byte { return encryptedWithModel(AES, 2, 8) }, priv: AES, is: ErrUnknownSecurityModels,
 		},
-		"security model 2, encrypted DES with a 7-octet salt, single user": {
+		"security model 2, encrypted DES with a 7-octet salt": {
 			in: func() []byte { return encryptedWithModel(DES, 2, 7) }, priv: DES, is: ErrUnknownSecurityModels,
 		},
-		"empty user name and engine ID, single user": {
+		"empty user name and engine ID": {
 			in: func() []byte { return usmPlainTrap(3, "", "") }, priv: AES, is: ErrUnknownEngineID,
 		},
-		"empty user name and engine ID, table": {
-			in: func() []byte { return usmPlainTrap(3, "", "") }, priv: AES, receiver: table, is: ErrUnknownEngineID,
-		},
-		"empty user name, engine ID set, single user": {
+		"empty user name, engine ID set": {
 			in: func() []byte { return usmPlainTrap(3, usmCharEngineID, "") }, priv: AES, is: ErrUnknownUsername,
 		},
-		"malformed header, single user": {
+		"malformed header": {
 			in: func() []byte { return usmMalformedV3Header }, priv: AES, is: ErrASNParse,
-		},
-		"malformed header, table": {
-			in: func() []byte { return usmMalformedV3Header }, priv: AES, receiver: table, is: ErrASNParse,
 		},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			x := receiver(tc.priv, tc.receiver)
+			r := receiverAt(t, []byte(usmCharEngineID), usmUser(SHA, "codec-auth-pass", tc.priv, "codec-priv-pass"))
 			var err error
-			v, _ := recoverPanic(func() { _, err = x.UnmarshalTrap(tc.in(), false) })
-			require.Nil(t, v, "UnmarshalTrap panicked")
+			v, _ := recoverPanic(func() { _, err = r.Receive(tc.in()) })
+			require.Nil(t, v, "Receive panicked")
 			require.ErrorIs(t, err, tc.is)
 		})
 	}
@@ -499,18 +468,12 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 // TestUSMAuthFieldEmpty pins that an authNoPriv message with an empty
 // msgAuthenticationParameters, shorter than the 12-octet SHA digest, decodes
 // without a write, whether or not the input has spare capacity:
-// DecodeMessage checks no digest, and UnmarshalTrap finds it not
+// DecodeMessage checks no digest, and Receiver.Receive finds it not
 // authentic.
 func TestUSMAuthFieldEmpty(t *testing.T) {
-	useEngineTimes(t)
 	usm := craftedUSM(octets(usmCharEngineID), intTLV(0), intTLV(0), octets("codec-user"), octets(""), octets(""))
 	msg := craftedV3(intTLV(42), intTLV(65507), octets("\x01"), intTLV(3), usm, craftedScopedResp)
 	decoder := usmDecoder(SHA, "codec-auth-pass", NoPriv, "")
-	trapDecoder := func() *Client {
-		x := decoder()
-		x.Version, x.SecurityLevel = Version3, AuthNoPriv
-		return x
-	}
 
 	for name, spare := range map[string]int{"no spare capacity": 0, "spare capacity": 16} {
 		t.Run(name, func(t *testing.T) {
@@ -518,8 +481,8 @@ func TestUSMAuthFieldEmpty(t *testing.T) {
 			in := buf[:len(msg):len(buf)]
 			_, err := decoder().DecodeMessage(in)
 			require.NoError(t, err, "DecodeMessage")
-			_, err = trapDecoder().UnmarshalTrap(in, false)
-			assert.ErrorIs(t, err, errNotAuthentic, "UnmarshalTrap")
+			_, err = receiverAt(t, []byte(usmCharEngineID), decoder().User).Receive(in)
+			assert.ErrorIs(t, err, errNotAuthentic, "Receive")
 			assert.Equal(t, append(bytes.Clone(msg), bytes.Repeat([]byte{0xaa}, spare)...), buf, "the input and the octets after it")
 		})
 	}

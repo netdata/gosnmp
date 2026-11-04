@@ -15,11 +15,14 @@ import (
 
 // The FuzzDecodeV3 receivers.
 const (
-	fuzzDecode          = "DecodeMessage"
-	fuzzSingle          = "UnmarshalTrap single user"
-	fuzzTable           = "UnmarshalTrap table"
-	fuzzTableRegistered = "UnmarshalTrap table, registered for the seeds' engine ID"
+	fuzzDecode     = "DecodeMessage"
+	fuzzRegistered = "Receive, the user registered for the seeds' engine ID"
+	fuzzLearning   = "Receive, the user learned for the message's engine ID"
 )
+
+// usmFuzzMaxLearned is the MaxLearned of the FuzzDecodeV3 learning receiver,
+// more than an input can make it learn.
+const usmFuzzMaxLearned = 1 << 16
 
 // usmFuzzPair is the credentials of one FuzzDecodeV3 receiver.
 type usmFuzzPair struct {
@@ -29,17 +32,6 @@ type usmFuzzPair struct {
 
 func (p usmFuzzPair) user() User {
 	return usmUser(p.auth, "codec-auth-pass", p.priv, "codec-priv-pass")
-}
-
-func (p usmFuzzPair) flags() SecurityLevel {
-	switch {
-	case p.priv != NoPriv:
-		return AuthPriv
-	case p.auth != NoAuth:
-		return AuthNoPriv
-	default:
-		return NoAuthNoPriv
-	}
 }
 
 // usmFuzzPairs are noAuthNoPriv and every authentication protocol with no
@@ -56,12 +48,12 @@ func usmFuzzPairs() []usmFuzzPair {
 
 // FuzzDecodeV3 decodes input with the SNMPv3 credentials of the pair the
 // first argument selects: DecodeMessage, which decrypts without checking
-// the digest, and UnmarshalTrap for a single user and through a credentials
-// table, the latter also with the user registered for the seeds' engine ID,
-// whose keys it uses without deriving them. Each must return within a second,
-// must not panic, must not write into its input and must return no message
-// with an error. Seeds are a secured trap for every pair and malformed
-// variants of it.
+// the digest, and Receiver.Receive by a receiver with the user registered for
+// the seeds' engine ID, whose keys it localized when it was built, and by one
+// that may learn the user, whose keys derive for the message's engine ID (RFC
+// 3414 section 3.2 step 3). Each must return within a second, must not panic,
+// must not write into its input and must return no message with an error.
+// Seeds are a secured trap for every pair and malformed variants of it.
 func FuzzDecodeV3(f *testing.F) {
 	pairs := usmFuzzPairs()
 	index := make(map[usmFuzzPair]uint8, len(pairs))
@@ -102,7 +94,6 @@ func FuzzDecodeV3(f *testing.F) {
 	f.Add(index[usmFuzzPair{SHA, NoPriv}], craftedV3(intTLV(42), intTLV(65507), octets("\x01"), intTLV(3), usmFields, nil))
 
 	f.Fuzz(func(t *testing.T, sel uint8, data []byte) {
-		useEngineTimes(t)
 		p := pairs[int(sel)%len(pairs)]
 		receivers := []struct {
 			name   string
@@ -111,23 +102,12 @@ func FuzzDecodeV3(f *testing.F) {
 			{fuzzDecode, func(data []byte) (*Message, error) {
 				return (&Client{User: p.user()}).DecodeMessage(data)
 			}},
-			{fuzzSingle, func(data []byte) (*Message, error) {
-				x := &Client{Version: Version3, SecurityLevel: p.flags(), User: p.user()}
-				return x.UnmarshalTrap(data, false)
+			{fuzzRegistered, func(data []byte) (*Message, error) {
+				return usmFuzzReceive(receiverAt(t, []byte(usmCharEngineID), p.user()), data)
 			}},
-			{fuzzTable, func(data []byte) (*Message, error) {
-				table := NewSnmpV3SecurityParametersTable()
-				if err := table.Add(p.user(), nil); err != nil {
-					return nil, err
-				}
-				return (&Client{Version: Version3, TrapSecurityParametersTable: table}).UnmarshalTrap(data, false)
-			}},
-			{fuzzTableRegistered, func(data []byte) (*Message, error) {
-				table := NewSnmpV3SecurityParametersTable()
-				if err := table.Add(p.user(), []byte(usmCharEngineID)); err != nil {
-					return nil, err
-				}
-				return (&Client{Version: Version3, TrapSecurityParametersTable: table}).UnmarshalTrap(data, false)
+			{fuzzLearning, func(data []byte) (*Message, error) {
+				r, _ := newTestReceiver(t, ReceiverConfig{LearnUsers: []User{p.user()}, MaxLearned: usmFuzzMaxLearned})
+				return usmFuzzReceive(r, data)
 			}},
 		}
 
@@ -150,6 +130,16 @@ func FuzzDecodeV3(f *testing.F) {
 			}
 		}
 	})
+}
+
+// usmFuzzReceive returns what r.Receive returns for data: the notification's
+// message, or nil when there is no notification, and the error.
+func usmFuzzReceive(r *Receiver, data []byte) (*Message, error) {
+	n, err := r.Receive(data)
+	if n == nil {
+		return nil, err
+	}
+	return &n.Message, err
 }
 
 // recoverPanic runs fn and returns the value it panicked with and the stack

@@ -84,22 +84,13 @@ func checkNoMessage(t *testing.T, what string, msg *Message, err error) {
 }
 
 // TestRejectionCategories pins the category of rejections no golden reaches
-// through its entry point: UnmarshalTrap's version check and the PDU of an
+// through its entry point: Receiver.Receive's version check and the PDU of an
 // SNMPv1 and an SNMPv2c trap and of an SNMPv3 trap past security processing,
-// on both paths, and an encrypted message without its scoped PDU.
+// and an encrypted message without its scoped PDU.
 func TestRejectionCategories(t *testing.T) {
-	useEngineTimes(t)
 	user := usmUser(NoAuth, "", NoPriv, "")
-	single := func(data []byte) error {
-		_, err := (&Client{Version: Version3, User: user}).UnmarshalTrap(data, true)
-		return err
-	}
-	table := func(data []byte) error {
-		tb := NewSnmpV3SecurityParametersTable()
-		if err := tb.Add(user, nil); err != nil {
-			return err
-		}
-		_, err := (&Client{Version: Version3, TrapSecurityParametersTable: tb}).UnmarshalTrap(data, false)
+	receive := func(data []byte) error {
+		_, err := receiverFor(t, data, user).Receive(data)
 		return err
 	}
 	decode := func(data []byte) error {
@@ -118,11 +109,10 @@ func TestRejectionCategories(t *testing.T) {
 		in     []byte
 		want   string
 	}{
-		"trap of version 2":             {single, craftedMsg(2, craftedPDU(SNMPv2Trap, craftedVBL(craftedVB(intTLV(5))))), "ErrBadVersion"},
-		"SNMPv1 trap PDU":               {single, craftedV1Trap(octets("x"), craftedAgentAddress, intTLV(6), intTLV(1), craftedTimestamp, craftedVBL()), "ErrASNParse"},
-		"SNMPv2c trap PDU":              {single, craftedMsg(1, badPDU), "ErrASNParse"},
-		"SNMPv3 trap PDU, single path":  {single, v3Trap, "ErrASNParse"},
-		"SNMPv3 trap PDU, table path":   {table, v3Trap, "ErrASNParse"},
+		"trap of version 2":             {receive, craftedMsg(2, craftedPDU(SNMPv2Trap, craftedVBL(craftedVB(intTLV(5))))), "ErrBadVersion"},
+		"SNMPv1 trap PDU":               {receive, craftedV1Trap(octets("x"), craftedAgentAddress, intTLV(6), intTLV(1), craftedTimestamp, craftedVBL()), "ErrASNParse"},
+		"SNMPv2c trap PDU":              {receive, craftedMsg(1, badPDU), "ErrASNParse"},
+		"SNMPv3 trap PDU":               {receive, v3Trap, "ErrASNParse"},
 		"authPriv without a scoped PDU": {decode, authPrivWithoutScopedPDU, "ErrASNParse"},
 	}
 	for name, tc := range tests {

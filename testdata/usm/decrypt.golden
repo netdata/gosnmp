@@ -11,55 +11,55 @@ varbinds: 2
 vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: identical
-unmarshal-trap: ok
+receive: ok
 
 == decrypt/sha-des/salt-empty
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-des/salt-7
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-des/salt-9
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-des/ciphertext-empty
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-des/ciphertext-minus-1
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-des/ciphertext-minus-8
 decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-des/flags-no-auth-no-priv
 decode: error (ErrASNParse)
-unmarshal-trap: error (ErrASNParse)
+receive: error (ErrASNParse)
 
 == decrypt/sha-des/flags-auth-no-priv
 decode: error (ErrASNParse)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-des/flags-privacy-only
 decode: error (ErrInvalidMsgs)
-unmarshal-trap: error (ErrInvalidMsgs)
+receive: error (ErrInvalidMsgs)
 
 == decrypt/sha-des/engine-id-empty
 decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
-unmarshal-trap: error (ErrUnknownEngineID)
+receive: error (ErrUnknownEngineID)
 
 == decrypt/sha-des/receiver-aes
 decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
-unmarshal-trap: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
+receive: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
 
 == decrypt/sha-des/receiver-priv-pass-empty
 decode: error
-unmarshal-trap: error
+receive: NewReceiver error
 
 == decrypt/sha-aes/ok
 decode: ok
@@ -72,55 +72,55 @@ varbinds: 2
 vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: identical
-unmarshal-trap: ok
+receive: ok
 
 == decrypt/sha-aes/salt-empty
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes/salt-7
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes/salt-9
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes/ciphertext-empty
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes/ciphertext-minus-1
 decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes/ciphertext-minus-8
 decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes/flags-no-auth-no-priv
 decode: error (ErrASNParse)
-unmarshal-trap: error (ErrASNParse)
+receive: error (ErrASNParse)
 
 == decrypt/sha-aes/flags-auth-no-priv
 decode: error (ErrASNParse)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes/flags-privacy-only
 decode: error (ErrInvalidMsgs)
-unmarshal-trap: error (ErrInvalidMsgs)
+receive: error (ErrInvalidMsgs)
 
 == decrypt/sha-aes/engine-id-empty
 decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
-unmarshal-trap: error (ErrUnknownEngineID)
+receive: error (ErrUnknownEngineID)
 
 == decrypt/sha-aes/receiver-des
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrDecryption)
+receive: error (ErrDecryption)
 
 == decrypt/sha-aes/receiver-priv-pass-empty
 decode: error
-unmarshal-trap: error
+receive: NewReceiver error
 
 == decrypt/sha-aes192/ok
 decode: ok
@@ -133,55 +133,55 @@ varbinds: 2
 vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: identical
-unmarshal-trap: ok
+receive: ok
 
 == decrypt/sha-aes192/salt-empty
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes192/salt-7
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes192/salt-9
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes192/ciphertext-empty
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes192/ciphertext-minus-1
 decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes192/ciphertext-minus-8
 decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes192/flags-no-auth-no-priv
 decode: error (ErrASNParse)
-unmarshal-trap: error (ErrASNParse)
+receive: error (ErrASNParse)
 
 == decrypt/sha-aes192/flags-auth-no-priv
 decode: error (ErrASNParse)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes192/flags-privacy-only
 decode: error (ErrInvalidMsgs)
-unmarshal-trap: error (ErrInvalidMsgs)
+receive: error (ErrInvalidMsgs)
 
 == decrypt/sha-aes192/engine-id-empty
 decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
-unmarshal-trap: error (ErrUnknownEngineID)
+receive: error (ErrUnknownEngineID)
 
 == decrypt/sha-aes192/receiver-des
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrDecryption)
+receive: error (ErrDecryption)
 
 == decrypt/sha-aes192/receiver-priv-pass-empty
 decode: error
-unmarshal-trap: error
+receive: NewReceiver error
 
 == decrypt/sha-aes256/ok
 decode: ok
@@ -194,55 +194,55 @@ varbinds: 2
 vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: identical
-unmarshal-trap: ok
+receive: ok
 
 == decrypt/sha-aes256/salt-empty
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes256/salt-7
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes256/salt-9
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes256/ciphertext-empty
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes256/ciphertext-minus-1
 decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes256/ciphertext-minus-8
 decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes256/flags-no-auth-no-priv
 decode: error (ErrASNParse)
-unmarshal-trap: error (ErrASNParse)
+receive: error (ErrASNParse)
 
 == decrypt/sha-aes256/flags-auth-no-priv
 decode: error (ErrASNParse)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes256/flags-privacy-only
 decode: error (ErrInvalidMsgs)
-unmarshal-trap: error (ErrInvalidMsgs)
+receive: error (ErrInvalidMsgs)
 
 == decrypt/sha-aes256/engine-id-empty
 decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
-unmarshal-trap: error (ErrUnknownEngineID)
+receive: error (ErrUnknownEngineID)
 
 == decrypt/sha-aes256/receiver-des
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrDecryption)
+receive: error (ErrDecryption)
 
 == decrypt/sha-aes256/receiver-priv-pass-empty
 decode: error
-unmarshal-trap: error
+receive: NewReceiver error
 
 == decrypt/sha-aes192c/ok
 decode: ok
@@ -255,55 +255,55 @@ varbinds: 2
 vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: identical
-unmarshal-trap: ok
+receive: ok
 
 == decrypt/sha-aes192c/salt-empty
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes192c/salt-7
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes192c/salt-9
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes192c/ciphertext-empty
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes192c/ciphertext-minus-1
 decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes192c/ciphertext-minus-8
 decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes192c/flags-no-auth-no-priv
 decode: error (ErrASNParse)
-unmarshal-trap: error (ErrASNParse)
+receive: error (ErrASNParse)
 
 == decrypt/sha-aes192c/flags-auth-no-priv
 decode: error (ErrASNParse)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes192c/flags-privacy-only
 decode: error (ErrInvalidMsgs)
-unmarshal-trap: error (ErrInvalidMsgs)
+receive: error (ErrInvalidMsgs)
 
 == decrypt/sha-aes192c/engine-id-empty
 decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
-unmarshal-trap: error (ErrUnknownEngineID)
+receive: error (ErrUnknownEngineID)
 
 == decrypt/sha-aes192c/receiver-des
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrDecryption)
+receive: error (ErrDecryption)
 
 == decrypt/sha-aes192c/receiver-priv-pass-empty
 decode: error
-unmarshal-trap: error
+receive: NewReceiver error
 
 == decrypt/sha-aes256c/ok
 decode: ok
@@ -316,52 +316,52 @@ varbinds: 2
 vb[0]: .1.3.6.1.2.1.1.3.0 0x43 (TimeTicks) uint32 12345
 vb[1]: .1.3.6.1.6.3.1.1.4.1.0 0x06 (ObjectIdentifier) string ".1.3.6.1.4.1.8072.2.3.0.1"
 reencode: identical
-unmarshal-trap: ok
+receive: ok
 
 == decrypt/sha-aes256c/salt-empty
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes256c/salt-7
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes256c/salt-9
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes256c/ciphertext-empty
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes256c/ciphertext-minus-1
 decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes256c/ciphertext-minus-8
 decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes256c/flags-no-auth-no-priv
 decode: error (ErrASNParse)
-unmarshal-trap: error (ErrASNParse)
+receive: error (ErrASNParse)
 
 == decrypt/sha-aes256c/flags-auth-no-priv
 decode: error (ErrASNParse)
-unmarshal-trap: error (ErrWrongDigest)
+receive: error (ErrWrongDigest)
 
 == decrypt/sha-aes256c/flags-privacy-only
 decode: error (ErrInvalidMsgs)
-unmarshal-trap: error (ErrInvalidMsgs)
+receive: error (ErrInvalidMsgs)
 
 == decrypt/sha-aes256c/engine-id-empty
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrUnknownEngineID)
+receive: error (ErrUnknownEngineID)
 
 == decrypt/sha-aes256c/receiver-des
 decode: error (ErrDecryption)
-unmarshal-trap: error (ErrDecryption)
+receive: error (ErrDecryption)
 
 == decrypt/sha-aes256c/receiver-priv-pass-empty
 decode: error
-unmarshal-trap: error
+receive: NewReceiver error

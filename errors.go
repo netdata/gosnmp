@@ -82,7 +82,7 @@ var (
 // key that does not derive or a protocol FIPS 140-only mode refuses. Errors of
 // the caller's own code (the value a hook panics with, the errors of a Conn or
 // Context the caller gave) pass through unchanged. Only a request's error is
-// marked, not one of decoding a message (DecodeMessage, UnmarshalTrap).
+// marked, not one of decoding a message (DecodeMessage, Receive).
 //
 // It is a variable only so that errors.Is can match it; do not assign to it.
 var ErrAnswered = errors.New("the agent answered")
