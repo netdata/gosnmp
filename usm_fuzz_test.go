@@ -6,6 +6,7 @@ package gosnmp
 
 import (
 	"bytes"
+	"errors"
 	"runtime/debug"
 	"testing"
 	"time"
@@ -18,6 +19,7 @@ const (
 	fuzzDecode     = "DecodeMessage"
 	fuzzRegistered = "Receive, the user registered for the seeds' engine ID"
 	fuzzLearning   = "Receive, the user learned for the message's engine ID"
+	fuzzLocal      = "Receive, the user registered for its own engine, the seeds' engine ID"
 )
 
 // usmFuzzMaxLearned is the MaxLearned of the FuzzDecodeV3 learning receiver,
@@ -103,11 +105,18 @@ func FuzzDecodeV3(f *testing.F) {
 				return (&Client{User: p.user()}).DecodeMessage(data)
 			}},
 			{fuzzRegistered, func(data []byte) (*Message, error) {
-				return usmFuzzReceive(receiverAt(t, []byte(usmCharEngineID), p.user()), data)
+				return usmFuzzReceive(t, receiverAt(t, []byte(usmCharEngineID), p.user()), data)
 			}},
 			{fuzzLearning, func(data []byte) (*Message, error) {
 				r, _ := newTestReceiver(t, ReceiverConfig{LearnUsers: []User{p.user()}, MaxLearned: usmFuzzMaxLearned})
-				return usmFuzzReceive(r, data)
+				return usmFuzzReceive(t, r, data)
+			}},
+			{fuzzLocal, func(data []byte) (*Message, error) {
+				r, _ := newTestReceiver(t, ReceiverConfig{
+					EngineID: []byte(usmCharEngineID), EngineBoots: 3,
+					Users: []EngineUser{{EngineID: []byte(usmCharEngineID), User: p.user()}},
+				})
+				return usmFuzzReceive(t, r, data)
 			}},
 		}
 
@@ -133,13 +142,44 @@ func FuzzDecodeV3(f *testing.F) {
 }
 
 // usmFuzzReceive returns what r.Receive returns for data: the notification's
-// message, or nil when there is no notification, and the error.
-func usmFuzzReceive(r *Receiver, data []byte) (*Message, error) {
-	n, err := r.Receive(data)
+// message, or nil when there is no notification, and the error; it checks the
+// response (checkAnswer).
+func usmFuzzReceive(t *testing.T, r *Receiver, data []byte) (*Message, error) {
+	n, response, err := r.Receive(data)
+	checkAnswer(t, n, response, err)
 	if n == nil {
 		return nil, err
 	}
 	return &n.Message, err
+}
+
+// checkAnswer checks what Receive returned against its contract: a response
+// to exactly an accepted SNMPv2c or SNMPv3 inform, a Response, or else only
+// with ErrUnknownEngineID or ErrNotInTimeWindow, a Report; each one decodes.
+func checkAnswer(t *testing.T, n *Notification, response []byte, err error) {
+	t.Helper()
+	inform := n != nil && n.Message.PDUType == InformRequest && n.Message.Version != Version1
+	if inform != (n != nil && response != nil) {
+		t.Fatalf("Receive answered %d octets to %+v", len(response), n)
+	}
+	if response == nil {
+		return
+	}
+	want := Response
+	if n == nil {
+		want = Report
+		if !errors.Is(err, ErrUnknownEngineID) && !errors.Is(err, ErrNotInTimeWindow) {
+			t.Fatalf("Receive reported %v", err)
+		}
+	}
+	e, eerr := ReadEnvelope(response)
+	if eerr == nil && e.SecurityLevel != NoAuthNoPriv {
+		return // an authenticated answer decodes with its user's keys only
+	}
+	got, derr := new(Client).DecodeMessage(response)
+	if derr != nil || got.PDUType != want {
+		t.Fatalf("Receive answered %x: %v, %v, %v", response, got, eerr, derr)
+	}
 }
 
 // recoverPanic runs fn and returns the value it panicked with and the stack

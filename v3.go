@@ -79,8 +79,8 @@ func (packet *Message) sign(msg []byte, auth int, keys *usmKeys) ([]byte, error)
 var errNotAuthentic = errors.New("incoming packet is not authentic, discarding")
 
 // The rejections of the security processing (RFC 3414 section 3.2), in the
-// order of its steps; the minimum level a trap receiver requires comes after
-// them.
+// order of its steps; the minimum level a receiver requires comes after
+// them, and RFC 3412 section 7.2 step 13 a, which counts nothing, last.
 var (
 	errNoEngineID    = inCategory(ErrUnknownEngineID, errors.New("incoming packet names no authoritative engine ID, discarding"))
 	errUnknownEngine = inCategory(ErrUnknownEngineID, errors.New("incoming packet names an engine ID the receiver has no user for, discarding"))
@@ -90,6 +90,9 @@ var (
 	errWrongDigest   = inCategory(ErrWrongDigest, errNotAuthentic)
 	errNotInTime     = inCategory(ErrNotInTimeWindow, errors.New("incoming packet is not in the time window, discarding"))
 	errBelowMinimum  = inCategory(ErrUnknownSecurityLevel, errors.New("incoming packet has a lower security level than its user requires, discarding"))
+	// errNotLocalEngine is the error of a request or an inform naming another
+	// engine ID than the receiver's: its answer would come from that engine.
+	errNotLocalEngine = inCategory(ErrUnknownEngineID, errors.New("incoming packet asks another engine ID than the receiver's for an answer, discarding"))
 )
 
 // errScopedPDUType is the error of a scoped PDU whose type does not match the

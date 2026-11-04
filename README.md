@@ -31,7 +31,7 @@ GoSNMP has the following SNMP functions:
 * **Get** - one or more OIDs, up to `MaxOids` (60 by default).
 * **WalkAll** - retrieve a subtree of values using GETNEXT.
 * **BulkWalkAll** - retrieve a subtree of values using GETBULK (SNMPv2c and SNMPv3 only).
-* **Receiver** - decodes received traps and informs with its SNMPv3 users, by engine ID; the library does not listen for them.
+* **Receiver** - decodes received traps and informs with its SNMPv3 users, by engine ID, and returns the answers the RFCs give: the Response to an inform, as its authoritative engine, and the Reports a sender discovers its engine ID and time by; the library does not listen for notifications or send answers.
 * **EncodeMessage** and **DecodeMessage** - encode and decode messages for other transports and for tests.
 
 The library writes no log or other output and never exits the process: every function reports through its results and

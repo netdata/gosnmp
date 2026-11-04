@@ -34,8 +34,9 @@ func codecFuzzSeeds(tb testing.TB) [][]byte {
 // codecFuzzReceiver returns, for an SNMPv3 datagram whose header reads and
 // names an engine ID and a valid user name, a receiver of a user of that name
 // without protocols registered for the engine ID, which takes the message
-// through the security processing (a noAuthNoPriv one to its PDU); otherwise
-// noUsers.
+// through the security processing (a noAuthNoPriv one to its PDU), and for a
+// datagram of an even length whose engine ID is a valid local one, the
+// receiver's own engine (its answers); otherwise noUsers.
 func codecFuzzReceiver(t *testing.T, noUsers *Receiver, datagram []byte) *Receiver {
 	e, err := ReadEnvelope(datagram)
 	if err != nil || e.Version != Version3 || len(e.SecurityParameters.AuthoritativeEngineID) == 0 {
@@ -45,7 +46,13 @@ func codecFuzzReceiver(t *testing.T, noUsers *Receiver, datagram []byte) *Receiv
 	if user.checkName() != nil {
 		return noUsers
 	}
-	return receiverAt(t, e.SecurityParameters.AuthoritativeEngineID, user)
+	engineID := e.SecurityParameters.AuthoritativeEngineID
+	config := ReceiverConfig{Users: []EngineUser{{EngineID: engineID, User: user}}}
+	if len(datagram)%2 == 0 && checkLocalEngine(engineID, 1) == nil {
+		config.EngineID, config.EngineBoots = engineID, 1
+	}
+	r, _ := newTestReceiver(t, config)
+	return r
 }
 
 func FuzzUnmarshal(f *testing.F) {
@@ -61,7 +68,7 @@ func FuzzUnmarshal(f *testing.F) {
 		msg, err := vhandle.DecodeMessage(in)
 		checkCategory(t, "DecodeMessage", err)
 		checkNoMessage(t, "DecodeMessage", msg, err)
-		msg, err = usmFuzzReceive(codecFuzzReceiver(t, noUsers, data), bytes.Clone(data))
+		msg, err = usmFuzzReceive(t, codecFuzzReceiver(t, noUsers, data), bytes.Clone(data))
 		checkCategory(t, "Receive", err)
 		checkNoMessage(t, "Receive", msg, err)
 

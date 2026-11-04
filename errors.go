@@ -46,7 +46,7 @@ var (
 	// know (step 4).
 	ErrUnknownUsername = errors.New("unknown username")
 	// ErrUnknownSecurityLevel is an SNMPv3 message at a level its user does
-	// not support (step 5), or below the level a trap receiver requires.
+	// not support (step 5), or below the level a receiver requires.
 	ErrUnknownSecurityLevel = errors.New("unknown security level")
 	// ErrWrongDigest is an SNMPv3 message whose digest does not check (step
 	// 6).

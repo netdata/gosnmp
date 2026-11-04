@@ -71,7 +71,7 @@ func TestTrapOtherUser(t *testing.T) {
 		"wrong digest": withWrongDigest(t, packetSHA224Authenticated(t)),
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := receiverAt(t, authorativeEngineID(t), verifier).Receive(msg)
+			_, _, err := receiverAt(t, authorativeEngineID(t), verifier).Receive(msg)
 			require.ErrorIs(t, err, ErrUnknownUsername)
 		})
 	}
@@ -237,7 +237,7 @@ func TestUSMUnsupportedProtocols(t *testing.T) {
 				entry := r.users[usmCharEngineID]["codec-user"][0]
 				entry.user.AuthProtocol, entry.user.PrivProtocol = tc.auth, tc.priv
 				var err error
-				require.NotPanics(t, func() { _, err = r.Receive(data) })
+				require.NotPanics(t, func() { _, _, err = r.Receive(data) })
 				assert.EqualError(t, err, "no credentials successfully unmarshaled trap: "+tc.wantErr)
 			})
 		})
@@ -448,7 +448,7 @@ func TestUSMTrapMistypedFields(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			r := receiverAt(t, []byte(usmCharEngineID), User{Name: "secret-user"})
-			_, err := r.Receive(bytes.Clone(tc.in))
+			_, _, err := r.Receive(bytes.Clone(tc.in))
 			if tc.want == nil {
 				require.NoError(t, err)
 				return
@@ -517,7 +517,7 @@ func TestUSMReceiverMinimumLevel(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			r := receiverAt(t, []byte(usmCharEngineID), tc.receiver)
 			var err error
-			require.NotPanics(t, func() { _, err = r.Receive(bytes.Clone(data)) })
+			require.NotPanics(t, func() { _, _, err = r.Receive(bytes.Clone(data)) })
 			assert.EqualError(t, err, tc.wantErr)
 		})
 	}
@@ -563,7 +563,7 @@ func TestUSMFIPS140OnlyDigest(t *testing.T) {
 
 			// The receiver holds the keys for the trap's engine ID, so
 			// decoding derives none.
-			require.NotPanics(t, func() { _, err = r.Receive(bytes.Clone(data)) })
+			require.NotPanics(t, func() { _, _, err = r.Receive(bytes.Clone(data)) })
 			assert.ErrorContains(t, err, "not allowed in FIPS 140-only mode")
 		})
 	}
@@ -627,7 +627,7 @@ func TestUSMFIPS140OnlyDecrypt(t *testing.T) {
 			}
 			paths := map[string]func() error{
 				"receiver": func() error {
-					_, err := receiverAt(t, header.AuthoritativeEngineID, user).Receive(bytes.Clone(trap))
+					_, _, err := receiverAt(t, header.AuthoritativeEngineID, user).Receive(bytes.Clone(trap))
 					return err
 				},
 				"raw": func() error { _, err := client().DecodeMessage(bytes.Clone(trap)); return err },

@@ -129,12 +129,31 @@ func rtLearning(t *testing.T, creds ...rtCredentials) *Receiver {
 	return r
 }
 
+// rtAuthoritative returns a receiver whose own engine is engineID, at boots
+// 3, with the credentials registered for it: the authoritative engine of the
+// round trip's informs, whose engine boots and time are its own.
+func rtAuthoritative(engineID string) rtReceiver {
+	return func(t *testing.T, creds ...rtCredentials) *Receiver {
+		t.Helper()
+		config := ReceiverConfig{EngineID: []byte(engineID), EngineBoots: 3}
+		for _, c := range creds {
+			config.Users = append(config.Users, EngineUser{EngineID: []byte(engineID), User: c.asUser()})
+		}
+		r, _ := newTestReceiver(t, config)
+		return r
+	}
+}
+
 var rtReceivers = []struct {
 	name    string
 	receive rtReceiver
-	informs bool // the receiver accepts informs; a learning one learns none
+	// informs reports that the receiver accepts informs, as their
+	// authoritative engine; another fails them with ErrUnknownEngineID, and a
+	// learning one learns none.
+	informs bool
 }{
-	{"registered", rtRegistered(rtEngineID), true},
+	{"registered", rtRegistered(rtEngineID), false},
+	{"authoritative", rtAuthoritative(rtEngineID), true},
 	{"learning", rtLearning, false},
 }
 
@@ -236,8 +255,11 @@ func TestTrapRoundTripV1V2c(t *testing.T) {
 }
 
 // TestTrapRoundTripV3 decodes a trap and an inform for every authentication
-// and privacy protocol combination with each kind of receiver: a learning
-// receiver rejects the inform, whose engine it does not learn.
+// and privacy protocol combination with each kind of receiver: only the
+// inform's authoritative engine accepts it, and answers it (the Response's
+// fields are TestInformResponse's); a registered receiver rejects it, its
+// engine being another's, and a learning one before learning it. A trap gets
+// no answer.
 func TestTrapRoundTripV3(t *testing.T) {
 	for _, auth := range rtAuthProtocols {
 		for _, priv := range rtPrivProtocols {
@@ -262,14 +284,16 @@ func TestTrapRoundTripV3(t *testing.T) {
 					t.Run(fmt.Sprintf("%v-%v/%v/%s", auth, priv, pduType, r.name), func(t *testing.T) {
 						data := rtEncodeV3(t, creds, pduType)
 
-						got, err := receiveMessage(r.receive(t, creds), data)
+						got, response, err := r.receive(t, creds).Receive(data)
 						if pduType == InformRequest && !r.informs {
 							require.ErrorIs(t, err, ErrUnknownEngineID)
 							assert.Nil(t, got)
+							assert.Nil(t, response)
 							return
 						}
 						require.NoError(t, err)
-						assert.Equal(t, want, newTrapView(got))
+						assert.Equal(t, want, newTrapView(&got.Message))
+						assert.Equal(t, pduType == InformRequest, response != nil, "an answer exactly to an inform")
 					})
 				}
 			}
@@ -403,7 +427,7 @@ func TestReceiveFailureNoMessage(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			got, err := tc.r.Receive(tc.in)
+			got, _, err := tc.r.Receive(tc.in)
 			require.ErrorIs(t, err, tc.wantErr)
 			assert.Nil(t, got)
 		})

@@ -458,7 +458,7 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			r := receiverAt(t, []byte(usmCharEngineID), usmUser(SHA, "codec-auth-pass", tc.priv, "codec-priv-pass"))
 			var err error
-			v, _ := recoverPanic(func() { _, err = r.Receive(tc.in()) })
+			v, _ := recoverPanic(func() { _, _, err = r.Receive(tc.in()) })
 			require.Nil(t, v, "Receive panicked")
 			require.ErrorIs(t, err, tc.is)
 		})
@@ -481,7 +481,7 @@ func TestUSMAuthFieldEmpty(t *testing.T) {
 			in := buf[:len(msg):len(buf)]
 			_, err := decoder().DecodeMessage(in)
 			require.NoError(t, err, "DecodeMessage")
-			_, err = receiverAt(t, []byte(usmCharEngineID), decoder().User).Receive(in)
+			_, _, err = receiverAt(t, []byte(usmCharEngineID), decoder().User).Receive(in)
 			assert.ErrorIs(t, err, errNotAuthentic, "Receive")
 			assert.Equal(t, append(bytes.Clone(msg), bytes.Repeat([]byte{0xaa}, spare)...), buf, "the input and the octets after it")
 		})
