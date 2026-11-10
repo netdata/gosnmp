@@ -91,6 +91,16 @@
 1.5s  values: [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 1.5s  result: error "context deadline exceeded" context.deadlineExceededError (equals context.DeadlineExceeded; is net.Error timeout)
 
+== walk/context/nil
+0s    client: 2c root=".1.3.6.1.2.1.1" bulk=false max-repetitions=0
+0s    values: []
+0s    result: error "nil context" *errors.errorString
+
+== walk/context/nil/bulk
+0s    client: 2c root=".1.3.6.1.2.1.1" bulk=true max-repetitions=0
+0s    values: []
+0s    result: error "nil context" *errors.errorString
+
 == walk/default-root
 0s    client: 2c root="" bulk=false max-repetitions=0
 0s    deadline +1s

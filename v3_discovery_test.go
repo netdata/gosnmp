@@ -18,6 +18,7 @@ package gosnmp
 // exchange observed in packet captures from an affected device.
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"testing"
@@ -232,7 +233,7 @@ func setupDiscoveryTest(t *testing.T) *Client {
 	t.Cleanup(func() { agent.closeAndCheck(t) })
 
 	ts := newV3NoAuthClientForDiscoveryTest(agent.port())
-	require.NoError(t, ts.Connect())
+	require.NoError(t, ts.Connect(context.Background()))
 	t.Cleanup(func() { ts.Conn.Close() })
 
 	return ts
@@ -252,7 +253,7 @@ func TestV3DiscoveryUnknownUserNames(t *testing.T) {
 	// negotiateInitialSecurityParameters internally.
 	pkt := ts.NewMessage(GetRequest, nil, 0, 0)
 	require.NoError(t, ts.startEngine())
-	answer, err := ts.negotiateInitialSecurityParameters(new(ts.prepareRequest()), pkt)
+	answer, err := ts.negotiateInitialSecurityParameters(new(ts.prepareRequest(context.Background())), pkt)
 	require.NoError(t, err, "negotiateInitialSecurityParameters must succeed even when the device "+
 		"responds with usmStatsUnknownUserNames during engine-ID discovery")
 	require.Nil(t, answer, "a discovery that succeeds returns no answer")
@@ -281,7 +282,7 @@ func TestV3DiscoveryUnknownUserNames(t *testing.T) {
 func TestV3GetWithDiscoveryUnknownUserNames(t *testing.T) {
 	ts := setupDiscoveryTest(t)
 
-	result, err := ts.Get([]string{".1.3.6.1.2.1.1.1.0"})
+	result, err := ts.Get(context.Background(), []string{".1.3.6.1.2.1.1.1.0"})
 	require.NoError(t, err, "Get() must succeed when the device responds with "+
 		"usmStatsUnknownUserNames during engine-ID discovery")
 	require.NotNil(t, result)
@@ -302,12 +303,12 @@ func TestV3DiscoveryUnknownUserNamesNoEngineID(t *testing.T) {
 	t.Cleanup(func() { agent.closeAndCheck(t) })
 
 	ts := newV3NoAuthClientForDiscoveryTest(agent.port())
-	require.NoError(t, ts.Connect())
+	require.NoError(t, ts.Connect(context.Background()))
 	t.Cleanup(func() { ts.Conn.Close() })
 
 	pkt := ts.NewMessage(GetRequest, nil, 0, 0)
 	require.NoError(t, ts.startEngine())
-	answer, err := ts.negotiateInitialSecurityParameters(new(ts.prepareRequest()), pkt)
+	answer, err := ts.negotiateInitialSecurityParameters(new(ts.prepareRequest(context.Background())), pkt)
 	require.ErrorIs(t, err, ErrUnknownUsername,
 		"ErrUnknownUsername must not be suppressed when the Report carries an empty engine ID")
 	require.NotNil(t, answer, "the discovery returns the Report that ended it")
@@ -328,10 +329,10 @@ func TestV3GetRealUnknownUserNameStillFails(t *testing.T) {
 	t.Cleanup(func() { agent.closeAndCheck(t) })
 
 	ts := newV3NoAuthClientForDiscoveryTest(agent.port())
-	require.NoError(t, ts.Connect())
+	require.NoError(t, ts.Connect(context.Background()))
 	t.Cleanup(func() { ts.Conn.Close() })
 
-	_, err := ts.Get([]string{".1.3.6.1.2.1.1.1.0"})
+	_, err := ts.Get(context.Background(), []string{".1.3.6.1.2.1.1.1.0"})
 	require.ErrorIs(t, err, ErrUnknownUsername,
 		"ErrUnknownUsername from a post-discovery request must not be suppressed")
 	require.ErrorIs(t, err, ErrAnswered, "the agent's Report ended the request")
@@ -349,12 +350,12 @@ func TestV3DiscoveryUnknownUserNamesOtherUser(t *testing.T) {
 	t.Cleanup(func() { agent.closeAndCheck(t) })
 
 	ts := newV3NoAuthClientForDiscoveryTest(agent.port())
-	require.NoError(t, ts.Connect())
+	require.NoError(t, ts.Connect(context.Background()))
 	t.Cleanup(func() { ts.Conn.Close() })
 
 	pkt := ts.NewMessage(GetRequest, nil, 0, 0)
 	require.NoError(t, ts.startEngine())
-	answer, err := ts.negotiateInitialSecurityParameters(new(ts.prepareRequest()), pkt)
+	answer, err := ts.negotiateInitialSecurityParameters(new(ts.prepareRequest(context.Background())), pkt)
 	require.ErrorIs(t, err, errUnknownUser)
 	require.Nil(t, answer, "no answer ended the discovery: it timed out")
 	require.Empty(t, ts.engine.engineID)

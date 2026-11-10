@@ -15,6 +15,7 @@ $ GOSNMP_TARGET=10.12.0.1 GOSNMP_PORT=161 go run main.go
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -43,7 +44,8 @@ func main() {
 		Version:   g.Version2c,
 		Timeout:   time.Duration(2) * time.Second,
 	}
-	err := params.Connect()
+	ctx := context.Background()
+	err := params.Connect(ctx)
 	if err != nil {
 		log.Fatalf("Connect() err: %v", err)
 	}
@@ -59,7 +61,7 @@ func main() {
 	}
 
 	oids := []string{"1.3.6.1.2.1.1.4.0", "1.3.6.1.2.1.1.7.0"}
-	result, err2 := params.Get(oids) // Get accepts up to MaxOids OIDs (60 by default)
+	result, err2 := params.Get(ctx, oids) // Get accepts up to MaxOids OIDs (60 by default)
 	if err2 != nil {
 		log.Fatalf("Get() err: %v", err2)
 	}

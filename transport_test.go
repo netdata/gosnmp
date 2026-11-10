@@ -6,6 +6,7 @@ package gosnmp
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -28,6 +29,7 @@ type connectResult struct {
 	err       string // "" for no error
 	connected bool   // Conn is set
 	local     string // the IP of Conn's local address
+	maxOids   int    // MaxOids after Connect: the default once it readied the client
 }
 
 // TestConnect pins how Connect validates the client and dials, on a loopback
@@ -39,26 +41,35 @@ func TestConnect(t *testing.T) {
 
 	tests := map[string]struct {
 		setup func(x *Client)
+		ctx   context.Context // background unless set
+		nil   bool            // a nil context
 		want  connectResult
 	}{
 		"udp": {
-			want: connectResult{connected: true, local: "127.0.0.1"},
+			want: connectResult{connected: true, local: "127.0.0.1", maxOids: MaxOids},
 		},
 		"invalid parameters": {
 			setup: func(x *Client) { x.MaxOids = -1 },
-			want:  connectResult{err: "field MaxOids cannot be less than 0"},
+			want:  connectResult{err: "field MaxOids cannot be less than 0", maxOids: -1},
 		},
 		"negative timeout": {
 			setup: func(x *Client) { x.Timeout = -time.Second },
 			want: connectResult{
-				err: "error establishing connection to host: dial udp 127.0.0.1:" + strconv.Itoa(int(udpPort)) + ": i/o timeout",
+				err:     "error establishing connection to host: dial udp 127.0.0.1:" + strconv.Itoa(int(udpPort)) + ": i/o timeout",
+				maxOids: MaxOids,
 			},
 		},
 		"canceled context": {
-			setup: func(x *Client) { x.Context = canceled },
+			ctx: canceled,
 			want: connectResult{
-				err: "error establishing connection to host: dial udp 127.0.0.1:" + strconv.Itoa(int(udpPort)) + ": operation was canceled",
+				err:     "error establishing connection to host: dial udp 127.0.0.1:" + strconv.Itoa(int(udpPort)) + ": operation was canceled",
+				maxOids: MaxOids,
 			},
+		},
+		// A nil context fails Connect before it readies the client or dials.
+		"nil context": {
+			nil:  true,
+			want: connectResult{err: "nil context"},
 		},
 	}
 	for name, tc := range tests {
@@ -67,10 +78,15 @@ func TestConnect(t *testing.T) {
 			if tc.setup != nil {
 				tc.setup(x)
 			}
+			ctx := cmp.Or(tc.ctx, context.Background())
+			if tc.nil {
+				ctx = nil
+			}
 			var got connectResult
-			if err := x.Connect(); err != nil {
+			if err := x.Connect(ctx); err != nil {
 				got.err = err.Error()
 			}
+			got.maxOids = x.MaxOids
 			if x.Conn != nil {
 				got.connected = true
 				host, _, err := net.SplitHostPort(x.Conn.LocalAddr().String())
@@ -114,20 +130,20 @@ func TestUDPAgentAddress(t *testing.T) {
 		want string // the agent that answers; "" when the request fails
 	}{
 		"the socket Connect opened": {want: "A", conn: func(t *testing.T, x *Client, _ uint16) {
-			require.NoError(t, x.Connect())
+			require.NoError(t, x.Connect(context.Background()))
 		}},
 		"a wrapper of the socket Connect opened": {want: "A", conn: func(t *testing.T, x *Client, _ uint16) {
-			require.NoError(t, x.Connect())
+			require.NoError(t, x.Connect(context.Background()))
 			x.Conn = packetConnWrapper{Conn: x.Conn, pc: x.Conn.(net.PacketConn)}
 		}},
 		"a connected socket the caller set after Connect": {want: "B", conn: func(t *testing.T, x *Client, portB uint16) {
-			require.NoError(t, x.Connect())
+			require.NoError(t, x.Connect(context.Background()))
 			replaced := x.Conn
 			t.Cleanup(func() { _ = replaced.Close() })
 			x.Conn = connectedTo(t, portB)
 		}},
 		"a connected socket the caller set after Close": {want: "B", conn: func(t *testing.T, x *Client, portB uint16) {
-			require.NoError(t, x.Connect())
+			require.NoError(t, x.Connect(context.Background()))
 			require.NoError(t, x.Close())
 			x.Conn = connectedTo(t, portB)
 		}},
@@ -155,7 +171,7 @@ func TestUDPAgentAddress(t *testing.T) {
 			defer x.Close()
 			x.Port = portB
 
-			res, err := x.Get([]string{engineOID})
+			res, err := x.Get(context.Background(), []string{engineOID})
 			if tc.want == "" {
 				require.Error(t, err)
 				return
@@ -185,11 +201,11 @@ func TestRequestResolvesNoName(t *testing.T) {
 		Target: "127.0.0.1", Port: port, Version: Version2c, Community: "public",
 		Timeout: 500 * time.Millisecond,
 	}
-	require.NoError(t, x.Connect())
+	require.NoError(t, x.Connect(context.Background()))
 	defer x.Close()
 	x.Target = "agent.invalid"
 
-	_, err := x.Get([]string{engineOID})
+	_, err := x.Get(context.Background(), []string{engineOID})
 	require.NoError(t, err)
 	assert.Equal(t, int32(0), lookups.Load(), "lookups")
 }
@@ -205,7 +221,7 @@ func TestRetryUsesConnReplacedByHook(t *testing.T) {
 		Target: "127.0.0.1", Port: portA, Version: Version2c, Community: "public",
 		Timeout: 200 * time.Millisecond, Retries: 1,
 	}
-	require.NoError(t, x.Connect())
+	require.NoError(t, x.Connect(context.Background()))
 	first := x.Conn
 	defer first.Close()
 	defer x.Close()
@@ -216,7 +232,7 @@ func TestRetryUsesConnReplacedByHook(t *testing.T) {
 		x.Conn = conn
 	}
 
-	res, err := x.Get([]string{engineOID})
+	res, err := x.Get(context.Background(), []string{engineOID})
 	require.NoError(t, err)
 	assert.Equal(t, []VarBind{sysDescr}, res.VarBinds)
 }
@@ -248,11 +264,11 @@ func TestConnectIPv6Target(t *testing.T) {
 		Target: "::1", Port: uint16(agent.LocalAddr().(*net.UDPAddr).Port), //nolint:gosec // a UDP port
 		Version: Version2c, Community: "public", Timeout: 500 * time.Millisecond,
 	}
-	require.NoError(t, x.Connect())
+	require.NoError(t, x.Connect(context.Background()))
 	defer x.Close()
 	assert.True(t, x.Conn.RemoteAddr().(*net.UDPAddr).IP.Equal(net.IPv6loopback), "remote %v", x.Conn.RemoteAddr())
 
-	res, err := x.Get([]string{engineOID})
+	res, err := x.Get(context.Background(), []string{engineOID})
 	require.NoError(t, err)
 	assert.Equal(t, []VarBind{sysDescr}, res.VarBinds)
 }
@@ -268,11 +284,11 @@ func TestConnectedSocketOtherSource(t *testing.T) {
 		Target: "127.0.0.1", Port: uint16(srvr.LocalAddr().(*net.UDPAddr).Port), //nolint:gosec // a UDP port
 		Version: Version2c, Community: "public", Timeout: 100 * time.Millisecond, Retries: 2,
 	}
-	require.NoError(t, x.Connect())
+	require.NoError(t, x.Connect(context.Background()))
 	defer x.Close()
 	go serveResponses(t, srvr, x, sendFromNewSocket)
 
-	_, err = x.Get([]string{".1.2"})
+	_, err = x.Get(context.Background(), []string{".1.2"})
 	assert.ErrorIs(t, err, os.ErrDeadlineExceeded)
 }
 
@@ -372,15 +388,15 @@ func (dns *stubDNS) awaitHeld(t *testing.T) {
 }
 
 // TestConnectLookupWithinBounds checks that Connect looks up the agent's name
-// within its Context and Timeout: a lookup that does not end fails Connect once
-// the Context is canceled or the Timeout passes, with an error that matches it.
+// within its context and Timeout: a lookup that does not end fails Connect once
+// the context is canceled or the Timeout passes, with an error that matches it.
 func TestConnectLookupWithinBounds(t *testing.T) {
 	bounds := map[string]struct {
 		timeout time.Duration
 		cancel  bool
 		want    error
 	}{
-		"canceled Context": {timeout: time.Minute, cancel: true, want: context.Canceled},
+		"canceled context": {timeout: time.Minute, cancel: true, want: context.Canceled},
 		"Timeout":          {timeout: 50 * time.Millisecond, want: context.DeadlineExceeded},
 	}
 	for name, bound := range bounds {
@@ -391,10 +407,10 @@ func TestConnectLookupWithinBounds(t *testing.T) {
 			defer cancel()
 			x := &Client{
 				Target: "agent.codec.invalid.", Port: 161, Version: Version2c, Community: "public",
-				Timeout: bound.timeout, Context: ctx,
+				Timeout: bound.timeout,
 			}
 			result := make(chan error, 1)
-			go func() { result <- x.Connect() }()
+			go func() { result <- x.Connect(ctx) }()
 			dns.awaitHeld(t)
 			if bound.cancel {
 				cancel()
@@ -463,14 +479,14 @@ func TestConnectReplacesConnection(t *testing.T) {
 				Target: "127.0.0.1", Port: uint16(agent.LocalAddr().(*net.UDPAddr).Port), //nolint:gosec // a UDP port
 				Version: Version2c, Community: "public", Timeout: time.Second,
 			}
-			require.NoError(t, x.Connect())
+			require.NoError(t, x.Connect(context.Background()))
 			first := x.Conn
 			defer first.Close()
 			defer x.Close()
 			if tc.failDial {
 				x.Timeout = -time.Second
 			}
-			err = x.Connect()
+			err = x.Connect(context.Background())
 			assert.Equal(t, tc.want, outcome{
 				err:       err != nil,
 				connFirst: x.Conn == first,
@@ -493,17 +509,17 @@ func TestRequestWithoutConnection(t *testing.T) {
 	}{
 		"never connected": {want: errNoConn},
 		"after Close": {want: errClosed, before: func(t *testing.T, x *Client) {
-			require.NoError(t, x.Connect())
+			require.NoError(t, x.Connect(context.Background()))
 			require.NoError(t, x.Close())
 		}},
 		"SNMPv3 after Close": {v3: true, want: errClosed, before: func(t *testing.T, x *Client) {
-			require.NoError(t, x.Connect())
+			require.NoError(t, x.Connect(context.Background()))
 			require.NoError(t, x.Close())
 		}},
 		"Conn removed after Close and Connect": {want: errNoConn, before: func(t *testing.T, x *Client) {
-			require.NoError(t, x.Connect())
+			require.NoError(t, x.Connect(context.Background()))
 			require.NoError(t, x.Close())
-			require.NoError(t, x.Connect())
+			require.NoError(t, x.Connect(context.Background()))
 			require.NoError(t, x.Conn.Close())
 			x.Conn = nil
 		}},
@@ -521,7 +537,7 @@ func TestRequestWithoutConnection(t *testing.T) {
 			if tc.before != nil {
 				tc.before(t, x)
 			}
-			res, err := x.Get([]string{engineOID})
+			res, err := x.Get(context.Background(), []string{engineOID})
 			assert.Nil(t, res)
 			assert.Equal(t, tc.want, err)
 		})
@@ -540,21 +556,21 @@ func TestCloseDuringRequest(t *testing.T) {
 		return replyTo(req, nil, sysDescr)
 	})
 	x := &Client{Target: "127.0.0.1", Port: port, Community: "public", Version: Version2c, Timeout: 10 * time.Second}
-	require.NoError(t, x.Connect())
+	require.NoError(t, x.Connect(context.Background()))
 	defer x.Close()
 
 	closers := closeOnRelease(x, 2, func() { <-reads })
 	start := time.Now()
-	_, err := x.Get([]string{engineOID})
+	_, err := x.Get(context.Background(), []string{engineOID})
 	require.ErrorIs(t, err, net.ErrClosed)
 	assert.Less(t, time.Since(start), 5*time.Second, "the request ends before its timeout")
 	closers.Wait()
 
-	_, err = x.Get([]string{engineOID})
+	_, err = x.Get(context.Background(), []string{engineOID})
 	require.ErrorIs(t, err, net.ErrClosed)
 
-	require.NoError(t, x.Connect())
-	res, err := x.Get([]string{engineOID})
+	require.NoError(t, x.Connect(context.Background()))
+	res, err := x.Get(context.Background(), []string{engineOID})
 	require.NoError(t, err)
 	assert.Equal(t, []VarBind{sysDescr}, res.VarBinds)
 	assert.Len(t, reads, 1, "the agent read the request after Connect, not the one after Close")
@@ -581,7 +597,7 @@ func TestCloseDuringWalk(t *testing.T) {
 		return replyTo(req, nil, VarBind{Name: next, Value: OctetStringValue([]byte("codec"))})
 	})
 	x := &Client{Target: "127.0.0.1", Port: port, Community: "public", Version: Version2c, Timeout: 10 * time.Second}
-	require.NoError(t, x.Connect())
+	require.NoError(t, x.Connect(context.Background()))
 	defer x.Close()
 
 	closers := closeOnRelease(x, 2, func() {
@@ -592,7 +608,7 @@ func TestCloseDuringWalk(t *testing.T) {
 		}
 	})
 	start := time.Now()
-	_, err := x.BulkWalkAll(root)
+	_, err := x.BulkWalkAll(context.Background(), root)
 	require.ErrorIs(t, err, net.ErrClosed)
 	assert.Less(t, time.Since(start), 5*time.Second, "the walk ends before its request's timeout")
 	closers.Wait()
@@ -600,7 +616,7 @@ func TestCloseDuringWalk(t *testing.T) {
 
 // TestCloseDuringRequestConnReplaced checks, on loopback sockets, a Close from
 // another goroutine after a hook removed or replaced Conn during the attempt,
-// with and without a Context that can be canceled: the request ends at once
+// with and without a context that can be canceled: the request ends at once
 // with net.ErrClosed. Close closes the connection Conn holds and leaves the
 // one the hook replaced, the caller's again, open.
 func TestCloseDuringRequestConnReplaced(t *testing.T) {
@@ -612,23 +628,24 @@ func TestCloseDuringRequestConnReplaced(t *testing.T) {
 	}
 	tests := map[string]struct {
 		hookConn bool // the hook sets another connection; it removes Conn otherwise
-		context  bool // the client has a Context that can be canceled
+		context  bool // the request has a context that can be canceled
 		want     outcome
 	}{
 		"Conn removed":                  {want: outcome{errClosed: true, beforeTimeout: true, replacedOpen: true}},
-		"Conn removed, with a Context":  {context: true, want: outcome{errClosed: true, beforeTimeout: true, replacedOpen: true}},
+		"Conn removed, with a context":  {context: true, want: outcome{errClosed: true, beforeTimeout: true, replacedOpen: true}},
 		"Conn replaced":                 {hookConn: true, want: outcome{true, true, true, true}},
-		"Conn replaced, with a Context": {hookConn: true, context: true, want: outcome{true, true, true, true}},
+		"Conn replaced, with a context": {hookConn: true, context: true, want: outcome{true, true, true, true}},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			port, _ := udpAgent(t, func(int, []byte) []byte { return nil }) // the agent never answers
 			const timeout = 2 * time.Second
 			x := &Client{Target: "127.0.0.1", Port: port, Version: Version2c, Community: "public", Timeout: timeout}
+			ctx := context.Background()
 			if tc.context {
-				x.Context = t.Context()
+				ctx = t.Context()
 			}
-			require.NoError(t, x.Connect())
+			require.NoError(t, x.Connect(context.Background()))
 			replaced := x.Conn
 			defer replaced.Close()
 			defer x.Close()
@@ -653,7 +670,7 @@ func TestCloseDuringRequestConnReplaced(t *testing.T) {
 			}
 
 			start := time.Now()
-			_, err := x.Get([]string{engineOID})
+			_, err := x.Get(ctx, []string{engineOID})
 			got := outcome{
 				errClosed:     errors.Is(err, net.ErrClosed),
 				beforeTimeout: time.Since(start) < timeout/2,
@@ -692,13 +709,13 @@ func TestCloseDuringConnect(t *testing.T) {
 	port, _ := udpAgent(t, func(_ int, req []byte) []byte { return replyTo(req, nil, sysDescr) })
 	for range 20 {
 		x := &Client{Target: "127.0.0.1", Port: port, Version: Version2c, Community: "public", Timeout: 10 * time.Second}
-		require.NoError(t, x.Connect())
+		require.NoError(t, x.Connect(context.Background()))
 		closed := make(chan error, 1)
 		go func() { closed <- x.Close() }()
-		require.NoError(t, x.Connect())
+		require.NoError(t, x.Connect(context.Background()))
 		require.NoError(t, <-closed)
 
-		_, err := x.Get([]string{engineOID})
+		_, err := x.Get(context.Background(), []string{engineOID})
 		if x.Conn == nil {
 			assert.ErrorIs(t, err, net.ErrClosed)
 		} else {
@@ -709,8 +726,8 @@ func TestCloseDuringConnect(t *testing.T) {
 }
 
 // TestContextCancelDuringRequest checks, on a loopback socket, that canceling
-// the Context ends a request waiting for its answer at once, and that the
-// client's next request, with another Context, is answered.
+// a request's context ends the request waiting for its answer at once, and
+// that the client's next request, with another context, is answered.
 func TestContextCancelDuringRequest(t *testing.T) {
 	port, reads := udpAgent(t, func(n int, req []byte) []byte {
 		if n == 1 {
@@ -722,9 +739,9 @@ func TestContextCancelDuringRequest(t *testing.T) {
 	defer cancel()
 	x := &Client{
 		Target: "127.0.0.1", Port: port, Version: Version2c, Community: "public",
-		Timeout: 10 * time.Second, Context: ctx,
+		Timeout: 10 * time.Second,
 	}
-	require.NoError(t, x.Connect())
+	require.NoError(t, x.Connect(context.Background()))
 	defer x.Close()
 
 	go func() {
@@ -732,12 +749,30 @@ func TestContextCancelDuringRequest(t *testing.T) {
 		cancel()
 	}()
 	start := time.Now()
-	_, err := x.Get([]string{engineOID})
+	_, err := x.Get(ctx, []string{engineOID})
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Less(t, time.Since(start), 5*time.Second, "the request ends before its timeout")
 
-	x.Context = context.Background()
-	res, err := x.Get([]string{engineOID})
+	res, err := x.Get(context.Background(), []string{engineOID})
+	require.NoError(t, err)
+	assert.Equal(t, []VarBind{sysDescr}, res.VarBinds)
+}
+
+// TestConnectContextBoundsConnectOnly checks, on a loopback socket, that
+// Connect's context bounds Connect only: a request after it is canceled, with
+// its own context, is answered.
+func TestConnectContextBoundsConnectOnly(t *testing.T) {
+	port, _ := udpAgent(t, func(_ int, req []byte) []byte { return replyTo(req, nil, sysDescr) })
+	ctx, cancel := context.WithCancel(context.Background())
+	x := &Client{
+		Target: "127.0.0.1", Port: port, Version: Version2c, Community: "public",
+		Timeout: 10 * time.Second,
+	}
+	require.NoError(t, x.Connect(ctx))
+	defer x.Close()
+	cancel()
+
+	res, err := x.Get(context.Background(), []string{engineOID})
 	require.NoError(t, err)
 	assert.Equal(t, []VarBind{sysDescr}, res.VarBinds)
 }

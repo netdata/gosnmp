@@ -5,6 +5,7 @@
 package gosnmp
 
 import (
+	"context"
 	"os"
 	"slices"
 	"testing"
@@ -62,7 +63,7 @@ func FuzzEngineReply(f *testing.F) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, _ = x.request(packet)
+		_, _ = x.request(context.Background(), packet)
 	})
 }
 
@@ -128,7 +129,7 @@ func engineReplyExchange(tb testing.TB, r engineReplyRequest) *exchange {
 			sec = attemptSecurity{clock: x.engine.clock, keys: x.engine.keys}
 		}
 	}
-	cfg := x.prepareRequest()
+	cfg := x.prepareRequest(context.Background())
 	return &exchange{x: x, packet: packet, cfg: cfg, discovery: r.discover, sec: sec}
 }
 

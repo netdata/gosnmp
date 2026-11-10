@@ -15,14 +15,19 @@ import (
 
 // Connect readies the client and opens its connection, a UDP socket connected
 // to Target and Port (see the package documentation); a client connects before
-// its requests. It sends nothing, so it succeeds whether or not an agent
-// answers. The new connection replaces the client's, which Connect closes; when
-// Connect fails, the client keeps the connection it had.
-func (x *Client) Connect() error {
+// its requests. ctx bounds Connect only, its lookup of Target and its dial,
+// with Timeout; each request takes its own. It sends nothing, so it succeeds
+// whether or not an agent answers. The new connection replaces the client's,
+// which Connect closes; when Connect fails, the client keeps the connection it
+// had. A nil ctx fails Connect before it changes the client.
+func (x *Client) Connect(ctx context.Context) error {
+	if ctx == nil {
+		return errNilContext
+	}
 	if err := x.prepare(); err != nil {
 		return err
 	}
-	conn, err := dial(x.Context, x.Timeout, net.JoinHostPort(x.Target, strconv.Itoa(int(x.Port))))
+	conn, err := dial(ctx, x.Timeout, net.JoinHostPort(x.Target, strconv.Itoa(int(x.Port))))
 	if err != nil {
 		return fmt.Errorf("error establishing connection to host: %w", err)
 	}
@@ -65,7 +70,7 @@ func (x *Client) markClosed() (net.Conn, uint64) {
 }
 
 // runningAttempt is the attempt a request runs, which Close and the request's
-// Context interrupt: the connection it uses, nil once it ends; its number,
+// context interrupt: the connection it uses, nil once it ends; its number,
 // which keeps a late interrupt from reaching a later attempt; and interrupted,
 // which closes once an interrupt that started has set its deadline.
 type runningAttempt struct {
@@ -86,7 +91,7 @@ func (x *Client) interruptible(ctx context.Context, conn net.Conn) attemptInterr
 	x.mu.Unlock()
 	a := attemptInterrupts{x: x, seq: seq}
 	// Until this returns, the caller cannot defer end. Roll back setup if
-	// a Context method panics, including while AfterFunc registers it.
+	// a context's method panics, including while AfterFunc registers it.
 	completed := false
 	defer func() {
 		if !completed {
@@ -107,8 +112,8 @@ type attemptInterrupts struct {
 	stopContext func() bool
 }
 
-// end ends the attempt's interrupts: it stops the Context's, then ends the
-// attempt (clear), also when stopping panics: a Context with its own AfterFunc
+// end ends the attempt's interrupts: it stops the context's, then ends the
+// attempt (clear), also when stopping panics: a context with its own AfterFunc
 // method gives the stop function, the caller's code.
 func (a attemptInterrupts) end() {
 	defer a.clear()
@@ -149,11 +154,13 @@ func (x *Client) interrupt(seq uint64) {
 	_ = conn.SetDeadline(time.Unix(1, 0))
 }
 
-// errNoConn is the error of a request on a client without a connection, and
-// errClosed after Close.
+// errNoConn is the error of a request on a client without a connection,
+// errClosed after Close, and errNilContext of a request or Connect given a nil
+// context.
 var (
-	errNoConn = errors.New("&Client.Conn is missing. Provide a connection or use Connect()")
-	errClosed = fmt.Errorf("the client was closed: %w", net.ErrClosed)
+	errNoConn     = errors.New("&Client.Conn is missing. Provide a connection or use Connect()")
+	errClosed     = fmt.Errorf("the client was closed: %w", net.ErrClosed)
+	errNilContext = errors.New("nil context")
 )
 
 // isClosed reports whether Close closed the client's connection, which no

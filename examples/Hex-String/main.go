@@ -5,6 +5,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strconv"
@@ -25,14 +26,15 @@ func main() {
 		Timeout:   2 * time.Second,
 		Retries:   3,
 	}
-	err := client.Connect()
+	ctx := context.Background()
+	err := client.Connect(ctx)
 	if err != nil {
 		log.Fatalf("Connect() err: %v", err)
 	}
 	defer client.Close()
 
 	oids := []string{"1.3.6.1.2.1.1.4.0", "1.3.6.1.2.1.1.7.0"}
-	result, err2 := client.Get(oids) // Get accepts up to MaxOids OIDs (60 by default)
+	result, err2 := client.Get(ctx, oids) // Get accepts up to MaxOids OIDs (60 by default)
 	if err2 != nil {
 		log.Fatalf("Get() err: %v", err2)
 	}

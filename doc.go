@@ -15,21 +15,32 @@
 //
 // A client is a [Client] whose exported fields configure it. The package
 // declares no interface of the client for tests to mock: code that mocks it
-// declares one of its own with the methods it calls. [Client.Connect]
-// fills in defaults ([MaxOids], a background Context), checks the SNMPv3
-// configuration and opens the connection, a UDP socket connected to Target and
-// Port, which replaces the client's (a failed Connect keeps it); a client may
-// instead be given a Conn. The client owns its connection: [Client.Close]
-// closes it, and so does a Connect that replaces it; a connection the caller or
-// a hook replaces in Conn is the caller's again. Connect may be called again
-// after Close. A request reads the client's configuration when it starts and
-// does not change it: a change a hook makes applies from the next request.
-// Exceptions: the SNMPv3 engine state the client learns during a request serves
-// the rest of it (see SNMPv3), and each attempt uses the connection Conn holds
-// when it starts. A request resolves no name: Connect looks up Target, and a
-// request writes to the peer of the connection it uses. The request IDs and
-// msgIDs start at a random value on first use unless [Client.SetRequestID] and
-// [Client.SetMsgID] set them, and Connect does not reset them.
+// declares one of its own with the methods it calls. [Client.Connect] fills in
+// the default [MaxOids], checks the SNMPv3 configuration and opens the
+// connection, a UDP socket connected to Target and Port, which replaces the
+// client's (a failed Connect keeps it); a client may instead be given a Conn.
+// The client owns its connection: [Client.Close] closes it, and so does a
+// Connect that replaces it; a connection the caller or a hook replaces in Conn
+// is the caller's again. Connect may be called again after Close. A request
+// reads the client's configuration when it starts and does not change it: a
+// change a hook makes applies from the next request. Exceptions: the SNMPv3
+// engine state the client learns during a request serves the rest of it (see
+// SNMPv3), and each attempt uses the connection Conn holds when it starts. A
+// request resolves no name: Connect looks up Target, and a request writes to
+// the peer of the connection it uses. The request IDs and msgIDs start at a
+// random value on first use unless [Client.SetRequestID] and [Client.SetMsgID]
+// set them, and Connect does not reset them.
+//
+// Connect, Get and the walks take a context first, which bounds that call
+// only: Connect's lookup of Target and its dial, not the connection; each
+// attempt of a request (see Attempts and timeouts); a walk's every request,
+// the Get of a leaf root included. A request that its context ends returns no
+// message and the context's error, [context.Canceled] or
+// [context.DeadlineExceeded], which does not match [ErrAnswered], also after
+// an answered discovery or resync Report (see SNMPv3); a walk returns the
+// values before it with that error. Once Close has run, the error wraps
+// [net.ErrClosed] instead (see Concurrency). A nil context fails the call with
+// an error before it sends or dials anything.
 //
 // # Concurrency
 //
@@ -38,9 +49,9 @@
 // request at a time, or give each goroutine its own client. Close is the
 // exception: any goroutine may call it at any time, also to end a running
 // request: it interrupts the running attempt, whatever connection the attempt
-// uses, as a done Context does. Once Close has run, a request whose attempt
+// uses, as a done context does. Once Close has run, a request whose attempt
 // ends without a reply fails with an error wrapping [net.ErrClosed], whatever
-// else ended the attempt, a done Context included, and so do later requests
+// else ended the attempt, a done context included, and so do later requests
 // until Connect opens a connection or Conn is set. The hooks run on the
 // goroutine of the request. A [Receiver] and the package's key cache are safe
 // for concurrent use.
@@ -49,7 +60,7 @@
 //
 // A request makes up to Retries+1 attempts. Each sends the request with a new
 // request ID (and SNMPv3 msgID) and waits up to Timeout for an answer, or until
-// the Context's deadline when that comes first. An answer is a Response of
+// the context's deadline when that comes first. An answer is a Response of
 // the request's SNMP version with the request ID of one of its attempts, or an
 // SNMPv3 Report (see SNMPv3 below): an answer to any earlier attempt of the
 // same request answers it too. A message read that does not decode or
@@ -60,18 +71,18 @@
 // advertise: a datagram that fills them may have been cut short, and fails the
 // attempt with "response buffer too small". A timeout (a write or read error
 // matching [os.ErrDeadlineExceeded]) and another write or read error (except
-// [net.ErrClosed]) start the next attempt, unless the Context is done, which
-// ends the request with the Context's error, or the attempt timed out at the
-// Context's deadline, which ends it with [context.DeadlineExceeded] even before
-// the Context reports its deadline. A Context that is done during an attempt
+// [net.ErrClosed]) start the next attempt, unless the context is done, which
+// ends the request with the context's error, or the attempt timed out at the
+// context's deadline, which ends it with [context.DeadlineExceeded] even before
+// the context reports its deadline. A context that is done during an attempt
 // ends its write or wait at once. An answer ends the request, and so do a
 // connection closed under it ([net.ErrClosed]), a client closed by Close, an
-// encoding error, a Context that is done before an attempt starts and a failure
+// encoding error, a context that is done before an attempt starts and a failure
 // to set the deadline. When the attempts run out, the request fails with the
 // last attempt's error, except that after a timeout the error's text is
 // "request timeout (after N retries)", which matches the attempt's reason with
 // [errors.Is] and [errors.As] (the timeout, a [net.Error]). When the request
-// discarded messages, such an error, and one at the Context's deadline, also
+// discarded messages, such an error, and one at the context's deadline, also
 // matches the reason, and so the category (see Errors), of the one that came
 // closest to answering it (the last authentic reply naming the request, by its
 // SNMPv3 msgID, else the last naming it, by that msgID or as an SNMPv1 or
@@ -79,7 +90,7 @@
 // could not be read, as one of another SNMP version; messages to other
 // requests do not count), and its text ends with ": last discarded reply: "
 // and that reason's text. An answer's error status ([Message].ErrorStatus) is
-// not an error of the request. Connect uses Timeout and the Context too, for
+// not an error of the request. Connect uses Timeout and its context too, for
 // its lookup of Target and its dial together.
 //
 // # Hooks
@@ -93,14 +104,14 @@
 // it starts.
 //
 // A panic in the code a request runs on its own goroutine ends the request: in
-// a hook, or in a method of a Conn or Context the caller gave that the request
+// a hook, or in a method of a Conn or context the caller gave that the request
 // calls. The request returns no message and an error whose text starts with
 // "request panicked: " and that wraps the panic's value when it is an error, so
 // that [errors.Is] and [errors.As] reach it (a [runtime.Error] included); the
 // client stays usable. Other panics are not recovered: they reach the caller,
 // or end the process when they run on a goroutine of their own. That is a panic
-// in a Conn's SetDeadline when Close or a done Context interrupts an attempt;
-// in a Context's methods that the context package calls on goroutines of its
+// in a Conn's SetDeadline when Close or a done context interrupts an attempt;
+// in a context's methods that the context package calls on goroutines of its
 // own; and in Connect and Close.
 //
 // # SNMPv3
@@ -155,7 +166,7 @@
 // engine ID, context engine ID and context name (RFC 3412 section 7.2 step 12
 // b; one that differs leaves the request outstanding, as in net-snmp). A reply
 // that fails is discarded like one that does not decode; the error of a request
-// that then times out or ends at the Context's deadline also matches the
+// that then times out or ends at the context's deadline also matches the
 // step's, [ErrNotInTimeWindow] for the time window, and [ErrUnmatchedReply]
 // for a reply that does not answer (see Attempts and timeouts).
 //
@@ -196,7 +207,7 @@
 // also matches [ErrAnswered].
 //
 // A request that discarded an authentic answer outside the time window and
-// ends without an answer (its attempts ran out, the Context ended it, Close,
+// ends without an answer (its attempts ran out, its context ended it, Close,
 // or a failure; not a panic) drops the clock: the next request carries boots
 // and time zero, which
 // an agent that checks the time window answers with an authenticated
@@ -501,7 +512,7 @@
 // A request answered by an SNMPv3 Report fails with an error that matches the
 // Report's counter, the same errors ([ErrUnknownPDUHandlers] too), or
 // [ErrUnknownReportPDU] for a counter the library does not know. A request
-// that times out or ends at the Context's deadline after discarded replies
+// that times out or ends at the context's deadline after discarded replies
 // fails with an error that also matches the category of the one that came
 // closest to answering it (see Attempts and timeouts). So a category says why
 // a message was rejected, by the agent or by the library, not who rejected
@@ -515,7 +526,7 @@
 // engine ID ended also matches it, besides the answer's category, while the
 // library marks no error of a request that ended without an answer, a timeout
 // after discarded replies included; errors of the caller's own code (a hook's
-// panic, a Conn or Context it gave) pass through unchanged. A failed request
+// panic, a Conn or context it gave) pass through unchanged. A failed request
 // returns no message, so this is how a caller tells an agent that answered from
 // one that did not.
 //

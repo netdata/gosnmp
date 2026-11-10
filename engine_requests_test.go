@@ -49,11 +49,11 @@ type engineScenario struct {
 	v1    bool // SNMPv1 instead of SNMPv2c
 	shape engineShape
 	setup func(x *Client, c *fakeTransport)
-	// context, when set, gives the client's Context; its cancel runs when
-	// the scenario ends.
+	// context, when set, gives the request's context, background unless
+	// set; its cancel runs when the scenario ends.
 	context func() (context.Context, context.CancelFunc)
 	agent   engineAgent
-	run     func(x *Client) (*Message, error) // a Get of engineOID unless set
+	run     func(ctx context.Context, x *Client) (*Message, error) // a Get of engineOID unless set
 }
 
 // answer is an agent that answers every request at once with vbs.
@@ -158,14 +158,14 @@ func panicOnce(c *fakeTransport, name string, h *func(*Client), fail func()) {
 // getAfterPanic runs a Get in which the caller's code panics (the scenario's
 // setup arms it), records its result and what its error matches, then runs a
 // second Get on the same client, whose result it returns.
-func getAfterPanic(x *Client) (*Message, error) {
+func getAfterPanic(ctx context.Context, x *Client) (*Message, error) {
 	tr := x.Conn.(fakePacketTransport).tr
-	res, err := x.Get([]string{engineOID})
+	res, err := x.Get(ctx, []string{engineOID})
 	tr.addf("first request: %s", describeEngineResult(res, err))
 	var re runtime.Error
 	tr.addf("first request's error: matches the caller's error %t, a runtime.Error %t", errors.Is(err, errCallerFailure),
 		errors.As(err, &re))
-	return x.Get([]string{engineOID})
+	return x.Get(ctx, []string{engineOID})
 }
 
 // answerRaw is an agent that answers every request with its sysDescr reply
@@ -242,6 +242,9 @@ func withEngineTimeout(d time.Duration) func() (context.Context, context.CancelF
 	}
 }
 
+// nilContext gives a nil context, a caller's bug a request refuses.
+func nilContext() (context.Context, context.CancelFunc) { return nil, func() {} }
+
 // canceledContext gives a context canceled before the request starts.
 func canceledContext() (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -287,17 +290,17 @@ func withUnreportedDeadline(d time.Duration) func() (context.Context, context.Ca
 	}
 }
 
-func getOIDs(oids ...string) func(x *Client) (*Message, error) {
-	return func(x *Client) (*Message, error) { return x.Get(oids) }
+func getOIDs(oids ...string) func(ctx context.Context, x *Client) (*Message, error) {
+	return func(ctx context.Context, x *Client) (*Message, error) { return x.Get(ctx, oids) }
 }
 
 // engineScenarios are the request scenarios of TestEngineRequestCharacterization.
 func engineScenarios() map[string]engineScenario {
-	twoGets := func(x *Client) (*Message, error) {
-		if _, err := x.Get([]string{engineOID}); err != nil {
+	twoGets := func(ctx context.Context, x *Client) (*Message, error) {
+		if _, err := x.Get(ctx, []string{engineOID}); err != nil {
 			return nil, fmt.Errorf("first Get: %w", err)
 		}
-		return x.Get([]string{engineOID})
+		return x.Get(ctx, []string{engineOID})
 	}
 	maxOIDs2 := func(x *Client, _ *fakeTransport) { x.MaxOids = 2 }
 	twoOIDs := []string{engineOID, ".1.3.6.1.2.1.1.3.0"}
@@ -307,8 +310,8 @@ func engineScenarios() map[string]engineScenario {
 		// Operations.
 		"get":    {agent: answer(sysDescr)},
 		"get/v1": {v1: true, agent: answer(sysDescr)},
-		"mk-snmp-packet": {agent: answer(sysDescr), run: func(x *Client) (*Message, error) {
-			return x.send(x.NewMessage(GetBulkRequest, []VarBind{{Name: ".1.3.6.1.2.1.1", Value: NullValue()}}, 2, 7))
+		"mk-snmp-packet": {agent: answer(sysDescr), run: func(ctx context.Context, x *Client) (*Message, error) {
+			return x.send(ctx, x.NewMessage(GetBulkRequest, []VarBind{{Name: ".1.3.6.1.2.1.1", Value: NullValue()}}, 2, 7))
 		}},
 		"get/invalid-oid": {agent: answer(), run: getOIDs(".1.3.6.1.x")},
 
@@ -319,11 +322,8 @@ func engineScenarios() map[string]engineScenario {
 		// The client.
 		"get/no-conn": {agent: answer(sysDescr), setup: func(x *Client, _ *fakeTransport) { x.Conn = nil }},
 		// A client given a Conn without Connect: the request supplies the
-		// Context and the receive buffer.
+		// receive buffer.
 		"conn-without-connect": {agent: answer(sysDescr), setup: func(x *Client, _ *fakeTransport) {
-			x.Context, x.rx = nil, nil
-		}},
-		"conn-without-receive-buffer": {agent: answer(sysDescr), setup: func(x *Client, _ *fakeTransport) {
 			x.rx = nil
 		}},
 		"custom-conn": {shape: shapeConn, agent: answer(sysDescr)},
@@ -340,24 +340,6 @@ func engineScenarios() map[string]engineScenario {
 				onRetry(x)
 				c.tr.addf("hook OnRetry sets Retries to 0")
 				x.Retries = 0
-			}
-		}},
-		"hooks/retry-cancels-context": {setup: func(x *Client, c *fakeTransport) {
-			onRetry := x.OnRetry
-			x.OnRetry = func(x *Client) {
-				onRetry(x)
-				c.tr.addf("hook OnRetry sets a canceled Context")
-				ctx, cancel := context.WithCancel(context.Background())
-				cancel()
-				x.Context = ctx
-			}
-		}},
-		"hooks/retry-sets-context-deadline": {setup: func(x *Client, c *fakeTransport) {
-			onRetry := x.OnRetry
-			x.OnRetry = func(x *Client) {
-				onRetry(x)
-				c.tr.addf("hook OnRetry sets a Context with a deadline in 500ms")
-				x.Context = unreportedDeadline{context.Background(), time.Now().Add(500 * time.Millisecond)}
 			}
 		}},
 		"hooks/retry-replaces-hooks": {agent: answerFrom(3, sysDescr), setup: func(x *Client, c *fakeTransport) {
@@ -403,12 +385,12 @@ func engineScenarios() map[string]engineScenario {
 			return []agentReply{{data: r}, {data: r}}
 		}},
 		"answer/first-result-after-second-get": {
-			run: func(x *Client) (*Message, error) {
-				first, err := x.Get([]string{engineOID})
+			run: func(ctx context.Context, x *Client) (*Message, error) {
+				first, err := x.Get(ctx, []string{engineOID})
 				if err != nil {
 					return nil, fmt.Errorf("first Get: %w", err)
 				}
-				if _, err := x.Get([]string{engineOID}); err != nil {
+				if _, err := x.Get(ctx, []string{engineOID}); err != nil {
 					return nil, fmt.Errorf("second Get: %w", err)
 				}
 				return first, nil
@@ -568,8 +550,10 @@ func engineScenarios() map[string]engineScenario {
 			c.failRead = func(n int) error { return map[int]error{1: io.EOF}[n] }
 		}},
 
-		// Context.
+		// The request's context.
 		"context/canceled-before": {agent: answer(sysDescr), context: canceledContext},
+		// A nil context fails the request before it is sent.
+		"context/nil": {agent: answer(sysDescr), context: nilContext},
 		"context/canceled-with-cause-before": {agent: answer(sysDescr), context: func() (context.Context, context.CancelFunc) {
 			ctx, cancel := context.WithCancelCause(context.Background())
 			cancel(errEngineCause)
@@ -591,14 +575,14 @@ func engineScenarios() map[string]engineScenario {
 				}
 			},
 		},
-		// The deadline rule does not wait for the Context to report its
+		// The deadline rule does not wait for the context to report its
 		// deadline, also when the deadlines are equal.
 		"context/deadline-unreported-in-first-attempt": {context: withUnreportedDeadline(700 * time.Millisecond)},
 		"context/deadline-unreported-equal-to-timeout": {
 			context: withUnreportedDeadline(time.Second),
 			setup:   func(x *Client, _ *fakeTransport) { x.Retries = 0 },
 		},
-		// A Context whose deadline passed ends the request after an attempt
+		// A context whose deadline passed ends the request after an attempt
 		// that failed otherwise, before OnRetry.
 		"context/deadline-passed-in-hook": {
 			context: withEngineTimeout(700 * time.Millisecond),
@@ -610,12 +594,12 @@ func engineScenarios() map[string]engineScenario {
 				c.failRead = func(int) error { return refused }
 			},
 		},
-		// A Context canceled before its deadline ends the attempt and the
+		// A context canceled before its deadline ends the attempt and the
 		// request at the cancellation, with context.Canceled.
 		"context/canceled-before-deadline": {context: canceledBeforeDeadline(300*time.Millisecond, 700*time.Millisecond)},
 		"context/canceled-while-waiting":   {context: canceledAfter(300 * time.Millisecond)},
 		"context/canceled-in-last-attempt": {context: canceledAfter(2300 * time.Millisecond)},
-		// A Context canceled while the reply is on its way, its interrupt held
+		// A context canceled while the reply is on its way, its interrupt held
 		// until after the reply: the request ends when the interrupt does, so
 		// that its deadline cannot reach a later request.
 		"context/canceled-before-a-reply": {
@@ -633,7 +617,7 @@ func engineScenarios() map[string]engineScenario {
 				}()
 			},
 		},
-		// A Close while the canceled Context's interrupt still sets its
+		// A Close while the canceled context's interrupt still sets its
 		// deadline, held until 200 ms: the attempt's interrupt has started, so
 		// Close closes the connection without waiting for it, and the request
 		// ends when the interrupt does.
@@ -653,19 +637,17 @@ func engineScenarios() map[string]engineScenario {
 				})
 			},
 		},
-		// A Context canceled after its request leaves the connection alone:
-		// the next request, with another Context, is answered.
-		"context/canceled-after-request": {agent: answer(sysDescr), run: func(x *Client) (*Message, error) {
-			ctx, cancel := context.WithCancel(context.Background())
+		// A context canceled after its request leaves the connection alone:
+		// the next request, with another context, is answered.
+		"context/canceled-after-request": {agent: answer(sysDescr), run: func(ctx context.Context, x *Client) (*Message, error) {
+			first, cancel := context.WithCancel(ctx)
 			defer cancel()
-			x.Context = ctx
-			if _, err := x.Get([]string{engineOID}); err != nil {
+			if _, err := x.Get(first, []string{engineOID}); err != nil {
 				return nil, fmt.Errorf("first Get: %w", err)
 			}
 			cancel()
 			synctest.Wait()
-			x.Context = context.Background()
-			return x.Get([]string{engineOID})
+			return x.Get(ctx, []string{engineOID})
 		}},
 
 		// Close.
@@ -710,8 +692,8 @@ func engineScenarios() map[string]engineScenario {
 					x.Conn = hookConn
 				}
 			},
-			run: func(x *Client) (*Message, error) {
-				res, err := x.Get([]string{engineOID})
+			run: func(ctx context.Context, x *Client) (*Message, error) {
+				res, err := x.Get(ctx, []string{engineOID})
 				_ = x.Close()
 				return res, err
 			},
@@ -824,10 +806,11 @@ func runEngineScenario(t *testing.T, sc engineScenario) string {
 		version = Version1
 	}
 	x := newEngineClient(t, tr, version, conn)
+	ctx := context.Background()
 	if sc.context != nil {
-		ctx, cancel := sc.context()
+		var cancel context.CancelFunc
+		ctx, cancel = sc.context()
 		defer cancel()
-		x.Context = ctx
 	}
 	if sc.setup != nil {
 		sc.setup(x, c)
@@ -841,7 +824,7 @@ func runEngineScenario(t *testing.T, sc engineScenario) string {
 	var res *Message
 	var err error
 	before := configOf(x)
-	if v, _ := recoverPanic(func() { res, err = run(x) }); v != nil {
+	if v, _ := recoverPanic(func() { res, err = run(ctx, x) }); v != nil {
 		tr.addf("panic: %v", v)
 	} else {
 		tr.addf("result: %s", describeEngineResult(res, err))
@@ -856,7 +839,7 @@ func runEngineScenario(t *testing.T, sc engineScenario) string {
 	return tr.text()
 }
 
-// TestEngineCancelWhileSettingDeadline checks that a Context canceled while
+// TestEngineCancelWhileSettingDeadline checks that a context canceled while
 // the attempt sets its deadline ends the attempt at once: the interrupt comes
 // after the deadline, which cannot undo it.
 func TestEngineCancelWhileSettingDeadline(t *testing.T) {
@@ -865,20 +848,19 @@ func TestEngineCancelWhileSettingDeadline(t *testing.T) {
 		x := newEngineClient(t, nil, Version2c, fakePacketTransport{c})
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		x.Context = ctx
 		c.beforeDeadline = func() {
 			c.beforeDeadline = nil
 			cancel()
 			synctest.Wait() // an interrupt registered already sets its deadline now
 		}
 		start := time.Now()
-		_, err := x.Get([]string{engineOID})
+		_, err := x.Get(ctx, []string{engineOID})
 		require.ErrorIs(t, err, context.Canceled)
 		assert.Equal(t, time.Duration(0), time.Since(start), "the request ends at the cancellation")
 	})
 }
 
-// countingContext is a Context that is never done and counts the functions
+// countingContext is a context that is never done and counts the functions
 // registered to run when it is done (context.AfterFunc calls its AfterFunc
 // method) and those unregistered again.
 type countingContext struct {
@@ -898,21 +880,20 @@ func (c *countingContext) AfterFunc(func()) func() bool {
 }
 
 // TestEngineContextInterruptUnregistered checks that each attempt
-// unregisters the interrupt it registers with the request's Context, so that
-// a Context used for many requests does not keep one per attempt.
+// unregisters the interrupt it registers with the request's context, so that
+// a context used for many requests does not keep one per attempt.
 func TestEngineContextInterruptUnregistered(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		c := newFakeTransport(nil, answerFromSecond(sysDescr))
 		x := newEngineClient(t, nil, Version2c, fakePacketTransport{c})
 		ctx := &countingContext{Context: context.Background(), done: make(chan struct{})}
-		x.Context = ctx
-		_, err := x.Get([]string{engineOID})
+		_, err := x.Get(ctx, []string{engineOID})
 		require.NoError(t, err)
 		assert.Equal(t, [2]int{2, 2}, [2]int{ctx.registered, ctx.stopped}, "registered, unregistered")
 	})
 }
 
-// TestEngineLateContextInterrupt checks that a Context's interrupt whose
+// TestEngineLateContextInterrupt checks that a context's interrupt whose
 // callback runs only after its attempt ended and the next attempt registered
 // leaves the next attempt alone. With one CPU, the callback that cancel starts
 // runs only when the test's goroutine blocks: after the next registration.
@@ -960,12 +941,12 @@ func TestEngineUncomparableConn(t *testing.T) {
 				Community: "public", Version: Version2c, Timeout: 10 * time.Second,
 			}
 			if connect {
-				require.NoError(t, x.Connect())
+				require.NoError(t, x.Connect(context.Background()))
 				defer x.Conn.Close()
 			}
 			x.Conn = uncomparableConn{Conn: caller, onClose: func() {}}
 
-			res, err := x.Get([]string{engineOID})
+			res, err := x.Get(context.Background(), []string{engineOID})
 			require.NoError(t, err)
 			assert.Equal(t, []VarBind{sysDescr}, res.VarBinds)
 			closed := make(chan error, 1)
@@ -995,7 +976,7 @@ func TestRequestPanicNil(t *testing.T) {
 	}
 	x := newEngineClient(t, nil, Version2c, fakePacketTransport{newFakeTransport(nil, answer(sysDescr))})
 	x.PreSend = func(*Client) { panic(nil) } //nolint:govet // the nil panic is the point
-	res, err := x.Get([]string{engineOID})
+	res, err := x.Get(context.Background(), []string{engineOID})
 	assert.Nil(t, res)
 	want := "request panicked: runtime error: panic called with nil argument"
 	if child {
@@ -1028,7 +1009,7 @@ func (c *panicInterruptContext) AfterFunc(func()) func() bool {
 	return func() bool { panic(c.value) }
 }
 
-// TestRequestContextPanicCleanup checks that a Context that panics while the
+// TestRequestContextPanicCleanup checks that a context that panics while the
 // attempt sets up or ends its interrupts leaves no active attempt behind: after
 // Close and a new Conn, cancellation and Close still interrupt the next request
 // without waiting for its timeout.
@@ -1046,11 +1027,11 @@ func TestRequestContextPanicCleanup(t *testing.T) {
 					synctest.Test(t, func(t *testing.T) {
 						x := newEngineClient(t, nil, Version2c, newFakeTransport(nil, nil))
 						x.Timeout, x.Retries = time.Hour, 0
-						x.Context = &panicInterruptContext{
+						panicking := &panicInterruptContext{
 							Context: context.Background(), done: make(chan struct{}),
 							stage: stage, value: value.panic,
 						}
-						res, err := x.Get([]string{engineOID})
+						res, err := x.Get(panicking, []string{engineOID})
 						require.Nil(t, res)
 						require.ErrorContains(t, err, "request panicked:")
 						if value.panic != nil {
@@ -1068,7 +1049,6 @@ func TestRequestContextPanicCleanup(t *testing.T) {
 						x.Conn = conn // a caller may use a closed client again this way
 						ctx, cancel := context.WithCancel(context.Background())
 						defer cancel()
-						x.Context = ctx
 						wantErr := context.Canceled
 						x.OnSent = func(*Client) { cancel() }
 						if interrupt == "close-replaced-conn" {
@@ -1079,7 +1059,7 @@ func TestRequestContextPanicCleanup(t *testing.T) {
 							}
 						}
 						start := time.Now()
-						res, err = x.Get([]string{engineOID})
+						res, err = x.Get(ctx, []string{engineOID})
 						assert.Nil(t, res)
 						assert.ErrorIs(t, err, wantErr)
 						assert.Zero(t, time.Since(start), "the interrupt waited for the attempt's timeout")
@@ -1127,11 +1107,11 @@ func TestEngineReadCountOutsideBuffer(t *testing.T) {
 				Timeout: 300 * time.Millisecond, Retries: 1,
 				OnRetry: func(*Client) { got.retries++ },
 			}
-			require.NoError(t, x.Connect())
+			require.NoError(t, x.Connect(context.Background()))
 			defer x.Close()
 			x.Conn = &badCountConn{Conn: x.Conn, count: tc.count, err: tc.err}
 			for range 2 {
-				_, err := x.Get([]string{engineOID})
+				_, err := x.Get(context.Background(), []string{engineOID})
 				got.failed = append(got.failed, err != nil)
 			}
 			assert.Equal(t, tc.want, got)
@@ -1173,10 +1153,10 @@ func TestEngineRequestTimeoutError(t *testing.T) {
 		Timeout:   50 * time.Millisecond,
 		Retries:   1,
 	}
-	require.NoError(t, x.Connect())
+	require.NoError(t, x.Connect(context.Background()))
 	defer x.Close()
 
-	_, err = x.Get([]string{engineOID})
+	_, err = x.Get(context.Background(), []string{engineOID})
 	require.Error(t, err)
 	type classified struct {
 		text            string
@@ -1198,7 +1178,7 @@ func BenchmarkSendOneRequest(b *testing.B) {
 	})
 	x := newEngineClient(b, nil, Version2c, fakePacketTransport{c})
 	pkt := x.NewMessage(GetRequest, []VarBind{{Name: oid, Value: NullValue()}}, 0, 0)
-	cfg := x.prepareRequest()
+	cfg := x.prepareRequest(context.Background())
 
 	b.ReportAllocs()
 	for b.Loop() {
@@ -1444,7 +1424,7 @@ func TestReportKindOf(t *testing.T) {
 
 // TestExchangeEndErrors checks the error of an exchange that ends without an
 // answer, with and without a recorded discard: an attemptsError and an error
-// at the Context's deadline add the discard; others stay as they are.
+// at the context's deadline add the discard; others stay as they are.
 func TestExchangeEndErrors(t *testing.T) {
 	reason := inCategory(ErrNotInTimeWindow, errors.New("out of window"))
 	tests := map[string]struct {
@@ -1534,7 +1514,7 @@ func BenchmarkGet(b *testing.B) {
 	x := newEngineClient(b, nil, Version2c, c)
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := x.Get([]string{engineOID}); err != nil {
+		if _, err := x.Get(context.Background(), []string{engineOID}); err != nil {
 			b.Fatal(err)
 		}
 	}

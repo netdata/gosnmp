@@ -76,12 +76,12 @@ var (
 // Report's counter, or a discovery answer that names no engine ID (an error that
 // also matches ErrUnknownEngineID). It is not a category: the error keeps its
 // own, and its text. The library marks no error of a request that ended
-// without an answer: a timeout or the Context's deadline, also after discarded
-// replies, whose category the error then matches; the Context, Close, a
+// without an answer: a timeout or the context's deadline, also after discarded
+// replies, whose category the error then matches; the context, Close, a
 // transport error, a panic, or a local failure such as a configuration error, a
 // key that does not derive or a protocol FIPS 140-only mode refuses. Errors of
 // the caller's own code (the value a hook panics with, the errors of a Conn or
-// Context the caller gave) pass through unchanged. Only a request's error is
+// context the caller gave) pass through unchanged. Only a request's error is
 // marked, not one of decoding a message (DecodeMessage, Receive).
 //
 // It is a variable only so that errors.Is can match it; do not assign to it.

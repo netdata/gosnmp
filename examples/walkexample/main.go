@@ -6,6 +6,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -47,14 +48,15 @@ func main() {
 		Timeout:   10 * time.Second, // Timeout better suited to walking
 		Retries:   3,
 	}
-	err := client.Connect()
+	ctx := context.Background()
+	err := client.Connect(ctx)
 	if err != nil {
 		fmt.Printf("Connect err: %v\n", err)
 		os.Exit(1)
 	}
 	defer client.Close()
 
-	values, err := client.BulkWalkAll(oid)
+	values, err := client.BulkWalkAll(ctx, oid)
 	for _, vb := range values {
 		printValue(vb)
 	}

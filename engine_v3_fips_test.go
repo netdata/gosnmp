@@ -5,6 +5,7 @@
 package gosnmp
 
 import (
+	"context"
 	"crypto/fips140"
 	"io"
 	"maps"
@@ -19,9 +20,9 @@ import (
 // getFirstOf2 runs two Gets, records the first one's result and returns the
 // second's.
 func getFirstOf2(x *Client, a *fakeV3Agent) (*Message, error) {
-	res, err := x.Get([]string{engineOID})
+	res, err := x.Get(context.Background(), []string{engineOID})
 	a.tr.addf("first Get: %s", describeEngineResult(res, err))
-	return x.Get([]string{engineOID})
+	return x.Get(context.Background(), []string{engineOID})
 }
 
 // v3FIPSScenarios are the scenarios of TestEngineV3FIPS140Only.
@@ -97,7 +98,7 @@ func TestEngineV3FIPS140OnlyDiscoveryPreflight(t *testing.T) {
 				User: user, ContextName: "codec-context", Timeout: time.Second, Retries: 2,
 			})
 			for range 2 {
-				res, err := x.Get([]string{engineOID})
+				res, err := x.Get(context.Background(), []string{engineOID})
 				assert.EqualError(t, err, tc.wantErr)
 				assert.Nil(t, res)
 				assert.Zero(t, c.writes, "discovery must not be sent")

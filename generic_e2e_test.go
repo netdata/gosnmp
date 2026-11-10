@@ -14,6 +14,7 @@
 package gosnmp
 
 import (
+	"context"
 	"os"
 	"strconv"
 	"strings"
@@ -48,7 +49,7 @@ func connectToTarget(t *testing.T, gs *Client) {
 	gs.Target = target
 	gs.Port = port
 
-	err := gs.Connect()
+	err := gs.Connect(context.Background())
 	if err != nil {
 		if len(target) > 0 {
 			t.Fatalf("Connection failed. Is snmpd reachable on %s:%d?\n(err: %v)",
@@ -118,7 +119,7 @@ func TestGenericBasicGet(t *testing.T) {
 	connectToTarget(t, gs)
 	defer gs.Conn.Close()
 
-	result, err := gs.Get([]string{".1.3.6.1.2.1.1.1.0"}) // SNMP MIB-2 sysDescr
+	result, err := gs.Get(context.Background(), []string{".1.3.6.1.2.1.1.1.0"}) // SNMP MIB-2 sysDescr
 	if err != nil {
 		t.Fatalf("Get() failed with error => %v", err)
 	}
@@ -143,7 +144,7 @@ func TestGenericMultiGet(t *testing.T) {
 		".1.3.6.1.2.1.1.1.0", // SNMP MIB-2 sysDescr
 		".1.3.6.1.2.1.1.5.0", // SNMP MIB-2 sysName
 	}
-	result, err := gs.Get(oids)
+	result, err := gs.Get(context.Background(), oids)
 	if err != nil {
 		t.Fatalf("Get() failed with error => %v", err)
 	}
@@ -162,7 +163,7 @@ func TestGenericWalk(t *testing.T) {
 	connectToTarget(t, gs)
 	defer gs.Conn.Close()
 
-	result, err := gs.WalkAll("")
+	result, err := gs.WalkAll(context.Background(), "")
 	if err != nil {
 		t.Fatalf("WalkAll() Failed with error => %v", err)
 	}
@@ -176,7 +177,7 @@ func TestGenericBulkWalk(t *testing.T) {
 	connectToTarget(t, gs)
 	defer gs.Conn.Close()
 
-	result, err := gs.BulkWalkAll("")
+	result, err := gs.BulkWalkAll(context.Background(), "")
 	if err != nil {
 		t.Fatalf("BulkWalkAll() Failed with error => %v", err)
 	}
@@ -192,7 +193,7 @@ func TestV1BulkWalkError(t *testing.T) {
 
 	g.Conn.Close()
 
-	_, err := g.BulkWalkAll("")
+	_, err := g.BulkWalkAll(context.Background(), "")
 	if err == nil {
 		t.Fatalf("BulkWalkAll() should fail in SNMPv1 but returned nil")
 	}
@@ -214,7 +215,7 @@ func TestMaxOids(t *testing.T) {
 	} // 2 arbitrary Oids
 	errString := "oid count (2) is greater than MaxOids (1)"
 
-	_, err = gs.Get(oids)
+	_, err = gs.Get(context.Background(), oids)
 	if err == nil {
 		t.Fatalf("Expected too many oids failure. Got nil")
 	} else if err.Error() != errString {
@@ -226,7 +227,7 @@ func TestGenericFailureUnknownHost(t *testing.T) {
 	unknownHost := "nonexistent.invalid" // .invalid is guaranteed by RFC 2606 to never resolve.
 	gs := newTestClient()
 	gs.Target = unknownHost
-	err := gs.Connect()
+	err := gs.Connect(context.Background())
 	if err == nil {
 		t.Fatalf("Expected connection failure due to unknown host")
 	}
@@ -236,7 +237,7 @@ func TestGenericFailureUnknownHost(t *testing.T) {
 		t.Fatalf("Expected connection error of type 'no such host' or 'i/o timeout'! Got => %v", err)
 	}
 
-	_, err = gs.Get([]string{".1.3.6.1.2.1.1.1.0"}) // SNMP MIB-2 sysDescr
+	_, err = gs.Get(context.Background(), []string{".1.3.6.1.2.1.1.1.0"}) // SNMP MIB-2 sysDescr
 	if err == nil {
 		t.Fatalf("Expected get to fail due to missing connection")
 	}
@@ -251,11 +252,11 @@ func TestGenericFailureConnectionTimeout(t *testing.T) {
 
 	gs := newTestClient()
 	gs.Target = "198.51.100.1" // Black hole
-	err := gs.Connect()
+	err := gs.Connect(context.Background())
 	if err != nil {
 		t.Fatalf("Did not expect connection error with IP address")
 	}
-	_, err = gs.Get([]string{".1.3.6.1.2.1.1.1.0"}) // SNMP MIB-2 sysDescr
+	_, err = gs.Get(context.Background(), []string{".1.3.6.1.2.1.1.1.0"}) // SNMP MIB-2 sysDescr
 	if err == nil {
 		t.Fatalf("Expected Get() to fail due to invalid IP")
 	}
@@ -268,11 +269,11 @@ func TestGenericFailureConnectionRefused(t *testing.T) {
 	gs := newTestClient()
 	gs.Target = "127.0.0.1"
 	gs.Port = 1 // Don't expect SNMP to be running here!
-	err := gs.Connect()
+	err := gs.Connect(context.Background())
 	if err != nil {
 		t.Fatalf("Did not expect connection error with IP address")
 	}
-	_, err = gs.Get([]string{".1.3.6.1.2.1.1.1.0"}) // SNMP MIB-2 sysDescr
+	_, err = gs.Get(context.Background(), []string{".1.3.6.1.2.1.1.1.0"}) // SNMP MIB-2 sysDescr
 	if err == nil {
 		t.Fatalf("Expected Get() to fail due to invalid port")
 	}
@@ -291,7 +292,7 @@ func TestSnmpV3Users(t *testing.T) {
 			connectToTarget(t, gs)
 			defer gs.Conn.Close()
 
-			result, err := gs.Get([]string{".1.3.6.1.2.1.1.1.0"}) // SNMP MIB-2 sysDescr
+			result, err := gs.Get(context.Background(), []string{".1.3.6.1.2.1.1.1.0"}) // SNMP MIB-2 sysDescr
 			if err != nil {
 				t.Fatalf("Get() failed with error => %v", err)
 			}
@@ -302,7 +303,7 @@ func TestSnmpV3Users(t *testing.T) {
 				t.Fatalf("Got a zero length sysDescr")
 			}
 
-			values, err := gs.BulkWalkAll(".1.3.6.1.2.1.1") // SNMP MIB-2 system
+			values, err := gs.BulkWalkAll(context.Background(), ".1.3.6.1.2.1.1") // SNMP MIB-2 system
 			if err != nil {
 				t.Fatalf("BulkWalkAll() failed with error => %v", err)
 			}

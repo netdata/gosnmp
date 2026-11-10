@@ -15,12 +15,13 @@ import (
 	"time"
 )
 
-// send runs the request packetOut (request) and returns its answer, or no
-// message with the error of a request that fails, marked with ErrAnswered when
-// an answer ended it (the message request returns beside its error), and with
-// requestPanicked's error for one that panics. The library prevents panics of
-// its own: the recover is for the caller's code the request runs on its
-// goroutine (a hook, the methods of a Conn or Context it calls) and for bugs,
+// send runs the request packetOut (request) within ctx and returns its
+// answer, or no message with the error of a request that fails, marked with
+// ErrAnswered when an answer ended it (the message request returns beside its
+// error), and with requestPanicked's error for one that panics. A nil ctx
+// fails the request before it starts. The library prevents panics of its
+// own: the recover is for the caller's code the request runs on its
+// goroutine (a hook, the methods of a Conn or context it calls) and for bugs,
 // which would otherwise end the process of a caller that runs requests on a
 // goroutine without a recover. A flag, not recover's value, tells that the
 // request panicked: under GODEBUG=panicnil=1, recover returns nil for
@@ -30,14 +31,17 @@ import (
 // GetNext or GetBulk, as every request the client sends: the SNMPv3 engine
 // clock signs it whatever the clock's source (sourcedClock.timeFor, mayLend),
 // which a request that changes the agent must not take.
-func (x *Client) send(packetOut *Message) (result *Message, err error) {
+func (x *Client) send(ctx context.Context, packetOut *Message) (result *Message, err error) {
+	if ctx == nil {
+		return nil, errNilContext
+	}
 	completed := false
 	defer func() {
 		if !completed {
 			err = requestPanicked(recover())
 		}
 	}()
-	result, err = x.request(packetOut)
+	result, err = x.request(ctx, packetOut)
 	completed = true
 	if err != nil {
 		if result != nil {
@@ -48,15 +52,15 @@ func (x *Client) send(packetOut *Message) (result *Message, err error) {
 	return result, nil
 }
 
-// request runs a request: for SNMPv3 it first takes the configuration into
-// the engine state and discovers the agent's engine when it has none, then
-// sends the request, whose answer commits the engine parameters it carries,
-// and sends the request once more when the answer is a Report that
+// request runs a request within ctx: for SNMPv3 it first takes the
+// configuration into the engine state and discovers the agent's engine when it
+// has none, then sends the request, whose answer commits the engine parameters
+// it carries, and sends the request once more when the answer is a Report that
 // resynchronizes the client with the agent's engine. With an error it returns
 // the answer that ended the request, a Report or the discovery's answer, and
 // no message when none did: send marks the error by it.
-func (x *Client) request(packetOut *Message) (result *Message, err error) {
-	cfg := x.prepareRequest()
+func (x *Client) request(ctx context.Context, packetOut *Message) (result *Message, err error) {
+	cfg := x.prepareRequest(ctx)
 	if _, err = x.connection(); err != nil {
 		return nil, err
 	}
@@ -124,11 +128,11 @@ func resyncKindOf(result *Message) reportKind {
 }
 
 // requestConfig is the client's configuration as a request reads it, once, at
-// its start: a change a hook makes to the client applies from the next
-// request. The packet carries the rest (version, security level, user name,
-// context name), and the SNMPv3 engine state takes the user at the same time
-// (startEngine). Not part of it: the connection, which each attempt takes from
-// the client (connection).
+// its start, with the request's context: a change a hook makes to the client
+// applies from the next request. The packet carries the rest (version,
+// security level, user name, context name), and the SNMPv3 engine state takes
+// the user at the same time (startEngine). Not part of it: the connection,
+// which each attempt takes from the client (connection).
 type requestConfig struct {
 	ctx                                        context.Context
 	timeout                                    time.Duration
@@ -136,16 +140,12 @@ type requestConfig struct {
 	preSend, onSent, onRecv, onRetry, onFinish func(*Client)
 }
 
-// prepareRequest reads the request configuration, with a background Context
-// when the client has none and no negative retries, and allocates the receive
-// buffer the first time: a client given a Conn without Connect works too.
-func (x *Client) prepareRequest() requestConfig {
+// prepareRequest reads the request configuration, with ctx and no negative
+// retries, and allocates the receive buffer the first time: a client given a
+// Conn without Connect works too.
+func (x *Client) prepareRequest(ctx context.Context) requestConfig {
 	if x.rx == nil {
 		x.rx = new(receiveBuffer)
-	}
-	ctx := x.Context
-	if ctx == nil {
-		ctx = context.Background()
 	}
 	return requestConfig{
 		ctx:      ctx,
@@ -171,7 +171,7 @@ type exchange struct {
 
 	// contextDeadline is set when the context's deadline ends the current
 	// attempt, at or before its timeout: endErr then reports
-	// context.DeadlineExceeded whether or not the Context reports its
+	// context.DeadlineExceeded whether or not the context reports its
 	// deadline yet.
 	contextDeadline bool
 	// discovery marks the engine discovery's exchange, whose answer gives the
@@ -222,7 +222,7 @@ const (
 	// attemptClosed: the write or the read failed on a closed connection
 	// (net.ErrClosed), or Close closed the client.
 	attemptClosed
-	// attemptContextDone: the Context was done when the attempt would start.
+	// attemptContextDone: the context was done when the attempt would start.
 	attemptContextDone
 	// attemptFailed: the client had no connection, or setting the deadline or
 	// encoding the request failed.
@@ -265,7 +265,7 @@ func ioFailure(err error) attemptOutcome {
 }
 
 // attemptsError is the error of a request whose attempts ran out after a
-// timeout, or that the Context's deadline ended after a discard: a text
+// timeout, or that the context's deadline ended after a discard: a text
 // callers know, unwrapping to the last attempt's reason (the write's or the
 // read's deadline error, a timeout net.Error; context.DeadlineExceeded) and to
 // the reason of the discard the exchange recorded, if any, whose text it ends
@@ -342,8 +342,8 @@ func (x *Client) sendOneRequest(cfg *requestConfig, packetOut *Message, discover
 
 // endErr decides whether another attempt follows attempt n (counted from 0),
 // which ended with out, a failure another attempt may cure: it returns the
-// request's error when none follows. A done Context ends the request with its
-// error, a timeout at the Context's deadline with context.DeadlineExceeded,
+// request's error when none follows. A done context ends the request with its
+// error, a timeout at the context's deadline with context.DeadlineExceeded,
 // and the last attempt with its own error, or, after a timeout, with an
 // attemptsError.
 func (e *exchange) endErr(n int, out attemptOutcome) error {
@@ -372,7 +372,7 @@ func (e *exchange) attemptsError(text string, reason error) *attemptsError {
 }
 
 // unanswered returns err, the error of an exchange that ends without an
-// answer: an error at the Context's deadline that also unwraps to the discard
+// answer: an error at the context's deadline that also unwraps to the discard
 // the exchange recorded, if any (attemptsError); any other error unchanged.
 // After a discarded authentic answer outside the time window it drops the
 // engine clock, however the exchange ended (forgetEngineTime); a panic, which
@@ -388,7 +388,7 @@ func (e *exchange) unanswered(err error) error {
 }
 
 // attempt sends the request once, on the client's connection, and reads until
-// a reply answers it, the attempt's deadline passes or the Context is done. A
+// a reply answers it, the attempt's deadline passes or the context is done. A
 // reply to an earlier attempt, one of earlier, answers it too.
 func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
 	x := e.x
@@ -404,7 +404,7 @@ func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
 	if err = conn.SetDeadline(deadline); err != nil {
 		return attemptOutcome{kind: attemptFailed, err: err}
 	}
-	// Close and the Context interrupt the attempt from here on, after its
+	// Close and the context interrupt the attempt from here on, after its
 	// deadline: an interrupt before it would be undone by it. A Close before
 	// that closed the attempt's connection: no hook has replaced Conn yet.
 	defer x.interruptible(e.cfg.ctx, conn).end()
@@ -431,7 +431,7 @@ func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
 
 // attemptDeadline returns when an attempt with timeout ends: after the
 // timeout, or at the context's deadline if that comes first or at the same
-// time (byContext): the Context's deadline has then passed when the attempt
+// time (byContext): the context's deadline has then passed when the attempt
 // times out.
 func attemptDeadline(ctx context.Context, timeout time.Duration) (deadline time.Time, byContext bool) {
 	deadline = time.Now().Add(timeout)

@@ -10,6 +10,7 @@
 package gosnmp_test // force external view
 
 import (
+	"context"
 	"net"
 	"testing"
 	"time"
@@ -33,21 +34,21 @@ func TestAPIConfigTypes(_ *testing.T) {
 }
 
 func TestAPIConnectMethodSignature(_ *testing.T) {
-	var f func() error = (&gosnmp.Client{}).Connect
+	var f func(context.Context) error = (&gosnmp.Client{}).Connect
 	_ = f
 }
 
 func TestAPIGetMethodSignature(_ *testing.T) {
-	var f func([]string) (*gosnmp.Message, error) = (&gosnmp.Client{}).Get
+	var f func(context.Context, []string) (*gosnmp.Message, error) = (&gosnmp.Client{}).Get
 	_ = f
 }
 
 func TestAPIBulkWalkAllMethodSignature(_ *testing.T) {
-	var f func(string) ([]gosnmp.VarBind, error) = (&gosnmp.Client{}).BulkWalkAll
+	var f func(context.Context, string) ([]gosnmp.VarBind, error) = (&gosnmp.Client{}).BulkWalkAll
 	_ = f
 }
 
 func TestAPIWalkAllMethodSignature(_ *testing.T) {
-	var f func(string) ([]gosnmp.VarBind, error) = (&gosnmp.Client{}).WalkAll
+	var f func(context.Context, string) ([]gosnmp.VarBind, error) = (&gosnmp.Client{}).WalkAll
 	_ = f
 }

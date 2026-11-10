@@ -377,6 +377,9 @@ func walkScenarios() map[string]walkScenario {
 		// included: once it is done, the walk ends with its error and the
 		// values before it.
 		"context/canceled-before": {root: walkSystem, context: canceledContext},
+		// A nil context fails the walk before its first request is sent.
+		"context/nil":      {root: walkSystem, context: nilContext},
+		"context/nil/bulk": {root: walkSystem, bulk: true, context: nilContext},
 		"context/canceled-mid-walk": {
 			root: walkSystem, context: canceledAfter(300 * time.Millisecond),
 			script: func(n int, _, _ *Message) bool { return n >= 2 },
@@ -512,7 +515,7 @@ func TestEngineWalkRootSpellings(t *testing.T) {
 						if api == "BulkWalkAll" {
 							walk = x.BulkWalkAll
 						}
-						got, err := walk(root)
+						got, err := walk(context.Background(), root)
 						if tc.equal {
 							if err == nil || !strings.Contains(err.Error(), "OID not increasing") {
 								t.Errorf("error = %v, want OID not increasing", err)
@@ -550,10 +553,11 @@ func runWalkScenario(t *testing.T, sc walkScenario) string {
 	if sc.onFinish != nil {
 		x.OnFinish = func(x *Client) { sc.onFinish(x, tr) }
 	}
+	ctx := context.Background()
 	if sc.context != nil {
-		ctx, cancel := sc.context()
+		var cancel context.CancelFunc
+		ctx, cancel = sc.context()
 		defer cancel()
-		x.Context = ctx
 	}
 
 	tr.addf("client: %v root=%q bulk=%t max-repetitions=%d", x.Version, sc.root, sc.bulk, x.MaxRepetitions)
@@ -564,7 +568,7 @@ func runWalkScenario(t *testing.T, sc walkScenario) string {
 	var err error
 	run := func() {
 		var vbs []VarBind
-		vbs, err = walk(sc.root)
+		vbs, err = walk(ctx, sc.root)
 		tr.addf("values: %s", describeVarbinds(vbs))
 	}
 	if v, _ := recoverPanic(run); v != nil {
@@ -591,8 +595,8 @@ func BenchmarkWalk(b *testing.B) {
 	mib = append(mib, VarBind{Name: ".1.3.6.1.4.1.99999.1.1.1.1.2.3.5.1", Value: IntegerValue(1)})
 
 	for name, walkAll := range map[string]func(x *Client) ([]VarBind, error){
-		"WalkAll":     func(x *Client) ([]VarBind, error) { return x.WalkAll(root) },
-		"BulkWalkAll": func(x *Client) ([]VarBind, error) { return x.BulkWalkAll(root) },
+		"WalkAll":     func(x *Client) ([]VarBind, error) { return x.WalkAll(context.Background(), root) },
+		"BulkWalkAll": func(x *Client) ([]VarBind, error) { return x.BulkWalkAll(context.Background(), root) },
 	} {
 		b.Run(name, func(b *testing.B) {
 			agent := &mibAgent{mib: mib}
@@ -615,7 +619,7 @@ func BenchmarkWalk(b *testing.B) {
 func TestWalkEndedByReport(t *testing.T) {
 	const root = ".1.3.6.1.2.1.2"
 	first := VarBind{Name: root + ".1.0", Value: IntegerValue(1)}
-	walks := map[string]func(*Client, string) ([]VarBind, error){
+	walks := map[string]func(*Client, context.Context, string) ([]VarBind, error){
 		"WalkAll":     (*Client).WalkAll,
 		"BulkWalkAll": (*Client).BulkWalkAll,
 	}
@@ -636,7 +640,7 @@ func TestWalkEndedByReport(t *testing.T) {
 				Timeout:       time.Second,
 				Retries:       2,
 			})
-			values, err := walk(x, root)
+			values, err := walk(x, context.Background(), root)
 			require.ErrorIs(t, err, ErrAnswered)
 			require.ErrorIs(t, err, ErrUnknownUsername)
 			require.Equal(t, []VarBind{first}, values)

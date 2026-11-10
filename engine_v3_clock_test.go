@@ -6,6 +6,7 @@ package gosnmp
 
 import (
 	"bytes"
+	"context"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -37,7 +38,7 @@ func TestEngineV3MaximumBoots(t *testing.T) {
 						User: agentUserOf("codec-md5"), Timeout: time.Second, Retries: 1,
 					})
 					seedEngine(agentEngineID, 0, 0)(x)
-					_, err := x.Get([]string{engineOID})
+					_, err := x.Get(context.Background(), []string{engineOID})
 					require.NoError(t, err)
 					beforeEngineID := bytes.Clone(x.engine.engineID)
 					beforeKey := bytes.Clone(x.engine.keys.auth)
@@ -71,7 +72,7 @@ func TestEngineV3MaximumBoots(t *testing.T) {
 						assert.NotEqual(t, uint32(maxEngineValue), x.engine.clock.boots,
 							"an exhausted clock must never be committed")
 					}
-					result, err := x.Get([]string{engineOID})
+					result, err := x.Get(context.Background(), []string{engineOID})
 					wantFailure := boots.value == maxEngineValue || path == "response" && boots.value < agentBoots
 					if wantFailure {
 						assert.ErrorIs(t, err, ErrNotInTimeWindow)
