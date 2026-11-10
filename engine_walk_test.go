@@ -214,8 +214,10 @@ func walkScenarios() map[string]walkScenario {
 		"empty-subtree/bulk":    {root: ".1.3.6.1.2.1.1.4", bulk: true},
 		"max-repetitions/two":   {root: walkIfDescr, bulk: true, setup: func(x *Client) { x.MaxRepetitions = 2 }},
 		"max-repetitions/one":   {root: walkSystem, bulk: true, setup: func(x *Client) { x.MaxRepetitions = 1 }},
-		// The request carries max-repetitions with its top bit cleared.
+		// The request carries max-repetitions with its top bit cleared; the
+		// default replaces only a zero field, so the top bit alone sends 0.
 		"max-repetitions/max-uint32": {root: walkIfDescr, bulk: true, setup: func(x *Client) { x.MaxRepetitions = math.MaxUint32 }},
+		"max-repetitions/top-bit":    {root: walkIfDescr, bulk: true, setup: func(x *Client) { x.MaxRepetitions = 1 << 31 }},
 		"v1-bulk":                    {root: walkSystem, bulk: true, v1: true},
 		// A root the codec cannot encode fails the walk before any request,
 		// naming the root as given.

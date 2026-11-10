@@ -425,8 +425,10 @@ func (c *closeErrConn) Close() error {
 }
 
 // TestCloseOnce pins that Close closes the connection once, returns its error
-// and leaves no connection, and that a client without one closes cleanly.
+// and leaves no connection, and that a client without one closes cleanly:
+// one whose connection Close already closed, and one that never had any.
 func TestCloseOnce(t *testing.T) {
+	assert.NoError(t, (&Client{}).Close(), "a client that never had a connection")
 	c := &closeErrConn{}
 	x := &Client{Conn: c}
 	assert.ErrorIs(t, x.Close(), errCloseConn)
