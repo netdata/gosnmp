@@ -5,6 +5,7 @@
 package gosnmp
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"math"
@@ -167,6 +168,9 @@ type walkScenario struct {
 	// onFinish, when set, is the OnFinish hook, run after each of the
 	// walk's requests: user code that changes the client during the walk.
 	onFinish func(x *Client, tr *engineTranscript)
+	// context, when set, gives the walk's context; its cancel runs when the
+	// scenario ends.
+	context  func() (context.Context, context.CancelFunc)
 	knownBug string
 }
 
@@ -368,6 +372,28 @@ func walkScenarios() map[string]walkScenario {
 				x.MaxOids = 0
 			},
 		},
+
+		// The walk's context bounds each of its requests, the leaf's Get
+		// included: once it is done, the walk ends with its error and the
+		// values before it.
+		"context/canceled-before": {root: walkSystem, context: canceledContext},
+		"context/canceled-mid-walk": {
+			root: walkSystem, context: canceledAfter(300 * time.Millisecond),
+			script: func(n int, _, _ *Message) bool { return n >= 2 },
+		},
+		"context/canceled-mid-walk/bulk": {
+			root: walkIfDescr, bulk: true, setup: func(x *Client) { x.MaxRepetitions = 1 },
+			context: canceledAfter(300 * time.Millisecond),
+			script:  func(n int, _, _ *Message) bool { return n >= 2 },
+		},
+		"context/deadline-mid-walk": {
+			root: walkSystem, context: withEngineTimeout(1500 * time.Millisecond),
+			script: func(n int, _, _ *Message) bool { return n >= 2 },
+		},
+		"context/canceled-in-leaf-get": {
+			root: ".1.3.6.1.2.1.1.5.0", context: canceledAfter(300 * time.Millisecond),
+			script: func(n int, _, _ *Message) bool { return n >= 2 },
+		},
 	}
 
 	// Every error status the walk names, and one it does not. NoSuchName
@@ -523,6 +549,11 @@ func runWalkScenario(t *testing.T, sc walkScenario) string {
 	}
 	if sc.onFinish != nil {
 		x.OnFinish = func(x *Client) { sc.onFinish(x, tr) }
+	}
+	if sc.context != nil {
+		ctx, cancel := sc.context()
+		defer cancel()
+		x.Context = ctx
 	}
 
 	tr.addf("client: %v root=%q bulk=%t max-repetitions=%d", x.Version, sc.root, sc.bulk, x.MaxRepetitions)

@@ -72,6 +72,37 @@ func getThen(between func(a *fakeV3Agent), second func(x *Client) (*Message, err
 	}
 }
 
+// getWithin runs a Get within the context ctx gives, which bounds that Get
+// only.
+func getWithin(ctx func() (context.Context, context.CancelFunc)) func(x *Client) (*Message, error) {
+	return func(x *Client) (*Message, error) {
+		c, cancel := ctx()
+		defer cancel()
+		x.Context = c
+		defer func() { x.Context = context.Background() }()
+		return x.Get([]string{engineOID})
+	}
+}
+
+// getWithinV3 is getWithin as a scenario's run.
+func getWithinV3(ctx func() (context.Context, context.CancelFunc)) func(x *Client, _ *fakeV3Agent) (*Message, error) {
+	get := getWithin(ctx)
+	return func(x *Client, _ *fakeV3Agent) (*Message, error) { return get(x) }
+}
+
+// rebootSilentAfterResync reboots the agent, which then answers a request
+// with the old boots with its notInTimeWindow Report and leaves the
+// resynchronized one unanswered.
+func rebootSilentAfterResync(a *fakeV3Agent) {
+	a.reboot()
+	a.script = func(_ int, req agentRequest) (agentAnswer, bool) {
+		if req.boots == a.boots {
+			return agentAnswer{drop: true, why: "silent after the resynchronization"}, true
+		}
+		return agentAnswer{}, false
+	}
+}
+
 // changeThenGet runs a Get, then change, which the transcript names as what,
 // on the client 10 s later, then a second Get, whose result it returns.
 func changeThenGet(what string, change func(x *Client)) func(x *Client, a *fakeV3Agent) (*Message, error) {
@@ -438,6 +469,42 @@ func v3Scenarios() map[string]v3Scenario {
 		"discovery/no-answer": {user: "codec-md5", script: func(int, agentRequest) (agentAnswer, bool) {
 			return agentAnswer{drop: true, why: "silent agent"}, true
 		}},
+		// A request's context ends it with its error and no message, never
+		// marked answered, also after an answered discovery or resync Report.
+		"context/canceled-in-discovery": {
+			user: "codec-md5", run: getWithinV3(canceledAfter(300 * time.Millisecond)),
+			script: func(int, agentRequest) (agentAnswer, bool) {
+				return agentAnswer{drop: true, why: "silent agent"}, true
+			},
+		},
+		"context/canceled-after-discovery": {
+			user: "codec-md5", run: getWithinV3(canceledAfter(300 * time.Millisecond)),
+			script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				return agentAnswer{drop: true, why: "silent after discovery"}, n > 1
+			},
+		},
+		"context/deadline-after-discovery": {
+			user: "codec-md5", run: getWithinV3(withEngineTimeout(1500 * time.Millisecond)),
+			script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				return agentAnswer{drop: true, why: "silent after discovery"}, n > 1
+			},
+		},
+		"context/deadline-after-resync-report": {
+			user: "codec-md5",
+			run:  getThen(rebootSilentAfterResync, getWithin(withEngineTimeout(1500*time.Millisecond))),
+		},
+		"context/canceled-after-lent-resync": {
+			user: "codec-noauth", run: getWithinV3(canceledAfter(300 * time.Millisecond)),
+			script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				switch {
+				case n == 2:
+					return agentAnswer{report: usmStatsUnknownEngineIDs, why: "unknown engine ID, from the other engine", edit: fromOtherEngine}, true
+				case n > 2:
+					return agentAnswer{drop: true, why: "silent after the Report"}, true
+				}
+				return agentAnswer{}, false
+			},
+		},
 		"discovery/other-report": {user: "codec-md5", script: onRequest(1, agentAnswer{
 			report: usmStatsUnsupportedSecLevels, why: "answers discovery with another Report",
 		})},
@@ -517,17 +584,7 @@ func v3Scenarios() map[string]v3Scenario {
 				return agentAnswer{report: usmStatsNotInTimeWindows, why: "not in time window, unauthenticated"}, true
 			}
 		})},
-		"reboot/retransmit-unanswered": {
-			user: "codec-md5", run: getTwice(func(a *fakeV3Agent) {
-				a.reboot()
-				a.script = func(_ int, req agentRequest) (agentAnswer, bool) {
-					if req.boots == a.boots {
-						return agentAnswer{drop: true, why: "silent after the resynchronization"}, true
-					}
-					return agentAnswer{}, false
-				}
-			}),
-		},
+		"reboot/retransmit-unanswered": {user: "codec-md5", run: getTwice(rebootSilentAfterResync)},
 
 		// Reports without authentication to an authenticated request: from
 		// agents that send notInTimeWindow so, and ones that must not be

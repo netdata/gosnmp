@@ -242,6 +242,13 @@ func withEngineTimeout(d time.Duration) func() (context.Context, context.CancelF
 	}
 }
 
+// canceledContext gives a context canceled before the request starts.
+func canceledContext() (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	return ctx, cancel
+}
+
 // canceledAfter gives a context canceled after d. A cancellation at the
 // instant an attempt's deadline passes races the read's timeout, so scenarios
 // cancel between attempt boundaries.
@@ -562,11 +569,7 @@ func engineScenarios() map[string]engineScenario {
 		}},
 
 		// Context.
-		"context/canceled-before": {agent: answer(sysDescr), context: func() (context.Context, context.CancelFunc) {
-			ctx, cancel := context.WithCancel(context.Background())
-			cancel()
-			return ctx, cancel
-		}},
+		"context/canceled-before": {agent: answer(sysDescr), context: canceledContext},
 		"context/canceled-with-cause-before": {agent: answer(sysDescr), context: func() (context.Context, context.CancelFunc) {
 			ctx, cancel := context.WithCancelCause(context.Background())
 			cancel(errEngineCause)
