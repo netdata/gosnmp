@@ -1507,8 +1507,8 @@ func v3Scenarios() map[string]v3Scenario {
 			}),
 		},
 		// Every attempt answered outside the time window: the request ends
-		// with an error that matches ErrNotInTimeWindow, without OnFinish,
-		// and the client drops its engine time.
+		// with an error that matches ErrNotInTimeWindow and the client drops
+		// its engine time.
 		"time-window/older-boots-every-attempt": {
 			user: "codec-md5", run: getTwice(nil), script: func(n int, _ agentRequest) (agentAnswer, bool) {
 				return agentAnswer{level: AuthNoPriv, why: "Response with lower engine boots", edit: olderBoots}, n > 2
@@ -1812,7 +1812,7 @@ func runV3Polls(t *testing.T, setup func(a *fakeV3Agent)) string {
 		return replies
 	})
 	creds := agentCreds["codec-md5"]
-	x := newEngineClientFrom(t, nil, fakePacketTransport{c}, &Client{
+	x := newEngineClientFrom(t, fakePacketTransport{c}, &Client{
 		Version:       Version3,
 		SecurityLevel: AuthNoPriv,
 		User:          creds.user("codec-md5"),
@@ -1888,7 +1888,7 @@ func runV3Scenario(t *testing.T, sc v3Scenario) string {
 	if sc.setup != nil {
 		sc.setup(x)
 	}
-	x = newEngineClientFrom(t, tr, fakePacketTransport{c}, x)
+	x = newEngineClientFrom(t, fakePacketTransport{c}, x)
 	run := sc.run
 	if run == nil {
 		run = func(x *Client, _ *fakeV3Agent) (*Message, error) {
@@ -1946,7 +1946,7 @@ func BenchmarkGetV3(b *testing.B) {
 	agent := newFakeV3Agent(nil, agentCreds, sysDescr)
 	c := newFakeTransport(nil, agent.handle)
 	creds := agentCreds["codec-md5"]
-	x := newEngineClientFrom(b, nil, fakePacketTransport{c}, &Client{
+	x := newEngineClientFrom(b, fakePacketTransport{c}, &Client{
 		Version:       Version3,
 		SecurityLevel: AuthNoPriv,
 		User:          creds.user("codec-md5"),

@@ -31,7 +31,7 @@ import (
 // scenario takes no real time. The agent answers inside Write, and Read waits
 // on the bubble's clock for the next reply or the deadline, or until another
 // goroutine sets a deadline or closes the connection. A transcript records
-// every write, deadline, read and hook call with the time since the scenario
+// every write, deadline, read and close with the time since the scenario
 // started, and the agent's replies when it schedules them.
 
 // engineTranscript is the ordered record of one engine scenario, safe for
@@ -373,9 +373,9 @@ func transportOf(tb testing.TB, x *Client) *fakeTransport {
 
 // newEngineClient returns a v1/v2c client on conn with a 1 s timeout and 2
 // retries, completed by newEngineClientFrom.
-func newEngineClient(tb testing.TB, tr *engineTranscript, version Version, conn net.Conn) *Client {
+func newEngineClient(tb testing.TB, version Version, conn net.Conn) *Client {
 	tb.Helper()
-	return newEngineClientFrom(tb, tr, conn, &Client{
+	return newEngineClientFrom(tb, conn, &Client{
 		Version:   version,
 		Community: "public",
 		Timeout:   time.Second,
@@ -385,8 +385,8 @@ func newEngineClient(tb testing.TB, tr *engineTranscript, version Version, conn 
 
 // newEngineClientFrom completes x on conn as Connect would leave it, with
 // request IDs starting after 1000, message IDs after 2000 and the next salt
-// 0x101, and with hooks that record their calls in tr.
-func newEngineClientFrom(tb testing.TB, tr *engineTranscript, conn net.Conn, x *Client) *Client {
+// 0x101.
+func newEngineClientFrom(tb testing.TB, conn net.Conn, x *Client) *Client {
 	tb.Helper()
 	if err := x.prepare(); err != nil {
 		tb.Fatal(err)
@@ -396,26 +396,18 @@ func newEngineClientFrom(tb testing.TB, tr *engineTranscript, conn net.Conn, x *
 	x.rx = new(receiveBuffer)
 	x.SetRequestID(1000)
 	x.SetMsgID(2000)
-	if tr != nil {
-		x.PreSend = func(*Client) { tr.addf("hook PreSend") }
-		x.OnSent = func(*Client) { tr.addf("hook OnSent") }
-		x.OnRecv = func(*Client) { tr.addf("hook OnRecv") }
-		x.OnRetry = func(*Client) { tr.addf("hook OnRetry") }
-		x.OnFinish = func(*Client) { tr.addf("hook OnFinish") }
-	}
 	return x
 }
 
 // configOf returns the client's configuration a request must not write: its
-// exported fields, the SNMPv3 User included, but for the hooks (user code) and
-// Conn (the connection).
+// exported fields, the SNMPv3 User included, but for Conn (the connection).
 func configOf(x *Client) map[string]any {
 	v := reflect.ValueOf(x).Elem()
 	cfg := make(map[string]any)
 	for i := range v.NumField() {
 		f := v.Type().Field(i)
 		switch {
-		case !f.IsExported(), f.Type.Kind() == reflect.Func, f.Name == "Conn":
+		case !f.IsExported(), f.Name == "Conn":
 			continue
 		}
 		cfg[f.Name] = v.Field(i).Interface()
@@ -424,7 +416,7 @@ func configOf(x *Client) map[string]any {
 }
 
 // addConfigChanges records the configuration fields whose values changed
-// from before to the client's current ones: a test's hooks may change them,
+// from before to the client's current ones: a test's code may change them,
 // the library may not.
 func (tr *engineTranscript) addConfigChanges(before map[string]any, x *Client) {
 	after := configOf(x)

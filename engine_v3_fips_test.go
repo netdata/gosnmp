@@ -93,7 +93,7 @@ func TestEngineV3FIPS140OnlyDiscoveryPreflight(t *testing.T) {
 			if tc.priv > NoPriv {
 				flags = AuthPriv
 			}
-			x := newEngineClientFrom(t, tr, fakePacketTransport{c}, &Client{
+			x := newEngineClientFrom(t, fakePacketTransport{c}, &Client{
 				Version: Version3, SecurityLevel: flags,
 				User: user, ContextName: "codec-context", Timeout: time.Second, Retries: 2,
 			})

@@ -21,7 +21,7 @@ import (
 // error), and with requestPanicked's error for one that panics. A nil ctx
 // fails the request before it starts. The library prevents panics of its
 // own: the recover is for the caller's code the request runs on its
-// goroutine (a hook, the methods of a Conn or context it calls) and for bugs,
+// goroutine (the methods of a Conn or context it calls) and for bugs,
 // which would otherwise end the process of a caller that runs requests on a
 // goroutine without a recover. A flag, not recover's value, tells that the
 // request panicked: under GODEBUG=panicnil=1, recover returns nil for
@@ -128,16 +128,15 @@ func resyncKindOf(result *Message) reportKind {
 }
 
 // requestConfig is the client's configuration as a request reads it, once, at
-// its start, with the request's context: a change a hook makes to the client
-// applies from the next request. The packet carries the rest (version,
-// security level, user name, context name), and the SNMPv3 engine state takes
-// the user at the same time (startEngine). Not part of it: the connection,
-// which each attempt takes from the client (connection).
+// its start, with the request's context: a change the caller makes to the
+// client during the request applies from the next one. The packet carries the
+// rest (version, security level, user name, context name), and the SNMPv3
+// engine state takes the user at the same time (startEngine). Not part of it:
+// the connection, which each attempt takes from the client (connection).
 type requestConfig struct {
-	ctx                                        context.Context
-	timeout                                    time.Duration
-	retries                                    int
-	preSend, onSent, onRecv, onRetry, onFinish func(*Client)
+	ctx     context.Context
+	timeout time.Duration
+	retries int
 }
 
 // prepareRequest reads the request configuration, with ctx and no negative
@@ -148,14 +147,9 @@ func (x *Client) prepareRequest(ctx context.Context) requestConfig {
 		x.rx = new(receiveBuffer)
 	}
 	return requestConfig{
-		ctx:      ctx,
-		timeout:  x.Timeout,
-		retries:  max(x.Retries, 0),
-		preSend:  x.PreSend,
-		onSent:   x.OnSent,
-		onRecv:   x.OnRecv,
-		onRetry:  x.OnRetry,
-		onFinish: x.OnFinish,
+		ctx:     ctx,
+		timeout: x.Timeout,
+		retries: max(x.Retries, 0),
 	}
 }
 
@@ -303,7 +297,7 @@ type sentIDs struct {
 // discovery is set, an SNMPv3 one with the engine boots and time of sec's clock
 // and its keys, and returns the reply that answers it, and whether the reply's
 // engine parameters were committed into the engine state, retrying up to
-// cfg.retries times. OnFinish runs when it succeeds. Once Close closed the
+// cfg.retries times. Once Close closed the
 // client, an attempt that ends without a reply ends the request with
 // net.ErrClosed, whatever else ended it. An exchange that ends without an
 // answer goes through unanswered.
@@ -324,18 +318,12 @@ func (x *Client) sendOneRequest(cfg *requestConfig, packetOut *Message, discover
 			if out.kind != attemptReply {
 				out.err = e.unanswered(out.err)
 			}
-			if out.err == nil && cfg.onFinish != nil {
-				cfg.onFinish(x)
-			}
 			return out.packet, out.committed, out.err
 		}
 		// A retryable attempt has stamped the packet with its IDs.
 		earlier = append(earlier, sentIDs{packetOut.RequestID, packetOut.MsgID})
 		if err := e.endErr(n, out); err != nil {
 			return nil, false, e.unanswered(err)
-		}
-		if cfg.onRetry != nil {
-			cfg.onRetry(x)
 		}
 	}
 }
@@ -406,7 +394,7 @@ func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
 	}
 	// Close and the context interrupt the attempt from here on, after its
 	// deadline: an interrupt before it would be undone by it. A Close before
-	// that closed the attempt's connection: no hook has replaced Conn yet.
+	// that closed the attempt's connection, which Conn still held.
 	defer x.interruptible(e.cfg.ctx, conn).end()
 
 	e.packet.RequestID = x.nextRequestID()
@@ -417,14 +405,8 @@ func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
 		return attemptOutcome{kind: attemptFailed, err: err}
 	}
 
-	if e.cfg.preSend != nil {
-		e.cfg.preSend(x)
-	}
 	if _, err = conn.Write(outBuf); err != nil {
 		return ioFailure(err)
-	}
-	if e.cfg.onSent != nil {
-		e.cfg.onSent(x)
 	}
 	return e.await(conn, earlier)
 }
@@ -470,9 +452,6 @@ func (e *exchange) await(conn net.Conn, earlier []sentIDs) attemptOutcome {
 		resp, err := receive(conn, x.rx)
 		if err != nil {
 			return ioFailure(err)
-		}
-		if e.cfg.onRecv != nil {
-			e.cfg.onRecv(x)
 		}
 
 		reply, verified, err := e.decode(resp, earlier)

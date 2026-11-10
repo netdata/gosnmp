@@ -43,7 +43,7 @@ a `netip.Addr`, ...), read through its accessor (`Int32`, `Uint32`, `IP`, ...) a
 (`IntegerValue`, `Counter32Value`, ...); `String` prints it as `%v` printed the untyped value.
 
 The [package documentation](https://pkg.go.dev/github.com/netdata/gosnmp) describes request attempts and timeouts,
-hooks, SNMPv3 engine discovery and Reports, the Go type of each value type, and how messages are decoded.
+SNMPv3 engine discovery and Reports, the Go type of each value type, and how messages are decoded.
 
 # Installation
 
@@ -113,7 +113,7 @@ Run against an agent, it prints, for example:
 
 More examples, each a program under `examples/`:
 
-* `example2` - hooks that time each request
+* `example2` - the target from the environment, and the time a request takes
 * `example3` - SNMPv3 at authPriv
 * `walkexample` - BulkWalkAll
 * `Hex-String` - OctetString values that are not text, printed octet by octet in decimal

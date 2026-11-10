@@ -142,7 +142,7 @@ func (x *Client) startEngine() error {
 // engine: its engine ID, the keys localized to it, its engine boots and time
 // and the context engine ID taken from it. The next request starts from the
 // configuration and discovers the engine again (RFC 3414 section 4); a request
-// that is running, the one a hook runs in included, keeps the state it has.
+// that is running keeps the state it has.
 // Call it when a request fails with an error that matches ErrUnknownEngineID:
 // the agent's engine ID changed (a replaced device), or a forged answer to the
 // discovery gave the client another engine's. Like the configuration, it is

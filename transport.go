@@ -42,7 +42,7 @@ func (x *Client) Connect(ctx context.Context) error {
 }
 
 // Close closes the client's connection, the one Conn holds, and interrupts the
-// running attempt, whatever connection it uses (a hook may have replaced
+// running attempt, whatever connection it uses (the caller may have replaced
 // Conn). Any goroutine may call it, also while a request runs, which it ends:
 // once Close has run, a request whose attempt ends without a reply fails with
 // an error wrapping net.ErrClosed, as do later requests until Connect opens a

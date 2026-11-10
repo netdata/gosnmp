@@ -139,21 +139,7 @@ func panicWithError() { panic(errCallerFailure) }
 // panicOnNilMap panics with a runtime error: an assignment to a nil map.
 func panicOnNilMap() {
 	var m map[string]int
-	m["hook"]++ //nolint:staticcheck // the runtime error is the point
-}
-
-// panicOnce makes the hook *h, which the transcript names name, panic through
-// fail the first time it runs, after doing what it did before.
-func panicOnce(c *fakeTransport, name string, h *func(*Client), fail func()) {
-	next, armed := *h, true
-	*h = func(x *Client) {
-		next(x)
-		if armed {
-			armed = false
-			c.tr.addf("hook %s panics", name)
-			fail()
-		}
-	}
+	m["key"]++ //nolint:staticcheck // the runtime error is the point
 }
 
 // panicsOnce returns a transport function that panics through fail the first
@@ -406,19 +392,6 @@ func engineScenarios() map[string]engineScenario {
 					c.tr.addf("the Conn's write #1 sets Retries to 0")
 					x.Retries = 0
 				}
-			}
-		}},
-		// A hook that changes the client during a request.
-		"hooks/retry-replaces-hooks": {agent: answerFrom(3, sysDescr), setup: func(x *Client, c *fakeTransport) {
-			onRetry := x.OnRetry
-			x.OnRetry = func(x *Client) {
-				onRetry(x)
-				c.tr.addf("hook OnRetry replaces the hooks")
-				replacement := func(name string) func(*Client) {
-					return func(*Client) { c.tr.addf("hook %s, the replacement", name) }
-				}
-				x.PreSend, x.OnSent, x.OnRecv = replacement("PreSend"), replacement("OnSent"), replacement("OnRecv")
-				x.OnRetry, x.OnFinish = replacement("OnRetry"), replacement("OnFinish")
 			}
 		}},
 		"timeout/zero":          {agent: answer(sysDescr), setup: func(x *Client, _ *fakeTransport) { x.Timeout = 0 }},
@@ -831,9 +804,6 @@ func engineScenarios() map[string]engineScenario {
 				panicWithError()
 			})
 		}},
-		"hook-panics/onfinish": {agent: answer(sysDescr), run: getAfterPanic, setup: func(x *Client, c *fakeTransport) {
-			panicOnce(c, "OnFinish", &x.OnFinish, panicWithError)
-		}},
 		"panics/read": {agent: answer(sysDescr), run: getAfterPanic, setup: func(_ *Client, c *fakeTransport) {
 			c.failRead = func(n int) error {
 				if n == 1 {
@@ -850,7 +820,7 @@ func engineScenarios() map[string]engineScenario {
 
 // TestEngineRequestCharacterization pins what the request engine does for
 // v1/v2c requests: the messages it writes, the deadline of each attempt,
-// which replies it accepts, the hooks it calls and what it returns.
+// which replies it accepts and what it returns.
 // testdata/engine/requests.golden holds the transcripts.
 func TestEngineRequestCharacterization(t *testing.T) {
 	scenarios := engineScenarios()
@@ -882,7 +852,7 @@ func runEngineScenario(t *testing.T, sc engineScenario) string {
 	if sc.v1 {
 		version = Version1
 	}
-	x := newEngineClient(t, tr, version, conn)
+	x := newEngineClient(t, version, conn)
 	ctx := context.Background()
 	if sc.context != nil {
 		var cancel context.CancelFunc
@@ -922,7 +892,7 @@ func runEngineScenario(t *testing.T, sc engineScenario) string {
 func TestEngineCancelWhileSettingDeadline(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		c := newFakeTransport(nil, nil) // the agent never answers
-		x := newEngineClient(t, nil, Version2c, fakePacketTransport{c})
+		x := newEngineClient(t, Version2c, fakePacketTransport{c})
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		c.beforeDeadline = func() {
@@ -962,7 +932,7 @@ func (c *countingContext) AfterFunc(func()) func() bool {
 func TestEngineContextInterruptUnregistered(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		c := newFakeTransport(nil, answerFromSecond(sysDescr))
-		x := newEngineClient(t, nil, Version2c, fakePacketTransport{c})
+		x := newEngineClient(t, Version2c, fakePacketTransport{c})
 		ctx := &countingContext{Context: context.Background(), done: make(chan struct{})}
 		_, err := x.Get(ctx, []string{engineOID})
 		require.NoError(t, err)
@@ -978,7 +948,7 @@ func TestEngineLateContextInterrupt(t *testing.T) {
 	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(1))
 	synctest.Test(t, func(t *testing.T) {
 		c := newFakeTransport(nil, nil)
-		x := newEngineClient(t, nil, Version2c, fakePacketTransport{c})
+		x := newEngineClient(t, Version2c, fakePacketTransport{c})
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ended := x.interruptible(ctx, x.Conn)
@@ -1038,7 +1008,7 @@ func TestEngineUncomparableConn(t *testing.T) {
 	}
 }
 
-// TestRequestPanicNil checks that a hook's panic(nil) ends the request with no
+// TestRequestPanicNil checks that a Conn's panic(nil) ends the request with no
 // packet and an error, by default (a *runtime.PanicNilError) and under
 // GODEBUG=panicnil=1, where recover returns nil: for that setting the test
 // runs itself again in a child process.
@@ -1052,7 +1022,7 @@ func TestRequestPanicNil(t *testing.T) {
 		require.Contains(t, string(out), "--- PASS: TestRequestPanicNil", "the child ran the test")
 	}
 	c := newFakeTransport(nil, answer(sysDescr))
-	x := newEngineClient(t, nil, Version2c, fakePacketTransport{c})
+	x := newEngineClient(t, Version2c, fakePacketTransport{c})
 	c.failWrite = func(int) error { panic(nil) } //nolint:govet // the nil panic is the point
 	res, err := x.Get(context.Background(), []string{engineOID})
 	assert.Nil(t, res)
@@ -1103,7 +1073,7 @@ func TestRequestContextPanicCleanup(t *testing.T) {
 			for _, interrupt := range []string{"cancel", "close-replaced-conn"} {
 				t.Run(stage+"/"+value.name+"/"+interrupt, func(t *testing.T) {
 					synctest.Test(t, func(t *testing.T) {
-						x := newEngineClient(t, nil, Version2c, newFakeTransport(nil, nil))
+						x := newEngineClient(t, Version2c, newFakeTransport(nil, nil))
 						x.Timeout, x.Retries = time.Hour, 0
 						panicking := &panicInterruptContext{
 							Context: context.Background(), done: make(chan struct{}),
@@ -1262,7 +1232,7 @@ func BenchmarkSendOneRequest(b *testing.B) {
 	c := newFakeTransport(nil, func(_ int, req []byte) []agentReply {
 		return []agentReply{{data: replyTo(req, nil, VarBind{Name: oid, Value: Counter64Value(3825929753)})}}
 	})
-	x := newEngineClient(b, nil, Version2c, fakePacketTransport{c})
+	x := newEngineClient(b, Version2c, fakePacketTransport{c})
 	pkt := x.NewMessage(GetRequest, []VarBind{{Name: oid, Value: NullValue()}}, 0, 0)
 	cfg := x.prepareRequest(context.Background())
 
@@ -1597,7 +1567,7 @@ func TestExchangeEndErrors(t *testing.T) {
 // transport.
 func BenchmarkGet(b *testing.B) {
 	c := newFakeTransport(nil, answer(sysDescr))
-	x := newEngineClient(b, nil, Version2c, c)
+	x := newEngineClient(b, Version2c, c)
 	b.ReportAllocs()
 	for b.Loop() {
 		if _, err := x.Get(context.Background(), []string{engineOID}); err != nil {

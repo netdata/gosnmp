@@ -33,7 +33,7 @@ func TestEngineV3MaximumBoots(t *testing.T) {
 					tr := newEngineTranscript(t)
 					a := newFakeV3Agent(tr, agentCreds, sysDescr)
 					c := newFakeTransport(tr, a.handle)
-					x := newEngineClientFrom(t, tr, fakePacketTransport{c}, &Client{
+					x := newEngineClientFrom(t, fakePacketTransport{c}, &Client{
 						Version: Version3, SecurityLevel: AuthNoPriv,
 						User: agentUserOf("codec-md5"), Timeout: time.Second, Retries: 1,
 					})
@@ -66,9 +66,8 @@ func TestEngineV3MaximumBoots(t *testing.T) {
 						unauthenticatedTimeWindow(a, nil)
 					}
 
-					finished := 0
-					x.OnFinish = func(x *Client) {
-						finished++
+					// Each attempt's write follows the commits before it.
+					c.afterWrite = func(int) {
 						assert.NotEqual(t, uint32(maxEngineValue), x.engine.clock.boots,
 							"an exhausted clock must never be committed")
 					}
@@ -77,11 +76,6 @@ func TestEngineV3MaximumBoots(t *testing.T) {
 					if wantFailure {
 						assert.ErrorIs(t, err, ErrNotInTimeWindow)
 						assert.Nil(t, result, "a rejected reply must not be returned as an admitted Report or Response")
-						wantFinished := 0
-						if path == "lent-clock-response" {
-							wantFinished = 1 // the unauthenticated Report, before the rejected resend
-						}
-						assert.Equal(t, wantFinished, finished)
 						assert.Zero(t, x.engine.clock.boots)
 						assert.Zero(t, x.engine.clock.latest)
 						assert.False(t, x.engine.clock.known())
@@ -91,11 +85,6 @@ func TestEngineV3MaximumBoots(t *testing.T) {
 						assert.Equal(t, Response, result.PDUType)
 						assert.Equal(t, boots.value, x.engine.clock.boots)
 						assert.Equal(t, fromAuthenticated, x.engine.clock.source)
-						wantFinished := 1
-						if path != "response" {
-							wantFinished = 2 // Report and successful resend
-						}
-						assert.Equal(t, wantFinished, finished)
 					}
 					assert.Equal(t, beforeEngineID, x.engine.engineID)
 					assert.Equal(t, beforeKey, x.engine.keys.auth)
