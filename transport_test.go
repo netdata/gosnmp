@@ -563,10 +563,9 @@ func TestRequestWithoutConnection(t *testing.T) {
 }
 
 // TestCloseDuringRequest checks, on a loopback socket, Close as Netdata's SNMP
-// topology uses it: two goroutines close the client, through the Handler,
-// while a request waits for its answer. The request ends at once with
-// net.ErrClosed, the next one fails the same way without being sent, and
-// Connect opens the client again.
+// topology uses it: two goroutines close the client while a request waits for
+// its answer. The request ends at once with net.ErrClosed, the next one fails
+// the same way without being sent, and Connect opens the client again.
 func TestCloseDuringRequest(t *testing.T) {
 	port, reads := udpAgent(t, func(n int, req []byte) []byte {
 		if n == 1 {
@@ -574,35 +573,30 @@ func TestCloseDuringRequest(t *testing.T) {
 		}
 		return replyTo(req, nil, sysDescr)
 	})
-	h := NewHandler()
-	h.SetTarget("127.0.0.1")
-	h.SetPort(port)
-	h.SetTimeout(10 * time.Second)
-	h.SetRetries(0)
-	require.NoError(t, h.Connect())
-	defer h.Close()
+	x := &Client{Target: "127.0.0.1", Port: port, Community: "public", Version: Version2c, Timeout: 10 * time.Second}
+	require.NoError(t, x.Connect())
+	defer x.Close()
 
-	closers := closeOnRelease(h, 2, func() { <-reads })
+	closers := closeOnRelease(x, 2, func() { <-reads })
 	start := time.Now()
-	_, err := h.Get([]string{engineOID})
+	_, err := x.Get([]string{engineOID})
 	require.ErrorIs(t, err, net.ErrClosed)
 	assert.Less(t, time.Since(start), 5*time.Second, "the request ends before its timeout")
 	closers.Wait()
 
-	_, err = h.Get([]string{engineOID})
+	_, err = x.Get([]string{engineOID})
 	require.ErrorIs(t, err, net.ErrClosed)
 
-	require.NoError(t, h.Connect())
-	res, err := h.Get([]string{engineOID})
+	require.NoError(t, x.Connect())
+	res, err := x.Get([]string{engineOID})
 	require.NoError(t, err)
 	assert.Equal(t, []VarBind{sysDescr}, res.VarBinds)
 	assert.Len(t, reads, 1, "the agent read the request after Connect, not the one after Close")
 }
 
 // TestCloseDuringWalk checks, on a loopback socket, Close as Netdata's SNMP
-// topology uses it during a walk: two goroutines close the client, through the
-// Handler, while the walk waits for an answer. The walk ends at once with
-// net.ErrClosed.
+// topology uses it during a walk: two goroutines close the client while the
+// walk waits for an answer. The walk ends at once with net.ErrClosed.
 func TestCloseDuringWalk(t *testing.T) {
 	const root = ".1.3.6.1.2.1.2.2.1.2"
 	port, reads := udpAgent(t, func(n int, req []byte) []byte {
@@ -620,15 +614,11 @@ func TestCloseDuringWalk(t *testing.T) {
 		}
 		return replyTo(req, nil, VarBind{Name: next, Value: OctetStringValue([]byte("codec"))})
 	})
-	h := NewHandler()
-	h.SetTarget("127.0.0.1")
-	h.SetPort(port)
-	h.SetTimeout(10 * time.Second)
-	h.SetRetries(0)
-	require.NoError(t, h.Connect())
-	defer h.Close()
+	x := &Client{Target: "127.0.0.1", Port: port, Community: "public", Version: Version2c, Timeout: 10 * time.Second}
+	require.NoError(t, x.Connect())
+	defer x.Close()
 
-	closers := closeOnRelease(h, 2, func() {
+	closers := closeOnRelease(x, 2, func() {
 		for n := range reads {
 			if n == 5 {
 				return
@@ -636,7 +626,7 @@ func TestCloseDuringWalk(t *testing.T) {
 		}
 	})
 	start := time.Now()
-	_, err := h.BulkWalkAll(root)
+	_, err := x.BulkWalkAll(root)
 	require.ErrorIs(t, err, net.ErrClosed)
 	assert.Less(t, time.Since(start), 5*time.Second, "the walk ends before its request's timeout")
 	closers.Wait()
@@ -711,9 +701,9 @@ func TestCloseDuringRequestConnReplaced(t *testing.T) {
 	}
 }
 
-// closeOnRelease starts n goroutines that close h once release returns, and
+// closeOnRelease starts n goroutines that close x once release returns, and
 // returns their WaitGroup.
-func closeOnRelease(h Handler, n int, release func()) *sync.WaitGroup {
+func closeOnRelease(x *Client, n int, release func()) *sync.WaitGroup {
 	released := make(chan struct{})
 	go func() {
 		release()
@@ -723,7 +713,7 @@ func closeOnRelease(h Handler, n int, release func()) *sync.WaitGroup {
 	for range n {
 		closers.Go(func() {
 			<-released
-			_ = h.Close()
+			_ = x.Close()
 		})
 	}
 	return &closers
