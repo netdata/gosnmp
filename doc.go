@@ -137,10 +137,10 @@
 // step 6 c sends zeros).
 //
 // A request takes the configuration into the engine state at its start: another
-// User, set since the last request, keeps the engine ID and clock and derives
-// its keys for the engine ID. [Client.ForgetEngine] makes the
-// next request start over and discover the engine again; a request that is
-// running keeps the state it has.
+// User, set since the last request started, keeps the engine ID and clock and
+// derives its keys for the engine ID. [Client.ForgetEngine] makes the next
+// request start over and discover the engine again; a request that is running
+// keeps the state it has.
 //
 // A reply whose msgID names none of the request's attempts is discarded before
 // security processing. A reply then goes through the security processing of RFC

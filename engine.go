@@ -393,7 +393,8 @@ func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
 	}
 	// Close and the context interrupt the attempt from here on, after its
 	// deadline: an interrupt before it would be undone by it. A Close before
-	// that closed the attempt's connection, which Conn still held.
+	// that closed the attempt's connection if Conn still held it; otherwise
+	// the attempt runs until its deadline.
 	defer x.interruptible(e.cfg.ctx, conn).end()
 
 	e.packet.RequestID = x.nextRequestID()

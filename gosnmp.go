@@ -42,9 +42,10 @@ type Client struct {
 	// Conn is a net.PacketConn and with Read otherwise. The client owns the
 	// connection Conn holds: Close and a later Connect close it; a connection
 	// the caller replaces in Conn is the caller's again. Each attempt of a
-	// request uses the connection Conn holds when it starts, which Close
-	// interrupts even after Conn was replaced. Set Conn only while no Close
-	// runs.
+	// request uses the connection Conn holds when it starts: Close interrupts
+	// it once the attempt has set its deadline, whatever Conn holds then, and
+	// before that closes it only if Conn still holds it. Set Conn only while
+	// no Close runs.
 	Conn net.Conn
 
 	// Target is the agent's host name or IP address, which Connect dials.
