@@ -210,11 +210,11 @@ func TestRequestResolvesNoName(t *testing.T) {
 	assert.Equal(t, int32(0), lookups.Load(), "lookups")
 }
 
-// TestRetryUsesConnReplacedByHook checks that each attempt of a request uses
-// the connection Conn holds when it starts: after the first attempt times out
-// on agent A, which never answers, OnRetry sets Conn to a socket connected to
-// agent B, which answers the retry.
-func TestRetryUsesConnReplacedByHook(t *testing.T) {
+// TestRetryUsesConnReplacedDuringRequest checks that each attempt of a request
+// uses the connection Conn holds when it starts: as the first attempt writes
+// to agent A, which never answers, the Conn's code sets Conn to a socket
+// connected to agent B, which answers the retry.
+func TestRetryUsesConnReplacedDuringRequest(t *testing.T) {
 	portA, _ := udpAgent(t, func(int, []byte) []byte { return nil })
 	portB, _ := udpAgent(t, func(_ int, req []byte) []byte { return replyTo(req, nil, sysDescr) })
 	x := &Client{
@@ -222,11 +222,12 @@ func TestRetryUsesConnReplacedByHook(t *testing.T) {
 		Timeout: 200 * time.Millisecond, Retries: 1,
 	}
 	require.NoError(t, x.Connect(context.Background()))
-	first := x.Conn
+	first := &actingConn{UDPConn: x.Conn.(*net.UDPConn)}
+	x.Conn = first
 	defer first.Close()
 	defer x.Close()
-	x.OnRetry = func(x *Client) {
-		x.OnRetry = nil
+	first.afterWrite = func() {
+		first.afterWrite = nil
 		conn, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: int(portB)})
 		require.NoError(t, err)
 		x.Conn = conn
@@ -615,26 +616,26 @@ func TestCloseDuringWalk(t *testing.T) {
 }
 
 // TestCloseDuringRequestConnReplaced checks, on loopback sockets, a Close from
-// another goroutine after a hook removed or replaced Conn during the attempt,
-// with and without a context that can be canceled: the request ends at once
-// with net.ErrClosed. Close closes the connection Conn holds and leaves the
-// one the hook replaced, the caller's again, open.
+// another goroutine after the Conn's code removed or replaced Conn during the
+// attempt, with and without a context that can be canceled: the request ends
+// at once with net.ErrClosed. Close closes the connection Conn holds and
+// leaves the one that was replaced, the caller's again, open.
 func TestCloseDuringRequestConnReplaced(t *testing.T) {
 	type outcome struct {
-		errClosed      bool // the request failed with net.ErrClosed
-		beforeTimeout  bool // the request ended well before its timeout
-		replacedOpen   bool // the connection the hook replaced is open
-		hookConnClosed bool // the connection the hook set is closed
+		errClosed       bool // the request failed with net.ErrClosed
+		beforeTimeout   bool // the request ended well before its timeout
+		replacedOpen    bool // the connection that was replaced is open
+		otherConnClosed bool // the connection set in its place is closed
 	}
 	tests := map[string]struct {
-		hookConn bool // the hook sets another connection; it removes Conn otherwise
-		context  bool // the request has a context that can be canceled
-		want     outcome
+		otherConn bool // the Conn's code sets another connection; it removes Conn otherwise
+		context   bool // the request has a context that can be canceled
+		want      outcome
 	}{
 		"Conn removed":                  {want: outcome{errClosed: true, beforeTimeout: true, replacedOpen: true}},
 		"Conn removed, with a context":  {context: true, want: outcome{errClosed: true, beforeTimeout: true, replacedOpen: true}},
-		"Conn replaced":                 {hookConn: true, want: outcome{true, true, true, true}},
-		"Conn replaced, with a context": {hookConn: true, context: true, want: outcome{true, true, true, true}},
+		"Conn replaced":                 {otherConn: true, want: outcome{true, true, true, true}},
+		"Conn replaced, with a context": {otherConn: true, context: true, want: outcome{true, true, true, true}},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -646,15 +647,16 @@ func TestCloseDuringRequestConnReplaced(t *testing.T) {
 				ctx = t.Context()
 			}
 			require.NoError(t, x.Connect(context.Background()))
-			replaced := x.Conn
+			replaced := &actingConn{UDPConn: x.Conn.(*net.UDPConn)}
+			x.Conn = replaced
 			defer replaced.Close()
 			defer x.Close()
-			var hookConn net.Conn
-			if tc.hookConn {
+			var otherConn net.Conn
+			if tc.otherConn {
 				var err error
-				hookConn, err = net.Dial("udp4", replaced.RemoteAddr().String())
+				otherConn, err = net.Dial("udp4", replaced.RemoteAddr().String())
 				require.NoError(t, err)
-				defer hookConn.Close()
+				defer otherConn.Close()
 			}
 			ready, closed := make(chan struct{}), make(chan struct{})
 			go func() {
@@ -662,9 +664,9 @@ func TestCloseDuringRequestConnReplaced(t *testing.T) {
 				_ = x.Close()
 				close(closed)
 			}()
-			x.OnSent = func(x *Client) {
-				x.OnSent = nil
-				x.Conn = hookConn
+			replaced.afterWrite = func() {
+				replaced.afterWrite = nil
+				x.Conn = otherConn
 				close(ready)
 				<-closed // the attempt reads after Close returned
 			}
@@ -676,12 +678,28 @@ func TestCloseDuringRequestConnReplaced(t *testing.T) {
 				beforeTimeout: time.Since(start) < timeout/2,
 				replacedOpen:  replaced.SetDeadline(time.Time{}) == nil,
 			}
-			if hookConn != nil {
-				got.hookConnClosed = errors.Is(hookConn.SetDeadline(time.Time{}), net.ErrClosed)
+			if otherConn != nil {
+				got.otherConnClosed = errors.Is(otherConn.SetDeadline(time.Time{}), net.ErrClosed)
 			}
 			assert.Equal(t, tc.want, got, "error %v", err)
 		})
 	}
+}
+
+// actingConn is a UDP socket, as Connect opens it, whose Write runs
+// afterWrite once it has written: the Conn's code acting on the client during
+// a request.
+type actingConn struct {
+	*net.UDPConn
+	afterWrite func()
+}
+
+func (c *actingConn) Write(b []byte) (int, error) {
+	n, err := c.UDPConn.Write(b)
+	if c.afterWrite != nil {
+		c.afterWrite()
+	}
+	return n, err
 }
 
 // closeOnRelease starts n goroutines that close x once release returns, and
