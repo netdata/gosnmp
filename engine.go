@@ -297,10 +297,9 @@ type sentIDs struct {
 // discovery is set, an SNMPv3 one with the engine boots and time of sec's clock
 // and its keys, and returns the reply that answers it, and whether the reply's
 // engine parameters were committed into the engine state, retrying up to
-// cfg.retries times. Once Close closed the
-// client, an attempt that ends without a reply ends the request with
-// net.ErrClosed, whatever else ended it. An exchange that ends without an
-// answer goes through unanswered.
+// cfg.retries times. Once Close closed the client, an attempt that ends
+// without a reply ends the request with net.ErrClosed, whatever else ended it.
+// An exchange that ends without an answer goes through unanswered.
 func (x *Client) sendOneRequest(cfg *requestConfig, packetOut *Message, discovery bool, sec attemptSecurity) (*Message, bool, error) {
 	e := exchange{x: x, packet: packetOut, cfg: *cfg, discovery: discovery, sec: sec}
 	// The IDs of the attempts before the current one, in a local array, not a
