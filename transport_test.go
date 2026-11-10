@@ -696,7 +696,7 @@ type actingConn struct {
 
 func (c *actingConn) Write(b []byte) (int, error) {
 	n, err := c.UDPConn.Write(b)
-	if c.afterWrite != nil {
+	if err == nil && c.afterWrite != nil {
 		c.afterWrite()
 	}
 	return n, err
