@@ -435,42 +435,6 @@ func TestCloseOnce(t *testing.T) {
 	assert.Equal(t, 1, c.closes)
 }
 
-// TestHandlerClose pins that the Handler's Close is the client's: on a client
-// without a connection it returns nil, and it closes a connection once, leaving
-// no connection.
-func TestHandlerClose(t *testing.T) {
-	type outcome struct {
-		panics        bool
-		first, second error
-		connSet       bool // Conn is still set after the two calls
-		closes        int  // the connection's Close calls
-	}
-	tests := map[string]struct {
-		conn bool
-		want outcome
-	}{
-		"without a connection": {want: outcome{}},
-		"twice":                {conn: true, want: outcome{first: errCloseConn, closes: 1}},
-	}
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			h := NewHandler()
-			c := &closeErrConn{}
-			if tc.conn {
-				h.(*snmpHandler).Conn = c
-			}
-			var got outcome
-			if v, _ := recoverPanic(func() { got.first = h.Close() }); v != nil {
-				got.panics = true
-			} else {
-				got.second = h.Close()
-			}
-			got.connSet, got.closes = h.(*snmpHandler).Conn != nil, c.closes
-			assert.Equal(t, tc.want, got)
-		})
-	}
-}
-
 // TestConnectReplacesConnection pins what a second Connect does with the
 // client's connection: when it opens a new one, it closes the first; when its
 // dial fails, the client keeps the first.

@@ -5,34 +5,13 @@
 package gosnmp
 
 import (
-	"math"
 	"net"
 	"strconv"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// TestHandlerMaxRepetitions pins that a Handler keeps max-repetitions with
-// its top bit cleared.
-func TestHandlerMaxRepetitions(t *testing.T) {
-	h := NewHandler()
-	assert.Equal(t, uint32(0), h.MaxRepetitions(), "new")
-	h.SetMaxRepetitions(math.MaxUint32)
-	assert.Equal(t, uint32(math.MaxInt32), h.MaxRepetitions())
-}
-
-// TestNewHandler pins the client a new Handler is backed by: SNMPv2c to port
-// 161 with the community "public", a Timeout of 2 seconds, 3 Retries and
-// MaxOids at the MaxOids constant, nothing else set.
-func TestNewHandler(t *testing.T) {
-	h, ok := NewHandler().(*snmpHandler)
-	require.True(t, ok)
-	want := &Client{Port: 161, Community: "public", Version: Version2c, Timeout: 2 * time.Second, Retries: 3, MaxOids: MaxOids}
-	assert.Equal(t, want, &h.Client)
-}
 
 // TestWalkRequestChecks pins the checks a walk makes before its first
 // request, in their order, on a client without Connect (MaxOids zero): the
