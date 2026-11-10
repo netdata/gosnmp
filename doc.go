@@ -35,12 +35,13 @@
 // only: Connect's lookup of Target and its dial, not the connection; each
 // attempt of a request (see Attempts and timeouts); a walk's every request,
 // the Get of a leaf root included. A request that its context ends returns no
-// message and the context's error, [context.Canceled] or
-// [context.DeadlineExceeded], which does not match [ErrAnswered], also after
-// an answered discovery or resync Report (see SNMPv3); a walk returns the
-// values before it with that error. Once Close has run, the error wraps
-// [net.ErrClosed] instead (see Concurrency). A nil context fails the call with
-// an error before it sends or dials anything.
+// message and an error that matches the context's error, [context.Canceled],
+// or [context.DeadlineExceeded] at its deadline (see Attempts and timeouts),
+// and does not match [ErrAnswered], also after an answered discovery or resync
+// Report (see SNMPv3); a walk returns the values before it with that error.
+// Once Close has run, the error wraps [net.ErrClosed] instead (see
+// Concurrency). A nil context fails the call with an error before it sends or
+// dials anything.
 //
 // # Concurrency
 //

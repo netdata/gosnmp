@@ -559,6 +559,13 @@ func engineScenarios() map[string]engineScenario {
 			cancel(errEngineCause)
 			return ctx, func() { cancel(nil) }
 		}},
+		// A context canceled with a cause during an attempt ends the request
+		// with context.Canceled too, not the cause.
+		"context/canceled-with-cause-while-waiting": {context: func() (context.Context, context.CancelFunc) {
+			ctx, cancel := context.WithCancelCause(context.Background())
+			time.AfterFunc(300*time.Millisecond, func() { cancel(errEngineCause) })
+			return ctx, func() { cancel(nil) }
+		}},
 		"context/deadline-equal-to-timeout": {
 			context: withEngineTimeout(time.Second),
 			setup:   func(x *Client, _ *fakeTransport) { x.Retries = 0 },
