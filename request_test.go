@@ -17,15 +17,17 @@ import (
 // TestWalkRequestChecks pins the checks a walk makes before its first
 // request, in their order, on a client without Connect (MaxOids zero unless
 // set): the root, then GetBulk on SNMPv1, then MaxOids against the one OID a
-// request carries, then a nil context.
+// request carries, then a nil context. A max-repetitions with its top bit set
+// changes none of them.
 func TestWalkRequestChecks(t *testing.T) {
 	tests := map[string]struct {
-		version    Version
-		bulk       bool
-		root       string
-		maxOids    int
-		nilContext bool
-		wantErr    string
+		version        Version
+		bulk           bool
+		root           string
+		maxOids        int
+		maxRepetitions uint32
+		nilContext     bool
+		wantErr        string
 	}{
 		"root before SNMPv1": {
 			version: Version1, bulk: true, root: "1.3.6.x", wantErr: `unable to marshal OID "1.3.6.x": invalid object identifier`,
@@ -40,10 +42,25 @@ func TestWalkRequestChecks(t *testing.T) {
 		"nil context, GetBulk": {
 			version: Version2c, bulk: true, root: walkSystem, maxOids: 1, nilContext: true, wantErr: "nil context",
 		},
+		"max-repetitions 2^31, root": {
+			version: Version2c, bulk: true, root: "1.3.6.x", maxRepetitions: 1 << 31,
+			wantErr: `unable to marshal OID "1.3.6.x": invalid object identifier`,
+		},
+		"max-repetitions 2^31, SNMPv1": {
+			version: Version1, bulk: true, root: walkSystem, maxRepetitions: 1 << 31, wantErr: "GETBULK not supported in SNMPv1",
+		},
+		"max-repetitions 2^31, MaxOids": {
+			version: Version2c, bulk: true, root: walkSystem, maxRepetitions: 1 << 31,
+			wantErr: "oid count (1) is greater than MaxOids (0)",
+		},
+		"max-repetitions 2^31, nil context": {
+			version: Version2c, bulk: true, root: walkSystem, maxOids: 1, maxRepetitions: 1 << 31, nilContext: true,
+			wantErr: "nil context",
+		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			x := &Client{Version: tc.version, MaxOids: tc.maxOids}
+			x := &Client{Version: tc.version, MaxOids: tc.maxOids, MaxRepetitions: tc.maxRepetitions}
 			walk := x.WalkAll
 			if tc.bulk {
 				walk = x.BulkWalkAll

@@ -218,6 +218,8 @@ func walkScenarios() map[string]walkScenario {
 		"empty-subtree/bulk":    {root: ".1.3.6.1.2.1.1.4", bulk: true},
 		"max-repetitions/two":   {root: walkIfDescr, bulk: true, setup: func(x *Client) { x.MaxRepetitions = 2 }},
 		"max-repetitions/one":   {root: walkSystem, bulk: true, setup: func(x *Client) { x.MaxRepetitions = 1 }},
+		// The largest value RFC 3416 allows is sent as given.
+		"max-repetitions/max-int32": {root: walkIfDescr, bulk: true, setup: func(x *Client) { x.MaxRepetitions = math.MaxInt32 }},
 		// The request carries max-repetitions with its top bit cleared; the
 		// default replaces only a zero field, so the top bit alone sends 0.
 		"max-repetitions/max-uint32": {root: walkIfDescr, bulk: true, setup: func(x *Client) { x.MaxRepetitions = math.MaxUint32 }},
