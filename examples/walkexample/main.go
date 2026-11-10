@@ -56,7 +56,10 @@ func main() {
 	}
 	defer client.Close()
 
-	values, err := client.BulkWalkAll(ctx, oid)
+	// maxRepetitions is how many objects each GETBULK request asks for: net-snmp
+	// snmpbulkwalk's default; 0 asks for the library's, 50.
+	const maxRepetitions = 10
+	values, err := client.BulkWalkAll(ctx, oid, maxRepetitions)
 	for _, vb := range values {
 		printValue(vb)
 	}

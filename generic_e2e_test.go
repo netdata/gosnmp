@@ -15,7 +15,9 @@ package gosnmp
 
 import (
 	"context"
+	"math"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -177,12 +179,45 @@ func TestGenericBulkWalk(t *testing.T) {
 	connectToTarget(t, gs)
 	defer gs.Conn.Close()
 
-	result, err := gs.BulkWalkAll(context.Background(), "")
+	result, err := gs.BulkWalkAll(context.Background(), "", 0)
 	if err != nil {
 		t.Fatalf("BulkWalkAll() Failed with error => %v", err)
 	}
 	if len(result) <= 1 {
 		t.Fatalf("Expected multiple values, got %d", len(result))
+	}
+}
+
+// TestGenericBulkWalkMaxRepetitions walks the system group with the default,
+// the smallest and the largest max-repetitions: the agent returns the same
+// objects for each.
+func TestGenericBulkWalkMaxRepetitions(t *testing.T) {
+	gs := newTestClient()
+	connectToTarget(t, gs)
+	defer gs.Conn.Close()
+
+	walkNames := func(t *testing.T, maxRepetitions uint32) []string {
+		t.Helper()
+		values, err := gs.BulkWalkAll(context.Background(), ".1.3.6.1.2.1.1", maxRepetitions) // SNMP MIB-2 system
+		if err != nil {
+			t.Fatalf("BulkWalkAll() failed with error => %v", err)
+		}
+		names := make([]string, 0, len(values))
+		for _, vb := range values {
+			names = append(names, vb.Name)
+		}
+		return names
+	}
+	want := walkNames(t, 0)
+	if len(want) <= 1 {
+		t.Fatalf("Expected multiple values, got %d", len(want))
+	}
+	for name, maxRepetitions := range map[string]uint32{"one": 1, "max-int32": math.MaxInt32} {
+		t.Run(name, func(t *testing.T) {
+			if got := walkNames(t, maxRepetitions); !slices.Equal(got, want) {
+				t.Errorf("names = %v, want %v", got, want)
+			}
+		})
 	}
 }
 
@@ -193,7 +228,7 @@ func TestV1BulkWalkError(t *testing.T) {
 
 	g.Conn.Close()
 
-	_, err := g.BulkWalkAll(context.Background(), "")
+	_, err := g.BulkWalkAll(context.Background(), "", 0)
 	if err == nil {
 		t.Fatalf("BulkWalkAll() should fail in SNMPv1 but returned nil")
 	}
@@ -303,7 +338,7 @@ func TestSnmpV3Users(t *testing.T) {
 				t.Fatalf("Got a zero length sysDescr")
 			}
 
-			values, err := gs.BulkWalkAll(context.Background(), ".1.3.6.1.2.1.1") // SNMP MIB-2 system
+			values, err := gs.BulkWalkAll(context.Background(), ".1.3.6.1.2.1.1", 0) // SNMP MIB-2 system
 			if err != nil {
 				t.Fatalf("BulkWalkAll() failed with error => %v", err)
 			}

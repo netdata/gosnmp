@@ -16,9 +16,9 @@ import (
 
 // TestWalkRequestChecks pins the checks a walk makes before its first
 // request, in their order, on a client without Connect (MaxOids zero unless
-// set): the root, then GetBulk on SNMPv1, then MaxOids against the one OID a
-// request carries, then a nil context. A max-repetitions with its top bit set
-// changes none of them.
+// set): the root, then BulkWalkAll's max-repetitions against 2147483647, then
+// GetBulk on SNMPv1, then MaxOids against the one OID a request carries, then
+// a nil context.
 func TestWalkRequestChecks(t *testing.T) {
 	tests := map[string]struct {
 		version        Version
@@ -42,28 +42,35 @@ func TestWalkRequestChecks(t *testing.T) {
 		"nil context, GetBulk": {
 			version: Version2c, bulk: true, root: walkSystem, maxOids: 1, nilContext: true, wantErr: "nil context",
 		},
-		"max-repetitions 2^31, root": {
+		"root before max-repetitions": {
 			version: Version2c, bulk: true, root: "1.3.6.x", maxRepetitions: 1 << 31,
 			wantErr: `unable to marshal OID "1.3.6.x": invalid object identifier`,
 		},
-		"max-repetitions 2^31, SNMPv1": {
-			version: Version1, bulk: true, root: walkSystem, maxRepetitions: 1 << 31, wantErr: "GETBULK not supported in SNMPv1",
+		"max-repetitions before SNMPv1": {
+			version: Version1, bulk: true, root: walkSystem, maxRepetitions: 1 << 31,
+			wantErr: "max-repetitions 2147483648 is more than 2147483647",
 		},
-		"max-repetitions 2^31, MaxOids": {
+		"max-repetitions before MaxOids": {
 			version: Version2c, bulk: true, root: walkSystem, maxRepetitions: 1 << 31,
-			wantErr: "oid count (1) is greater than MaxOids (0)",
+			wantErr: "max-repetitions 2147483648 is more than 2147483647",
 		},
-		"max-repetitions 2^31, nil context": {
+		"max-repetitions before the context": {
 			version: Version2c, bulk: true, root: walkSystem, maxOids: 1, maxRepetitions: 1 << 31, nilContext: true,
-			wantErr: "nil context",
+			wantErr: "max-repetitions 2147483648 is more than 2147483647",
+		},
+		"max-repetitions 2^32-1": {
+			version: Version2c, bulk: true, root: walkSystem, maxOids: 1, maxRepetitions: 1<<32 - 1,
+			wantErr: "max-repetitions 4294967295 is more than 2147483647",
 		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			x := &Client{Version: tc.version, MaxOids: tc.maxOids, MaxRepetitions: tc.maxRepetitions}
+			x := &Client{Version: tc.version, MaxOids: tc.maxOids}
 			walk := x.WalkAll
 			if tc.bulk {
-				walk = x.BulkWalkAll
+				walk = func(ctx context.Context, rootOid string) ([]VarBind, error) {
+					return x.BulkWalkAll(ctx, rootOid, tc.maxRepetitions)
+				}
 			}
 			ctx := context.Background()
 			if tc.nilContext {

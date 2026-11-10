@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/netdata/gosnmp/internal/ber"
@@ -36,11 +37,16 @@ import (
 // name of an answer is compared with the requested one); it returns the values
 // before the error with it. ctx bounds the walk, each of its requests and the
 // Get of a leaf root: a done ctx ends the walk with its error and the values
-// before it, and a nil ctx fails it before its first request is sent. Known
-// bugs: an empty answer, or one whose Error is another of TooBig through
-// InconsistentName, ends the walk without an error; another Error is ignored.
-func (x *Client) BulkWalkAll(ctx context.Context, rootOid string) (results []VarBind, err error) {
-	return x.walk(ctx, GetBulkRequest, rootOid)
+// before it, and a nil ctx fails it before its first request is sent.
+// maxRepetitions is the max-repetitions of each GETBULK request, the most
+// objects the agent returns after the one name the request carries: 0 sends
+// 50, and a value above 2147483647, the most RFC 3416 allows, fails the walk
+// before its first request is sent. Some devices fail with large values; see
+// https://github.com/gosnmp/gosnmp/issues/100. Known bugs: an empty answer, or
+// one whose Error is another of TooBig through InconsistentName, ends the walk
+// without an error; another Error is ignored.
+func (x *Client) BulkWalkAll(ctx context.Context, rootOid string, maxRepetitions uint32) (results []VarBind, err error) {
+	return x.walk(ctx, GetBulkRequest, rootOid, maxRepetitions)
 }
 
 // WalkAll walks the subtree under rootOid with GETNEXT requests, one per
@@ -50,25 +56,32 @@ func (x *Client) BulkWalkAll(ctx context.Context, rootOid string) (results []Var
 // its increasing check where WalkAll ends (or, as the first answer, gets
 // rootOid).
 func (x *Client) WalkAll(ctx context.Context, rootOid string) (results []VarBind, err error) {
-	return x.walk(ctx, GetNextRequest, rootOid)
+	return x.walk(ctx, GetNextRequest, rootOid, 0)
 }
 
 // walk returns the values of the subtree under rootOid: it asks the agent for
 // the objects after the root, then after the last name it received, with
 // requestType (GetNext or GetBulk), and collects the objects in the subtree
 // until an answer ends the walk (visit's rule). When that answer shows the
-// root to be a leaf, the walk gets it once (getRoot). Each request runs within
-// ctx. An error ends the walk with the values collected before it.
-func (x *Client) walk(ctx context.Context, requestType PDUType, rootOid string) (results []VarBind, err error) {
+// root to be a leaf, the walk gets it once (getRoot). maxRepetitions is the
+// GetBulk's max-repetitions, zero for the default; it is checked after the
+// root, before the first request. Each request runs within ctx. An error ends
+// the walk with the values collected before it.
+func (x *Client) walk(ctx context.Context, requestType PDUType, rootOid string, maxRepetitions uint32) (results []VarBind, err error) {
 	root, err := walkRoot(rootOid)
 	if err != nil {
 		return nil, err
+	}
+	// RFC 3416 section 3: max-repetitions INTEGER (0..max-bindings), where
+	// max-bindings is 2147483647.
+	if maxRepetitions > math.MaxInt32 {
+		return nil, fmt.Errorf("max-repetitions %d is more than %d", maxRepetitions, math.MaxInt32)
 	}
 	w := walker{
 		x:           x,
 		requestType: requestType,
 		root:        root,
-		maxReps:     cmp.Or(x.MaxRepetitions, defaultMaxRepetitions),
+		maxReps:     cmp.Or(maxRepetitions, defaultMaxRepetitions),
 	}
 
 	oid := w.root
