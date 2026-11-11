@@ -16,15 +16,17 @@ import (
 )
 
 // send runs the request packetOut (request) within ctx and returns its
-// answer, or no message with the error of a request that fails, marked with
-// ErrAnswered when an answer ended it (the message request returns beside its
-// error), and with requestPanicked's error for one that panics. A nil ctx
-// fails the request before it starts. The library prevents panics of its
-// own: the recover is for the caller's code the request runs on its
-// goroutine (the methods of the context it calls) and for bugs, which would
-// otherwise end the process of a caller that runs requests on a goroutine
-// without a recover. A flag, not recover's value, tells that the request
-// panicked: under GODEBUG=panicnil=1, recover returns nil for panic(nil).
+// answer, a Response whose error-status is NoError, or no message with the
+// error of a request that fails: marked with ErrAnswered when an answer ended
+// it (the message request returns beside its error), requestPanicked's error
+// for one that panics, and a *StatusError for a Response with another
+// error-status. A nil ctx fails the request before it starts. The library
+// prevents panics of its own: the recover is for the caller's code the request
+// runs on its goroutine (the methods of the context it calls) and for bugs,
+// which would otherwise end the process of a caller that runs requests on a
+// goroutine without a recover. A flag, not recover's value, tells that the
+// request panicked: under GODEBUG=panicnil=1, recover returns nil for
+// panic(nil).
 //
 // packetOut is a request of the Read Class (RFC 3411 section 2.8.1), a Get,
 // GetNext or GetBulk, as every request the client sends: the SNMPv3 engine
@@ -47,6 +49,9 @@ func (x *Client) send(ctx context.Context, packetOut *Message) (result *Message,
 			err = answered(err)
 		}
 		return nil, err
+	}
+	if result.ErrorStatus != NoError {
+		return nil, &StatusError{Status: result.ErrorStatus, Index: result.ErrorIndex}
 	}
 	return result, nil
 }

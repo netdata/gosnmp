@@ -4,7 +4,10 @@
 
 package gosnmp
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // The categories of the errors of incoming messages. Each error of decoding a
 // message, of its security processing and of matching a reply to a request
@@ -73,8 +76,9 @@ var (
 
 // ErrAnswered marks the error of a request that the agent's answer ended: an
 // SNMPv3 Report that answers it, whose error also matches the category of the
-// Report's counter, or a discovery answer that names no engine ID (an error that
-// also matches ErrUnknownEngineID). It is not a category: the error keeps its
+// Report's counter, a discovery answer that names no engine ID (an error that
+// also matches ErrUnknownEngineID), or a Response whose error-status is not
+// NoError (a *StatusError). It is not a category: the error keeps its
 // own, and its text. The library marks no error of a request that ended
 // without an answer: a timeout or the context's deadline, also after discarded
 // replies, whose category the error then matches; the context, Close, a
@@ -109,3 +113,27 @@ func inCategory(category, err error) error {
 func answered(err error) error {
 	return &categorized{errs: [2]error{err, ErrAnswered}}
 }
+
+// StatusError is the error of a request answered by a Response whose
+// error-status (RFC 3416 section 3) is not NoError: a Get's, and a walk's but
+// for the statuses its end rule takes for an end (see BulkWalkAll). A request
+// that fails with it returns no message. It matches ErrAnswered and no
+// category: the answer is a valid message. errors.As gives the status and the
+// index.
+type StatusError struct {
+	// Status is the error-status the answer carried, a value RFC 3416 does
+	// not name included.
+	Status ErrorStatus
+	// Index is the error-index: the position, from 1, of the varbind the
+	// status is about in the request, 0 for none, as decoded (255 for a
+	// larger one).
+	Index uint8
+}
+
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("the agent answered with error-status %v, error-index %d", e.Status, e.Index)
+}
+
+// Is reports whether target is ErrAnswered: the agent's answer ended the
+// request.
+func (e *StatusError) Is(target error) bool { return target == ErrAnswered }

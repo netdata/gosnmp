@@ -45,11 +45,11 @@ func TestAPIGetMethodSignature(_ *testing.T) {
 }
 
 func TestAPIBulkWalkAllMethodSignature(_ *testing.T) {
-	var f func(context.Context, string, uint32) ([]gosnmp.VarBind, error) = (&gosnmp.Client{}).BulkWalkAll
+	var f func(context.Context, string, uint32) ([]gosnmp.VarBind, gosnmp.WalkEnd, error) = (&gosnmp.Client{}).BulkWalkAll
 	_ = f
 }
 
 func TestAPIWalkAllMethodSignature(_ *testing.T) {
-	var f func(context.Context, string) ([]gosnmp.VarBind, error) = (&gosnmp.Client{}).WalkAll
+	var f func(context.Context, string) ([]gosnmp.VarBind, gosnmp.WalkEnd, error) = (&gosnmp.Client{}).WalkAll
 	_ = f
 }

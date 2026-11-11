@@ -82,7 +82,7 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    read from 127.0.0.2:161: 2c "public" Response id=1001 error=NoSuchName index=1 [.1.3.6.1.2.1.1.1.0]
-0s    result: packet 2c "public" Response id=1001 error=NoSuchName index=1 [.1.3.6.1.2.1.1.1.0], no error
+0s    result: packet nil, error "the agent answered with error-status NoSuchName, error-index 1" *gosnmp.StatusError (is ErrAnswered)
 0s    client after: next request id=1002
 
 == requests/answer/error-status/gen-err
@@ -91,7 +91,7 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    read from 127.0.0.2:161: 2c "public" Response id=1001 error=GenErr index=1 [.1.3.6.1.2.1.1.1.0]
-0s    result: packet 2c "public" Response id=1001 error=GenErr index=1 [.1.3.6.1.2.1.1.1.0], no error
+0s    result: packet nil, error "the agent answered with error-status GenErr, error-index 1" *gosnmp.StatusError (is ErrAnswered)
 0s    client after: next request id=1002
 
 == requests/answer/error-status/index-past
@@ -100,7 +100,7 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    read from 127.0.0.2:161: 2c "public" Response id=1001 error=NoAccess index=5 [.1.3.6.1.2.1.1.1.0]
-0s    result: packet 2c "public" Response id=1001 error=NoAccess index=5 [.1.3.6.1.2.1.1.1.0], no error
+0s    result: packet nil, error "the agent answered with error-status NoAccess, error-index 5" *gosnmp.StatusError (is ErrAnswered)
 0s    client after: next request id=1002
 
 == requests/answer/error-status/too-big
@@ -109,7 +109,7 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    read from 127.0.0.2:161: 2c "public" Response id=1001 error=TooBig index=0 []
-0s    result: packet 2c "public" Response id=1001 error=TooBig index=0 [], no error
+0s    result: packet nil, error "the agent answered with error-status TooBig, error-index 0" *gosnmp.StatusError (is ErrAnswered)
 0s    client after: next request id=1002
 
 == requests/answer/error-status/unknown
@@ -118,7 +118,7 @@
 0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    read from 127.0.0.2:161: 2c "public" Response id=1001 error=ErrorStatus(19) index=1 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
-0s    result: packet 2c "public" Response id=1001 error=ErrorStatus(19) index=1 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"], no error
+0s    result: packet nil, error "the agent answered with error-status ErrorStatus(19), error-index 1" *gosnmp.StatusError (is ErrAnswered)
 0s    client after: next request id=1002
 
 == requests/answer/error-status/v1-no-such-name
@@ -127,7 +127,7 @@
 0s    write #1: 1 "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
 0s    agent answers #1 after 0s
 0s    read from 127.0.0.2:161: 1 "public" Response id=1001 error=NoSuchName index=1 [.1.3.6.1.2.1.1.1.0]
-0s    result: packet 1 "public" Response id=1001 error=NoSuchName index=1 [.1.3.6.1.2.1.1.1.0], no error
+0s    result: packet nil, error "the agent answered with error-status NoSuchName, error-index 1" *gosnmp.StatusError (is ErrAnswered)
 0s    client after: next request id=1002
 
 == requests/answer/first-result-after-second-get

@@ -63,7 +63,7 @@ func main() {
 	// maxRepetitions is how many objects each GETBULK request asks for: net-snmp
 	// snmpbulkwalk's default; 0 asks for the library's, 50.
 	const maxRepetitions = 10
-	values, err := client.BulkWalkAll(ctx, oid, maxRepetitions)
+	values, end, err := client.BulkWalkAll(ctx, oid, maxRepetitions)
 	for _, vb := range values {
 		printValue(vb)
 	}
@@ -71,6 +71,11 @@ func main() {
 		fmt.Printf("Walk Error: %v\n", err)
 		os.Exit(1)
 	}
+	// end says how the walk ended: past the subtree, at an exception value
+	// such as EndOfMibView, or with the Get of a leaf root, whose
+	// NoSuchObject or NoSuchInstance tells a missing object from a missing
+	// instance.
+	fmt.Printf("End of walk: %v %s\n", end.Reason, end.VarBind.Name)
 }
 
 func printValue(vb gosnmp.VarBind) {

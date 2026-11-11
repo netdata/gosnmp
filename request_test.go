@@ -63,7 +63,7 @@ func TestWalkRequestChecks(t *testing.T) {
 			x := mustClient(Config{Version: tc.version, MaxOids: tc.maxOids})
 			walk := x.WalkAll
 			if tc.bulk {
-				walk = func(ctx context.Context, rootOid string) ([]VarBind, error) {
+				walk = func(ctx context.Context, rootOid string) ([]VarBind, WalkEnd, error) {
 					return x.BulkWalkAll(ctx, rootOid, tc.maxRepetitions)
 				}
 			}
@@ -71,9 +71,10 @@ func TestWalkRequestChecks(t *testing.T) {
 			if tc.nilContext {
 				ctx = nil
 			}
-			values, err := walk(ctx, tc.root)
+			values, end, err := walk(ctx, tc.root)
 			assert.EqualError(t, err, tc.wantErr)
 			assert.Empty(t, values)
+			assert.Equal(t, WalkEnd{}, end)
 		})
 	}
 }
