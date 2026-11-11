@@ -11,6 +11,12 @@
 // values it collected before the error, and Receive, whose Report to a rejected
 // message comes with the error (see Notifications).
 //
+// The sections below describe the client first (Lifecycle, Concurrency, Walks,
+// Values, Errors), then the receiver (Notifications), then the protocol rules
+// they follow: how a request is attempted, the SNMPv3 engine and its keys,
+// encoding and decoding, and panics. The examples show a Get and its errors, an
+// SNMPv3 client, a walk, values and a receiver.
+//
 // # Lifecycle
 //
 // [NewClient] makes a [Client] from a [Config]: it checks the configuration,
@@ -444,7 +450,7 @@
 //
 // # Encoding and decoding
 //
-// The encoder also checks the message's fields: SNMPv1, SNMPv2c or SNMPv3; a
+// The encoder checks the message's fields: SNMPv1, SNMPv2c or SNMPv3; a
 // PDU type the package knows; max-repetitions up to 2147483647; an SNMPv1
 // trap's agent address an IPv4 address (an IPv4-mapped one included); for
 // SNMPv3, a msgID up to 2147483647, a MsgMaxSize of 0 or 484..2147483647, one

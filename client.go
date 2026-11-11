@@ -16,10 +16,9 @@ import (
 )
 
 const (
-	// MaxOids is the default of Config.MaxOids, the maximum number of OIDs in
-	// a Get request and in each request of a walk. MaxOids too high can cause
-	// remote devices to fail strangely. 60 seems to be a common value that
-	// works; set Config.MaxOids to change it.
+	// MaxOids is the default of Config.MaxOids, the maximum number of OIDs in a
+	// Get request. MaxOids too high can cause remote devices to fail strangely. 60
+	// seems to be a common value that works; set Config.MaxOids to change it.
 	MaxOids = 60
 
 	// defaultPort and defaultTimeout are the defaults of Config.Port and
@@ -59,8 +58,8 @@ type Config struct {
 	// attempt.
 	Retries int
 
-	// MaxOids is the maximum number of OIDs in a Get request, and in each
-	// request of a walk, which carries one; zero means the MaxOids constant.
+	// MaxOids is the maximum number of OIDs in a Get request; zero means the
+	// MaxOids constant.
 	MaxOids int
 
 	// SecurityLevel is the SNMPv3 security level: NoAuthNoPriv, AuthNoPriv or

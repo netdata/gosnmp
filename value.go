@@ -34,7 +34,8 @@ type ValueType byte
 // The value types: the SMI's (RFC 2578), ASN.1's Null, net-snmp's OpaqueFloat
 // and OpaqueDouble, which it wraps in an Opaque, and the exceptions of RFC 3416
 // (NoSuchObject, NoSuchInstance, EndOfMibView). UnknownType is a value of a
-// type the decoder does not decode, such as ASN.1's BOOLEAN or BIT STRING.
+// type the decoder does not decode, such as ASN.1's BOOLEAN or BIT STRING, or
+// an unsigned value that is empty or too long.
 const (
 	UnknownType      ValueType = 0x00
 	Integer          ValueType = 0x02
@@ -69,9 +70,10 @@ const (
 //   - Null, NoSuchObject, NoSuchInstance, EndOfMibView, UnknownType: none
 //
 // Int64, Uint64 and Float64 also read the narrower types they hold exactly.
-// The zero Value is UnknownType, a value of a type the decoder does not decode,
-// which the encoder refuses. Values are built by the constructor of their type,
-// such as Counter32Value, and every decoded value is one a constructor builds;
+// The zero Value is UnknownType, which the decoder gives a value of a type it
+// does not decode and an unsigned value that is empty or too long, and which
+// the encoder refuses. Values are built by the constructor of their type, such
+// as Counter32Value, and every decoded value is one a constructor builds;
 // octets are held as given, not copied. A Value holds a slice, so it is not
 // comparable with ==: compare the types and the accessors' results.
 type Value struct {
