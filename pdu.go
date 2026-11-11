@@ -294,7 +294,7 @@ func readPayload(packet []byte, cursor int, m *Message) error {
 func readRequestID(packet []byte) (ber.Reader, uint32, error) {
 	pdu, err := readWhole(packet)
 	if err != nil {
-		return ber.Reader{}, 0, fmt.Errorf("error verifying Response sanity: %w", err)
+		return ber.Reader{}, 0, fmt.Errorf("error verifying the PDU's length: %w", err)
 	}
 	r := ber.NewReader(pdu)
 	requestID, err := readInt32(&r)
@@ -380,7 +380,7 @@ func readErrorFields(r *ber.Reader, m *Message) error {
 func unmarshalTrapV1(packet []byte, m *Message) error {
 	pdu, err := readWhole(packet)
 	if err != nil {
-		return fmt.Errorf("error verifying Response sanity: %w", err)
+		return fmt.Errorf("error verifying the PDU's length: %w", err)
 	}
 	r := ber.NewReader(pdu)
 
