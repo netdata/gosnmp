@@ -594,39 +594,48 @@ func BenchmarkWalk(b *testing.B) {
 
 // TestWalkEndedByReport pins that a walk an SNMPv3 Report ends returns the
 // values before it with an error that matches ErrAnswered and the Report's
-// category: the agent answers the discovery and the walk's first request, then
-// rejects the next with a usmStatsUnknownUserNames Report.
+// category, and no end: the agent answers the discovery and the walk's first
+// request, then rejects the next with a usmStatsUnknownUserNames Report, the
+// walk's second request or the Get of a leaf root.
 func TestWalkEndedByReport(t *testing.T) {
-	const root = ".1.3.6.1.2.1.2"
-	first := VarBind{Name: root + ".1.0", Value: IntegerValue(1)}
+	first := VarBind{Name: ".1.3.6.1.2.1.2.1.0", Value: IntegerValue(1)}
+	cases := map[string]struct {
+		root string
+		want []VarBind
+	}{
+		"second-request": {root: ".1.3.6.1.2.1.2", want: []VarBind{first}},
+		"leaf-get":       {root: ".1.3.6.1.2.1.1.5.0"}, // the first answer, first, is outside it
+	}
 	walks := map[string]func(*Client, context.Context, string) ([]VarBind, WalkEnd, error){
 		"WalkAll": (*Client).WalkAll,
 		"BulkWalkAll": func(x *Client, ctx context.Context, rootOid string) ([]VarBind, WalkEnd, error) {
 			return x.BulkWalkAll(ctx, rootOid, 0)
 		},
 	}
-	for name, walk := range walks {
-		t.Run(name, func(t *testing.T) {
-			agent := newFakeV3Agent(nil, agentCreds, first)
-			agent.script = func(n int, _ agentRequest) (agentAnswer, bool) {
-				if n < 3 {
-					return agentAnswer{}, false
+	for name, tc := range cases {
+		for api, walk := range walks {
+			t.Run(name+"/"+api, func(t *testing.T) {
+				agent := newFakeV3Agent(nil, agentCreds, first)
+				agent.script = func(n int, _ agentRequest) (agentAnswer, bool) {
+					if n < 3 {
+						return agentAnswer{}, false
+					}
+					return agentAnswer{report: usmStatsUnknownUserNames, why: "rejects the walk's second request"}, true
 				}
-				return agentAnswer{report: usmStatsUnknownUserNames, why: "rejects the walk's second request"}, true
-			}
-			c := newFakeTransport(nil, agent.handle)
-			x := newEngineClientFrom(t, c, Config{
-				Version:       Version3,
-				SecurityLevel: NoAuthNoPriv,
-				User:          agentCreds["codec-noauth"].user("codec-noauth"),
-				Timeout:       time.Second,
-				Retries:       2,
+				c := newFakeTransport(nil, agent.handle)
+				x := newEngineClientFrom(t, c, Config{
+					Version:       Version3,
+					SecurityLevel: NoAuthNoPriv,
+					User:          agentCreds["codec-noauth"].user("codec-noauth"),
+					Timeout:       time.Second,
+					Retries:       2,
+				})
+				values, end, err := walk(x, context.Background(), tc.root)
+				require.ErrorIs(t, err, ErrAnswered)
+				require.ErrorIs(t, err, ErrUnknownUsername)
+				require.Equal(t, tc.want, values)
+				require.Equal(t, WalkEnd{}, end)
 			})
-			values, end, err := walk(x, context.Background(), root)
-			require.ErrorIs(t, err, ErrAnswered)
-			require.ErrorIs(t, err, ErrUnknownUsername)
-			require.Equal(t, []VarBind{first}, values)
-			require.Equal(t, WalkEnd{}, end)
-		})
+		}
 	}
 }

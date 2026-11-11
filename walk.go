@@ -41,6 +41,10 @@ import (
 // walk fails with too (it also gets rootOid when it printed nothing); and an
 // error for a name in the subtree, rootOid included, that is not after the
 // requested one (each name of an answer is compared with the requested one).
+// It also differs from net-snmp where a failed Get of a leaf rootOid (a
+// timeout, a Report) fails the walk, which net-snmp ignores, and where the
+// walk stops at the first value that ends it, while net-snmp goes on printing
+// the values of the same answer that lie in the subtree.
 // ctx bounds the walk, each of its requests and the Get of a leaf root: a done
 // ctx ends the walk with its error and the values before it, and a nil ctx
 // fails it before its first request is sent. maxRepetitions is the

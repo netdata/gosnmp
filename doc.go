@@ -522,12 +522,12 @@
 // [ErrAnswered] says whether the agent's answer ended a request: the error of
 // a request (a walk's included) that a Report, a discovery answer without an
 // engine ID or a Response with an error-status (a [*StatusError]) ended also
-// matches it, besides the answer's category, while the
-// library marks no error of a request that ended without an answer, a timeout
-// after discarded replies included; errors of the caller's own code (a context
-// it gave, and a panic in one) pass through unchanged. A failed request returns
-// no message, so this is how a caller tells an agent that answered from one
-// that did not.
+// matches it, besides the answer's category when it has one, while the library
+// marks no error of a request that ended without an answer, a timeout after
+// discarded replies included; errors of the caller's own code (a context it
+// gave, and a panic in one) pass through unchanged. A failed request returns no
+// message, so this is how a caller tells an agent that answered from one that
+// did not.
 //
 // The categories are variables only so that errors.Is can match them; do not
 // assign to them. The library makes some of its errors with their values when

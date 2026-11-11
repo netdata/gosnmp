@@ -242,7 +242,8 @@ func TestV1BulkWalkError(t *testing.T) {
 // one, with GETNEXT and GETBULK, and checks how each walk ended: the system
 // group past its last object, a leaf scalar got with one Get, an instance the
 // agent does not have (NoSuchInstance) and an object it does not have
-// (NoSuchObject); and over SNMPv1, the noSuchName of a root past the MIB.
+// (NoSuchObject); and over SNMPv1, the noSuchName that ends the agent's MIB,
+// and a root past it.
 func TestGenericWalkEnd(t *testing.T) {
 	const (
 		system  = ".1.3.6.1.2.1.1"
@@ -265,7 +266,10 @@ func TestGenericWalkEnd(t *testing.T) {
 		"no-such-instance": {version: Version2c, root: ".1.3.6.1.2.1.1.5.1", want: want{reason: WalkLeaf, name: ".1.3.6.1.2.1.1.5.1", typ: NoSuchInstance}},
 		"no-such-object":   {version: Version2c, root: ".1.3.6.1.2.1.1.10", want: want{reason: WalkLeaf, name: ".1.3.6.1.2.1.1.10", typ: NoSuchObject}},
 		"v1/subtree":       {version: Version1, root: system, want: want{reason: WalkOutside, values: -1, outside: true}},
-		"v1/past-the-mib":  {version: Version1, root: ".1.3.6.1.6.3.99", want: want{reason: WalkLeaf}},
+		"v1/whole-mib":     {version: Version1, root: "", want: want{reason: WalkNoSuchName, values: -1}},
+		// A root past the agent's last object: the walk gets it, which the
+		// agent answers with noSuchName.
+		"v1/past-the-mib": {version: Version1, root: ".1.3.6.1.6.3.99", want: want{reason: WalkLeaf}},
 	}
 	for name, tc := range cases {
 		config := testConfig()
