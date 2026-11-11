@@ -435,8 +435,8 @@ func TestConnectReplacesConnection(t *testing.T) {
 
 // TestRequestWithoutConnection pins the result of a request on a client
 // without a connection: no packet, and errNoConn before the first Connect,
-// net.ErrClosed after Close until Connect; an SNMPv3 request does not
-// discover the engine first.
+// net.ErrClosed after Close until Connect; an SNMPv3 request fails so before
+// its engine starts: before the user's checks and the discovery.
 func TestRequestWithoutConnection(t *testing.T) {
 	tests := map[string]struct {
 		v3     bool
@@ -444,6 +444,10 @@ func TestRequestWithoutConnection(t *testing.T) {
 		want   error
 	}{
 		"never connected": {want: errNoConn},
+		// Connect, which would have checked the user, never ran.
+		"SNMPv3 never connected, a user of an unknown protocol": {v3: true, want: errNoConn, before: func(_ *testing.T, x *Client) {
+			x.User.AuthProtocol = 99
+		}},
 		"after Close": {want: errClosed, before: func(t *testing.T, x *Client) {
 			require.NoError(t, x.Connect(context.Background()))
 			require.NoError(t, x.Close())
