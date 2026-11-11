@@ -386,6 +386,24 @@ func walkScenarios() map[string]walkScenario {
 		root: walkSystem, bulk: true, script: onWalkRequest(1, errorStatus(TooBig)),
 		knownBug: "an error status ends the walk with a nil error and the values so far",
 	}
+	// Another error status as a walk's first answer: nothing collected, no
+	// Get of the root.
+	scenarios["error-status/first-answer-gen-err"] = walkScenario{
+		root: walkSystem, script: onWalkRequest(1, errorStatus(GenErr)),
+		knownBug: "an error status ends the walk with a nil error and the values so far",
+	}
+	// tooBig answering a later GetBulk, after values.
+	scenarios["error-status/bulk-too-big-later"] = walkScenario{
+		root: walkIfDescr, bulk: true, maxRepetitions: 1, script: onWalkRequest(2, errorStatus(TooBig)),
+		knownBug: "an error status ends the walk with a nil error and the values so far",
+	}
+	// The leaf's Get answered with tooBig and with noSuchName in SNMPv2c.
+	scenarios["leaf/get-too-big"] = walkScenario{
+		root: ".1.3.6.1.2.1.1.5.0", script: onWalkRequest(2, errorStatus(TooBig)),
+	}
+	scenarios["leaf/get-no-such-name"] = walkScenario{
+		root: ".1.3.6.1.2.1.1.5.0", script: onWalkRequest(2, errorStatus(NoSuchName)),
+	}
 	// NoSuchName as an SNMPv2c walk's first answer, with and without the
 	// request's varbinds: the status is read first, and the walk gets the root.
 	scenarios["error-status/no-such-name-first"] = walkScenario{

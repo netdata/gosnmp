@@ -522,6 +522,30 @@
 0s    result: no error
 0s    known bug: an error status ends the walk with a nil error and the values so far
 
+== walk/error-status/bulk-too-big-later
+0s    client: 2c root=".1.3.6.1.2.1.2.2.1.2" bulk=true max-repetitions=1
+0s    deadline +1s
+0s    write #1: 2c "public" GetBulkRequest id=1001 nonRepeaters=0 maxRepetitions=1 [.1.3.6.1.2.1.2.2.1.2]
+0s    agent answers #1 after 0s
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo"]
+0s    deadline +1s
+0s    write #2: 2c "public" GetBulkRequest id=1002 nonRepeaters=0 maxRepetitions=1 [.1.3.6.1.2.1.2.2.1.2.1]
+0s    agent answers #2 after 0s
+0s    read from 127.0.0.2:161: 2c "public" Response id=1002 error=TooBig index=1 [.1.3.6.1.2.1.2.2.1.2.1]
+0s    values: [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo"]
+0s    result: no error
+0s    known bug: an error status ends the walk with a nil error and the values so far
+
+== walk/error-status/first-answer-gen-err
+0s    client: 2c root=".1.3.6.1.2.1.1" bulk=false max-repetitions=0
+0s    deadline +1s
+0s    write #1: 2c "public" GetNextRequest id=1001 [.1.3.6.1.2.1.1]
+0s    agent answers #1 after 0s
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 error=GenErr index=1 [.1.3.6.1.2.1.1]
+0s    values: []
+0s    result: no error
+0s    known bug: an error status ends the walk with a nil error and the values so far
+
 == walk/error-status/no-such-name-empty-first
 0s    client: 2c root=".1.3.6.1.2.1.1.5.0" bulk=false max-repetitions=0
 0s    deadline +1s
@@ -669,6 +693,19 @@
 0s    values: []
 0s    result: no error
 
+== walk/leaf/get-no-such-name
+0s    client: 2c root=".1.3.6.1.2.1.1.5.0" bulk=false max-repetitions=0
+0s    deadline +1s
+0s    write #1: 2c "public" GetNextRequest id=1001 [.1.3.6.1.2.1.1.5.0]
+0s    agent answers #1 after 0s
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo"]
+0s    deadline +1s
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.5.0]
+0s    agent answers #2 after 0s
+0s    read from 127.0.0.2:161: 2c "public" Response id=1002 error=NoSuchName index=1 [.1.3.6.1.2.1.1.5.0]
+0s    values: []
+0s    result: no error
+
 == walk/leaf/get-other-name-first
 0s    client: 2c root=".1.3.6.1.2.1.1.5.0" bulk=false max-repetitions=0
 0s    deadline +1s
@@ -679,6 +716,19 @@
 0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.5.0]
 0s    agent answers #2 after 0s
 0s    read from 127.0.0.2:161: 2c "public" Response id=1002 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent" .1.3.6.1.2.1.1.5.0=OctetString:"codec-host"]
+0s    values: []
+0s    result: no error
+
+== walk/leaf/get-too-big
+0s    client: 2c root=".1.3.6.1.2.1.1.5.0" bulk=false max-repetitions=0
+0s    deadline +1s
+0s    write #1: 2c "public" GetNextRequest id=1001 [.1.3.6.1.2.1.1.5.0]
+0s    agent answers #1 after 0s
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo"]
+0s    deadline +1s
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.5.0]
+0s    agent answers #2 after 0s
+0s    read from 127.0.0.2:161: 2c "public" Response id=1002 error=TooBig index=1 [.1.3.6.1.2.1.1.5.0]
 0s    values: []
 0s    result: no error
 

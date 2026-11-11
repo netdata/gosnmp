@@ -676,6 +676,11 @@ func v3Scenarios() map[string]v3Scenario {
 		}},
 		// A Report another agent with the same credentials sent, for another
 		// message or with the request's msgID, followed by two Gets.
+		// A Response with an error status, after discovery.
+		"answer/error-status": {user: "codec-sha-aes", script: onRequest(2, agentAnswer{
+			level: AuthPriv, why: "answers the request with noAccess",
+			edit: func(p *agentOut) { p.ErrorStatus, p.ErrorIndex = NoAccess, 1 },
+		})},
 		"answer/other-agent-report/other-message": {user: "codec-md5", run: getThrice(nil), script: onRequest(2, agentAnswer{
 			report: snmpUnknownContexts, level: AuthNoPriv, why: "signed by another agent with the same credentials, for another message",
 			edit: func(p *agentOut) {
