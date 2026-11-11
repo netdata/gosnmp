@@ -21,11 +21,10 @@ import (
 // error), and with requestPanicked's error for one that panics. A nil ctx
 // fails the request before it starts. The library prevents panics of its
 // own: the recover is for the caller's code the request runs on its
-// goroutine (the methods of a Conn or context it calls) and for bugs,
-// which would otherwise end the process of a caller that runs requests on a
-// goroutine without a recover. A flag, not recover's value, tells that the
-// request panicked: under GODEBUG=panicnil=1, recover returns nil for
-// panic(nil).
+// goroutine (the methods of the context it calls) and for bugs, which would
+// otherwise end the process of a caller that runs requests on a goroutine
+// without a recover. A flag, not recover's value, tells that the request
+// panicked: under GODEBUG=panicnil=1, recover returns nil for panic(nil).
 //
 // packetOut is a request of the Read Class (RFC 3411 section 2.8.1), a Get,
 // GetNext or GetBulk, as every request the client sends: the SNMPv3 engine
@@ -140,8 +139,7 @@ type requestConfig struct {
 }
 
 // prepareRequest reads the request configuration, with ctx and no negative
-// retries, and allocates the receive buffer the first time: a client given a
-// Conn without Connect works too.
+// retries, and allocates the receive buffer at the client's first request.
 func (x *Client) prepareRequest(ctx context.Context) requestConfig {
 	if x.rx == nil {
 		x.rx = new(receiveBuffer)
@@ -393,8 +391,7 @@ func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
 	}
 	// Close and the context interrupt the attempt from here on, after its
 	// deadline: an interrupt before it would be undone by it. A Close before
-	// that closed the attempt's connection if Conn still held it; otherwise
-	// the attempt runs until its deadline.
+	// that closed the attempt's connection, on which the attempt fails.
 	defer x.interruptible(e.cfg.ctx, conn).end()
 
 	e.packet.RequestID = x.nextRequestID()
@@ -446,7 +443,7 @@ func (e *exchange) encode() ([]byte, error) {
 // not decode or authenticate (decode), does not answer the request (answers)
 // or that the commit rejects is discarded, its reason recorded (discard), and
 // the read goes on until the attempt's deadline (RFC 3412 section 7.2).
-func (e *exchange) await(conn net.Conn, earlier []sentIDs) attemptOutcome {
+func (e *exchange) await(conn transport, earlier []sentIDs) attemptOutcome {
 	x := e.x
 	for {
 		resp, err := receive(conn, x.rx)

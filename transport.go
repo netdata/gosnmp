@@ -14,12 +14,13 @@ import (
 )
 
 // Connect readies the client and opens its connection, a UDP socket connected
-// to Target and Port (see the package documentation); a client connects before
-// its requests. ctx bounds Connect only, its lookup of Target and its dial,
-// with Timeout; each request takes its own. It sends nothing, so it succeeds
-// whether or not an agent answers. The new connection replaces the client's,
-// which Connect closes; when Connect fails, the client keeps the connection it
-// had. A nil ctx fails Connect before it changes the client.
+// to Target and Port (see the package documentation), the only connection a
+// client has; a client connects before its requests. ctx bounds Connect only,
+// its lookup of Target and its dial, with Timeout; each request takes its own.
+// It sends nothing, so it succeeds whether or not an agent answers. The new
+// connection replaces the client's, which Connect closes; when Connect fails,
+// the client keeps the connection it had. A nil ctx fails Connect before it
+// changes the client.
 func (x *Client) Connect(ctx context.Context) error {
 	if ctx == nil {
 		return errNilContext
@@ -32,8 +33,8 @@ func (x *Client) Connect(ctx context.Context) error {
 		return fmt.Errorf("error establishing connection to host: %w", err)
 	}
 	x.mu.Lock()
-	old := x.Conn
-	x.Conn, x.closed = conn, false
+	old := x.conn
+	x.conn, x.closed = conn, false
 	x.mu.Unlock()
 	if old != nil {
 		_ = old.Close()
@@ -41,14 +42,12 @@ func (x *Client) Connect(ctx context.Context) error {
 	return nil
 }
 
-// Close closes the client's connection, the one Conn holds, and interrupts the
-// running attempt, whatever connection it uses (the caller may have replaced
-// Conn). Any goroutine may call it, also while a request runs, which it ends:
-// once Close has run, a request whose attempt ends without a reply fails with
-// an error wrapping net.ErrClosed, as do later requests until Connect opens a
-// connection or Conn is set (see the package documentation). Only the first
-// call closes the connection; later calls, and calls on a client without a
-// connection, return nil.
+// Close closes the client's connection and interrupts the running attempt.
+// Any goroutine may call it, also while a request runs, which it ends: once
+// Close has run, a request whose attempt ends without a reply fails with an
+// error wrapping net.ErrClosed, as do later requests until Connect opens a
+// connection (see the package documentation). Only the first call closes the
+// connection; later calls, and calls on a client never connected, return nil.
 func (x *Client) Close() error {
 	conn, attempt := x.markClosed()
 	x.interrupt(attempt)
@@ -58,14 +57,13 @@ func (x *Client) Close() error {
 	return conn.Close()
 }
 
-// markClosed marks the client closed and returns the connection Conn held,
-// which it removes, and the number of the running attempt, for Close to
-// interrupt.
-func (x *Client) markClosed() (net.Conn, uint64) {
+// markClosed marks the client closed and returns its connection, which it
+// removes, and the number of the running attempt, for Close to interrupt.
+func (x *Client) markClosed() (transport, uint64) {
 	x.mu.Lock()
 	defer x.mu.Unlock()
-	conn := x.Conn
-	x.Conn, x.closed = nil, true
+	conn := x.conn
+	x.conn, x.closed = nil, true
 	return conn, x.attempt.seq
 }
 
@@ -74,7 +72,7 @@ func (x *Client) markClosed() (net.Conn, uint64) {
 // which keeps a late interrupt from reaching a later attempt; and interrupted,
 // which closes once an interrupt that started has set its deadline.
 type runningAttempt struct {
-	conn        net.Conn
+	conn        transport
 	seq         uint64
 	interrupted chan struct{}
 }
@@ -83,7 +81,7 @@ type runningAttempt struct {
 // which Close interrupts, and which ctx interrupts once it is done. The
 // attempt calls it after setting its deadline, which would otherwise undo an
 // interrupt, and ends it with end.
-func (x *Client) interruptible(ctx context.Context, conn net.Conn) attemptInterrupts {
+func (x *Client) interruptible(ctx context.Context, conn transport) attemptInterrupts {
 	x.mu.Lock()
 	x.attempt.seq++
 	x.attempt.conn = conn
@@ -154,43 +152,64 @@ func (x *Client) interrupt(seq uint64) {
 	_ = conn.SetDeadline(time.Unix(1, 0))
 }
 
-// errNoConn is the error of a request on a client without a connection,
+// errNoConn is the error of a request on a client Connect never connected,
 // errClosed after Close, and errNilContext of a request or Connect given a nil
 // context.
 var (
-	errNoConn     = errors.New("&Client.Conn is missing. Provide a connection or use Connect()")
+	errNoConn     = errors.New("the client is not connected: call Connect first")
 	errClosed     = fmt.Errorf("the client was closed: %w", net.ErrClosed)
 	errNilContext = errors.New("nil context")
 )
 
 // isClosed reports whether Close closed the client's connection, which no
-// Connect or Conn has replaced since.
+// Connect has replaced since.
 func (x *Client) isClosed() bool {
 	x.mu.Lock()
 	defer x.mu.Unlock()
-	return x.Conn == nil && x.closed
+	return x.conn == nil && x.closed
 }
 
-// connection returns the connection Conn holds, which an attempt of a request
+// connection returns the client's connection, which an attempt of a request
 // uses. It fails without a connection, with net.ErrClosed after Close.
-func (x *Client) connection() (net.Conn, error) {
+func (x *Client) connection() (transport, error) {
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	switch {
-	case x.Conn == nil && x.closed:
+	case x.conn == nil && x.closed:
 		return nil, errClosed
-	case x.Conn == nil:
+	case x.conn == nil:
 		return nil, errNoConn
 	}
-	return x.Conn, nil
+	return x.conn, nil
+}
+
+// transport is the client's connection as a request uses it: the UDP socket
+// Connect opens, or the tests' fake. A request writes each message with Write
+// and reads each reply, a datagram, with ReadFrom.
+type transport interface {
+	Write(b []byte) (int, error)
+	ReadFrom(b []byte) (int, net.Addr, error)
+	SetDeadline(t time.Time) error
+	Close() error
 }
 
 // dial opens a UDP socket connected to address, "host:port", within ctx and
 // timeout, which bound the dial and its lookup of the host's name together; a
 // zero timeout sets no limit.
-func dial(ctx context.Context, timeout time.Duration, address string) (net.Conn, error) {
+func dial(ctx context.Context, timeout time.Duration, address string) (*net.UDPConn, error) {
 	dialer := net.Dialer{Timeout: timeout}
-	return dialer.DialContext(ctx, "udp", address)
+	conn, err := dialer.DialContext(ctx, "udp", address)
+	if err != nil {
+		return nil, err
+	}
+	// A UDP dial returns a *net.UDPConn: checked, not asserted, as the library
+	// does not panic.
+	udp, ok := conn.(*net.UDPConn)
+	if !ok {
+		_ = conn.Close()
+		return nil, fmt.Errorf("dial udp %s: a %T, not a UDP socket", address, conn)
+	}
+	return udp, nil
 }
 
 // rxBufSize is the size of the receive buffer: the largest message the client
@@ -201,27 +220,13 @@ const rxBufSize = 65535
 // errReplyTooBig is the error of a datagram that fills the receive buffer.
 var errReplyTooBig = errors.New("response buffer too small")
 
-// errReadCount is the error of a read whose count is outside the buffer it
-// read into: a Conn that breaks the io.Reader contract.
-var errReadCount = errors.New("the connection's read returned a count outside the buffer")
-
 // receiveBuffer is the buffer a client reads replies into.
 type receiveBuffer [rxBufSize]byte
 
 // receive reads one reply, a datagram, from conn into rx and returns a copy;
-// its source address is not checked. A read whose count is outside the buffer
-// fails with errReadCount.
-func receive(conn net.Conn, rx *receiveBuffer) ([]byte, error) {
-	var n int
-	var err error
-	if pconn, ok := conn.(net.PacketConn); ok {
-		n, _, err = pconn.ReadFrom(rx[:])
-	} else {
-		n, err = conn.Read(rx[:])
-	}
-	if n < 0 || n > rxBufSize {
-		return nil, fmt.Errorf("%w: %d", errReadCount, n)
-	}
+// its source address is not checked.
+func receive(conn transport, rx *receiveBuffer) ([]byte, error) {
+	n, _, err := conn.ReadFrom(rx[:])
 	if err != nil {
 		return nil, fmt.Errorf("error reading from socket: %w", err)
 	}

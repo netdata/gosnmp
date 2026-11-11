@@ -28,11 +28,11 @@ import (
 // The engine harness runs the request engine against a scripted agent over an
 // in-memory transport. Run inside a testing/synctest bubble, retries and
 // deadlines play out on the bubble's clock, so schedules are exact and a
-// scenario takes no real time. The agent answers inside Write, and Read waits
-// on the bubble's clock for the next reply or the deadline, or until another
-// goroutine sets a deadline or closes the connection. A transcript records
-// every write, deadline, read and close with the time since the scenario
-// started, and the agent's replies when it schedules them.
+// scenario takes no real time. The agent answers inside Write, and ReadFrom
+// waits on the bubble's clock for the next reply or the deadline, or until
+// another goroutine sets a deadline or closes the connection. A transcript
+// records every write, deadline, read and close with the time since the
+// scenario started, and the agent's replies when it schedules them.
 
 // engineTranscript is the ordered record of one engine scenario, safe for
 // concurrent use. A nil transcript records nothing.
@@ -88,28 +88,29 @@ type pendingReply struct {
 	data []byte
 }
 
-// fakeTransport is an in-memory connection to an engineAgent, shaped like a
-// custom net.Conn the caller sets, read with Read; fakePacketTransport gives it
-// the shape of the UDP socket Connect opens, read with ReadFrom. A read takes
-// the earliest reply due, as a datagram: what the buffer does not hold is
-// lost. A read fails with os.ErrDeadlineExceeded once the read deadline has
-// passed: a reply due at the deadline is not read, as on a real socket. A
-// write fails the same way once the write deadline has passed. Writes and
-// reads can be made to fail by number, and can act on the client after they
-// succeed, as the Conn's own code. A deadline set and a Close from another
-// goroutine wake a waiting read; after Close, reads, writes and deadlines fail
-// with net.ErrClosed, as on a socket.
+// fakeTransport is an in-memory connection to an engineAgent, shaped like the
+// UDP socket Connect opens: the client's transport, written with Write and read
+// with ReadFrom, from the agent's address. A read takes the earliest reply
+// due, as a datagram: what the buffer does not hold is lost. A read fails with
+// os.ErrDeadlineExceeded once the deadline has passed: a reply due at the
+// deadline is not read, as on a real socket. A write fails the same way once
+// the deadline has passed. Writes and reads can be made to fail by number, and
+// deadlines, writes and reads can run the test's code at that moment of a
+// request, standing for code that may run then: a Close from another
+// goroutine, or a context's methods, the caller's code a request runs. A
+// deadline set and a Close from another goroutine wake a waiting read; after
+// Close, reads, writes and deadlines fail with net.ErrClosed, as on a socket.
 type fakeTransport struct {
 	tr    *engineTranscript
 	agent engineAgent
 
 	// mu guards the state below, which the engine's goroutine shares with
 	// one that sets a deadline or closes the connection.
-	mu                          sync.Mutex
-	pending                     []pendingReply // by due time, then by order of scheduling
-	readDeadline, writeDeadline time.Time
-	writes, reads               int
-	closed                      bool
+	mu            sync.Mutex
+	pending       []pendingReply // by due time, then by order of scheduling
+	deadline      time.Time
+	writes, reads int
+	closed        bool
 	// wake wakes a waiting read when a deadline is set or the connection
 	// closes.
 	wake chan struct{}
@@ -126,7 +127,7 @@ type fakeTransport struct {
 	// beforeDeadline, when set, runs before a deadline in the future is set.
 	beforeDeadline func()
 	// afterWrite, when set, runs after write n succeeded and its replies are
-	// on their way, and afterRead after read n returned a reply: the Conn's
+	// on their way, and afterRead after read n returned a reply: the test's
 	// code acting on the client during a request (no lock is held).
 	afterWrite, afterRead func(n int)
 }
@@ -136,28 +137,24 @@ func newFakeTransport(tr *engineTranscript, agent engineAgent) *fakeTransport {
 }
 
 func (c *fakeTransport) Write(b []byte) (int, error) {
-	return c.write(b, "write")
-}
-
-func (c *fakeTransport) write(b []byte, op string) (int, error) {
 	c.mu.Lock()
 	c.writes++
-	n, closed, deadline := c.writes, c.closed, c.writeDeadline
+	n, closed, deadline := c.writes, c.closed, c.deadline
 	c.mu.Unlock()
 	if c.tr != nil {
-		c.tr.addf("%s #%d: %s", op, n, describeMessage(b))
+		c.tr.addf("write #%d: %s", n, describeMessage(b))
 	}
 	if closed {
-		c.tr.addf("%s #%d fails: %v", op, n, closedWrite)
+		c.tr.addf("write #%d fails: %v", n, closedWrite)
 		return 0, closedWrite
 	}
 	if !deadline.IsZero() && !time.Now().Before(deadline) {
-		c.tr.addf("%s #%d: deadline", op, n)
+		c.tr.addf("write #%d: deadline", n)
 		return 0, os.ErrDeadlineExceeded
 	}
 	if c.failWrite != nil {
 		if err := c.failWrite(n); err != nil {
-			c.tr.addf("%s #%d fails: %v", op, n, err)
+			c.tr.addf("write #%d fails: %v", n, err)
 			return 0, err
 		}
 	}
@@ -185,25 +182,27 @@ func (c *fakeTransport) schedule(n int, b []byte) {
 	}
 }
 
-func (c *fakeTransport) Read(b []byte) (int, error) {
-	return c.read(b, "read")
-}
+// fakeAgentAddr is the agent's address, from which every reply of a fake
+// transport comes; shared, so that a read allocates nothing of its own and the
+// benchmarks measure the client.
+var fakeAgentAddr net.Addr = &net.UDPAddr{IP: net.IPv4(127, 0, 0, 2), Port: 161}
 
-// read reads the earliest reply due into b, then runs afterRead.
-func (c *fakeTransport) read(b []byte, op string) (int, error) {
+// ReadFrom reads the earliest reply due into b, then runs afterRead.
+func (c *fakeTransport) ReadFrom(b []byte) (int, net.Addr, error) {
 	c.mu.Lock()
 	c.reads++
 	n := c.reads
 	c.mu.Unlock()
-	size, err := c.readReply(b, n, op)
+	size, err := c.readReply(b, n)
 	if err == nil && c.afterRead != nil {
 		c.afterRead(n)
 	}
-	return size, err
+	return size, fakeAgentAddr, err
 }
 
 // readReply is read n's wait for the earliest reply due.
-func (c *fakeTransport) readReply(b []byte, n int, op string) (int, error) {
+func (c *fakeTransport) readReply(b []byte, n int) (int, error) {
+	const op = "read from 127.0.0.2:161"
 	if c.failRead != nil {
 		if err := c.failRead(n); err != nil {
 			c.tr.addf("%s: %v", op, err)
@@ -218,7 +217,7 @@ func (c *fakeTransport) readReply(b []byte, n int, op string) (int, error) {
 			return 0, closedRead
 		}
 		now := time.Now()
-		if !c.readDeadline.IsZero() && !now.Before(c.readDeadline) {
+		if !c.deadline.IsZero() && !now.Before(c.deadline) {
 			c.tr.addf("%s: deadline", op)
 			return 0, os.ErrDeadlineExceeded
 		}
@@ -235,8 +234,8 @@ func (c *fakeTransport) readReply(b []byte, n int, op string) (int, error) {
 		if len(c.pending) > 0 {
 			wake = c.pending[0].due
 		}
-		if !c.readDeadline.IsZero() && (wake.IsZero() || c.readDeadline.Before(wake)) {
-			wake = c.readDeadline
+		if !c.deadline.IsZero() && (wake.IsZero() || c.deadline.Before(wake)) {
+			wake = c.deadline
 		}
 		c.mu.Unlock()
 		c.waitUntil(wake)
@@ -270,12 +269,12 @@ func (c *fakeTransport) signal() {
 	}
 }
 
-// setDeadlines sets the read deadline when read is set and the write deadline
-// when write is set, recording it as name. A deadline in the past, which the
-// engine sets to interrupt an attempt, is recorded only when it ends a
-// deadline that has not passed: when the context's deadline is the attempt's,
-// the interrupt and the attempt's own deadline race, and change nothing.
-func (c *fakeTransport) setDeadlines(name string, t time.Time, read, write bool) error {
+// SetDeadline sets the deadline of reads and writes. A deadline in the past,
+// which the engine sets to interrupt an attempt, is recorded only when it ends
+// a deadline that has not passed: when the context's deadline is the
+// attempt's, the interrupt and the attempt's own deadline race, and change
+// nothing.
+func (c *fakeTransport) SetDeadline(t time.Time) error {
 	if c.holdInterrupt != nil && t.Before(time.Now()) {
 		<-c.holdInterrupt
 	}
@@ -285,12 +284,12 @@ func (c *fakeTransport) setDeadlines(name string, t time.Time, read, write bool)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	now := time.Now()
-	switch current := c.readDeadline; {
+	switch current := c.deadline; {
 	case c.tr == nil:
 	case !t.Before(now):
-		c.tr.addf("%s +%s", name, t.Sub(now))
+		c.tr.addf("deadline +%s", t.Sub(now))
 	case current.IsZero() || now.Before(current):
-		c.tr.addf("%s in the past", name)
+		c.tr.addf("deadline in the past")
 	}
 	if c.deadlineErr != nil {
 		return c.deadlineErr
@@ -298,26 +297,9 @@ func (c *fakeTransport) setDeadlines(name string, t time.Time, read, write bool)
 	if c.closed {
 		return closedSet
 	}
-	if read {
-		c.readDeadline = t
-	}
-	if write {
-		c.writeDeadline = t
-	}
+	c.deadline = t
 	c.signal()
 	return nil
-}
-
-func (c *fakeTransport) SetDeadline(t time.Time) error {
-	return c.setDeadlines("deadline", t, true, true)
-}
-
-func (c *fakeTransport) SetReadDeadline(t time.Time) error {
-	return c.setDeadlines("read deadline", t, true, false)
-}
-
-func (c *fakeTransport) SetWriteDeadline(t time.Time) error {
-	return c.setDeadlines("write deadline", t, false, true)
 }
 
 // Close closes the connection, waking a waiting read; closing it again fails,
@@ -335,50 +317,19 @@ func (c *fakeTransport) Close() error {
 	return nil
 }
 
-func (c *fakeTransport) LocalAddr() net.Addr {
-	return &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 50000}
-}
-
-func (c *fakeTransport) RemoteAddr() net.Addr {
-	return &net.UDPAddr{IP: net.IPv4(127, 0, 0, 2), Port: 161}
-}
-
-// fakeAgentAddr is the agent's address, from which every reply of a fake
-// transport comes; shared, so that a read allocates nothing of its own and the
-// benchmarks measure the client.
-var fakeAgentAddr net.Addr = &net.UDPAddr{IP: net.IPv4(127, 0, 0, 2), Port: 161}
-
-// fakePacketTransport is a fakeTransport shaped like the UDP socket Connect
-// opens: a net.PacketConn, which the engine reads with ReadFrom.
-type fakePacketTransport struct {
-	*fakeTransport
-}
-
-func (c fakePacketTransport) ReadFrom(b []byte) (int, net.Addr, error) {
-	n, err := c.read(b, "read from 127.0.0.2:161")
-	return n, fakeAgentAddr, err
-}
-
-func (c fakePacketTransport) WriteTo(b []byte, addr net.Addr) (int, error) {
-	return c.write(b, fmt.Sprintf("write to %s", addr))
-}
-
-// transportOf returns the fake transport x's Conn is.
+// transportOf returns the fake transport that is x's connection.
 func transportOf(tb testing.TB, x *Client) *fakeTransport {
 	tb.Helper()
-	switch c := x.Conn.(type) {
-	case *fakeTransport:
-		return c
-	case fakePacketTransport:
-		return c.fakeTransport
+	c, ok := x.conn.(*fakeTransport)
+	if !ok {
+		tb.Fatalf("the client's connection is a %T, not a fake transport", x.conn)
 	}
-	tb.Fatalf("the client's Conn is a %T, not a fake transport", x.Conn)
-	return nil
+	return c
 }
 
 // newEngineClient returns a v1/v2c client on conn with a 1 s timeout and 2
 // retries, completed by newEngineClientFrom.
-func newEngineClient(tb testing.TB, version Version, conn net.Conn) *Client {
+func newEngineClient(tb testing.TB, version Version, conn *fakeTransport) *Client {
 	tb.Helper()
 	return newEngineClientFrom(tb, conn, &Client{
 		Version:   version,
@@ -388,16 +339,16 @@ func newEngineClient(tb testing.TB, version Version, conn net.Conn) *Client {
 	})
 }
 
-// newEngineClientFrom completes x on conn as Connect would leave it, with
-// request IDs starting after 1000, message IDs after 2000 and the next salt
-// 0x101.
-func newEngineClientFrom(tb testing.TB, conn net.Conn, x *Client) *Client {
+// newEngineClientFrom completes x on conn as Connect would leave it, with the
+// receive buffer its first request allocates, request IDs starting after 1000,
+// message IDs after 2000 and the next salt 0x101.
+func newEngineClientFrom(tb testing.TB, conn *fakeTransport, x *Client) *Client {
 	tb.Helper()
 	if err := x.prepare(); err != nil {
 		tb.Fatal(err)
 	}
 	usm.Salts.Set(0x101)
-	x.Conn = conn
+	x.conn = conn
 	x.rx = new(receiveBuffer)
 	x.SetRequestID(1000)
 	x.SetMsgID(2000)
@@ -405,17 +356,14 @@ func newEngineClientFrom(tb testing.TB, conn net.Conn, x *Client) *Client {
 }
 
 // configOf returns the client's configuration a request must not write: its
-// exported fields, the SNMPv3 User included, but for Conn (the connection).
+// exported fields, the SNMPv3 User included.
 func configOf(x *Client) map[string]any {
 	v := reflect.ValueOf(x).Elem()
 	cfg := make(map[string]any)
 	for i := range v.NumField() {
-		f := v.Type().Field(i)
-		switch {
-		case !f.IsExported(), f.Name == "Conn":
-			continue
+		if f := v.Type().Field(i); f.IsExported() {
+			cfg[f.Name] = v.Field(i).Interface()
 		}
-		cfg[f.Name] = v.Field(i).Interface()
 	}
 	return cfg
 }

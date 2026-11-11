@@ -34,21 +34,9 @@ var engineGolden = goldenFiles{dir: "testdata/engine", title: "Engine"}
 
 const engineOID = ".1.3.6.1.2.1.1.1.0"
 
-// engineShape is the kind of connection a scenario's client has.
-type engineShape int
-
-const (
-	// shapeUDP is a UDP socket as Connect leaves it: a connected
-	// net.PacketConn, written with Write and read with ReadFrom.
-	shapeUDP engineShape = iota
-	// shapeConn is a custom net.Conn, read with Read.
-	shapeConn
-)
-
 // engineScenario is one v1/v2c request run against a scripted agent.
 type engineScenario struct {
 	v1    bool // SNMPv1 instead of SNMPv2c
-	shape engineShape
 	setup func(x *Client, c *fakeTransport)
 	// context, when set, gives the request's context, background unless
 	// set; its cancel runs when the scenario ends.
@@ -177,7 +165,7 @@ func atDeadline(c *fakeTransport, k int, act func()) {
 // setup arms it), records its result and what its error matches, then runs a
 // second Get on the same client, whose result it returns.
 func getAfterPanic(ctx context.Context, x *Client) (*Message, error) {
-	tr := x.Conn.(fakePacketTransport).tr
+	tr := x.conn.(*fakeTransport).tr
 	res, err := x.Get(ctx, []string{engineOID})
 	tr.addf("first request: %s", describeEngineResult(res, err))
 	var re runtime.Error
@@ -195,21 +183,6 @@ func answerRaw(edit func(reply []byte) []byte) engineAgent {
 }
 
 var sysDescr = VarBind{Name: engineOID, Value: OctetStringValue([]byte("codec agent"))}
-
-// answerSplit is an agent that answers every request with its reply with vb,
-// cut at the offsets cuts, its parts 10ms apart: a read each.
-func answerSplit(vb VarBind, cuts ...int) engineAgent {
-	return func(_ int, req []byte) []agentReply {
-		r := replyTo(req, nil, vb)
-		parts := make([]agentReply, 0, len(cuts)+1)
-		from := 0
-		for _, cut := range cuts {
-			parts = append(parts, agentReply{data: r[from:cut], after: time.Duration(len(parts)) * 10 * time.Millisecond})
-			from = cut
-		}
-		return append(parts, agentReply{data: r[from:], after: time.Duration(len(parts)) * 10 * time.Millisecond})
-	}
-}
 
 // replySized is the reply to req of size octets, with one OctetString value.
 func replySized(req []byte, size int) []byte {
@@ -370,14 +343,8 @@ func engineScenarios() map[string]engineScenario {
 		"get/max-oids/at-limit":   {agent: answer(sysDescr), setup: maxOIDs2, run: getOIDs(twoOIDs...)},
 		"get/max-oids/over-limit": {agent: answer(sysDescr), setup: maxOIDs2, run: getOIDs(threeOIDs...)},
 
-		// The client.
-		"get/no-conn": {agent: answer(sysDescr), setup: func(x *Client, _ *fakeTransport) { x.Conn = nil }},
-		// A client given a Conn without Connect: the request supplies the
-		// receive buffer.
-		"conn-without-connect": {agent: answer(sysDescr), setup: func(x *Client, _ *fakeTransport) {
-			x.rx = nil
-		}},
-		"custom-conn": {shape: shapeConn, agent: answer(sysDescr)},
+		// A client Connect never connected.
+		"get/no-conn": {agent: answer(sysDescr), setup: func(x *Client, _ *fakeTransport) { x.conn = nil }},
 
 		// Timeouts and retries.
 		"timeout":                  {},
@@ -545,12 +512,6 @@ func engineScenarios() map[string]engineScenario {
 			agent: func(_ int, req []byte) []agentReply {
 				return []agentReply{{data: replySized(req, rxBufSize)}}
 			},
-		},
-		// A custom net.Conn whose reply comes in two reads.
-		"custom-conn/split": {
-			shape: shapeConn,
-			setup: func(x *Client, _ *fakeTransport) { x.Retries = 0 },
-			agent: answerSplit(sysDescr, 10),
 		},
 
 		// Transport errors.
@@ -723,32 +684,6 @@ func engineScenarios() map[string]engineScenario {
 				_ = x.Close()
 			}
 		}},
-		// A Close after a request in which the Conn's code replaced Conn
-		// closes the new connection and leaves the one the ended attempt used,
-		// the caller's again, alone.
-		"close/after-a-request-conn-replaced": {
-			agent: answer(sysDescr),
-			setup: func(x *Client, c *fakeTransport) {
-				otherConn := fakePacketTransport{newFakeTransport(c.tr, nil)}
-				c.afterWrite = func(n int) {
-					c.tr.addf("the Conn's write #%d replaces Conn", n)
-					x.Conn = otherConn
-				}
-			},
-			run: func(ctx context.Context, x *Client) (*Message, error) {
-				res, err := x.Get(ctx, []string{engineOID})
-				_ = x.Close()
-				return res, err
-			},
-		},
-		// The Conn's code removes Conn: the next attempt fails for want of a
-		// connection, not as closed.
-		"close/conn-removed-during-request": {setup: func(x *Client, c *fakeTransport) {
-			c.afterWrite = func(n int) {
-				c.tr.addf("the Conn's write #%d removes Conn", n)
-				x.Conn = nil
-			}
-		}},
 		// The client closed from another goroutine, as Netdata's SNMP topology
 		// does when its context ends, while the request waits.
 		// The read the interrupt wakes looks only once Close has closed the
@@ -762,8 +697,8 @@ func engineScenarios() map[string]engineScenario {
 				close(hold)
 			}()
 		}},
-		// The connection itself closed from another goroutine, as Netdata's
-		// SNMP vnode acquisition does when its context ends.
+		// The connection closed under the attempt, not by Close, as a Connect
+		// during the request closes the connection it replaces.
 		"close/connection-from-another-goroutine": {setup: func(_ *Client, c *fakeTransport) {
 			go func() {
 				time.Sleep(300 * time.Millisecond)
@@ -841,18 +776,11 @@ func TestEngineRequestCharacterization(t *testing.T) {
 func runEngineScenario(t *testing.T, sc engineScenario) string {
 	tr := newEngineTranscript(t)
 	c := newFakeTransport(tr, sc.agent)
-	var conn net.Conn
-	switch sc.shape {
-	case shapeUDP:
-		conn = fakePacketTransport{c}
-	case shapeConn:
-		conn = c
-	}
 	version := Version2c
 	if sc.v1 {
 		version = Version1
 	}
-	x := newEngineClient(t, version, conn)
+	x := newEngineClient(t, version, c)
 	ctx := context.Background()
 	if sc.context != nil {
 		var cancel context.CancelFunc
@@ -892,7 +820,7 @@ func runEngineScenario(t *testing.T, sc engineScenario) string {
 func TestEngineCancelWhileSettingDeadline(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		c := newFakeTransport(nil, nil) // the agent never answers
-		x := newEngineClient(t, Version2c, fakePacketTransport{c})
+		x := newEngineClient(t, Version2c, c)
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		c.beforeDeadline = func() {
@@ -932,7 +860,7 @@ func (c *countingContext) AfterFunc(func()) func() bool {
 func TestEngineContextInterruptUnregistered(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		c := newFakeTransport(nil, answerFromSecond(sysDescr))
-		x := newEngineClient(t, Version2c, fakePacketTransport{c})
+		x := newEngineClient(t, Version2c, c)
 		ctx := &countingContext{Context: context.Background(), done: make(chan struct{})}
 		_, err := x.Get(ctx, []string{engineOID})
 		require.NoError(t, err)
@@ -948,67 +876,25 @@ func TestEngineLateContextInterrupt(t *testing.T) {
 	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(1))
 	synctest.Test(t, func(t *testing.T) {
 		c := newFakeTransport(nil, nil)
-		x := newEngineClient(t, Version2c, fakePacketTransport{c})
+		x := newEngineClient(t, Version2c, c)
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		ended := x.interruptible(ctx, x.Conn)
+		ended := x.interruptible(ctx, x.conn)
 		cancel()
 		ended.end()
 		// The next attempt sets its deadline, then registers.
-		require.NoError(t, x.Conn.SetDeadline(time.Time{}))
-		next := x.interruptible(context.Background(), x.Conn)
+		require.NoError(t, x.conn.SetDeadline(time.Time{}))
+		next := x.interruptible(context.Background(), x.conn)
 		synctest.Wait() // the late callback runs
 		c.mu.Lock()
-		deadline := c.readDeadline
+		deadline := c.deadline
 		c.mu.Unlock()
 		next.end()
 		assert.True(t, deadline.IsZero(), "the next attempt's deadline: %v", deadline)
 	})
 }
 
-// uncomparableConn is a connection of a type == cannot compare: a struct with
-// a func field, used by value.
-type uncomparableConn struct {
-	net.Conn
-	onClose func()
-}
-
-// TestEngineUncomparableConn checks a request over a Conn the caller set, of a
-// type == cannot compare, on a loopback socket, without Connect and in place
-// of the connection Connect opened: the agent answers, and Close returns.
-func TestEngineUncomparableConn(t *testing.T) {
-	for name, connect := range map[string]bool{"without Connect": false, "after Connect": true} {
-		t.Run(name, func(t *testing.T) {
-			port, _ := udpAgent(t, func(_ int, req []byte) []byte { return replyTo(req, nil, sysDescr) })
-			caller, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: int(port)})
-			require.NoError(t, err)
-			defer caller.Close()
-			x := &Client{
-				Target: "127.0.0.1", Port: port, MaxOids: MaxOids,
-				Community: "public", Version: Version2c, Timeout: 10 * time.Second,
-			}
-			if connect {
-				require.NoError(t, x.Connect(context.Background()))
-				defer x.Conn.Close()
-			}
-			x.Conn = uncomparableConn{Conn: caller, onClose: func() {}}
-
-			res, err := x.Get(context.Background(), []string{engineOID})
-			require.NoError(t, err)
-			assert.Equal(t, []VarBind{sysDescr}, res.VarBinds)
-			closed := make(chan error, 1)
-			go func() { closed <- x.Close() }()
-			select {
-			case err = <-closed:
-				assert.NoError(t, err)
-			case <-time.After(5 * time.Second):
-				t.Fatal("Close blocks")
-			}
-		})
-	}
-}
-
-// TestRequestPanicNil checks that a Conn's panic(nil) ends the request with no
+// TestRequestPanicNil checks that a panic(nil) in a request ends it with no
 // packet and an error, by default (a *runtime.PanicNilError) and under
 // GODEBUG=panicnil=1, where recover returns nil: for that setting the test
 // runs itself again in a child process.
@@ -1022,7 +908,7 @@ func TestRequestPanicNil(t *testing.T) {
 		require.Contains(t, string(out), "--- PASS: TestRequestPanicNil", "the child ran the test")
 	}
 	c := newFakeTransport(nil, answer(sysDescr))
-	x := newEngineClient(t, Version2c, fakePacketTransport{c})
+	x := newEngineClient(t, Version2c, c)
 	c.failWrite = func(int) error { panic(nil) } //nolint:govet // the nil panic is the point
 	res, err := x.Get(context.Background(), []string{engineOID})
 	assert.Nil(t, res)
@@ -1059,8 +945,8 @@ func (c *panicInterruptContext) AfterFunc(func()) func() bool {
 
 // TestRequestContextPanicCleanup checks that a context that panics while the
 // attempt sets up or ends its interrupts leaves no active attempt behind: after
-// Close and a new Conn, cancellation and Close still interrupt the next request
-// without waiting for its timeout.
+// Close and a new connection, cancellation and Close still interrupt the next
+// request without waiting for its timeout.
 func TestRequestContextPanicCleanup(t *testing.T) {
 	for _, stage := range []string{"Done", "AfterFunc", "stop"} {
 		for _, value := range []struct {
@@ -1070,7 +956,7 @@ func TestRequestContextPanicCleanup(t *testing.T) {
 			{name: "error", panic: errCallerFailure},
 			{name: "nil"},
 		} {
-			for _, interrupt := range []string{"cancel", "close", "close-replaced-conn"} {
+			for _, interrupt := range []string{"cancel", "close"} {
 				t.Run(stage+"/"+value.name+"/"+interrupt, func(t *testing.T) {
 					synctest.Test(t, func(t *testing.T) {
 						x := newEngineClient(t, Version2c, newFakeTransport(nil, nil))
@@ -1094,21 +980,14 @@ func TestRequestContextPanicCleanup(t *testing.T) {
 
 						conn := newFakeTransport(nil, nil)
 						defer conn.Close()
-						x.Conn = conn // a caller may use a closed client again this way
+						x.conn, x.closed = conn, false // as Connect after Close
 						ctx, cancel := context.WithCancel(context.Background())
 						defer cancel()
 						wantErr := context.Canceled
 						conn.afterWrite = func(int) { cancel() }
-						switch interrupt {
-						case "close":
+						if interrupt == "close" {
 							wantErr = net.ErrClosed
 							conn.afterWrite = func(int) { require.NoError(t, x.Close()) }
-						case "close-replaced-conn":
-							wantErr = net.ErrClosed
-							conn.afterWrite = func(int) {
-								x.Conn = newFakeTransport(nil, nil)
-								require.NoError(t, x.Close()) // must interrupt conn too
-							}
 						}
 						start := time.Now()
 						res, err = x.Get(ctx, []string{engineOID})
@@ -1120,80 +999,6 @@ func TestRequestContextPanicCleanup(t *testing.T) {
 			}
 		}
 	}
-}
-
-// TestEngineReadCountOutsideBuffer checks, on a loopback socket, a Conn the
-// caller set whose Read breaks the io.Reader contract once, returning a count
-// outside the buffer: the attempt fails as a transport error, also when the
-// read returns an error that would end the request (a closed connection),
-// which the retry cures, and the client answers the next request.
-func TestEngineReadCountOutsideBuffer(t *testing.T) {
-	type outcome struct {
-		failed  []bool // per request
-		retries int
-	}
-	tests := map[string]struct {
-		count func(p []byte) int
-		err   error // the error of the read that returns count
-		want  outcome
-	}{
-		"more than the buffer": {
-			count: func(p []byte) int { return len(p) + 1 },
-			want:  outcome{failed: []bool{false, false}, retries: 1},
-		},
-		"negative": {
-			count: func([]byte) int { return -1 },
-			want:  outcome{failed: []bool{false, false}, retries: 1},
-		},
-		"negative, with a closed-connection error": {
-			count: func([]byte) int { return -1 }, err: net.ErrClosed,
-			want: outcome{failed: []bool{false, false}, retries: 1},
-		},
-	}
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			port, _ := udpAgent(t, func(_ int, req []byte) []byte { return replyTo(req, nil, sysDescr) })
-			var got outcome
-			x := &Client{
-				Target: "127.0.0.1", Port: port, Community: "public", Version: Version2c,
-				Timeout: 300 * time.Millisecond, Retries: 1,
-			}
-			require.NoError(t, x.Connect(context.Background()))
-			defer x.Close()
-			bad := &badCountConn{Conn: x.Conn, count: tc.count, err: tc.err}
-			x.Conn = bad
-			for range 2 {
-				_, err := x.Get(context.Background(), []string{engineOID})
-				got.failed = append(got.failed, err != nil)
-			}
-			got.retries = bad.writes - len(got.failed) // a write per attempt
-			assert.Equal(t, tc.want, got)
-		})
-	}
-}
-
-// badCountConn is a Conn whose first Read returns count's count and err
-// without reading, breaking the io.Reader contract; its other calls go to
-// Conn, and it counts its writes, one per attempt.
-type badCountConn struct {
-	net.Conn
-	count  func(p []byte) int
-	err    error
-	done   bool
-	writes int
-}
-
-func (c *badCountConn) Write(p []byte) (int, error) {
-	c.writes++
-	return c.Conn.Write(p)
-}
-
-func (c *badCountConn) Read(p []byte) (int, error) {
-	if !c.done {
-		c.done = true
-		return c.count(p), c.err
-	}
-	return c.Conn.Read(p)
 }
 
 // TestEngineRequestTimeoutError checks what a caller that classifies errors
@@ -1236,7 +1041,7 @@ func BenchmarkSendOneRequest(b *testing.B) {
 	c := newFakeTransport(nil, func(_ int, req []byte) []agentReply {
 		return []agentReply{{data: replyTo(req, nil, VarBind{Name: oid, Value: Counter64Value(3825929753)})}}
 	})
-	x := newEngineClient(b, Version2c, fakePacketTransport{c})
+	x := newEngineClient(b, Version2c, c)
 	pkt := x.NewMessage(GetRequest, []VarBind{{Name: oid, Value: NullValue()}}, 0, 0)
 	cfg := x.prepareRequest(context.Background())
 
@@ -1571,7 +1376,7 @@ func TestExchangeEndErrors(t *testing.T) {
 // transport.
 func BenchmarkGet(b *testing.B) {
 	c := newFakeTransport(nil, answer(sysDescr))
-	x := newEngineClient(b, Version2c, fakePacketTransport{c})
+	x := newEngineClient(b, Version2c, c)
 	b.ReportAllocs()
 	for b.Loop() {
 		if _, err := x.Get(context.Background(), []string{engineOID}); err != nil {

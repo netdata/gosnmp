@@ -67,7 +67,7 @@ func TestClose(t *testing.T) {
 	connectToTarget(t, gs)
 
 	// Ensure connection is open
-	if gs.Conn == nil {
+	if gs.conn == nil {
 		t.Fatal("expected connection to be established, got nil")
 	}
 
@@ -85,9 +85,7 @@ func TestClose(t *testing.T) {
 }
 
 func TestClose_NilConnection(t *testing.T) {
-	gs := &Client{
-		Conn: nil,
-	}
+	gs := &Client{}
 
 	err := gs.Close()
 	if err != nil {
@@ -111,7 +109,7 @@ func TestClose_Concurrent(t *testing.T) {
 
 	wg.Wait()
 
-	if gs.Conn != nil {
+	if gs.conn != nil {
 		t.Errorf("expected connection to be nil after Close")
 	}
 }
@@ -119,7 +117,7 @@ func TestClose_Concurrent(t *testing.T) {
 func TestGenericBasicGet(t *testing.T) {
 	gs := newTestClient()
 	connectToTarget(t, gs)
-	defer gs.Conn.Close()
+	defer gs.Close()
 
 	result, err := gs.Get(context.Background(), []string{".1.3.6.1.2.1.1.1.0"}) // SNMP MIB-2 sysDescr
 	if err != nil {
@@ -140,7 +138,7 @@ func TestGenericBasicGet(t *testing.T) {
 func TestGenericMultiGet(t *testing.T) {
 	gs := newTestClient()
 	connectToTarget(t, gs)
-	defer gs.Conn.Close()
+	defer gs.Close()
 
 	oids := []string{
 		".1.3.6.1.2.1.1.1.0", // SNMP MIB-2 sysDescr
@@ -163,7 +161,7 @@ func TestGenericMultiGet(t *testing.T) {
 func TestGenericWalk(t *testing.T) {
 	gs := newTestClient()
 	connectToTarget(t, gs)
-	defer gs.Conn.Close()
+	defer gs.Close()
 
 	result, err := gs.WalkAll(context.Background(), "")
 	if err != nil {
@@ -177,7 +175,7 @@ func TestGenericWalk(t *testing.T) {
 func TestGenericBulkWalk(t *testing.T) {
 	gs := newTestClient()
 	connectToTarget(t, gs)
-	defer gs.Conn.Close()
+	defer gs.Close()
 
 	result, err := gs.BulkWalkAll(context.Background(), "", 0)
 	if err != nil {
@@ -194,7 +192,7 @@ func TestGenericBulkWalk(t *testing.T) {
 func TestGenericBulkWalkMaxRepetitions(t *testing.T) {
 	gs := newTestClient()
 	connectToTarget(t, gs)
-	defer gs.Conn.Close()
+	defer gs.Close()
 
 	walkNames := func(t *testing.T, maxRepetitions uint32) []string {
 		t.Helper()
@@ -226,7 +224,7 @@ func TestV1BulkWalkError(t *testing.T) {
 	g.Version = Version1
 	connectToTarget(t, g)
 
-	g.Conn.Close()
+	g.Close()
 
 	_, err := g.BulkWalkAll(context.Background(), "", 0)
 	if err == nil {
@@ -239,7 +237,7 @@ func TestV1BulkWalkError(t *testing.T) {
 func TestMaxOids(t *testing.T) {
 	gs := newTestClient()
 	connectToTarget(t, gs)
-	defer gs.Conn.Close()
+	defer gs.Close()
 
 	gs.MaxOids = 1
 
@@ -325,7 +323,7 @@ func TestSnmpV3Users(t *testing.T) {
 		t.Run(u.name, func(t *testing.T) {
 			gs := newTestClientV3(u.msgFlags(), u.securityParameters())
 			connectToTarget(t, gs)
-			defer gs.Conn.Close()
+			defer gs.Close()
 
 			result, err := gs.Get(context.Background(), []string{".1.3.6.1.2.1.1.1.0"}) // SNMP MIB-2 sysDescr
 			if err != nil {

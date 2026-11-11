@@ -234,7 +234,7 @@ func setupDiscoveryTest(t *testing.T) *Client {
 
 	ts := newV3NoAuthClientForDiscoveryTest(agent.port())
 	require.NoError(t, ts.Connect(context.Background()))
-	t.Cleanup(func() { ts.Conn.Close() })
+	t.Cleanup(func() { _ = ts.Close() })
 
 	return ts
 }
@@ -304,7 +304,7 @@ func TestV3DiscoveryUnknownUserNamesNoEngineID(t *testing.T) {
 
 	ts := newV3NoAuthClientForDiscoveryTest(agent.port())
 	require.NoError(t, ts.Connect(context.Background()))
-	t.Cleanup(func() { ts.Conn.Close() })
+	t.Cleanup(func() { _ = ts.Close() })
 
 	pkt := ts.NewMessage(GetRequest, nil, 0, 0)
 	require.NoError(t, ts.startEngine())
@@ -330,7 +330,7 @@ func TestV3GetRealUnknownUserNameStillFails(t *testing.T) {
 
 	ts := newV3NoAuthClientForDiscoveryTest(agent.port())
 	require.NoError(t, ts.Connect(context.Background()))
-	t.Cleanup(func() { ts.Conn.Close() })
+	t.Cleanup(func() { _ = ts.Close() })
 
 	_, err := ts.Get(context.Background(), []string{".1.3.6.1.2.1.1.1.0"})
 	require.ErrorIs(t, err, ErrUnknownUsername,
@@ -351,7 +351,7 @@ func TestV3DiscoveryUnknownUserNamesOtherUser(t *testing.T) {
 
 	ts := newV3NoAuthClientForDiscoveryTest(agent.port())
 	require.NoError(t, ts.Connect(context.Background()))
-	t.Cleanup(func() { ts.Conn.Close() })
+	t.Cleanup(func() { _ = ts.Close() })
 
 	pkt := ts.NewMessage(GetRequest, nil, 0, 0)
 	require.NoError(t, ts.startEngine())

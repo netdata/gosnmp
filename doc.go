@@ -16,18 +16,17 @@
 // A client is a [Client] whose exported fields configure it. The package
 // declares no interface of the client for tests to mock: code that mocks it
 // declares one of its own with the methods it calls. [Client.Connect] fills in
-// the default [MaxOids], checks the SNMPv3 configuration and opens the
-// connection, a UDP socket connected to Target and Port, which replaces the
-// client's (a failed Connect keeps it); a client may instead be given a Conn.
-// The client owns its connection: [Client.Close] closes it, and so does a
-// Connect that replaces it; a connection the caller replaces in Conn is the
-// caller's again. Connect may be called again after Close. A request reads the
+// the default [MaxOids], checks the SNMPv3 configuration and opens the client's
+// connection, a UDP socket connected to Target and Port, which replaces the one
+// it had (a failed Connect keeps it). The client has no other connection: a
+// request before the first Connect fails before it sends anything. The client
+// owns its connection: [Client.Close] closes it, and so does a Connect that
+// replaces it. Connect may be called again after Close. A request reads the
 // client's configuration when it starts and does not change it: a change the
-// caller makes during a request applies from the next one. Exceptions: the
-// SNMPv3 engine state the client learns during a request serves the rest of it
-// (see SNMPv3), and each attempt uses the connection Conn holds when it
-// starts. A request resolves no name: Connect looks up Target, and a request
-// writes to the peer of the connection it uses. The request IDs and msgIDs
+// caller makes during a request applies from the next one, but the SNMPv3
+// engine state the client learns during a request serves the rest of it (see
+// SNMPv3). A request resolves no name: Connect looks up Target, and a request
+// writes to the peer of the socket Connect opened. The request IDs and msgIDs
 // start at a random value on first use unless [Client.SetRequestID] and
 // [Client.SetMsgID] set them, and Connect does not reset them.
 //
@@ -49,12 +48,11 @@
 // and its deadline, the receive buffer and the SNMPv3 engine state, so run one
 // request at a time, or give each goroutine its own client. Close is the
 // exception: any goroutine may call it at any time, also to end a running
-// request: it interrupts the running attempt, whatever connection the attempt
-// uses, as a done context does. Once Close has run, a request whose attempt
-// ends without a reply fails with an error wrapping [net.ErrClosed], whatever
-// else ended the attempt, a done context included, and so do later requests
-// until Connect opens a connection or Conn is set. A [Receiver] and the
-// package's key cache are safe for concurrent use.
+// request: it interrupts the running attempt, as a done context does. Once
+// Close has run, a request whose attempt ends without a reply fails with an
+// error wrapping [net.ErrClosed], whatever else ended the attempt, a done
+// context included, and so do later requests until Connect opens a connection.
+// A [Receiver] and the package's key cache are safe for concurrent use.
 //
 // # Attempts and timeouts
 //
@@ -65,8 +63,7 @@
 // SNMPv3 Report (see SNMPv3 below): an answer to any earlier attempt of the
 // same request answers it too. A message read that does not decode or
 // authenticate, or that is no answer, is discarded, and the attempt goes on
-// waiting (RFC 3412 section 7.2). The client reads one message per datagram,
-// and one per read from a Conn the caller set that is not a [net.PacketConn]. A
+// waiting (RFC 3412 section 7.2). The client reads one message per datagram. A
 // message takes less than 65535 octets, the msgMaxSize SNMPv3 requests
 // advertise: a datagram that fills them may have been cut short, and fails the
 // attempt with "response buffer too small". A timeout (a write or read error
@@ -96,15 +93,14 @@
 // # Panics
 //
 // A panic in the code a request runs on its own goroutine ends the request: in
-// a method of a Conn or context the caller gave that the request calls. The
-// request returns no message and an error whose text starts with
-// "request panicked: " and that wraps the panic's value when it is an error, so
-// that [errors.Is] and [errors.As] reach it (a [runtime.Error] included); the
-// client stays usable. Other panics are not recovered: they reach the caller,
-// or end the process when they run on a goroutine of their own. That is a panic
-// in a Conn's SetDeadline when Close or a done context interrupts an attempt;
-// in a context's methods that the context package calls on goroutines of its
-// own; and in Connect and Close.
+// a method of the context the caller gave that the request calls. The request
+// returns no message and an error whose text starts with "request panicked: "
+// and that wraps the panic's value when it is an error, so that [errors.Is] and
+// [errors.As] reach it (a [runtime.Error] included); the client stays usable.
+// Other panics are not recovered: they reach the caller, or end the process
+// when they run on a goroutine of their own. That is a panic in a context's
+// methods that Connect calls, or that the context package calls on goroutines
+// of its own.
 //
 // # SNMPv3
 //
@@ -518,10 +514,10 @@
 // a request (a walk's included) that a Report or a discovery answer without an
 // engine ID ended also matches it, besides the answer's category, while the
 // library marks no error of a request that ended without an answer, a timeout
-// after discarded replies included; errors of the caller's own code (a Conn or
-// context it gave, and a panic in one) pass through unchanged. A failed request
-// returns no message, so this is how a caller tells an agent that answered from
-// one that did not.
+// after discarded replies included; errors of the caller's own code (a context
+// it gave, and a panic in one) pass through unchanged. A failed request returns
+// no message, so this is how a caller tells an agent that answered from one
+// that did not.
 //
 // The categories are variables only so that errors.Is can match them; do not
 // assign to them. The library makes some of its errors with their values when
