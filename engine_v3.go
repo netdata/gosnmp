@@ -11,30 +11,30 @@ import (
 	"time"
 )
 
-// negotiateInitialSecurityParameters prepares packetOut's security parameters
+// negotiateInitialSecurityParameters prepares req's security parameters
 // before an SNMPv3 request: it discovers the agent's engine while the engine
-// state has no engine ID, and gives packetOut the engine state. A failed
+// state has no engine ID, and gives req the engine state. A failed
 // discovery returns its error with the answer that ended it, if any.
-func (x *Client) negotiateInitialSecurityParameters(ctx context.Context, packetOut *Message) (*Message, error) {
-	if len(x.engine.engineID) == 0 {
-		return x.discoverEngine(ctx, packetOut)
+func (c *Client) negotiateInitialSecurityParameters(ctx context.Context, req *Message) (*Message, error) {
+	if len(c.engine.engineID) == 0 {
+		return c.discoverEngine(ctx, req)
 	}
-	x.engine.stamp(packetOut)
+	c.engine.stamp(req)
 	return nil, nil
 }
 
 // discoverEngine runs engine discovery (RFC 3414 section 4): it sends the
 // discovery request, whose answer the attempt commits into the engine state
-// (exchange.settle), and gives packetOut the engine state. A discovery whose
+// (exchange.settle), and gives req the engine state. A discovery whose
 // answer was not committed returns its error with the answer, if any.
-func (x *Client) discoverEngine(ctx context.Context, packetOut *Message) (*Message, error) {
+func (c *Client) discoverEngine(ctx context.Context, req *Message) (*Message, error) {
 	discoveryPacket := newDiscoveryPacket()
-	discoveryPacket.ContextName = packetOut.ContextName
-	answer, committed, err := x.sendOneRequest(ctx, discoveryPacket, true, attemptSecurity{})
+	discoveryPacket.ContextName = req.ContextName
+	answer, committed, err := c.sendOneRequest(ctx, discoveryPacket, true, attemptSecurity{})
 	if !committed {
 		return answer, err
 	}
-	x.engine.stamp(packetOut)
+	c.engine.stamp(req)
 	return nil, nil
 }
 
@@ -79,7 +79,7 @@ var errReplyNotInTime = inCategory(ErrNotInTimeWindow, errors.New("the reply is 
 // (net-snmp's set_enginetime). A reply whose engine ID gives no valid state
 // answers without a commit.
 func (e *exchange) settle(out attemptOutcome) (attemptOutcome, error) {
-	x, reply := e.x, out.packet
+	c, reply := e.c, out.reply
 	if reply.Version != Version3 {
 		return out, nil
 	}
@@ -98,7 +98,7 @@ func (e *exchange) settle(out attemptOutcome) (attemptOutcome, error) {
 	if out.verified && boots == maxEngineValue {
 		return attemptOutcome{}, errReplyNotInTime
 	}
-	next, err := x.engine.withEngine(&x.config.User, from.AuthoritativeEngineID)
+	next, err := c.engine.withEngine(&c.config.User, from.AuthoritativeEngineID)
 	if err != nil {
 		if e.discovery {
 			out.err = err
@@ -127,7 +127,7 @@ func (e *exchange) settle(out attemptOutcome) (attemptOutcome, error) {
 		}
 		next.clock = sourcedClock{clock, fromAuthenticated}
 	}
-	x.commitEngine(next)
+	c.commitEngine(next)
 	out.committed = true
 	return out, nil
 }
@@ -143,10 +143,10 @@ func (e *exchange) settle(out attemptOutcome) (attemptOutcome, error) {
 // authentic answer of one that does not is its first (the reset of RFC 3414
 // section 2.3). A deviation from section 3.2 step 7 b and net-snmp, which
 // reject such a device until the client forgets its time by other means.
-func (x *Client) forgetEngineTime() {
-	next := x.engine
+func (c *Client) forgetEngineTime() {
+	next := c.engine
 	next.clock = sourcedClock{}
-	x.commitEngine(next)
+	c.commitEngine(next)
 }
 
 // resetsClock reports whether a verified reply with engine boots and time
@@ -168,7 +168,7 @@ func (e *exchange) resetsClock(boots, engineTime uint32, now time.Time) bool {
 }
 
 // mayLend reports whether report, a resync Report of kind the client did not
-// store, may lend its engine parameters to the resend of packetOut. A request
+// store, may lend its engine parameters to the resend of req. A request
 // without authentication carries no signature to misuse. An authenticated
 // request is signed with what the Report names, so it takes only the engine
 // boots and time of a Report that names the request's engine ID (RFC 3414
@@ -178,32 +178,32 @@ func (e *exchange) resetsClock(boots, engineTime uint32, now time.Time) bool {
 // every unauthenticated clock (sourcedClock.timeFor). It never takes an engine
 // ID: the request would be signed for another engine with the same
 // credentials (section 1.5.2).
-func mayLend(packetOut, report *Message, kind reportKind) bool {
-	if !packetOut.SecurityLevel.authFlag() {
+func mayLend(req, report *Message, kind reportKind) bool {
+	if !req.SecurityLevel.authFlag() {
 		return true
 	}
 	if kind.namesEngine {
 		return false
 	}
-	return bytes.Equal(report.SecurityParameters.AuthoritativeEngineID, packetOut.SecurityParameters.AuthoritativeEngineID)
+	return bytes.Equal(report.SecurityParameters.AuthoritativeEngineID, req.SecurityParameters.AuthoritativeEngineID)
 }
 
 // lendEngineParameters lends the engine parameters of report, a resync Report
-// the client does not store, to the resend of packetOut only, which the
-// request's attempts so far made with sec: it gives packetOut the engine ID of
+// the client does not store, to the resend of req only, which the
+// request's attempts so far made with sec: it gives req the engine ID of
 // a Report that names the engine and its context engine ID, and the resend the
 // keys localized to it (by the rule of a commit, withEngine: an error for an
 // empty one), and the clock of the Report's boots and time, received now (RFC
 // 3414 section 3.2 checks the engine ID before the time window). The client
 // takes the agent's from the authenticated answer.
-func (x *Client) lendEngineParameters(packetOut, report *Message, kind reportKind, sec attemptSecurity) (attemptSecurity, error) {
+func (c *Client) lendEngineParameters(req, report *Message, kind reportKind, sec attemptSecurity) (attemptSecurity, error) {
 	from := &report.SecurityParameters
 	if kind.namesEngine {
-		lent, err := x.engine.withEngine(&x.config.User, from.AuthoritativeEngineID)
+		lent, err := c.engine.withEngine(&c.config.User, from.AuthoritativeEngineID)
 		if err != nil {
 			return attemptSecurity{}, err
 		}
-		lent.stamp(packetOut)
+		lent.stamp(req)
 		sec.keys = lent.keys
 	}
 	source := fromUnauthenticated

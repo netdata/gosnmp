@@ -132,8 +132,8 @@ func TestEngineSettleKeepsEngine(t *testing.T) {
 		VarBinds:           []VarBind{{Name: usmStatsNotInTimeWindows}},
 		SecurityParameters: SecurityParameters{AuthoritativeEngineID: []byte(usmCharEngineID), AuthoritativeEngineBoots: 9, AuthoritativeEngineTime: 99},
 	}
-	e := exchange{x: x, packet: packet, sec: attemptSecurity{keys: known.keys}}
-	out, err := e.settle(attemptOutcome{kind: attemptReply, packet: report, verified: true})
+	e := exchange{c: x, req: packet, sec: attemptSecurity{keys: known.keys}}
+	out, err := e.settle(attemptOutcome{kind: attemptReply, reply: report, verified: true})
 	require.NoError(t, err)
 	require.True(t, out.committed)
 	assert.Equal(t, [2]any{known.engineID, known.keys}, [2]any{x.engine.engineID, x.engine.keys})

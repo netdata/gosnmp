@@ -1108,7 +1108,7 @@ func TestExchangeRankOf(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			e := exchange{packet: &Message{Version: tc.version, RequestID: 2, MsgID: 7}}
+			e := exchange{req: &Message{Version: tc.version, RequestID: 2, MsgID: 7}}
 			assert.Equal(t, tc.want, e.rankOf(tc.read, tc.verified, earlier))
 		})
 	}
@@ -1141,7 +1141,7 @@ func TestExchangeDecodeRequestID(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			e := &exchange{x: mustClient(Config{Version: Version2c}), packet: &Message{Version: Version2c, PDUType: GetRequest}}
+			e := &exchange{c: mustClient(Config{Version: Version2c}), req: &Message{Version: Version2c, PDUType: GetRequest}}
 			reply, _, err := e.decode(tc.msg, nil)
 			require.Error(t, err)
 			if tc.want == nil {
@@ -1233,7 +1233,7 @@ func TestExchangeAnswers(t *testing.T) {
 			if tc.reply != nil {
 				tc.reply(rsp)
 			}
-			e := exchange{packet: req}
+			e := exchange{req: req}
 			answers, err := e.answers(rsp, earlier)
 			assert.Equal(t, tc.answers, answers)
 			assert.Equal(t, tc.err, err)
@@ -1345,7 +1345,7 @@ func TestExchangeEndErrors(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			e := exchange{x: mustClient(Config{})}
+			e := exchange{c: mustClient(Config{})}
 			if tc.discarded != nil {
 				e.discard(tc.discarded, rankAuthentic)
 			}

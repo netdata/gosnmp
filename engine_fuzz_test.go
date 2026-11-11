@@ -79,8 +79,8 @@ func TestEngineReplySeeds(t *testing.T) {
 		}
 		for i, reply := range seeds {
 			e := engineReplyExchange(t, r)
-			e.x.conn = &replyConn{reads: []scriptedRead{{data: reply}, {err: os.ErrDeadlineExceeded}}}
-			if out := e.attempt(nil); out.kind != attemptReply || out.packet == nil {
+			e.c.conn = &replyConn{reads: []scriptedRead{{data: reply}, {err: os.ErrDeadlineExceeded}}}
+			if out := e.attempt(nil); out.kind != attemptReply || out.reply == nil {
 				t.Errorf("%+v seed %d: the attempt ended as %d, %v, not with an answer", r, i, out.kind, out.err)
 			}
 		}
@@ -130,7 +130,7 @@ func engineReplyExchange(tb testing.TB, r engineReplyRequest) *exchange {
 			sec = attemptSecurity{clock: x.engine.clock, keys: x.engine.keys}
 		}
 	}
-	return &exchange{x: x, packet: packet, ctx: context.Background(), discovery: r.discover, sec: sec}
+	return &exchange{c: x, req: packet, ctx: context.Background(), discovery: r.discover, sec: sec}
 }
 
 // engineReplySeeds returns replies to the first exchange of r's request
@@ -141,7 +141,7 @@ func engineReplyExchange(tb testing.TB, r engineReplyRequest) *exchange {
 func engineReplySeeds(tb testing.TB, r engineReplyRequest) [][]byte {
 	tb.Helper()
 	e := engineReplyExchange(tb, r)
-	e.packet.RequestID = e.x.nextRequestID()
+	e.req.RequestID = e.c.nextRequestID()
 	req, err := e.encode()
 	if err != nil {
 		tb.Fatal(err)
@@ -152,7 +152,7 @@ func engineReplySeeds(tb testing.TB, r engineReplyRequest) [][]byte {
 	}
 	scripts := []func(int, agentRequest) (agentAnswer, bool){
 		nil,
-		onRequest(1, agentAnswer{report: usmStatsNotInTimeWindows, level: e.packet.SecurityLevel & AuthNoPriv}),
+		onRequest(1, agentAnswer{report: usmStatsNotInTimeWindows, level: e.req.SecurityLevel & AuthNoPriv}),
 		onRequest(1, agentAnswer{report: usmStatsUnknownEngineIDs, level: NoAuthNoPriv}),
 	}
 	if r.discover {

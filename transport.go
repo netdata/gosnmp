@@ -21,24 +21,24 @@ import (
 // answers. The new connection replaces the client's, which Connect closes;
 // when Connect fails, the client keeps the connection it had. A nil ctx, and
 // then an empty Target, fail Connect before it changes the client.
-func (x *Client) Connect(ctx context.Context) error {
+func (c *Client) Connect(ctx context.Context) error {
 	if ctx == nil {
 		return errNilContext
 	}
-	if x.config.Target == "" {
+	if c.config.Target == "" {
 		return errNoTarget
 	}
-	conn, err := dial(ctx, x.config.Timeout, net.JoinHostPort(x.config.Target, strconv.Itoa(int(x.config.Port))))
+	conn, err := dial(ctx, c.config.Timeout, net.JoinHostPort(c.config.Target, strconv.Itoa(int(c.config.Port))))
 	if err != nil {
 		return fmt.Errorf("error establishing connection to host: %w", err)
 	}
-	if x.rx == nil {
-		x.rx = new(receiveBuffer)
+	if c.rx == nil {
+		c.rx = new(receiveBuffer)
 	}
-	x.mu.Lock()
-	old := x.conn
-	x.conn, x.closed = conn, false
-	x.mu.Unlock()
+	c.mu.Lock()
+	old := c.conn
+	c.conn, c.closed = conn, false
+	c.mu.Unlock()
 	if old != nil {
 		_ = old.Close()
 	}
@@ -51,8 +51,8 @@ func (x *Client) Connect(ctx context.Context) error {
 // an error wrapping net.ErrClosed, as do later requests until Connect opens a
 // connection (see the package documentation). Only the first call closes the
 // connection; later calls, and calls on a client never connected, return nil.
-func (x *Client) Close() error {
-	conn := x.markClosed()
+func (c *Client) Close() error {
+	conn := c.markClosed()
 	if conn == nil {
 		return nil
 	}
@@ -61,11 +61,11 @@ func (x *Client) Close() error {
 
 // markClosed marks the client closed and returns its connection, which it
 // removes.
-func (x *Client) markClosed() transport {
-	x.mu.Lock()
-	defer x.mu.Unlock()
-	conn := x.conn
-	x.conn, x.closed = nil, true
+func (c *Client) markClosed() transport {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	conn := c.conn
+	c.conn, c.closed = nil, true
 	return conn
 }
 
@@ -82,13 +82,13 @@ type runningAttempt struct {
 // interruptible makes the attempt that uses conn the client's running attempt,
 // which ctx interrupts once it is done. The attempt calls it after setting its
 // deadline, which would otherwise undo an interrupt, and ends it with end.
-func (x *Client) interruptible(ctx context.Context, conn transport) attemptInterrupts {
-	x.mu.Lock()
-	x.attempt.seq++
-	x.attempt.conn = conn
-	seq := x.attempt.seq
-	x.mu.Unlock()
-	a := attemptInterrupts{x: x, seq: seq}
+func (c *Client) interruptible(ctx context.Context, conn transport) attemptInterrupts {
+	c.mu.Lock()
+	c.attempt.seq++
+	c.attempt.conn = conn
+	seq := c.attempt.seq
+	c.mu.Unlock()
+	a := attemptInterrupts{x: c, seq: seq}
 	// Until this returns, the caller cannot defer end. Roll back setup if
 	// a context's method panics, including while AfterFunc registers it.
 	completed := false
@@ -98,7 +98,7 @@ func (x *Client) interruptible(ctx context.Context, conn transport) attemptInter
 		}
 	}()
 	if ctx.Done() != nil {
-		a.stopContext = context.AfterFunc(ctx, func() { x.interrupt(seq) })
+		a.stopContext = context.AfterFunc(ctx, func() { c.interrupt(seq) })
 	}
 	completed = true
 	return a
@@ -125,11 +125,11 @@ func (a attemptInterrupts) end() {
 // that has started is waited for, so that its deadline cannot land after a
 // later attempt's.
 func (a attemptInterrupts) clear() {
-	x := a.x
-	x.mu.Lock()
-	interrupted := x.attempt.interrupted
-	x.attempt.conn, x.attempt.interrupted = nil, nil
-	x.mu.Unlock()
+	c := a.x
+	c.mu.Lock()
+	interrupted := c.attempt.interrupted
+	c.attempt.conn, c.attempt.interrupted = nil, nil
+	c.mu.Unlock()
 	if interrupted != nil {
 		<-interrupted
 	}
@@ -139,16 +139,16 @@ func (a attemptInterrupts) clear() {
 // at once, with a deadline in the past on its connection, while the attempt
 // runs; once one interrupt has started, others do nothing. It sets the
 // deadline without mu, which a slow SetDeadline then cannot hold.
-func (x *Client) interrupt(seq uint64) {
-	x.mu.Lock()
-	conn := x.attempt.conn
-	if conn == nil || x.attempt.seq != seq || x.attempt.interrupted != nil {
-		x.mu.Unlock()
+func (c *Client) interrupt(seq uint64) {
+	c.mu.Lock()
+	conn := c.attempt.conn
+	if conn == nil || c.attempt.seq != seq || c.attempt.interrupted != nil {
+		c.mu.Unlock()
 		return
 	}
 	interrupted := make(chan struct{})
-	x.attempt.interrupted = interrupted
-	x.mu.Unlock()
+	c.attempt.interrupted = interrupted
+	c.mu.Unlock()
 	defer close(interrupted)
 	_ = conn.SetDeadline(time.Unix(1, 0))
 }
@@ -165,24 +165,24 @@ var (
 
 // isClosed reports whether Close closed the client's connection, which no
 // Connect has replaced since.
-func (x *Client) isClosed() bool {
-	x.mu.Lock()
-	defer x.mu.Unlock()
-	return x.conn == nil && x.closed
+func (c *Client) isClosed() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.conn == nil && c.closed
 }
 
 // connection returns the client's connection, which an attempt of a request
 // uses. It fails without a connection, with net.ErrClosed after Close.
-func (x *Client) connection() (transport, error) {
-	x.mu.Lock()
-	defer x.mu.Unlock()
+func (c *Client) connection() (transport, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	switch {
-	case x.conn == nil && x.closed:
+	case c.conn == nil && c.closed:
 		return nil, errClosed
-	case x.conn == nil:
+	case c.conn == nil:
 		return nil, errNoConn
 	}
-	return x.conn, nil
+	return c.conn, nil
 }
 
 // transport is the client's connection as a request uses it: the UDP socket

@@ -249,17 +249,17 @@ const (
 // them. It runs no discovery: before the client knows the agent's engine the
 // message has no engine ID and no keys, so an authenticated or private one
 // fails. On an error it returns no message.
-func (x *Client) EncodeMessage(pduType PDUType, varBinds []VarBind, nonRepeaters uint8, maxRepetitions uint32) ([]byte, error) {
-	pkt := x.NewMessage(pduType, varBinds, nonRepeaters, maxRepetitions)
-	pkt.RequestID = x.nextRequestID()
+func (c *Client) EncodeMessage(pduType PDUType, varBinds []VarBind, nonRepeaters uint8, maxRepetitions uint32) ([]byte, error) {
+	pkt := c.NewMessage(pduType, varBinds, nonRepeaters, maxRepetitions)
+	pkt.RequestID = c.nextRequestID()
 	var keys usmKeys
-	if x.config.Version == Version3 {
-		x.startEngine()
-		x.engine.stamp(pkt)
-		pkt.SecurityParameters.AuthoritativeEngineBoots = x.engine.clock.boots
-		pkt.SecurityParameters.AuthoritativeEngineTime = x.engine.clock.latest
-		keys = x.engine.keys
-		pkt.MsgID = x.nextMsgID()
+	if c.config.Version == Version3 {
+		c.startEngine()
+		c.engine.stamp(pkt)
+		pkt.SecurityParameters.AuthoritativeEngineBoots = c.engine.clock.boots
+		pkt.SecurityParameters.AuthoritativeEngineTime = c.engine.clock.latest
+		keys = c.engine.keys
+		pkt.MsgID = c.nextMsgID()
 	}
 	return pkt.marshalMsg(&keys)
 }
@@ -274,7 +274,7 @@ func (x *Client) EncodeMessage(pduType PDUType, varBinds []VarBind, nonRepeaters
 // time window, nor any minimum level. It does not write data (see the package
 // documentation for the values that alias it). On an error it returns no
 // message.
-func (x *Client) DecodeMessage(data []byte) (*Message, error) {
+func (c *Client) DecodeMessage(data []byte) (*Message, error) {
 	result := new(Message)
 	cursor, w, err := unmarshalHeader(data, result)
 	if err != nil {
@@ -282,7 +282,7 @@ func (x *Client) DecodeMessage(data []byte) (*Message, error) {
 	}
 	if result.Version == Version3 {
 		var in inbound
-		if in, err = receiveV3(data, w, result, &x.config.User, nil); err != nil {
+		if in, err = receiveV3(data, w, result, &c.config.User, nil); err != nil {
 			return nil, fmt.Errorf("unable to decode packet header: %w", err)
 		}
 		if data, cursor, err = in.scopedPDU(result); err != nil {

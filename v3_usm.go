@@ -37,8 +37,8 @@ const (
 
 // hash returns the hash of the protocol's HMAC and key derivation: MD5 for
 // NoAuth, unset and unknown values.
-func (authProtocol AuthProtocol) hash() crypto.Hash {
-	if h := authProtocol.spec().Hash; h != 0 {
+func (a AuthProtocol) hash() crypto.Hash {
+	if h := a.spec().Hash; h != 0 {
 		return h
 	}
 	return crypto.MD5
@@ -56,9 +56,9 @@ var authSpecs = [...]usm.Auth{ //nolint:gochecknoglobals // a read-only table
 
 // spec describes the protocol; NoAuth, unset and unknown values have no
 // description.
-func (authProtocol AuthProtocol) spec() usm.Auth {
-	if int(authProtocol) < len(authSpecs) {
-		return authSpecs[authProtocol]
+func (a AuthProtocol) spec() usm.Auth {
+	if int(a) < len(authSpecs) {
+		return authSpecs[a]
 	}
 	return usm.Auth{}
 }
@@ -101,9 +101,9 @@ var privSpecs = [...]usm.Priv{ //nolint:gochecknoglobals // a read-only table
 
 // spec describes the protocol; NoPriv, unset and unknown values have no
 // description.
-func (privProtocol PrivProtocol) spec() usm.Priv {
-	if int(privProtocol) < len(privSpecs) {
-		return privSpecs[privProtocol]
+func (p PrivProtocol) spec() usm.Priv {
+	if int(p) < len(privSpecs) {
+		return privSpecs[p]
 	}
 	return usm.Priv{}
 }

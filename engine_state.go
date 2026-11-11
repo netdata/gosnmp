@@ -116,9 +116,9 @@ func (s *engineState) withEngine(user *User, engineID []byte) (engineState, erro
 // startEngine starts the engine state of an SNMPv3 request (and of
 // EncodeMessage): after ForgetEngine the state starts over, with no engine ID,
 // so the request discovers the engine again.
-func (x *Client) startEngine() {
-	if x.forgetEngine {
-		x.engine, x.forgetEngine = newEngineState(&x.config.User), false
+func (c *Client) startEngine() {
+	if c.forgetEngine {
+		c.engine, c.forgetEngine = newEngineState(&c.config.User), false
 	}
 }
 
@@ -131,20 +131,20 @@ func (x *Client) startEngine() {
 // the agent's engine ID changed (a replaced device), or a forged answer to the
 // discovery gave the client another engine's. It is not safe to call while a
 // request runs on another goroutine.
-func (x *Client) ForgetEngine() {
-	x.forgetEngine = true
+func (c *Client) ForgetEngine() {
+	c.forgetEngine = true
 }
 
 // commitEngine replaces the engine state with next, a state validated by its
 // caller.
-func (x *Client) commitEngine(next engineState) {
-	x.engine = next
+func (c *Client) commitEngine(next engineState) {
+	c.engine = next
 }
 
-// stamp gives packet, a request, the engine state's engine ID and context
+// stamp gives m, a request, the engine state's engine ID and context
 // engine ID; its attempts sign and encrypt it with the state's keys and give
 // it the engine boots and time (exchange.encode).
-func (s *engineState) stamp(packet *Message) {
-	packet.SecurityParameters.AuthoritativeEngineID = s.engineID
-	packet.ContextEngineID = s.contextEngineID()
+func (s *engineState) stamp(m *Message) {
+	m.SecurityParameters.AuthoritativeEngineID = s.engineID
+	m.ContextEngineID = s.contextEngineID()
 }

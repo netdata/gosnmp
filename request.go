@@ -16,13 +16,13 @@ import (
 // SNMPv3 message's engine fields and context engine ID are left empty: a
 // request takes them from the client's engine state, and the caller sets them
 // for a message it encodes itself.
-func (x *Client) NewMessage(pduType PDUType, varBinds []VarBind, nonRepeaters uint8, maxRepetitions uint32) *Message {
+func (c *Client) NewMessage(pduType PDUType, varBinds []VarBind, nonRepeaters uint8, maxRepetitions uint32) *Message {
 	return &Message{
-		Version:            x.config.Version,
-		Community:          x.config.Community,
-		SecurityLevel:      x.config.SecurityLevel,
-		SecurityParameters: SecurityParameters{UserName: x.config.User.Name},
-		ContextName:        x.config.ContextName,
+		Version:            c.config.Version,
+		Community:          c.config.Community,
+		SecurityLevel:      c.config.SecurityLevel,
+		SecurityParameters: SecurityParameters{UserName: c.config.User.Name},
+		ContextName:        c.config.ContextName,
 		ErrorStatus:        0,
 		ErrorIndex:         0,
 		PDUType:            pduType,
@@ -40,24 +40,24 @@ func (x *Client) NewMessage(pduType PDUType, varBinds []VarBind, nonRepeaters ui
 // documentation, Errors). A done ctx ends the request with its error (see
 // the package documentation, Attempts and timeouts); a nil ctx fails it
 // before it is sent.
-func (x *Client) Get(ctx context.Context, oids []string) (result *Message, err error) {
-	packetOut, err := x.oidRequest(GetRequest, oids, 0)
+func (c *Client) Get(ctx context.Context, oids []string) (result *Message, err error) {
+	req, err := c.oidRequest(GetRequest, oids, 0)
 	if err != nil {
 		return nil, err
 	}
-	return x.send(ctx, packetOut)
+	return c.send(ctx, req)
 }
 
 // oidRequest builds the request packet of pdutype for oids, each as a Null
 // varbind, with maxRepetitions for a GetBulk, after checking their count
 // against MaxOids: Get's, and each of a walk's GetNext and GetBulk requests.
-func (x *Client) oidRequest(pdutype PDUType, oids []string, maxRepetitions uint32) (*Message, error) {
-	if len(oids) > x.config.MaxOids {
-		return nil, fmt.Errorf("oid count (%d) is greater than MaxOids (%d)", len(oids), x.config.MaxOids)
+func (c *Client) oidRequest(pduType PDUType, oids []string, maxRepetitions uint32) (*Message, error) {
+	if len(oids) > c.config.MaxOids {
+		return nil, fmt.Errorf("oid count (%d) is greater than MaxOids (%d)", len(oids), c.config.MaxOids)
 	}
-	pdus := make([]VarBind, 0, len(oids))
+	varBinds := make([]VarBind, 0, len(oids))
 	for _, oid := range oids {
-		pdus = append(pdus, VarBind{Name: oid, Value: NullValue()})
+		varBinds = append(varBinds, VarBind{Name: oid, Value: NullValue()})
 	}
-	return x.NewMessage(pdutype, pdus, 0, maxRepetitions), nil
+	return c.NewMessage(pduType, varBinds, 0, maxRepetitions), nil
 }

@@ -53,8 +53,8 @@ import (
 // 2147483647, the most RFC 3416 allows, fails the walk before its first
 // request is sent. Some devices fail with large values; see
 // https://github.com/gosnmp/gosnmp/issues/100.
-func (x *Client) BulkWalkAll(ctx context.Context, rootOid string, maxRepetitions uint32) (results []VarBind, end WalkEnd, err error) {
-	return x.walk(ctx, GetBulkRequest, rootOid, maxRepetitions)
+func (c *Client) BulkWalkAll(ctx context.Context, rootOid string, maxRepetitions uint32) (results []VarBind, end WalkEnd, err error) {
+	return c.walk(ctx, GetBulkRequest, rootOid, maxRepetitions)
 }
 
 // WalkAll walks the subtree under rootOid with GETNEXT requests, one per
@@ -63,8 +63,8 @@ func (x *Client) BulkWalkAll(ctx context.Context, rootOid string, maxRepetitions
 // and fails as BulkWalkAll does; net-snmp's snmpwalk differs only for a name
 // before rootOid, which fails its increasing check where WalkAll ends (or, as
 // the first answer, gets rootOid).
-func (x *Client) WalkAll(ctx context.Context, rootOid string) (results []VarBind, end WalkEnd, err error) {
-	return x.walk(ctx, GetNextRequest, rootOid, 0)
+func (c *Client) WalkAll(ctx context.Context, rootOid string) (results []VarBind, end WalkEnd, err error) {
+	return c.walk(ctx, GetNextRequest, rootOid, 0)
 }
 
 // WalkEnd is how a walk ended without an error: what ended it, and the
@@ -115,7 +115,7 @@ const (
 // default; it is checked after the root, before the first request. Each
 // request runs within ctx. An error ends the walk with the values collected
 // before it.
-func (x *Client) walk(ctx context.Context, requestType PDUType, rootOid string, maxRepetitions uint32) (results []VarBind, end WalkEnd, err error) {
+func (c *Client) walk(ctx context.Context, requestType PDUType, rootOid string, maxRepetitions uint32) (results []VarBind, end WalkEnd, err error) {
 	root, err := walkRoot(rootOid)
 	if err != nil {
 		return nil, WalkEnd{}, err
@@ -126,7 +126,7 @@ func (x *Client) walk(ctx context.Context, requestType PDUType, rootOid string, 
 		return nil, WalkEnd{}, fmt.Errorf("max-repetitions %d is more than %d", maxRepetitions, math.MaxInt32)
 	}
 	w := walker{
-		x:           x,
+		c:           c,
 		requestType: requestType,
 		root:        root,
 		maxReps:     cmp.Or(maxRepetitions, defaultMaxRepetitions),
@@ -166,7 +166,7 @@ func (x *Client) walk(ctx context.Context, requestType PDUType, rootOid string, 
 
 // walker holds what a walk fixes at its start.
 type walker struct {
-	x *Client
+	c *Client
 	// requestType is GetNextRequest or GetBulkRequest.
 	requestType PDUType
 	root        string
@@ -212,16 +212,16 @@ func walkRoot(rootOid string) (string, error) {
 func (w *walker) request(ctx context.Context, oid string) (*Message, error) {
 	var maxReps uint32
 	if w.requestType == GetBulkRequest {
-		if w.x.config.Version == Version1 {
+		if w.c.config.Version == Version1 {
 			return nil, errors.New("GETBULK not supported in SNMPv1")
 		}
 		maxReps = w.maxReps
 	}
-	packetOut, err := w.x.oidRequest(w.requestType, []string{oid}, maxReps)
+	req, err := w.c.oidRequest(w.requestType, []string{oid}, maxReps)
 	if err != nil {
 		return nil, err
 	}
-	return w.x.send(ctx, packetOut)
+	return w.c.send(ctx, req)
 }
 
 // visit applies the walk's end rule, net-snmp's (apps/snmpwalk.c and
@@ -238,28 +238,28 @@ func (w *walker) visit(response *Message, oid string, firstAnswer bool, results 
 		return results, WalkEnd{Reason: WalkEmpty}, walkDone, nil
 	}
 
-	for i, pdu := range response.VarBinds {
+	for i, vb := range response.VarBinds {
 		// A name outside the subtree ends the walk; as the walk's first value,
 		// it shows the root to be a leaf (gosnmp/gosnmp#78).
-		if !inSubtree(pdu.Name, w.root) {
+		if !inSubtree(vb.Name, w.root) {
 			if firstAnswer && i == 0 {
 				return results, WalkEnd{}, walkGetRoot, nil
 			}
-			return results, WalkEnd{Reason: WalkOutside, VarBind: pdu}, walkDone, nil
+			return results, WalkEnd{Reason: WalkOutside, VarBind: vb}, walkDone, nil
 		}
 		// An exception value (RFC 3416 section 4.2) ends the walk, also as its
 		// first value, without the leaf Get, as in net-snmp's snmpwalk: a leaf
 		// root that is the MIB's last object answers endOfMibView and is not
 		// fetched.
-		if isException(pdu.Value.Type()) {
-			return results, WalkEnd{Reason: WalkException, VarBind: pdu}, walkDone, nil
+		if isException(vb.Value.Type()) {
+			return results, WalkEnd{Reason: WalkException, VarBind: vb}, walkDone, nil
 		}
 		// Each name is compared with the request's, as net-snmp's
 		// snmpbulkwalk does: a name equal to the root fails too.
-		if oidCompare(oid, pdu.Name) >= 0 {
-			return results, WalkEnd{}, walkDone, fmt.Errorf("OID not increasing: %s >= %s", oid, pdu.Name)
+		if oidCompare(oid, vb.Name) >= 0 {
+			return results, WalkEnd{}, walkDone, fmt.Errorf("OID not increasing: %s >= %s", oid, vb.Name)
 		}
-		results = append(results, pdu)
+		results = append(results, vb)
 	}
 	return results, WalkEnd{}, walkContinue, nil
 }
@@ -273,7 +273,7 @@ func (w *walker) visit(response *Message, oid string, firstAnswer bool, results 
 // Get fails the walk.
 func (w *walker) getRoot(ctx context.Context, results []VarBind) ([]VarBind, WalkEnd, error) {
 	end := WalkEnd{Reason: WalkLeaf}
-	response, err := w.x.Get(ctx, []string{w.root})
+	response, err := w.c.Get(ctx, []string{w.root})
 	switch {
 	case err == nil:
 	case errors.As(err, new(*StatusError)):
@@ -285,8 +285,8 @@ func (w *walker) getRoot(ctx context.Context, results []VarBind) ([]VarBind, Wal
 		return results, end, nil
 	}
 	end.VarBind = response.VarBinds[0]
-	if pdu := end.VarBind; pdu.Name == w.root && !isException(pdu.Value.Type()) {
-		results = append(results, pdu)
+	if vb := end.VarBind; vb.Name == w.root && !isException(vb.Value.Type()) {
+		results = append(results, vb)
 	}
 	return results, end, nil
 }

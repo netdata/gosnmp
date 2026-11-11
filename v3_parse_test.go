@@ -331,7 +331,7 @@ func TestV3DecodeKeyDerivation(t *testing.T) {
 			craftedUSM(octets(engineID), intTLV(1), intTLV(2), octets("codec-user"), octets(""), octets("")),
 			tlv(0x30, octets(engineID), octets(""), craftedPDU(Report, craftedVBL(craftedVB(intTLV(5))))))
 		before := passwordCache.Len()
-		_, _, _ = (&exchange{x: x, packet: req, sec: attemptSecurity{keys: keys}}).decode(report, nil)
+		_, _, _ = (&exchange{c: x, req: req, sec: attemptSecurity{keys: keys}}).decode(report, nil)
 		assert.Zero(t, passwordCache.Len()-before)
 	})
 }
@@ -352,7 +352,7 @@ func TestV3ReplyDecode(t *testing.T) {
 			Version: Version3, SecurityLevel: flags, SecurityParameters: signedTestHeader(usmCharEngineID, "codec-user"),
 			MsgID: 7, PDUType: GetRequest,
 		}
-		return &exchange{x: x, packet: req, sec: attemptSecurity{keys: keys}}, user
+		return &exchange{c: x, req: req, sec: attemptSecurity{keys: keys}}, user
 	}
 	// reply encodes a message from codec-user at usmCharEngineID, for user's
 	// keys unless user is nil.
@@ -434,7 +434,7 @@ func TestV3ReplyDecode(t *testing.T) {
 
 	// A msgID means nothing to an SNMPv2c request.
 	t.Run("SNMPv3 message to an SNMPv2c request", func(t *testing.T) {
-		e := &exchange{x: mustClient(Config{Version: Version2c}), packet: &Message{Version: Version2c, PDUType: GetRequest}}
+		e := &exchange{c: mustClient(Config{Version: Version2c}), req: &Message{Version: Version2c, PDUType: GetRequest}}
 		msg := craftedV3(intTLV(7), intTLV(65507), octets("\x00"), intTLV(3),
 			craftedUSM(octets(usmCharEngineID), intTLV(3), intTLV(77), octets("codec-user"), octets(""), octets("")),
 			tlv(0x30, octets(usmCharEngineID), octets(""), craftedPDU(Response, craftedVBL(craftedVB(intTLV(5))))))
@@ -504,7 +504,7 @@ func TestV3ReplyDecode(t *testing.T) {
 			SecurityLevel: AuthNoPriv, SecurityParameters: signedTestHeader(usmCharEngineID, "codec-user"),
 			PDUType: Response, RequestID: 1, VarBinds: usmPlainVars,
 		}, &sender)
-		got, _, err := (&exchange{x: x, packet: req}).decode(data, nil)
+		got, _, err := (&exchange{c: x, req: req}).decode(data, nil)
 		require.NotNil(t, got, "the message as far as decode read it")
 		assert.Equal(t, uint32(7), got.MsgID)
 		require.ErrorIs(t, err, ErrUnknownSecurityLevel)

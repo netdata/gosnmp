@@ -221,22 +221,22 @@ func readVersionField(packet []byte) (ber.Reader, int32, int, error) {
 	return r, version, whole.Len(), nil
 }
 
-// unmarshalHeader reads the message header into response: the version and,
+// unmarshalHeader reads the message header into m: the version and,
 // for SNMPv1 and SNMPv2c, the community, or for SNMPv3 the header (parseV3),
 // whose USM fields it returns for security processing, also those that
 // decoded before an error. It returns the offset of the PDU, or of the scoped
 // PDU. Its errors have their categories: the version's (readVersion), an
 // SNMPv3 header's (v3ParseError), ErrASNParse for the community.
-func unmarshalHeader(packet []byte, response *Message) (int, v3Wire, error) {
+func unmarshalHeader(packet []byte, m *Message) (int, v3Wire, error) {
 	version, cursor, err := readVersion(packet)
 	if err != nil {
 		return 0, v3Wire{}, err
 	}
-	response.Version = version
+	m.Version = version
 
-	if response.Version == Version3 {
+	if m.Version == Version3 {
 		var w v3Wire
-		if w, err = parseV3(packet, cursor, response); err != nil {
+		if w, err = parseV3(packet, cursor, m); err != nil {
 			return 0, w, v3ParseError(err)
 		}
 		return w.scoped, w, nil
@@ -247,15 +247,15 @@ func unmarshalHeader(packet []byte, response *Message) (int, v3Wire, error) {
 	if err != nil {
 		return 0, v3Wire{}, inCategory(ErrASNParse, fmt.Errorf("error parsing community string: %w", err))
 	}
-	response.Community = string(community)
+	m.Community = string(community)
 	return len(packet) - r.Len(), v3Wire{}, nil
 }
 
 // unmarshalPayload reads the PDU at packet[cursor:], which must span the rest
 // of the packet (readPayload); its errors are ErrASNParse (RFC 3412 section
 // 7.2 step 7, an unknown PDU type included, as net-snmp v5.9.4 treats it).
-func unmarshalPayload(packet []byte, cursor int, response *Message) error {
-	if err := readPayload(packet, cursor, response); err != nil {
+func unmarshalPayload(packet []byte, cursor int, m *Message) error {
+	if err := readPayload(packet, cursor, m); err != nil {
 		return inCategory(ErrASNParse, err)
 	}
 	return nil
@@ -263,7 +263,7 @@ func unmarshalPayload(packet []byte, cursor int, response *Message) error {
 
 // readPayload reads the PDU at packet[cursor:], which must span the rest of
 // the packet.
-func readPayload(packet []byte, cursor int, response *Message) error {
+func readPayload(packet []byte, cursor int, m *Message) error {
 	if len(packet) == 0 {
 		return errors.New("cannot unmarshal nil or empty payload packet")
 	}
@@ -275,14 +275,14 @@ func readPayload(packet []byte, cursor int, response *Message) error {
 	if !requestType.known() {
 		return fmt.Errorf("unknown PDUType %#x", byte(requestType))
 	}
-	response.PDUType = requestType
+	m.PDUType = requestType
 	if requestType == Trap {
-		if err := unmarshalTrapV1(packet[cursor:], response); err != nil {
+		if err := unmarshalTrapV1(packet[cursor:], m); err != nil {
 			return fmt.Errorf("error in unmarshalTrapV1: %w", err)
 		}
 		return nil
 	}
-	if err := unmarshalResponse(packet[cursor:], requestType, response); err != nil {
+	if err := unmarshalResponse(packet[cursor:], requestType, m); err != nil {
 		return fmt.Errorf("error in unmarshalResponse: %w", err)
 	}
 	return nil
@@ -323,14 +323,14 @@ func requestIDRead(packet []byte, cursor int) bool {
 // a GetBulkRequest, or the error status, 0..255, and the error index
 // (readCount) of any other PDU; and the varbinds. Fields read before an error
 // stay set.
-func unmarshalResponse(packet []byte, pduType PDUType, response *Message) error {
+func unmarshalResponse(packet []byte, pduType PDUType, m *Message) error {
 	r, requestID, err := readRequestID(packet)
 	if err != nil {
 		return err
 	}
-	response.RequestID = requestID
+	m.RequestID = requestID
 	if pduType == GetBulkRequest {
-		if response.NonRepeaters, err = readCount(&r); err != nil {
+		if m.NonRepeaters, err = readCount(&r); err != nil {
 			return fmt.Errorf("error parsing SNMP packet non repeaters: %w", err)
 		}
 		maxRepetitions, err := readInt32(&r)
@@ -340,7 +340,7 @@ func unmarshalResponse(packet []byte, pduType PDUType, response *Message) error 
 		if err != nil {
 			return fmt.Errorf("error parsing SNMP packet max repetitions: %w", err)
 		}
-		response.MaxRepetitions = uint32(maxRepetitions) //nolint:gosec // not negative
+		m.MaxRepetitions = uint32(maxRepetitions) //nolint:gosec // not negative
 	} else {
 		errorStatus, err := readInt32(&r)
 		if err == nil && (errorStatus < 0 || errorStatus > math.MaxUint8) {
@@ -349,47 +349,47 @@ func unmarshalResponse(packet []byte, pduType PDUType, response *Message) error 
 		if err != nil {
 			return fmt.Errorf("error parsing SNMP packet error: %w", err)
 		}
-		response.ErrorStatus = ErrorStatus(errorStatus) //nolint:gosec // 0..255
-		if response.ErrorIndex, err = readCount(&r); err != nil {
+		m.ErrorStatus = ErrorStatus(errorStatus) //nolint:gosec // 0..255
+		if m.ErrorIndex, err = readCount(&r); err != nil {
 			return fmt.Errorf("error parsing SNMP packet error index: %w", err)
 		}
 	}
-	return unmarshalVBL(r.Rest(), response)
+	return unmarshalVBL(r.Rest(), m)
 }
 
 // unmarshalTrapV1 reads an SNMPv1 trap PDU: the enterprise, an OBJECT
 // IDENTIFIER; the agent address (readAgentAddress); the generic and specific
 // trap, INTEGERs cut to 32 bits; the timestamp (readTimestamp); and the
 // varbinds. Fields read before an error stay set.
-func unmarshalTrapV1(packet []byte, response *Message) error {
+func unmarshalTrapV1(packet []byte, m *Message) error {
 	pdu, err := readWhole(packet)
 	if err != nil {
 		return fmt.Errorf("error verifying Response sanity: %w", err)
 	}
 	r := ber.NewReader(pdu)
 
-	if response.Enterprise, err = readOID(&r); err != nil {
+	if m.Enterprise, err = readOID(&r); err != nil {
 		return fmt.Errorf("error parsing SNMPv1 trap enterprise: %w", err)
 	}
-	if response.AgentAddress, err = readAgentAddress(&r); err != nil {
+	if m.AgentAddress, err = readAgentAddress(&r); err != nil {
 		return fmt.Errorf("error parsing SNMPv1 trap agent address: %w", err)
 	}
-	if response.GenericTrap, err = readInt32(&r); err != nil {
+	if m.GenericTrap, err = readInt32(&r); err != nil {
 		return fmt.Errorf("error parsing SNMPv1 trap generic trap: %w", err)
 	}
-	if response.SpecificTrap, err = readInt32(&r); err != nil {
+	if m.SpecificTrap, err = readInt32(&r); err != nil {
 		return fmt.Errorf("error parsing SNMPv1 trap specific trap: %w", err)
 	}
-	if response.Timestamp, err = readTimestamp(&r); err != nil {
+	if m.Timestamp, err = readTimestamp(&r); err != nil {
 		return fmt.Errorf("error parsing SNMPv1 trap timestamp: %w", err)
 	}
-	return unmarshalVBL(r.Rest(), response)
+	return unmarshalVBL(r.Rest(), m)
 }
 
 // unmarshalVBL reads a varbind list, which must span all of packet, into
-// response.VarBinds, an empty list when it has no varbinds; on an error the
+// m.VarBinds, an empty list when it has no varbinds; on an error the
 // ones before it stay set.
-func unmarshalVBL(packet []byte, response *Message) error {
+func unmarshalVBL(packet []byte, m *Message) error {
 	if len(packet) == 0 {
 		return errors.New("truncated packet when unmarshalling a VBL")
 	}
@@ -401,14 +401,14 @@ func unmarshalVBL(packet []byte, response *Message) error {
 		return fmt.Errorf("error verifying VBL length: %w", err)
 	}
 
-	response.VarBinds = make([]VarBind, 0, 5)
+	m.VarBinds = make([]VarBind, 0, 5)
 	r := ber.NewReader(vbl)
 	for r.Len() > 0 {
 		vb, err := readVarbind(&r)
 		if err != nil {
 			return err
 		}
-		response.VarBinds = append(response.VarBinds, vb)
+		m.VarBinds = append(m.VarBinds, vb)
 	}
 	return nil
 }
@@ -465,47 +465,47 @@ func readVarbind(r *ber.Reader) (VarBind, error) {
 // SNMPv3 message is then signed with keys when its level asks for
 // authentication. The version, which takes one octet, must be SNMPv1, SNMPv2c
 // or SNMPv3.
-func (packet *Message) marshalMsg(keys *usmKeys) ([]byte, error) {
-	return packet.marshalWith(keys, nil)
+func (m *Message) marshalMsg(keys *usmKeys) ([]byte, error) {
+	return m.marshalWith(keys, nil)
 }
 
 // marshalWith is marshalMsg with varBinds, when not nil, a varbind list
 // encoded already, which it writes as it is instead of VarBinds: a received
 // inform's, which a receiver's Response repeats (respond).
-func (packet *Message) marshalWith(keys *usmKeys, varBinds []byte) ([]byte, error) {
-	switch packet.Version {
+func (m *Message) marshalWith(keys *usmKeys, varBinds []byte) ([]byte, error) {
+	switch m.Version {
 	case Version1, Version2c, Version3:
 	default:
-		return nil, fmt.Errorf("unable to marshal SNMP version %d: not 1, 2c or 3", packet.Version)
+		return nil, fmt.Errorf("unable to marshal SNMP version %d: not 1, 2c or 3", m.Version)
 	}
-	dst, start := ber.Begin(make([]byte, 0, packet.sizeHint()+len(varBinds)), ber.Sequence)
-	dst = append(dst, byte(Integer), 1, byte(packet.Version))
-	if packet.Version != Version3 {
-		msg, err := packet.appendPDU(appendOctets(dst, OctetString, packet.Community), varBinds)
+	dst, start := ber.Begin(make([]byte, 0, m.sizeHint()+len(varBinds)), ber.Sequence)
+	dst = append(dst, byte(Integer), 1, byte(m.Version))
+	if m.Version != Version3 {
+		msg, err := m.appendPDU(appendOctets(dst, OctetString, m.Community), varBinds)
 		if err != nil {
 			return nil, err
 		}
 		return ber.End(msg, start), nil
 	}
-	dst, auth, err := packet.appendV3(dst, keys, varBinds)
+	dst, auth, err := m.appendV3(dst, keys, varBinds)
 	if err != nil {
 		return nil, err
 	}
 	dst, auth = ber.EndMoving(dst, start, auth)
-	return packet.sign(dst, auth, keys)
+	return m.sign(dst, auth, keys)
 }
 
 // sizeHint estimates the encoded size of the message so that marshalMsg
 // usually allocates once: room for the headers and the security parameters,
 // the text fields, and per varbind its name in dotted form (no shorter than
 // its encoding), its headers and an OCTET STRING or Opaque value.
-func (packet *Message) sizeHint() int {
-	n := 64 + len(packet.Community) + len(packet.ContextEngineID) + len(packet.ContextName)
-	if packet.Version == Version3 {
+func (m *Message) sizeHint() int {
+	n := 64 + len(m.Community) + len(m.ContextEngineID) + len(m.ContextName)
+	if m.Version == Version3 {
 		n += 128
 	}
-	for i := range packet.VarBinds {
-		vb := &packet.VarBinds[i]
+	for i := range m.VarBinds {
+		vb := &m.VarBinds[i]
 		n += 16 + len(vb.Name) + len(vb.Value.data) + len(vb.Value.oid)
 	}
 	return n
@@ -517,31 +517,31 @@ func (packet *Message) sizeHint() int {
 // an SNMPv1 trap, then the varbind list (appendVBL). The request ID is an
 // Integer32 (RFC 3416) whose two's complement RequestID holds, so IDs of 2^31
 // and up encode as negative INTEGERs on every platform.
-func (packet *Message) appendPDU(dst, varBinds []byte) ([]byte, error) {
-	if !packet.PDUType.known() {
-		return nil, fmt.Errorf("unable to marshal PDU type %#x: not a PDU type", byte(packet.PDUType))
+func (m *Message) appendPDU(dst, varBinds []byte) ([]byte, error) {
+	if !m.PDUType.known() {
+		return nil, fmt.Errorf("unable to marshal PDU type %#x: not a PDU type", byte(m.PDUType))
 	}
-	if packet.PDUType == GetBulkRequest && packet.MaxRepetitions > math.MaxInt32 {
-		return nil, fmt.Errorf("unable to marshal max-repetitions %d: more than %d", packet.MaxRepetitions, math.MaxInt32)
+	if m.PDUType == GetBulkRequest && m.MaxRepetitions > math.MaxInt32 {
+		return nil, fmt.Errorf("unable to marshal max-repetitions %d: more than %d", m.MaxRepetitions, math.MaxInt32)
 	}
-	dst, start := ber.Begin(dst, byte(packet.PDUType))
-	requestID := int64(int32(packet.RequestID)) //nolint:gosec // the Integer32's two's complement
-	switch packet.PDUType {
+	dst, start := ber.Begin(dst, byte(m.PDUType))
+	requestID := int64(int32(m.RequestID)) //nolint:gosec // the Integer32's two's complement
+	switch m.PDUType {
 	case GetBulkRequest:
 		dst = appendInt(dst, requestID)
-		dst = appendUint(dst, Integer, uint64(packet.NonRepeaters))
-		dst = appendUint(dst, Integer, uint64(packet.MaxRepetitions))
+		dst = appendUint(dst, Integer, uint64(m.NonRepeaters))
+		dst = appendUint(dst, Integer, uint64(m.MaxRepetitions))
 	case Trap:
 		var err error
-		if dst, err = packet.appendTrapV1Header(dst); err != nil {
+		if dst, err = m.appendTrapV1Header(dst); err != nil {
 			return nil, err
 		}
 	default:
 		dst = appendInt(dst, requestID)
-		dst = appendUint(dst, Integer, uint64(packet.ErrorStatus))
-		dst = appendUint(dst, Integer, uint64(packet.ErrorIndex))
+		dst = appendUint(dst, Integer, uint64(m.ErrorStatus))
+		dst = appendUint(dst, Integer, uint64(m.ErrorIndex))
 	}
-	dst, err := packet.appendVBL(dst, varBinds)
+	dst, err := m.appendVBL(dst, varBinds)
 	if err != nil {
 		return nil, fmt.Errorf("unable to marshal varbind list: %w", err)
 	}
@@ -551,33 +551,33 @@ func (packet *Message) appendPDU(dst, varBinds []byte) ([]byte, error) {
 // appendTrapV1Header appends the SNMPv1 trap fields before the varbind list:
 // enterprise, the agent address (an IPv4 address, an IPv4-mapped one included:
 // RFC 1157's NetworkAddress), generic and specific trap and the timestamp.
-func (packet *Message) appendTrapV1Header(dst []byte) ([]byte, error) {
-	dst, err := appendObjectIdentifier(dst, packet.Enterprise)
+func (m *Message) appendTrapV1Header(dst []byte) ([]byte, error) {
+	dst, err := appendObjectIdentifier(dst, m.Enterprise)
 	if err != nil {
 		return nil, err
 	}
-	agentAddress := packet.AgentAddress.Unmap()
+	agentAddress := m.AgentAddress.Unmap()
 	if !agentAddress.Is4() {
-		return nil, fmt.Errorf("unable to marshal SNMPv1 AgentAddress: %v is not an IPv4 address", packet.AgentAddress)
+		return nil, fmt.Errorf("unable to marshal SNMPv1 AgentAddress: %v is not an IPv4 address", m.AgentAddress)
 	}
 	octets := agentAddress.As4()
 	dst = appendOctets(dst, IPAddress, octets[:])
-	dst = appendInt(dst, int64(packet.GenericTrap))
-	dst = appendInt(dst, int64(packet.SpecificTrap))
-	return appendUint(dst, TimeTicks, uint64(packet.Timestamp)), nil
+	dst = appendInt(dst, int64(m.GenericTrap))
+	dst = appendInt(dst, int64(m.SpecificTrap))
+	return appendUint(dst, TimeTicks, uint64(m.Timestamp)), nil
 }
 
 // appendVBL appends the varbind list: varBinds, a list encoded already, when
 // not nil, else a SEQUENCE of VarBinds, each a SEQUENCE of the name's OBJECT
 // IDENTIFIER and the value (see appendValue).
-func (packet *Message) appendVBL(dst, varBinds []byte) ([]byte, error) {
+func (m *Message) appendVBL(dst, varBinds []byte) ([]byte, error) {
 	if varBinds != nil {
 		return append(dst, varBinds...), nil
 	}
 	dst, start := ber.Begin(dst, ber.Sequence)
-	for i := range packet.VarBinds {
+	for i := range m.VarBinds {
 		var err error
-		if dst, err = appendVarbind(dst, &packet.VarBinds[i]); err != nil {
+		if dst, err = appendVarbind(dst, &m.VarBinds[i]); err != nil {
 			return nil, err
 		}
 	}
@@ -585,13 +585,13 @@ func (packet *Message) appendVBL(dst, varBinds []byte) ([]byte, error) {
 }
 
 // appendVarbind appends one varbind.
-func appendVarbind(dst []byte, pdu *VarBind) ([]byte, error) {
+func appendVarbind(dst []byte, vb *VarBind) ([]byte, error) {
 	dst, start := ber.Begin(dst, ber.Sequence)
-	dst, err := appendObjectIdentifier(dst, pdu.Name)
+	dst, err := appendObjectIdentifier(dst, vb.Name)
 	if err != nil {
 		return nil, err
 	}
-	if dst, err = appendValue(dst, pdu.Value); err != nil {
+	if dst, err = appendValue(dst, vb.Value); err != nil {
 		return nil, err
 	}
 	return ber.End(dst, start), nil

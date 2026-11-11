@@ -124,13 +124,13 @@ func (t PDUType) confirmed() bool {
 // (SecurityParameters' UserName). SNMPv1 and SNMPv2c messages take no user
 // (nil), and an SNMPv3 message at NoAuthNoPriv takes nil or any user with valid
 // protocols. Encode draws no new msgID (Client.EncodeMessage does).
-func (packet *Message) Encode(user *User) ([]byte, error) {
+func (m *Message) Encode(user *User) ([]byte, error) {
 	var keys usmKeys
-	if packet.Version == Version3 && user != nil {
+	if m.Version == Version3 && user != nil {
 		var err error
-		if keys, err = user.keysAt(packet.SecurityLevel, packet.SecurityParameters.AuthoritativeEngineID); err != nil {
+		if keys, err = user.keysAt(m.SecurityLevel, m.SecurityParameters.AuthoritativeEngineID); err != nil {
 			return nil, err
 		}
 	}
-	return packet.marshalMsg(&keys)
+	return m.marshalMsg(&keys)
 }
