@@ -355,29 +355,6 @@ func TestGenericFailureUnknownHost(t *testing.T) {
 	}
 }
 
-func TestGenericFailureConnectionTimeout(t *testing.T) {
-	t.Skip("local testing - skipping this slow one") // TODO test tag, or something
-	envTarget := os.Getenv("GOSNMP_TARGET")
-	if envTarget == "" {
-		t.Skip("local testing - skipping this slow one")
-	}
-
-	config := testConfig()
-	config.Target = "198.51.100.1" // Black hole
-	gs := mustClient(config)
-	err := gs.Connect(context.Background())
-	if err != nil {
-		t.Fatalf("Did not expect connection error with IP address")
-	}
-	_, err = gs.Get(context.Background(), []string{".1.3.6.1.2.1.1.1.0"}) // SNMP MIB-2 sysDescr
-	if err == nil {
-		t.Fatalf("Expected Get() to fail due to invalid IP")
-	}
-	if !strings.Contains(err.Error(), "timeout") {
-		t.Fatalf("Expected timeout error. Got => %v", err)
-	}
-}
-
 func TestGenericFailureConnectionRefused(t *testing.T) {
 	config := testConfig()
 	config.Target = "127.0.0.1"

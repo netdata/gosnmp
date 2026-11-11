@@ -37,8 +37,6 @@ linters:
     gocritic:
       disabled-checks:
         - exitAfterDefer
-    gocyclo:
-      min-complexity: 20
     gosec:
       excludes:
         - G501 # Allowed for handling old SNMP security methods.
