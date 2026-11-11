@@ -128,11 +128,15 @@ func TestDecodeFailureNoMessage(t *testing.T) {
 // parse with ErrASNParse, on the raw path too.
 func TestDecodeUSMFields(t *testing.T) {
 	const engineID = "\x80\x00\x1f\x88\x04codec-engine"
-	fields := func(edit func(f [][]byte)) []byte {
+	// usm builds a message whose USM parameters are the fields, edited, in a
+	// container of tag, a SEQUENCE as sent.
+	usm := func(tag byte, edit func(f [][]byte)) []byte {
 		f := [][]byte{octets(engineID), intTLV(7), intTLV(1234), octets("codec-user"), octets(""), octets("")}
 		edit(f)
-		return craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), tlv(0x30, f...), craftedScopedResp)
+		return craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), tlv(tag, f...), craftedScopedResp)
 	}
+	fields := func(edit func(f [][]byte)) []byte { return usm(0x30, edit) }
+	in := func(tag byte) []byte { return usm(tag, func([][]byte) {}) }
 	tests := map[string]struct {
 		in      []byte
 		invalid bool
@@ -150,6 +154,9 @@ func TestDecodeUSMFields(t *testing.T) {
 		"boots 4294967301": {in: fields(func(f [][]byte) { f[1] = intTLV(4294967301) })},
 		"boots -1":         {in: fields(func(f [][]byte) { f[1] = intTLV(-1) }), invalid: true},
 		"time -2147483648": {in: fields(func(f [][]byte) { f[2] = intTLV(-2147483648) }), invalid: true},
+		// The fields in another container than a SEQUENCE (RFC 3414 section 2.4).
+		"fields in an OCTET STRING": {in: in(byte(OctetString)), invalid: true},
+		"fields in a SET":           {in: in(0x31), invalid: true},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {

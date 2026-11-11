@@ -264,6 +264,75 @@ func TestEngineTimeFor(t *testing.T) {
 	}
 }
 
+// TestEngineReplyClock pins the clock a settling reply gives
+// (exchange.replyClock): an unverified reply's unauthenticated clock does not
+// replace an authenticated one (net-snmp's set_enginetime); an authenticated
+// notInTimeWindow Report gives its boots and time whatever their order; a
+// verified reply goes by RFC 3414 section 3.2 step 7 b against the
+// authenticated clock (boots 7, time 1000, 10 s ago), an equal time updating
+// it, and one outside the time window gives none unless it answers the resend
+// a notInTimeWindow Report lent its clock to (resetsClock).
+func TestEngineReplyClock(t *testing.T) {
+	now := time.Unix(1_000_000_000, 0)
+	auth := clockOf(7, 1000, now.Add(-10*time.Second), fromAuthenticated)
+	unauth := clockOf(7, 1000, now.Add(-10*time.Second), fromUnauthenticated)
+	type result struct {
+		clock sourcedClock
+		ok    bool
+	}
+	tests := map[string]struct {
+		current           sourcedClock
+		verified          bool
+		kind              reportKind
+		lent              sourcedClock
+		boots, engineTime uint32
+		want              result
+	}{
+		"unverified, an authenticated clock kept": {
+			current: auth, boots: 3, engineTime: 5, want: result{auth, true},
+		},
+		"unverified, an unauthenticated clock replaced": {
+			current: unauth, boots: 3, engineTime: 5, want: result{clockOf(3, 5, now, fromUnauthenticated), true},
+		},
+		"unverified, no clock": {
+			boots: 3, engineTime: 5, want: result{clockOf(3, 5, now, fromUnauthenticated), true},
+		},
+		"notInTimeWindow Report, lower boots": {
+			current: auth, verified: true, kind: reportKind{timeWindow: true}, boots: 3, engineTime: 5,
+			want: result{clockOf(3, 5, now, fromAuthenticated), true},
+		},
+		"verified, first authenticated": {
+			current: unauth, verified: true, boots: 3, engineTime: 5, want: result{clockOf(3, 5, now, fromAuthenticated), true},
+		},
+		"verified, newer time": {
+			current: auth, verified: true, boots: 7, engineTime: 1020, want: result{clockOf(7, 1020, now, fromAuthenticated), true},
+		},
+		"verified, equal time": {
+			current: auth, verified: true, boots: 7, engineTime: 1000, want: result{clockOf(7, 1000, now, fromAuthenticated), true},
+		},
+		"verified, older within the window": {
+			current: auth, verified: true, boots: 7, engineTime: 900, want: result{auth, true},
+		},
+		"verified, lower boots": {
+			current: auth, verified: true, boots: 6, engineTime: 1000,
+		},
+		"verified, 220 s behind": {
+			current: auth, verified: true, boots: 7, engineTime: 790,
+		},
+		"verified, 220 s behind, answering a lent clock": {
+			current: auth, verified: true, lent: clockOf(7, 790, now, fromTimeWindowReport), boots: 7, engineTime: 790,
+			want: result{clockOf(7, 790, now, fromAuthenticated), true},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			e := &exchange{sec: attemptSecurity{clock: tc.lent}}
+			clock, ok := e.replyClock(tc.current, tc.verified, tc.kind, tc.boots, tc.engineTime, now)
+			assert.Equal(t, tc.want, result{clock, ok})
+		})
+	}
+}
+
 // TestEngineResetsClock pins when a verified answer outside the time window
 // sets the clock (exchange.resetsClock): when it answers a resend an
 // unauthenticated notInTimeWindow Report lent its clock (boots 7, time 3, 10 s
