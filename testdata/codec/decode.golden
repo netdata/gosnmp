@@ -2046,7 +2046,7 @@ decode: error (ErrASNParse)
 decode: error (ErrASNParse)
 
 == crafted/v3/usm-engine-id-200
-decode: error (ErrInvalidMsgs)
+decode: error (ErrASNParse)
 
 == crafted/v3/usm-engine-id-64
 decode: ok
@@ -2060,7 +2060,7 @@ vb[0]: .1.3.6.1.2.1.1.5.0 0x02 (Integer) int 5
 reencode: identical
 
 == crafted/v3/usm-engine-id-65
-decode: error (ErrInvalidMsgs)
+decode: error (ErrASNParse)
 
 == crafted/v3/usm-user-name-200
 decode: error (ErrASNParse)

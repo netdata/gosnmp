@@ -877,7 +877,7 @@ func TestSignDigestOffset(t *testing.T) {
 					x := &Client{Version: Version3, SecurityLevel: signedTestFlags(priv), User: u}
 					res, err := x.UnmarshalTrap(bytes.Clone(data), false)
 					if len(engineID) > maxDecodedEngineIDLen {
-						require.ErrorIs(t, err, ErrInvalidMsgs, "an engine ID longer than the decoder takes")
+						require.ErrorIs(t, err, ErrASNParse, "an engine ID longer than the decoder takes")
 						return
 					}
 					require.NoError(t, err)
