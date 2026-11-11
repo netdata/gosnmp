@@ -1371,3 +1371,88 @@ func BenchmarkGet(b *testing.B) {
 		}
 	}
 }
+
+// errOnCall is a context whose call n of Err runs act first: the caller's code
+// that a request runs between its attempts.
+type errOnCall struct {
+	context.Context
+	n, calls int
+	act      func()
+}
+
+func (c *errOnCall) Err() error {
+	c.calls++
+	if c.calls == c.n {
+		c.act()
+	}
+	return c.Context.Err()
+}
+
+// TestCloseWinsOverAttemptOutcome pins, for every way an attempt can end
+// without a reply, that once Close has run the request fails with the
+// client's closed error, which wraps net.ErrClosed: Close runs as the attempt
+// ends otherwise, through the connection's or the context's code.
+func TestCloseWinsOverAttemptOutcome(t *testing.T) {
+	tests := map[string]struct {
+		retries int
+		// set makes the attempt end so, closing x as it does; cancel ends ctx.
+		set func(x *Client, c *fakeTransport, cancel context.CancelFunc)
+		// errCall, when set, is the call of the context's Err that cancels it
+		// and closes x.
+		errCall int
+	}{
+		"read timeout": {set: func(x *Client, c *fakeTransport, _ context.CancelFunc) {
+			c.failRead = func(int) error { _ = x.Close(); return os.ErrDeadlineExceeded }
+		}},
+		"write timeout": {set: func(x *Client, c *fakeTransport, _ context.CancelFunc) {
+			c.failWrite = func(int) error { _ = x.Close(); return os.ErrDeadlineExceeded }
+		}},
+		"read error": {set: func(x *Client, c *fakeTransport, _ context.CancelFunc) {
+			c.failRead = func(int) error { _ = x.Close(); return refused }
+		}},
+		"write error": {set: func(x *Client, c *fakeTransport, _ context.CancelFunc) {
+			c.failWrite = func(int) error { _ = x.Close(); return errEngineWrite }
+		}},
+		"closed read": {set: func(x *Client, c *fakeTransport, _ context.CancelFunc) {
+			c.failRead = func(int) error { _ = x.Close(); return closedRead }
+		}},
+		"deadline failure": {set: func(x *Client, c *fakeTransport, _ context.CancelFunc) {
+			c.deadlineErr = errors.New("codec deadline failure")
+			c.beforeDeadline = func() { _ = x.Close() }
+		}},
+		// The context's interrupt ends the read, and the caller closes the
+		// client, as a caller that ends a job does.
+		"context interrupt": {set: func(x *Client, c *fakeTransport, cancel context.CancelFunc) {
+			c.failRead = func(int) error { cancel(); _ = x.Close(); return os.ErrDeadlineExceeded }
+		}},
+		// The first attempt times out; the context's third Err, at the second
+		// attempt's start (after the first attempt's and the retry's), finds
+		// it canceled and the client closed.
+		"context done at an attempt's start": {
+			retries: 1,
+			set: func(_ *Client, c *fakeTransport, _ context.CancelFunc) {
+				c.failRead = func(int) error { return os.ErrDeadlineExceeded }
+			},
+			errCall: 3,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			conn := newFakeTransport(nil, nil)
+			x := newEngineClient(t, Version2c, conn)
+			x.Retries = tc.retries
+			base, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			ctx := base
+			if tc.errCall != 0 {
+				ctx = &errOnCall{Context: base, n: tc.errCall, act: func() { cancel(); _ = x.Close() }}
+			}
+			tc.set(x, conn, cancel)
+
+			res, err := x.Get(ctx, []string{engineOID})
+			assert.Nil(t, res)
+			require.ErrorIs(t, err, errClosed)
+			require.ErrorIs(t, err, net.ErrClosed)
+		})
+	}
+}
