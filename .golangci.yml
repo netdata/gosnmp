@@ -61,10 +61,10 @@ linters:
           - gosec
           - nolintlint
         path: _test.go
-      # Tests, examples and the net-snmp oracle may print, log and exit.
+      # Tests, the examples among them, and the net-snmp oracle may print, log and exit.
       - linters:
           - forbidigo
-        path: (_test\.go$|^examples/|^netsnmp/)
+        path: (_test\.go$|^netsnmp/)
       # Explicit declaration types are what the public API tests assert.
       - linters:
           - staticcheck
