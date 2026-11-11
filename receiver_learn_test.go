@@ -105,6 +105,13 @@ func TestNewReceiverConfig(t *testing.T) {
 			config:  ReceiverConfig{LearnUsers: []User{lrAuth, {}}, MaxLearned: 1},
 			wantErr: "ReceiverConfig.LearnUsers[1]: User.Name is required",
 		},
+		"a user for an engine ID of 64 octets": {
+			config: ReceiverConfig{Users: []EngineUser{at(strings.Repeat("e", 64), lrAuth)}},
+		},
+		"a user for an engine ID of 65 octets": {
+			config:  ReceiverConfig{Users: []EngineUser{at(lrEngineA, lrAuth), at(strings.Repeat("e", 65), lrAuth)}},
+			wantErr: "ReceiverConfig.Users[1]: an engine ID is 65 octets, more than 64",
+		},
 		"a user without an engine ID": {
 			config:  ReceiverConfig{Users: []EngineUser{at(lrEngineA, lrAuth), {User: lrOther}}},
 			wantErr: "ReceiverConfig.Users[1]: an engine ID is required",

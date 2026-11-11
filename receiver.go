@@ -83,8 +83,9 @@ type Notification struct {
 
 var errLearnWithoutMax = errors.New("ReceiverConfig.MaxLearned must be at least 1 when LearnUsers is set")
 
-// NewReceiver returns a receiver of config's users, whose keys it derives
-// for their engine IDs. A user with an empty engine ID or a name outside 1..32
+// NewReceiver returns a receiver of config's users, whose keys it derives for
+// their engine IDs. A user with an empty engine ID or one over 64 octets
+// (longer than any message the decoder takes names), or a name outside 1..32
 // octets, the same user twice for an engine ID or in LearnUsers, a protocol out
 // of its set and a key that does not derive (a protocol without a passphrase,
 // or one FIPS 140-only mode refuses) fail.
@@ -113,8 +114,11 @@ func NewReceiver(config ReceiverConfig) (*Receiver, error) {
 
 // add registers user for engineID, with its keys localized to it.
 func (r *Receiver) add(engineID []byte, user User) error {
-	if len(engineID) == 0 {
+	switch {
+	case len(engineID) == 0:
 		return errors.New("an engine ID is required")
+	case len(engineID) > maxDecodedEngineIDLen:
+		return fmt.Errorf("an engine ID is %d octets, more than %d", len(engineID), maxDecodedEngineIDLen)
 	}
 	if err := user.checkName(); err != nil {
 		return err
