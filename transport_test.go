@@ -210,6 +210,29 @@ func TestRequestResolvesNoName(t *testing.T) {
 	assert.Equal(t, int32(0), lookups.Load(), "lookups")
 }
 
+// TestRetryOnConnectedSocket checks, on a loopback socket, a retry over the
+// socket Connect opened: the agent does not answer the first attempt, and the
+// retry, on the same socket, is answered.
+func TestRetryOnConnectedSocket(t *testing.T) {
+	port, reads := udpAgent(t, func(n int, req []byte) []byte {
+		if n == 1 {
+			return nil
+		}
+		return replyTo(req, nil, sysDescr)
+	})
+	x := &Client{
+		Target: "127.0.0.1", Port: port, Version: Version2c, Community: "public",
+		Timeout: 200 * time.Millisecond, Retries: 1,
+	}
+	require.NoError(t, x.Connect(context.Background()))
+	defer x.Close()
+
+	res, err := x.Get(context.Background(), []string{engineOID})
+	require.NoError(t, err)
+	assert.Equal(t, []VarBind{sysDescr}, res.VarBinds)
+	assert.Len(t, reads, 2, "the agent read both attempts")
+}
+
 // TestRetryUsesConnReplacedDuringRequest checks that each attempt of a request
 // uses the connection Conn holds when it starts: as the first attempt writes
 // to agent A, which never answers, the Conn's code sets Conn to a socket
@@ -547,34 +570,44 @@ func TestRequestWithoutConnection(t *testing.T) {
 
 // TestCloseDuringRequest checks, on a loopback socket, Close as Netdata's SNMP
 // topology uses it: two goroutines close the client while a request waits for
-// its answer. The request ends at once with net.ErrClosed, the next one fails
-// the same way without being sent, and Connect opens the client again.
+// its answer, with a context that is never done and with one that can be
+// canceled, whose interrupt the attempt registers. The request ends at once
+// with net.ErrClosed, the next one fails the same way without being sent, and
+// Connect opens the client again.
 func TestCloseDuringRequest(t *testing.T) {
-	port, reads := udpAgent(t, func(n int, req []byte) []byte {
-		if n == 1 {
-			return nil // the agent does not answer the first request
-		}
-		return replyTo(req, nil, sysDescr)
-	})
-	x := &Client{Target: "127.0.0.1", Port: port, Community: "public", Version: Version2c, Timeout: 10 * time.Second}
-	require.NoError(t, x.Connect(context.Background()))
-	defer x.Close()
+	for name, cancelable := range map[string]bool{"context never done": false, "context that can be canceled": true} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			if cancelable {
+				ctx = t.Context()
+			}
+			port, reads := udpAgent(t, func(n int, req []byte) []byte {
+				if n == 1 {
+					return nil // the agent does not answer the first request
+				}
+				return replyTo(req, nil, sysDescr)
+			})
+			x := &Client{Target: "127.0.0.1", Port: port, Community: "public", Version: Version2c, Timeout: 10 * time.Second}
+			require.NoError(t, x.Connect(context.Background()))
+			defer x.Close()
 
-	closers := closeOnRelease(x, 2, func() { <-reads })
-	start := time.Now()
-	_, err := x.Get(context.Background(), []string{engineOID})
-	require.ErrorIs(t, err, net.ErrClosed)
-	assert.Less(t, time.Since(start), 5*time.Second, "the request ends before its timeout")
-	closers.Wait()
+			closers := closeOnRelease(x, 2, func() { <-reads })
+			start := time.Now()
+			_, err := x.Get(ctx, []string{engineOID})
+			require.ErrorIs(t, err, net.ErrClosed)
+			assert.Less(t, time.Since(start), 5*time.Second, "the request ends before its timeout")
+			closers.Wait()
 
-	_, err = x.Get(context.Background(), []string{engineOID})
-	require.ErrorIs(t, err, net.ErrClosed)
+			_, err = x.Get(ctx, []string{engineOID})
+			require.ErrorIs(t, err, net.ErrClosed)
 
-	require.NoError(t, x.Connect(context.Background()))
-	res, err := x.Get(context.Background(), []string{engineOID})
-	require.NoError(t, err)
-	assert.Equal(t, []VarBind{sysDescr}, res.VarBinds)
-	assert.Len(t, reads, 1, "the agent read the request after Connect, not the one after Close")
+			require.NoError(t, x.Connect(context.Background()))
+			res, err := x.Get(ctx, []string{engineOID})
+			require.NoError(t, err)
+			assert.Equal(t, []VarBind{sysDescr}, res.VarBinds)
+			assert.Len(t, reads, 1, "the agent read the request after Connect, not the one after Close")
+		})
+	}
 }
 
 // TestCloseDuringWalk checks, on a loopback socket, Close as Netdata's SNMP

@@ -595,7 +595,7 @@ func BenchmarkWalk(b *testing.B) {
 	} {
 		b.Run(name, func(b *testing.B) {
 			agent := &mibAgent{mib: mib}
-			x := newEngineClient(b, Version2c, newFakeTransport(nil, agent.handle))
+			x := newEngineClient(b, Version2c, fakePacketTransport{newFakeTransport(nil, agent.handle)})
 			b.ReportAllocs()
 			for b.Loop() {
 				vbs, err := walkAll(x)

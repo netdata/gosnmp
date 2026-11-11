@@ -1070,7 +1070,7 @@ func TestRequestContextPanicCleanup(t *testing.T) {
 			{name: "error", panic: errCallerFailure},
 			{name: "nil"},
 		} {
-			for _, interrupt := range []string{"cancel", "close-replaced-conn"} {
+			for _, interrupt := range []string{"cancel", "close", "close-replaced-conn"} {
 				t.Run(stage+"/"+value.name+"/"+interrupt, func(t *testing.T) {
 					synctest.Test(t, func(t *testing.T) {
 						x := newEngineClient(t, Version2c, newFakeTransport(nil, nil))
@@ -1099,7 +1099,11 @@ func TestRequestContextPanicCleanup(t *testing.T) {
 						defer cancel()
 						wantErr := context.Canceled
 						conn.afterWrite = func(int) { cancel() }
-						if interrupt == "close-replaced-conn" {
+						switch interrupt {
+						case "close":
+							wantErr = net.ErrClosed
+							conn.afterWrite = func(int) { require.NoError(t, x.Close()) }
+						case "close-replaced-conn":
 							wantErr = net.ErrClosed
 							conn.afterWrite = func(int) {
 								x.Conn = newFakeTransport(nil, nil)
@@ -1567,7 +1571,7 @@ func TestExchangeEndErrors(t *testing.T) {
 // transport.
 func BenchmarkGet(b *testing.B) {
 	c := newFakeTransport(nil, answer(sysDescr))
-	x := newEngineClient(b, Version2c, c)
+	x := newEngineClient(b, Version2c, fakePacketTransport{c})
 	b.ReportAllocs()
 	for b.Loop() {
 		if _, err := x.Get(context.Background(), []string{engineOID}); err != nil {

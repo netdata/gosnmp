@@ -343,6 +343,11 @@ func (c *fakeTransport) RemoteAddr() net.Addr {
 	return &net.UDPAddr{IP: net.IPv4(127, 0, 0, 2), Port: 161}
 }
 
+// fakeAgentAddr is the agent's address, from which every reply of a fake
+// transport comes; shared, so that a read allocates nothing of its own and the
+// benchmarks measure the client.
+var fakeAgentAddr net.Addr = &net.UDPAddr{IP: net.IPv4(127, 0, 0, 2), Port: 161}
+
 // fakePacketTransport is a fakeTransport shaped like the UDP socket Connect
 // opens: a net.PacketConn, which the engine reads with ReadFrom.
 type fakePacketTransport struct {
@@ -350,8 +355,8 @@ type fakePacketTransport struct {
 }
 
 func (c fakePacketTransport) ReadFrom(b []byte) (int, net.Addr, error) {
-	n, err := c.read(b, fmt.Sprintf("read from %s", c.RemoteAddr()))
-	return n, c.RemoteAddr(), err
+	n, err := c.read(b, "read from 127.0.0.2:161")
+	return n, fakeAgentAddr, err
 }
 
 func (c fakePacketTransport) WriteTo(b []byte, addr net.Addr) (int, error) {
