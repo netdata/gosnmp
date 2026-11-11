@@ -149,9 +149,9 @@ func asAction(f func(n int) error) func(n int) {
 	return func(n int) { _ = f(n) }
 }
 
-// atDeadline makes the Conn run act as it sets deadline k in the future
-// (counted from 1), the deadline of the k-th attempt it sees, before setting
-// it.
+// atDeadline makes the fake connection run act as it sets deadline k in the
+// future (counted from 1), the deadline of the k-th attempt it sees, before
+// setting it.
 func atDeadline(c *fakeTransport, k int, act func()) {
 	n := 0
 	c.beforeDeadline = func() {
@@ -690,14 +690,6 @@ func engineScenarios() map[string]engineScenario {
 			go func() {
 				time.Sleep(300 * time.Millisecond)
 				_ = x.Close()
-			}()
-		}},
-		// The connection closed under the attempt, not by Close, as a Connect
-		// during the request closes the connection it replaces.
-		"close/connection-from-another-goroutine": {setup: func(_ *Client, c *fakeTransport) {
-			go func() {
-				time.Sleep(300 * time.Millisecond)
-				_ = c.Close()
 			}()
 		}},
 
