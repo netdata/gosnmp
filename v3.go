@@ -329,9 +329,10 @@ func readGlobalData(r *ber.Reader, m *Message, w *v3Wire) error {
 // packet[off:] that holds the User-based Security Model's parameters (RFC 3414
 // section 2.4), into m's SecurityParameters (copies) and w: the USM fields
 // bounded by their SEQUENCE and the SEQUENCE by the OCTET STRING, each of its
-// type, the engine boots and time within 0..2147483647 (RFC 3414 section 3.2
-// step 1) once cut to 32 bits, and the user name at most 32 octets; msgData
-// starts right after msgPrivacyParameters.
+// type, the engine ID at most 64 octets (net-snmp's), the engine boots and time
+// within 0..2147483647 (RFC 3414 section 3.2 step 1) once cut to 32 bits, and
+// the user name at most 32 octets; msgData starts right after
+// msgPrivacyParameters.
 func readSecurityParameters(packet []byte, off int, m *Message, w *v3Wire) error {
 	if PDUType(packet[off]) != PDUType(OctetString) {
 		return errors.New("invalid SNMPV3 Security Parameters")
