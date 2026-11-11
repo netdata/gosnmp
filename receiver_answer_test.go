@@ -682,6 +682,21 @@ func TestReports(t *testing.T) {
 		}
 	})
 
+	t.Run("an engine ID over 64 octets", func(t *testing.T) {
+		// Longer than the decoder takes: a malformed message, with no answer.
+		engineID := string(bytes.Repeat([]byte{0x80}, 65))
+		r, _ := newTestReceiver(t, ReceiverConfig{
+			EngineID: []byte(ansLocalID), EngineBoots: ansBoots, LearnUsers: []User{ansAuth}, MaxLearned: 4,
+		})
+		for _, pdu := range []PDUType{InformRequest, SNMPv2Trap} {
+			n, data, err := r.Receive(ansEncode(t, ansMessage{user: ansAuth, level: AuthNoPriv, engineID: engineID, pdu: pdu}))
+			require.ErrorIs(t, err, ErrASNParse, "%v", pdu)
+			assert.Nil(t, n)
+			assert.Nil(t, data)
+		}
+		assert.Zero(t, r.learned)
+	})
+
 	t.Run("an engine ID of 5 octets is learned", func(t *testing.T) {
 		r, _ := newTestReceiver(t, ReceiverConfig{LearnUsers: []User{ansAuth}, MaxLearned: 4})
 		n, _, err := r.Receive(ansEncode(t, ansMessage{user: ansAuth, level: AuthNoPriv, engineID: "\x80\x00\x01\x02\x03", pdu: SNMPv2Trap}))

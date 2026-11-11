@@ -384,8 +384,9 @@
 // own level, registers them all for its engine ID, up to MaxLearned names. An
 // inform is never learned, nor the receiver's own engine, nor an engine ID of
 // another size than 5..32 octets (RFC 3411's snmpEngineID), which step 3 makes
-// unknown unless the caller registered users for it. Receive gives the security
-// processing and the minimum level a receiver requires.
+// unknown unless the caller registered users for it; one over 64 octets does
+// not decode. Receive gives the security processing and the minimum level a
+// receiver requires.
 //
 // A receiver is the authoritative engine (RFC 3414 section 1.5.1) of the
 // messages that name its own engine ID (ReceiverConfig.EngineID): informs. The

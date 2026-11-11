@@ -239,13 +239,14 @@ func (r *Receiver) addLearnable(user User) error {
 // accepts the message, the error is the one of the user that got furthest
 // through these steps, the first on ties. A reportable message naming an engine
 // ID the receiver has no user for, and any message naming one of another size
-// than 5..32 octets it has no user for, is ErrUnknownEngineID before any key is
-// used and never learned: the first asks its authoritative engine, which the
-// receiver is not; the second names no engine (RFC 3414 section 3.2 step 3;
-// with users of other names there, it is ErrUnknownUsername, still never
-// learned). A request or an inform naming another engine ID than the receiver's
-// own is ErrUnknownEngineID once decoded (RFC 3412 section 7.2 step 13 a): its
-// answer would come from that engine.
+// than 5..32 octets (up to 64) it has no user for, is ErrUnknownEngineID before
+// any key is used and never learned: the first asks its authoritative engine,
+// which the receiver is not; the second names no engine (RFC 3414 section 3.2
+// step 3; with users of other names there, it is ErrUnknownUsername, still
+// never learned). A request or an inform naming another engine ID than the
+// receiver's own is ErrUnknownEngineID once decoded (RFC 3412 section 7.2 step
+// 13 a): its answer would come from that engine. A message naming an engine ID
+// over 64 octets does not decode (ErrASNParse) and gets no answer.
 //
 // The notification's OctetString, Opaque and IPAddress values alias
 // datagram (see the package documentation).
