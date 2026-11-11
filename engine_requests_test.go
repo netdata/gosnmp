@@ -351,6 +351,8 @@ func engineScenarios() map[string]engineScenario {
 		// Timeouts and retries.
 		"timeout":            {},
 		"timeout/no-retries": {config: func(c *Config) { c.Retries = 0 }},
+		// The configured Timeout bounds each attempt.
+		"timeout/configured": {config: func(c *Config) { c.Timeout = 3 * time.Second }},
 		// A zero Timeout means 1 s.
 		"timeout/zero":          {agent: answer(sysDescr), config: func(c *Config) { c.Timeout = 0 }},
 		"answer/second-attempt": {agent: answerFromSecond(sysDescr)},

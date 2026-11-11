@@ -1000,6 +1000,20 @@
 3s    result: packet nil, error "request timeout (after 2 retries)" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
 3s    client after: next request id=1004
 
+== requests/timeout/configured
+0s    client: 2c timeout=3s retries=2
+0s    deadline +3s
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+3s    read from 127.0.0.2:161: deadline
+3s    deadline +3s
+3s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+6s    read from 127.0.0.2:161: deadline
+6s    deadline +3s
+6s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+9s    read from 127.0.0.2:161: deadline
+9s    result: packet nil, error "request timeout (after 2 retries)" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
+9s    client after: next request id=1004
+
 == requests/timeout/no-retries
 0s    client: 2c timeout=1s retries=0
 0s    deadline +1s
