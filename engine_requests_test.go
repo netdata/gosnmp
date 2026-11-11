@@ -1438,8 +1438,9 @@ func TestCloseWinsOverAttemptOutcome(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			conn := newFakeTransport(nil, nil)
-			x := newEngineClient(t, Version2c, conn)
-			x.Retries = tc.retries
+			config := engineConfig(Version2c)
+			config.Retries = tc.retries
+			x := newEngineClientFrom(t, conn, config)
 			base, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ctx := base
