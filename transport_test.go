@@ -28,55 +28,49 @@ type connectResult struct {
 	err       string // "" for no error
 	connected bool   // the client has a connection
 	local     string // the IP of the connection's local address
-	maxOids   int    // MaxOids after Connect: the default once it readied the client
 }
 
-// TestConnect pins how Connect validates the client and dials, on a loopback
-// socket.
+// TestConnect pins how Connect checks the client's Target and dials, on a
+// loopback socket.
 func TestConnect(t *testing.T) {
 	udpPort := unusedUDPPort(t)
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
 
 	tests := map[string]struct {
-		setup func(x *Client)
-		ctx   context.Context // background unless set
-		nil   bool            // a nil context
-		want  connectResult
+		target *string         // 127.0.0.1 unless set
+		ctx    context.Context // background unless set
+		nil    bool            // a nil context
+		want   connectResult
 	}{
 		"udp": {
-			want: connectResult{connected: true, local: "127.0.0.1", maxOids: MaxOids},
-		},
-		"invalid parameters": {
-			setup: func(x *Client) { x.MaxOids = -1 },
-			want:  connectResult{err: "field MaxOids cannot be less than 0", maxOids: -1},
-		},
-		"negative timeout": {
-			setup: func(x *Client) { x.Timeout = -time.Second },
-			want: connectResult{
-				err:     "error establishing connection to host: dial udp 127.0.0.1:" + strconv.Itoa(int(udpPort)) + ": i/o timeout",
-				maxOids: MaxOids,
-			},
+			want: connectResult{connected: true, local: "127.0.0.1"},
 		},
 		"canceled context": {
 			ctx: canceled,
 			want: connectResult{
-				err:     "error establishing connection to host: dial udp 127.0.0.1:" + strconv.Itoa(int(udpPort)) + ": operation was canceled",
-				maxOids: MaxOids,
+				err: "error establishing connection to host: dial udp 127.0.0.1:" + strconv.Itoa(int(udpPort)) + ": operation was canceled",
 			},
 		},
-		// A nil context fails Connect before it readies the client or dials.
+		// An empty Target fails Connect before it dials.
+		"empty target": {
+			target: new(""),
+			want:   connectResult{err: "Config.Target is empty"},
+		},
+		// A nil context fails Connect before it checks the Target or dials.
 		"nil context": {
-			nil:  true,
-			want: connectResult{err: "nil context"},
+			target: new(""),
+			nil:    true,
+			want:   connectResult{err: "nil context"},
 		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			x := &Client{Target: "127.0.0.1", Port: udpPort, Version: Version2c, Community: "public", Timeout: time.Second}
-			if tc.setup != nil {
-				tc.setup(x)
+			config := Config{Target: "127.0.0.1", Port: udpPort, Version: Version2c, Community: "public", Timeout: time.Second}
+			if tc.target != nil {
+				config.Target = *tc.target
 			}
+			x := mustClient(config)
 			ctx := cmp.Or(tc.ctx, context.Background())
 			if tc.nil {
 				ctx = nil
@@ -85,7 +79,6 @@ func TestConnect(t *testing.T) {
 			if err := x.Connect(ctx); err != nil {
 				got.err = err.Error()
 			}
-			got.maxOids = x.MaxOids
 			if x.conn != nil {
 				got.connected = true
 				host, _, err := net.SplitHostPort(x.conn.(*net.UDPConn).LocalAddr().String())
@@ -98,87 +91,15 @@ func TestConnect(t *testing.T) {
 	}
 }
 
-// TestConnectEmptyTarget pins Connect with an empty Target: it dials the
-// local system, which Linux and macOS connect to.
-func TestConnectEmptyTarget(t *testing.T) {
-	x := &Client{Port: unusedUDPPort(t), Version: Version2c, Community: "public", Timeout: time.Second}
-	err := x.Connect(context.Background())
-	if err != nil {
-		assert.ErrorContains(t, err, "error establishing connection to host: dial udp :")
-		assert.Nil(t, x.conn)
-		return
-	}
+// TestConnectDefaultPort checks that Connect dials port 161 when Port is zero:
+// NewClient's default.
+func TestConnectDefaultPort(t *testing.T) {
+	x := mustClient(Config{Target: "127.0.0.1", Version: Version2c, Community: "public"})
+	require.NoError(t, x.Connect(context.Background()))
 	defer x.Close()
 	remote, ok := x.conn.(*net.UDPConn).RemoteAddr().(*net.UDPAddr)
 	require.True(t, ok)
-	assert.True(t, remote.IP.IsLoopback() || remote.IP.IsUnspecified(), "remote address %v", remote)
-}
-
-// TestConnectPortZero pins Connect with Port 0: it dials port 0, which Linux
-// connects to and macOS refuses.
-func TestConnectPortZero(t *testing.T) {
-	x := &Client{Target: "127.0.0.1", Version: Version2c, Community: "public", Timeout: time.Second}
-	err := x.Connect(context.Background())
-	if err != nil {
-		assert.ErrorContains(t, err, "error establishing connection to host: dial udp 127.0.0.1:0")
-		assert.Nil(t, x.conn)
-		return
-	}
-	defer x.Close()
-	remote, ok := x.conn.(*net.UDPConn).RemoteAddr().(*net.UDPAddr)
-	require.True(t, ok)
-	assert.Equal(t, 0, remote.Port)
-}
-
-// TestUDPAgentAddress checks where a request goes after Port changed from
-// agent A's to agent B's: to A, the peer the socket Connect dialed.
-func TestUDPAgentAddress(t *testing.T) {
-	agent := func(name string) uint16 {
-		port, _ := udpAgent(t, func(_ int, req []byte) []byte {
-			return replyTo(req, nil, VarBind{Name: engineOID, Value: OctetStringValue([]byte(name))})
-		})
-		return port
-	}
-	portA, portB := agent("A"), agent("B")
-	x := &Client{
-		Target: "127.0.0.1", Port: portA, Version: Version2c, Community: "public",
-		Timeout: 500 * time.Millisecond,
-	}
-	require.NoError(t, x.Connect(context.Background()))
-	defer x.Close()
-	x.Port = portB
-
-	res, err := x.Get(context.Background(), []string{engineOID})
-	require.NoError(t, err)
-	require.Len(t, res.VarBinds, 1)
-	got, _ := res.VarBinds[0].Value.Bytes()
-	assert.Equal(t, "A", string(got))
-}
-
-// TestRequestResolvesNoName checks that a request resolves no name: after
-// Target changed to a name since Connect, it goes over the socket Connect
-// dialed, with no lookup.
-func TestRequestResolvesNoName(t *testing.T) {
-	var lookups atomic.Int32
-	defaultResolver := net.DefaultResolver
-	net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: func(context.Context, string, string) (net.Conn, error) {
-		lookups.Add(1)
-		return nil, errors.New("codec: no lookups during a request")
-	}}
-	defer func() { net.DefaultResolver = defaultResolver }()
-
-	port, _ := udpAgent(t, func(_ int, req []byte) []byte { return replyTo(req, nil, sysDescr) })
-	x := &Client{
-		Target: "127.0.0.1", Port: port, Version: Version2c, Community: "public",
-		Timeout: 500 * time.Millisecond,
-	}
-	require.NoError(t, x.Connect(context.Background()))
-	defer x.Close()
-	x.Target = "agent.invalid"
-
-	_, err := x.Get(context.Background(), []string{engineOID})
-	require.NoError(t, err)
-	assert.Equal(t, int32(0), lookups.Load(), "lookups")
+	assert.Equal(t, 161, remote.Port)
 }
 
 // TestRetryOnConnectedSocket checks, on a loopback socket, a retry over the
@@ -191,10 +112,10 @@ func TestRetryOnConnectedSocket(t *testing.T) {
 		}
 		return replyTo(req, nil, sysDescr)
 	})
-	x := &Client{
+	x := mustClient(Config{
 		Target: "127.0.0.1", Port: port, Version: Version2c, Community: "public",
 		Timeout: 200 * time.Millisecond, Retries: 1,
-	}
+	})
 	require.NoError(t, x.Connect(context.Background()))
 	defer x.Close()
 
@@ -227,10 +148,10 @@ func TestConnectIPv6Target(t *testing.T) {
 		_ = agent.Close()
 		<-served
 	}()
-	x := &Client{
+	x := mustClient(Config{
 		Target: "::1", Port: uint16(agent.LocalAddr().(*net.UDPAddr).Port), //nolint:gosec // a UDP port
 		Version: Version2c, Community: "public", Timeout: 500 * time.Millisecond,
-	}
+	})
 	require.NoError(t, x.Connect(context.Background()))
 	defer x.Close()
 	remote := x.conn.(*net.UDPConn).RemoteAddr()
@@ -248,10 +169,10 @@ func TestConnectedSocketOtherSource(t *testing.T) {
 	srvr, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	require.NoError(t, err)
 	defer srvr.Close()
-	x := &Client{
+	x := mustClient(Config{
 		Target: "127.0.0.1", Port: uint16(srvr.LocalAddr().(*net.UDPAddr).Port), //nolint:gosec // a UDP port
 		Version: Version2c, Community: "public", Timeout: 100 * time.Millisecond, Retries: 2,
-	}
+	})
 	require.NoError(t, x.Connect(context.Background()))
 	defer x.Close()
 	go serveResponses(t, srvr, x, sendFromNewSocket)
@@ -373,10 +294,10 @@ func TestConnectLookupWithinBounds(t *testing.T) {
 			dns.answering.Store(false)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			x := &Client{
+			x := mustClient(Config{
 				Target: "agent.codec.invalid.", Port: 161, Version: Version2c, Community: "public",
 				Timeout: bound.timeout,
-			}
+			})
 			result := make(chan error, 1)
 			go func() { result <- x.Connect(ctx) }()
 			dns.awaitHeld(t)
@@ -412,7 +333,7 @@ func (c *closeErrConn) Close() error {
 // and leaves no connection, and that a client without one closes cleanly:
 // one whose connection Close already closed, and one that never had any.
 func TestCloseOnce(t *testing.T) {
-	assert.NoError(t, (&Client{}).Close(), "a client that never had a connection")
+	assert.NoError(t, mustClient(Config{}).Close(), "a client that never had a connection")
 	c := &closeErrConn{}
 	x := &Client{conn: c}
 	assert.ErrorIs(t, x.Close(), errCloseConn)
@@ -431,8 +352,10 @@ func TestConnectReplacesConnection(t *testing.T) {
 		connNil   bool
 		firstOpen bool // the first connection is still open
 	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
 	tests := map[string]struct {
-		failDial bool
+		failDial bool // the second Connect's dial fails: its context is canceled
 		want     outcome
 	}{
 		"opens":      {want: outcome{}},
@@ -443,18 +366,19 @@ func TestConnectReplacesConnection(t *testing.T) {
 			agent, err := net.ListenPacket("udp4", "127.0.0.1:0")
 			require.NoError(t, err)
 			defer agent.Close()
-			x := &Client{
+			x := mustClient(Config{
 				Target: "127.0.0.1", Port: uint16(agent.LocalAddr().(*net.UDPAddr).Port), //nolint:gosec // a UDP port
 				Version: Version2c, Community: "public", Timeout: time.Second,
-			}
+			})
 			require.NoError(t, x.Connect(context.Background()))
 			first := x.conn
 			defer first.Close()
 			defer x.Close()
+			ctx := context.Background()
 			if tc.failDial {
-				x.Timeout = -time.Second
+				ctx = canceled
 			}
-			err = x.Connect(context.Background())
+			err = x.Connect(ctx)
 			assert.Equal(t, tc.want, outcome{
 				err:       err != nil,
 				connFirst: x.conn == first,
@@ -475,11 +399,8 @@ func TestRequestWithoutConnection(t *testing.T) {
 		before func(t *testing.T, x *Client)
 		want   error
 	}{
-		"never connected": {want: errNoConn},
-		// Connect, which would have checked the user, never ran.
-		"SNMPv3 never connected, a user of an unknown protocol": {v3: true, want: errNoConn, before: func(_ *testing.T, x *Client) {
-			x.User.AuthProtocol = 99
-		}},
+		"never connected":        {want: errNoConn},
+		"SNMPv3 never connected": {v3: true, want: errNoConn},
 		"after Close": {want: errClosed, before: func(t *testing.T, x *Client) {
 			require.NoError(t, x.Connect(context.Background()))
 			require.NoError(t, x.Close())
@@ -491,14 +412,14 @@ func TestRequestWithoutConnection(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			x := &Client{
+			config := Config{
 				Target: "127.0.0.1", Port: unusedUDPPort(t), Version: Version2c, Community: "public",
-				Timeout: time.Second, MaxOids: MaxOids,
+				Timeout: time.Second,
 			}
 			if tc.v3 {
-				x.Version, x.SecurityLevel = Version3, NoAuthNoPriv
-				x.User = User{Name: "codec"}
+				config.Version, config.SecurityLevel, config.User = Version3, NoAuthNoPriv, User{Name: "codec"}
 			}
+			x := mustClient(config)
 			if tc.before != nil {
 				tc.before(t, x)
 			}
@@ -528,7 +449,7 @@ func TestCloseDuringRequest(t *testing.T) {
 				}
 				return replyTo(req, nil, sysDescr)
 			})
-			x := &Client{Target: "127.0.0.1", Port: port, Community: "public", Version: Version2c, Timeout: 10 * time.Second}
+			x := mustClient(Config{Target: "127.0.0.1", Port: port, Community: "public", Version: Version2c, Timeout: 10 * time.Second})
 			require.NoError(t, x.Connect(context.Background()))
 			defer x.Close()
 
@@ -571,7 +492,7 @@ func TestCloseDuringWalk(t *testing.T) {
 		}
 		return replyTo(req, nil, VarBind{Name: next, Value: OctetStringValue([]byte("codec"))})
 	})
-	x := &Client{Target: "127.0.0.1", Port: port, Community: "public", Version: Version2c, Timeout: 10 * time.Second}
+	x := mustClient(Config{Target: "127.0.0.1", Port: port, Community: "public", Version: Version2c, Timeout: 10 * time.Second})
 	require.NoError(t, x.Connect(context.Background()))
 	defer x.Close()
 
@@ -613,7 +534,7 @@ func closeOnRelease(x *Client, n int, release func()) *sync.WaitGroup {
 func TestCloseDuringConnect(t *testing.T) {
 	port, _ := udpAgent(t, func(_ int, req []byte) []byte { return replyTo(req, nil, sysDescr) })
 	for range 20 {
-		x := &Client{Target: "127.0.0.1", Port: port, Version: Version2c, Community: "public", Timeout: 10 * time.Second}
+		x := mustClient(Config{Target: "127.0.0.1", Port: port, Version: Version2c, Community: "public", Timeout: 10 * time.Second})
 		require.NoError(t, x.Connect(context.Background()))
 		closed := make(chan error, 1)
 		go func() { closed <- x.Close() }()
@@ -642,10 +563,10 @@ func TestContextCancelDuringRequest(t *testing.T) {
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	x := &Client{
+	x := mustClient(Config{
 		Target: "127.0.0.1", Port: port, Version: Version2c, Community: "public",
 		Timeout: 10 * time.Second,
-	}
+	})
 	require.NoError(t, x.Connect(context.Background()))
 	defer x.Close()
 
@@ -669,10 +590,10 @@ func TestContextCancelDuringRequest(t *testing.T) {
 func TestConnectContextBoundsConnectOnly(t *testing.T) {
 	port, _ := udpAgent(t, func(_ int, req []byte) []byte { return replyTo(req, nil, sysDescr) })
 	ctx, cancel := context.WithCancel(context.Background())
-	x := &Client{
+	x := mustClient(Config{
 		Target: "127.0.0.1", Port: port, Version: Version2c, Community: "public",
 		Timeout: 10 * time.Second,
-	}
+	})
 	require.NoError(t, x.Connect(ctx))
 	defer x.Close()
 	cancel()

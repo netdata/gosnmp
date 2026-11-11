@@ -21,35 +21,17 @@ func randomID() uint32 {
 	return binary.BigEndian.Uint32(b[:]) % math.MaxInt32
 }
 
-// nextRequestID advances the request ID counter, which starts at a random
-// value on first use unless SetRequestID set it, and returns it without its
-// top bit, so request IDs wrap to 0 after 2147483647.
+// nextRequestID advances the request ID counter, which NewClient seeds with a
+// random value, and returns it without its top bit, so request IDs wrap to 0
+// after 2147483647.
 func (x *Client) nextRequestID() uint32 {
-	if !x.requestIDSet.Load() {
-		x.SetRequestID(randomID())
-	}
-	return x.requestID.Add(1) & math.MaxInt32
+	x.requestID++
+	return x.requestID & math.MaxInt32
 }
 
-// nextMsgID advances the msgID counter, which starts at a random value on
-// first use unless SetMsgID set it, and returns it without its top bit.
+// nextMsgID advances the msgID counter, which NewClient seeds with a random
+// value, and returns it without its top bit.
 func (x *Client) nextMsgID() uint32 {
-	if !x.msgIDSet.Load() {
-		x.SetMsgID(randomID())
-	}
-	return x.msgID.Add(1) & math.MaxInt32
-}
-
-// SetRequestID sets the request ID counter: the next request ID is reqID+1,
-// without its top bit. Connect does not change the counter.
-func (x *Client) SetRequestID(reqID uint32) {
-	x.requestID.Store(reqID & math.MaxInt32)
-	x.requestIDSet.Store(true)
-}
-
-// SetMsgID sets the SNMPv3 msgID counter: the next msgID is msgID+1,
-// without its top bit. Connect does not change the counter.
-func (x *Client) SetMsgID(msgID uint32) {
-	x.msgID.Store(msgID & math.MaxInt32)
-	x.msgIDSet.Store(true)
+	x.msgID++
+	return x.msgID & math.MaxInt32
 }

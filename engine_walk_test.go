@@ -166,9 +166,6 @@ type walkScenario struct {
 	// maxRepetitions is BulkWalkAll's argument.
 	maxRepetitions uint32
 	script         func(n int, req, out *Message) bool
-	// afterReply, when set, runs after each reply the Conn reads: the Conn's
-	// code changing the client during the walk.
-	afterReply func(x *Client, tr *engineTranscript)
 	// context, when set, gives the walk's context; its cancel runs when the
 	// scenario ends.
 	context  func() (context.Context, context.CancelFunc)
@@ -337,34 +334,6 @@ func walkScenarios() map[string]walkScenario {
 		"sibling-arc": {
 			root:   walkIfDescr,
 			script: onWalkRequest(4, varbinds(VarBind{Name: walkIfDescr + "0.1", Value: OctetStringValue([]byte("sibling"))})),
-		},
-
-		// User code changing the client during a walk. A change of version
-		// applies from the walk's next request: GETBULK on SNMPv1 is refused,
-		// and the walk returns the values so far.
-		"user-code/sets-version-1": {
-			root: walkIfDescr, bulk: true, maxRepetitions: 1,
-			afterReply: func(x *Client, tr *engineTranscript) {
-				tr.addf("the Conn's read sets Version to 1")
-				x.Version = Version1
-			},
-		},
-		// The walk's later GetNext requests are SNMPv1 requests.
-		"user-code/sets-version-1/getnext": {
-			root: walkIfDescr,
-			afterReply: func(x *Client, tr *engineTranscript) {
-				tr.addf("the Conn's read sets Version to 1")
-				x.Version = Version1
-			},
-		},
-		// MaxOids applies to each of the walk's requests: zero refuses the
-		// next one, and the walk returns the values so far.
-		"user-code/sets-max-oids-0": {
-			root: walkIfDescr,
-			afterReply: func(x *Client, tr *engineTranscript) {
-				tr.addf("the Conn's read sets MaxOids to 0")
-				x.MaxOids = 0
-			},
 		},
 
 		// The walk's context bounds each of its requests, the leaf's Get
@@ -543,9 +512,6 @@ func runWalkScenario(t *testing.T, sc walkScenario) string {
 	}
 	c := newFakeTransport(tr, agent.handle)
 	x := newEngineClient(t, version, c)
-	if sc.afterReply != nil {
-		c.afterRead = func(int) { sc.afterReply(x, tr) }
-	}
 	ctx := context.Background()
 	if sc.context != nil {
 		var cancel context.CancelFunc
@@ -553,7 +519,7 @@ func runWalkScenario(t *testing.T, sc walkScenario) string {
 		defer cancel()
 	}
 
-	tr.addf("client: %v root=%q bulk=%t max-repetitions=%d", x.Version, sc.root, sc.bulk, sc.maxRepetitions)
+	tr.addf("client: %v root=%q bulk=%t max-repetitions=%d", x.config.Version, sc.root, sc.bulk, sc.maxRepetitions)
 	walk := x.WalkAll
 	if sc.bulk {
 		walk = func(ctx context.Context, rootOid string) ([]VarBind, error) {
@@ -630,7 +596,7 @@ func TestWalkEndedByReport(t *testing.T) {
 				return agentAnswer{report: usmStatsUnknownUserNames, why: "rejects the walk's second request"}, true
 			}
 			c := newFakeTransport(nil, agent.handle)
-			x := newEngineClientFrom(t, c, &Client{
+			x := newEngineClientFrom(t, c, Config{
 				Version:       Version3,
 				SecurityLevel: NoAuthNoPriv,
 				User:          agentCreds["codec-noauth"].user("codec-noauth"),

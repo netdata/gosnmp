@@ -21,7 +21,14 @@ var stateUser = User{
 // undiscovered is the engine state of u before discovery: no engine ID, and
 // keys with u's protocols only.
 func undiscovered(u User) engineState {
-	return engineState{user: u, keys: usmKeys{authProtocol: u.AuthProtocol, privProtocol: u.PrivProtocol}}
+	return engineState{keys: usmKeys{authProtocol: u.AuthProtocol, privProtocol: u.PrivProtocol}}
+}
+
+// stateClient returns an SNMPv3 client of stateUser whose engine state is s.
+func stateClient(s engineState) *Client {
+	x := mustClient(Config{Version: Version3, SecurityLevel: AuthPriv, User: stateUser})
+	x.engine = s
+	return x
 }
 
 // stateKeys returns u's keys localized to engineID.
@@ -32,67 +39,30 @@ func stateKeys(t *testing.T, u User, engineID string) usmKeys {
 	return keys
 }
 
-// TestEngineStart pins how the start of a request takes the configuration
-// into the engine state (startEngine): the first request takes the user, with
-// no engine ID and keys with the user's protocols only; another user, a changed passphrase or name
-// included, keeps the engine ID and clock and derives the keys again for the
-// engine ID; keys that do not derive end the request and change nothing, also
-// before discovery; after ForgetEngine the state starts over from the user,
-// and a failed start keeps the request to forget for the next one.
+// TestEngineStart pins the engine state NewClient starts, and a request's
+// start (startEngine): after ForgetEngine the state starts over, with no engine
+// ID and keys with the user's protocols only; otherwise it stays.
 func TestEngineStart(t *testing.T) {
-	otherPass := stateUser
-	otherPass.AuthPassphrase = "codec-other-pass"
-	otherName := stateUser
-	otherName.Name = "codec-other"
-	noPass := stateUser
-	noPass.AuthPassphrase = ""
-	clock := clockOf(7, 1000, time.Unix(1_000_000_000, 0), fromAuthenticated)
+	assert.Equal(t, undiscovered(stateUser), mustClient(Config{Version: Version3, SecurityLevel: AuthPriv, User: stateUser}).engine,
+		"NewClient's state")
 	known := engineState{
-		user: stateUser, engineID: []byte(usmCharEngineID), clock: clock,
+		engineID: []byte(usmCharEngineID), clock: clockOf(7, 1000, time.Unix(1_000_000_000, 0), fromAuthenticated),
 		keys: stateKeys(t, stateUser, usmCharEngineID),
 	}
-	withUser := func(s engineState, u User) engineState {
-		s.user = u
-		if len(s.engineID) != 0 {
-			s.keys = stateKeys(t, u, string(s.engineID))
-		}
-		return s
-	}
-
 	tests := map[string]struct {
-		state      engineState
-		user       User
-		forget     bool
-		want       engineState
-		wantForget bool
-		wantErr    string
+		forget bool
+		want   engineState
 	}{
-		"the first request":    {user: stateUser, want: undiscovered(stateUser)},
-		"nothing changed":      {state: known, user: stateUser, want: known},
-		"a changed passphrase": {state: known, user: otherPass, want: withUser(known, otherPass)},
-		"another name":         {state: known, user: otherName, want: withUser(known, otherName)},
-		"keys that do not derive": {
-			state: known, user: noPass, want: known,
-			wantErr: "usm: no authentication key, want 20 octets",
-		},
-		"keys that do not derive, before discovery": {
-			user: noPass, want: engineState{}, wantErr: "usm: no authentication key, want 20 octets",
-		},
-		"ForgetEngine":                   {state: known, user: stateUser, forget: true, want: undiscovered(stateUser)},
-		"ForgetEngine and another user":  {state: known, user: otherPass, forget: true, want: undiscovered(otherPass)},
-		"ForgetEngine, keys that do not": {state: known, user: noPass, forget: true, want: known, wantForget: true, wantErr: "usm: no authentication key, want 20 octets"},
+		"nothing to forget": {want: known},
+		"ForgetEngine":      {forget: true, want: undiscovered(stateUser)},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			x := &Client{Version: Version3, User: tc.user, engine: tc.state, forgetEngine: tc.forget}
-			err := x.startEngine()
-			if tc.wantErr != "" {
-				require.EqualError(t, err, tc.wantErr)
-			} else {
-				require.NoError(t, err)
-			}
+			x := stateClient(known)
+			x.forgetEngine = tc.forget
+			x.startEngine()
 			assert.Equal(t, tc.want, x.engine, "the engine state")
-			assert.Equal(t, tc.wantForget, x.forgetEngine, "forget")
+			assert.False(t, x.forgetEngine, "forget")
 		})
 	}
 }
@@ -100,11 +70,11 @@ func TestEngineStart(t *testing.T) {
 // TestEngineForgetEngine pins that ForgetEngine changes no state by itself:
 // a running request keeps its engine state, and the next start drops it.
 func TestEngineForgetEngine(t *testing.T) {
-	known := engineState{user: stateUser, engineID: []byte(usmCharEngineID), keys: stateKeys(t, stateUser, usmCharEngineID)}
-	x := &Client{Version: Version3, User: stateUser, engine: known}
+	known := engineState{engineID: []byte(usmCharEngineID), keys: stateKeys(t, stateUser, usmCharEngineID)}
+	x := stateClient(known)
 	x.ForgetEngine()
 	assert.Equal(t, known, x.engine, "the state, before the next start")
-	require.NoError(t, x.startEngine())
+	x.startEngine()
 	assert.Equal(t, undiscovered(stateUser), x.engine, "the state after the next start")
 	assert.False(t, x.forgetEngine)
 }
@@ -117,29 +87,27 @@ func TestEngineWithEngine(t *testing.T) {
 	noPass := stateUser
 	noPass.PrivPassphrase = ""
 	given := engineState{
-		user: stateUser, engineID: []byte(usmCharEngineID), keys: stateKeys(t, stateUser, usmCharEngineID),
+		engineID: []byte(usmCharEngineID), keys: stateKeys(t, stateUser, usmCharEngineID),
 		clock: clockOf(7, 1000, time.Unix(1_000_000_000, 0), fromAuthenticated),
 	}
-	other := engineState{user: stateUser, engineID: []byte(usmOtherEngineID), keys: stateKeys(t, stateUser, usmOtherEngineID)}
-	noPassState := given
-	noPassState.user = noPass
+	other := engineState{engineID: []byte(usmOtherEngineID), keys: stateKeys(t, stateUser, usmOtherEngineID)}
 
 	tests := map[string]struct {
-		state    engineState
+		user     User
 		engineID string
 		want     engineState
 		wantErr  string
 	}{
-		"its own engine ID":       {state: given, engineID: usmCharEngineID, want: given},
-		"no engine ID":            {state: given, engineID: "", wantErr: "the answer names no engine ID"},
-		"another engine ID":       {state: given, engineID: usmOtherEngineID, want: other},
-		"keys that do not derive": {state: noPassState, engineID: usmOtherEngineID, wantErr: "usm: no privacy key, want 16 octets"},
+		"its own engine ID":       {user: stateUser, engineID: usmCharEngineID, want: given},
+		"no engine ID":            {user: stateUser, engineID: "", wantErr: "the answer names no engine ID"},
+		"another engine ID":       {user: stateUser, engineID: usmOtherEngineID, want: other},
+		"keys that do not derive": {user: noPass, engineID: usmOtherEngineID, wantErr: "usm: no privacy key, want 16 octets"},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			before := tc.state
-			got, err := tc.state.withEngine([]byte(tc.engineID))
-			assert.Equal(t, before, tc.state, "the state")
+			state := given
+			got, err := state.withEngine(&tc.user, []byte(tc.engineID))
+			assert.Equal(t, given, state, "the state")
 			if tc.wantErr != "" {
 				require.EqualError(t, err, tc.wantErr)
 				return
@@ -155,8 +123,8 @@ func TestEngineWithEngine(t *testing.T) {
 // names the request's engine ID (receiveReply), so the commit takes its clock
 // and keeps the engine ID and keys.
 func TestEngineSettleKeepsEngine(t *testing.T) {
-	known := engineState{user: stateUser, engineID: []byte(usmCharEngineID), keys: stateKeys(t, stateUser, usmCharEngineID)}
-	x := &Client{Version: Version3, User: stateUser, engine: known}
+	known := engineState{engineID: []byte(usmCharEngineID), keys: stateKeys(t, stateUser, usmCharEngineID)}
+	x := stateClient(known)
 	packet := x.NewMessage(GetRequest, nil, 0, 0)
 	x.engine.stamp(packet)
 	report := &Message{
@@ -330,12 +298,9 @@ func TestEngineResetsClock(t *testing.T) {
 // (lendEngineParameters): its boots and time, unauthenticated, marked for
 // resetsClock only when it is a notInTimeWindow Report; an unknownEngineIDs
 // Report also lends its engine ID, as the request's engine and context engine
-// ID, with keys localized to it for the user the request started with, also
-// when the caller has set another User since.
+// ID, with the user's keys localized to it.
 func TestEngineLendClock(t *testing.T) {
-	known := engineState{user: stateUser, engineID: []byte(usmCharEngineID), keys: stateKeys(t, stateUser, usmCharEngineID)}
-	otherUser := stateUser
-	otherUser.AuthPassphrase = "codec-other-pass"
+	known := engineState{engineID: []byte(usmCharEngineID), keys: stateKeys(t, stateUser, usmCharEngineID)}
 	tests := map[string]struct {
 		counter    string
 		wantSource clockSource
@@ -350,10 +315,9 @@ func TestEngineLendClock(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			x := &Client{Version: Version3, User: stateUser, engine: known}
+			x := stateClient(known)
 			packet := x.NewMessage(GetRequest, nil, 0, 0)
 			x.engine.stamp(packet)
-			x.User = otherUser
 			report := &Message{
 				Version: Version3, PDUType: Report, VarBinds: []VarBind{{Name: tc.counter}},
 				SecurityParameters: SecurityParameters{

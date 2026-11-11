@@ -45,26 +45,32 @@ func getTarget(t *testing.T) (string, uint16) {
 	return envTarget, uint16(port)
 }
 
-func connectToTarget(t *testing.T, gs *Client) {
+// connectToTarget returns the client of config, with the test agent's Target
+// and Port, connected.
+func connectToTarget(t *testing.T, config Config) *Client {
 	target, port := getTarget(t)
 
-	gs.Target = target
-	gs.Port = port
+	config.Target = target
+	config.Port = port
+	gs, err := NewClient(config)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	err := gs.Connect(context.Background())
+	err = gs.Connect(context.Background())
 	if err != nil {
 		if len(target) > 0 {
 			t.Fatalf("Connection failed. Is snmpd reachable on %s:%d?\n(err: %v)",
 				target, port, err)
 		}
 	}
+	return gs
 }
 
 func TestClose(t *testing.T) {
-	gs := newTestClient()
-	gs.Retries = 1
-
-	connectToTarget(t, gs)
+	config := testConfig()
+	config.Retries = 1
+	gs := connectToTarget(t, config)
 
 	// Ensure connection is open
 	if gs.conn == nil {
@@ -85,7 +91,7 @@ func TestClose(t *testing.T) {
 }
 
 func TestClose_NilConnection(t *testing.T) {
-	gs := &Client{}
+	gs := mustClient(Config{})
 
 	err := gs.Close()
 	if err != nil {
@@ -94,11 +100,10 @@ func TestClose_NilConnection(t *testing.T) {
 }
 
 func TestClose_Concurrent(t *testing.T) {
-	gs := newTestClient()
-	gs.Timeout = time.Second
-	gs.Retries = 1
-
-	connectToTarget(t, gs)
+	config := testConfig()
+	config.Timeout = time.Second
+	config.Retries = 1
+	gs := connectToTarget(t, config)
 
 	var wg sync.WaitGroup
 	for range 100 { // simulate 100 concurrent calls
@@ -115,8 +120,7 @@ func TestClose_Concurrent(t *testing.T) {
 }
 
 func TestGenericBasicGet(t *testing.T) {
-	gs := newTestClient()
-	connectToTarget(t, gs)
+	gs := connectToTarget(t, testConfig())
 	defer gs.Close()
 
 	result, err := gs.Get(context.Background(), []string{".1.3.6.1.2.1.1.1.0"}) // SNMP MIB-2 sysDescr
@@ -136,8 +140,7 @@ func TestGenericBasicGet(t *testing.T) {
 }
 
 func TestGenericMultiGet(t *testing.T) {
-	gs := newTestClient()
-	connectToTarget(t, gs)
+	gs := connectToTarget(t, testConfig())
 	defer gs.Close()
 
 	oids := []string{
@@ -159,8 +162,7 @@ func TestGenericMultiGet(t *testing.T) {
 }
 
 func TestGenericWalk(t *testing.T) {
-	gs := newTestClient()
-	connectToTarget(t, gs)
+	gs := connectToTarget(t, testConfig())
 	defer gs.Close()
 
 	result, err := gs.WalkAll(context.Background(), "")
@@ -173,8 +175,7 @@ func TestGenericWalk(t *testing.T) {
 }
 
 func TestGenericBulkWalk(t *testing.T) {
-	gs := newTestClient()
-	connectToTarget(t, gs)
+	gs := connectToTarget(t, testConfig())
 	defer gs.Close()
 
 	result, err := gs.BulkWalkAll(context.Background(), "", 0)
@@ -190,8 +191,7 @@ func TestGenericBulkWalk(t *testing.T) {
 // the smallest and the largest max-repetitions: the agent returns the same
 // objects for each.
 func TestGenericBulkWalkMaxRepetitions(t *testing.T) {
-	gs := newTestClient()
-	connectToTarget(t, gs)
+	gs := connectToTarget(t, testConfig())
 	defer gs.Close()
 
 	walkNames := func(t *testing.T, maxRepetitions uint32) []string {
@@ -220,9 +220,9 @@ func TestGenericBulkWalkMaxRepetitions(t *testing.T) {
 }
 
 func TestV1BulkWalkError(t *testing.T) {
-	g := newTestClient()
-	g.Version = Version1
-	connectToTarget(t, g)
+	config := testConfig()
+	config.Version = Version1
+	g := connectToTarget(t, config)
 
 	g.Close()
 
@@ -235,11 +235,10 @@ func TestV1BulkWalkError(t *testing.T) {
 // Standard exception/error tests
 
 func TestMaxOids(t *testing.T) {
-	gs := newTestClient()
-	connectToTarget(t, gs)
+	config := testConfig()
+	config.MaxOids = 1
+	gs := connectToTarget(t, config)
 	defer gs.Close()
-
-	gs.MaxOids = 1
 
 	var err error
 	oids := []string{
@@ -258,8 +257,9 @@ func TestMaxOids(t *testing.T) {
 
 func TestGenericFailureUnknownHost(t *testing.T) {
 	unknownHost := "nonexistent.invalid" // .invalid is guaranteed by RFC 2606 to never resolve.
-	gs := newTestClient()
-	gs.Target = unknownHost
+	config := testConfig()
+	config.Target = unknownHost
+	gs := mustClient(config)
 	err := gs.Connect(context.Background())
 	if err == nil {
 		t.Fatalf("Expected connection failure due to unknown host")
@@ -283,8 +283,9 @@ func TestGenericFailureConnectionTimeout(t *testing.T) {
 		t.Skip("local testing - skipping this slow one")
 	}
 
-	gs := newTestClient()
-	gs.Target = "198.51.100.1" // Black hole
+	config := testConfig()
+	config.Target = "198.51.100.1" // Black hole
+	gs := mustClient(config)
 	err := gs.Connect(context.Background())
 	if err != nil {
 		t.Fatalf("Did not expect connection error with IP address")
@@ -299,9 +300,10 @@ func TestGenericFailureConnectionTimeout(t *testing.T) {
 }
 
 func TestGenericFailureConnectionRefused(t *testing.T) {
-	gs := newTestClient()
-	gs.Target = "127.0.0.1"
-	gs.Port = 1 // Don't expect SNMP to be running here!
+	config := testConfig()
+	config.Target = "127.0.0.1"
+	config.Port = 1 // Don't expect SNMP to be running here!
+	gs := mustClient(config)
 	err := gs.Connect(context.Background())
 	if err != nil {
 		t.Fatalf("Did not expect connection error with IP address")
@@ -321,8 +323,7 @@ func TestGenericFailureConnectionRefused(t *testing.T) {
 func TestSnmpV3Users(t *testing.T) {
 	for _, u := range loadSnmpUsers(t) {
 		t.Run(u.name, func(t *testing.T) {
-			gs := newTestClientV3(u.msgFlags(), u.securityParameters())
-			connectToTarget(t, gs)
+			gs := connectToTarget(t, testConfigV3(u.msgFlags(), u.securityParameters()))
 			defer gs.Close()
 
 			result, err := gs.Get(context.Background(), []string{".1.3.6.1.2.1.1.1.0"}) // SNMP MIB-2 sysDescr

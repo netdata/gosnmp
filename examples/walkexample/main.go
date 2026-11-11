@@ -40,16 +40,20 @@ func main() {
 		oid = flag.Args()[1]
 	}
 
-	client := &gosnmp.Client{
+	client, err := gosnmp.NewClient(gosnmp.Config{
 		Target:    target,
 		Port:      161,
 		Community: community,
 		Version:   gosnmp.Version2c,
 		Timeout:   10 * time.Second, // Timeout better suited to walking
 		Retries:   3,
+	})
+	if err != nil {
+		fmt.Printf("NewClient err: %v\n", err)
+		os.Exit(1)
 	}
 	ctx := context.Background()
-	err := client.Connect(ctx)
+	err = client.Connect(ctx)
 	if err != nil {
 		fmt.Printf("Connect err: %v\n", err)
 		os.Exit(1)

@@ -31,7 +31,7 @@ func TestReencodeDrawsNewSalt(t *testing.T) {
 				t.Helper()
 				resp := *in
 				resp.PDUType = Response
-				out, marshalErr := resp.Encode(&decoder.User)
+				out, marshalErr := resp.Encode(&decoder.config.User)
 				require.NoError(t, marshalErr)
 				return out
 			}

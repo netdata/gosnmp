@@ -155,7 +155,7 @@ func walkRoot(rootOid string) (string, error) {
 func (w *walker) request(ctx context.Context, oid string) (*Message, error) {
 	var maxReps uint32
 	if w.requestType == GetBulkRequest {
-		if w.x.Version == Version1 {
+		if w.x.config.Version == Version1 {
 			return nil, errors.New("GETBULK not supported in SNMPv1")
 		}
 		maxReps = w.maxReps

@@ -90,23 +90,24 @@ func TestEngineReplySeeds(t *testing.T) {
 // engineReplyClient returns a client for r whose next request ID and msgID
 // are 1001 and 2001, without a connection.
 func engineReplyClient(r engineReplyRequest) *Client {
-	x := &Client{Version: Version2c, Community: "public", Timeout: time.Second, MaxOids: MaxOids}
+	config := Config{Version: Version2c, Community: "public", Timeout: time.Second}
 	if r.user != "" {
 		creds := agentCreds[r.user]
-		x.Version, x.SecurityLevel = Version3, NoAuthNoPriv
+		config.Version, config.SecurityLevel = Version3, NoAuthNoPriv
 		switch {
 		case creds.priv > NoPriv:
-			x.SecurityLevel = AuthPriv
+			config.SecurityLevel = AuthPriv
 		case creds.auth > NoAuth:
-			x.SecurityLevel = AuthNoPriv
+			config.SecurityLevel = AuthNoPriv
 		}
-		x.User = creds.user(r.user)
-		if !r.discover {
-			seedEngine(agentEngineID, agentBoots, agentTimeBase)(x)
-		}
+		config.User = creds.user(r.user)
 	}
-	x.SetRequestID(1000)
-	x.SetMsgID(2000)
+	x := mustClient(config)
+	if r.user != "" && !r.discover {
+		seedEngine(agentEngineID, agentBoots, agentTimeBase)(x)
+	}
+	x.rx = new(receiveBuffer)
+	x.requestID, x.msgID = 1000, 2000
 	return x
 }
 
@@ -120,10 +121,8 @@ func engineReplyExchange(tb testing.TB, r engineReplyRequest) *exchange {
 		tb.Fatal(err)
 	}
 	var sec attemptSecurity
-	if x.Version == Version3 {
-		if err := x.startEngine(); err != nil {
-			tb.Fatal(err)
-		}
+	if x.config.Version == Version3 {
+		x.startEngine()
 		if r.discover {
 			packet = newDiscoveryPacket()
 		} else {
@@ -131,8 +130,7 @@ func engineReplyExchange(tb testing.TB, r engineReplyRequest) *exchange {
 			sec = attemptSecurity{clock: x.engine.clock, keys: x.engine.keys}
 		}
 	}
-	cfg := x.prepareRequest(context.Background())
-	return &exchange{x: x, packet: packet, cfg: cfg, discovery: r.discover, sec: sec}
+	return &exchange{x: x, packet: packet, ctx: context.Background(), discovery: r.discover, sec: sec}
 }
 
 // engineReplySeeds returns replies to the first exchange of r's request

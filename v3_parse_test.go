@@ -240,7 +240,7 @@ func TestV3ReceiverRules(t *testing.T) {
 			return err
 		}},
 		{"DecodeMessage", func(u User, in []byte) error {
-			_, err := (&Client{User: u}).DecodeMessage(in)
+			_, err := mustClient(Config{User: u}).DecodeMessage(in)
 			return err
 		}},
 	}
@@ -321,7 +321,7 @@ func TestV3DecodeKeyDerivation(t *testing.T) {
 		user.PrivPassphrase = "receiver-priv-pass"
 		keys, err := user.localize([]byte(usmCharEngineID))
 		require.NoError(t, err)
-		x := &Client{Version: Version3, SecurityLevel: AuthPriv, User: user}
+		x := mustClient(Config{Version: Version3, SecurityLevel: AuthPriv, User: user})
 		req := &Message{
 			Version: Version3, SecurityLevel: AuthPriv, SecurityParameters: signedTestHeader(usmCharEngineID, "codec-user"),
 			MsgID: 7, PDUType: GetRequest,
@@ -347,7 +347,7 @@ func TestV3ReplyDecode(t *testing.T) {
 		user := signedTestUser(SHA, priv, "codec-user")
 		keys, err := user.localize([]byte(usmCharEngineID))
 		require.NoError(t, err)
-		x := &Client{Version: Version3, SecurityLevel: flags, User: user}
+		x := mustClient(Config{Version: Version3, SecurityLevel: flags, User: user})
 		req := &Message{
 			Version: Version3, SecurityLevel: flags, SecurityParameters: signedTestHeader(usmCharEngineID, "codec-user"),
 			MsgID: 7, PDUType: GetRequest,
@@ -434,7 +434,7 @@ func TestV3ReplyDecode(t *testing.T) {
 
 	// A msgID means nothing to an SNMPv2c request.
 	t.Run("SNMPv3 message to an SNMPv2c request", func(t *testing.T) {
-		e := &exchange{x: &Client{Version: Version2c}, packet: &Message{Version: Version2c, PDUType: GetRequest}}
+		e := &exchange{x: mustClient(Config{Version: Version2c}), packet: &Message{Version: Version2c, PDUType: GetRequest}}
 		msg := craftedV3(intTLV(7), intTLV(65507), octets("\x00"), intTLV(3),
 			craftedUSM(octets(usmCharEngineID), intTLV(3), intTLV(77), octets("codec-user"), octets(""), octets("")),
 			tlv(0x30, octets(usmCharEngineID), octets(""), craftedPDU(Response, craftedVBL(craftedVB(intTLV(5))))))
@@ -494,7 +494,7 @@ func TestV3ReplyDecode(t *testing.T) {
 	})
 
 	t.Run("authNoPriv reply to a noAuthNoPriv request of a user without protocols", func(t *testing.T) {
-		x := &Client{Version: Version3, SecurityLevel: NoAuthNoPriv, User: User{Name: "codec-user"}}
+		x := mustClient(Config{Version: Version3, SecurityLevel: NoAuthNoPriv, User: User{Name: "codec-user"}})
 		req := &Message{
 			Version: Version3, SecurityLevel: NoAuthNoPriv, SecurityParameters: signedTestHeader(usmCharEngineID, "codec-user"),
 			MsgID: 7, PDUType: GetRequest,
@@ -597,7 +597,7 @@ func TestV3DigestField(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, _, err := receiverFor(t, tc.in, decoder().User).Receive(tc.in)
+			_, _, err := receiverFor(t, tc.in, decoder().config.User).Receive(tc.in)
 			require.ErrorIs(t, err, tc.want)
 		})
 	}

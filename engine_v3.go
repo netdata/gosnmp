@@ -6,6 +6,7 @@ package gosnmp
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"time"
 )
@@ -14,9 +15,9 @@ import (
 // before an SNMPv3 request: it discovers the agent's engine while the engine
 // state has no engine ID, and gives packetOut the engine state. A failed
 // discovery returns its error with the answer that ended it, if any.
-func (x *Client) negotiateInitialSecurityParameters(cfg *requestConfig, packetOut *Message) (*Message, error) {
+func (x *Client) negotiateInitialSecurityParameters(ctx context.Context, packetOut *Message) (*Message, error) {
 	if len(x.engine.engineID) == 0 {
-		return x.discoverEngine(cfg, packetOut)
+		return x.discoverEngine(ctx, packetOut)
 	}
 	x.engine.stamp(packetOut)
 	return nil, nil
@@ -26,10 +27,10 @@ func (x *Client) negotiateInitialSecurityParameters(cfg *requestConfig, packetOu
 // discovery request, whose answer the attempt commits into the engine state
 // (exchange.settle), and gives packetOut the engine state. A discovery whose
 // answer was not committed returns its error with the answer, if any.
-func (x *Client) discoverEngine(cfg *requestConfig, packetOut *Message) (*Message, error) {
+func (x *Client) discoverEngine(ctx context.Context, packetOut *Message) (*Message, error) {
 	discoveryPacket := newDiscoveryPacket()
 	discoveryPacket.ContextName = packetOut.ContextName
-	answer, committed, err := x.sendOneRequest(cfg, discoveryPacket, true, attemptSecurity{})
+	answer, committed, err := x.sendOneRequest(ctx, discoveryPacket, true, attemptSecurity{})
 	if !committed {
 		return answer, err
 	}
@@ -97,7 +98,7 @@ func (e *exchange) settle(out attemptOutcome) (attemptOutcome, error) {
 	if out.verified && boots == maxEngineValue {
 		return attemptOutcome{}, errReplyNotInTime
 	}
-	next, err := x.engine.withEngine(from.AuthoritativeEngineID)
+	next, err := x.engine.withEngine(&x.config.User, from.AuthoritativeEngineID)
 	if err != nil {
 		if e.discovery {
 			out.err = err
@@ -198,7 +199,7 @@ func mayLend(packetOut, report *Message, kind reportKind) bool {
 func (x *Client) lendEngineParameters(packetOut, report *Message, kind reportKind, sec attemptSecurity) (attemptSecurity, error) {
 	from := &report.SecurityParameters
 	if kind.namesEngine {
-		lent, err := x.engine.withEngine(from.AuthoritativeEngineID)
+		lent, err := x.engine.withEngine(&x.config.User, from.AuthoritativeEngineID)
 		if err != nil {
 			return attemptSecurity{}, err
 		}

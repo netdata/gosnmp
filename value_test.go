@@ -239,7 +239,7 @@ func TestDecodedHeaderCopiesInput(t *testing.T) {
 	user := codecUser(SHA, AES)
 	decoders := map[string]func(t *testing.T, in []byte) (*Message, error){
 		"DecodeMessage": func(_ *testing.T, in []byte) (*Message, error) {
-			return (&Client{Version: Version3, SecurityLevel: AuthPriv, User: user}).DecodeMessage(in)
+			return mustClient(Config{Version: Version3, SecurityLevel: AuthPriv, User: user}).DecodeMessage(in)
 		},
 		"Receive": func(t *testing.T, in []byte) (*Message, error) {
 			return receiveMessage(receiverAt(t, []byte(codecEngineID), user), in)

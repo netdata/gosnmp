@@ -15,13 +15,10 @@ import (
 // 2.3): the engine ID, the user's keys localized to it and the engine boots
 // and time; the context engine ID of requests is the engine ID. Every decision
 // of a request reads it, and only a commit replaces it, whole, with a value
-// validated first (commitEngine); startEngine takes the configuration into it
-// when a request starts. It is internal: nothing exported shows it.
+// validated first (commitEngine); NewClient starts it, and a request after
+// ForgetEngine starts it over (startEngine). It is internal: nothing exported
+// shows it.
 type engineState struct {
-	// user is the user the keys derive from, as the last request started
-	// with it; zero before the first SNMPv3 request.
-	user User
-
 	// engineID is the agent's engine ID, empty before discovery; a new value
 	// is a new slice, never written.
 	engineID []byte
@@ -31,6 +28,13 @@ type engineState struct {
 	// keys are the user's keys localized to engineID; without one, the
 	// protocols only.
 	keys usmKeys
+}
+
+// newEngineState returns the engine state of user before discovery: no
+// engine ID and no clock, and of the keys only their protocols, so that a
+// message signed or encrypted then (EncodeMessage) fails the key check.
+func newEngineState(user *User) engineState {
+	return engineState{keys: usmKeys{authProtocol: user.AuthProtocol, privProtocol: user.PrivProtocol}}
 }
 
 // clockSource is where an engine clock came from.
@@ -89,11 +93,11 @@ func (s *engineState) contextEngineID() []byte {
 }
 
 // withEngine returns the state for the engine engineID: the same state for its
-// own engine ID, else one with the user's keys localized to engineID and no
-// clock (RFC 3414 section 2.3: the next authentic message synchronizes it). An
-// empty engine ID is an error, and so are keys that do not derive. The state
-// keeps a copy of engineID: an answer's header, which the caller gets.
-func (s *engineState) withEngine(engineID []byte) (engineState, error) {
+// own engine ID, else one with user's keys localized to engineID and no clock
+// (RFC 3414 section 2.3: the next authentic message synchronizes it). An empty
+// engine ID is an error, and so are keys that do not derive. The state keeps a
+// copy of engineID: an answer's header, which the caller gets.
+func (s *engineState) withEngine(user *User, engineID []byte) (engineState, error) {
 	next := *s
 	switch {
 	case len(engineID) == 0:
@@ -101,7 +105,7 @@ func (s *engineState) withEngine(engineID []byte) (engineState, error) {
 	case bytes.Equal(engineID, s.engineID):
 		return next, nil
 	}
-	keys, err := s.user.localize(engineID)
+	keys, err := user.localize(engineID)
 	if err != nil {
 		return next, err
 	}
@@ -109,33 +113,13 @@ func (s *engineState) withEngine(engineID []byte) (engineState, error) {
 	return next, nil
 }
 
-// startEngine takes the configuration into the engine state at the start of
-// an SNMPv3 request (and of EncodeMessage): after ForgetEngine the state starts
-// over, with no engine ID, so the request discovers the engine again; another
-// User keeps the engine ID and clock and derives the keys again for the engine
-// ID. Without an engine ID the keys must derive all the same, before
-// discovery: FIPS 140-only mode, for one, refuses MD5 and SHA-1. An error ends
-// the request and changes nothing.
-func (x *Client) startEngine() error {
-	next := x.engine
+// startEngine starts the engine state of an SNMPv3 request (and of
+// EncodeMessage): after ForgetEngine the state starts over, with no engine ID,
+// so the request discovers the engine again.
+func (x *Client) startEngine() {
 	if x.forgetEngine {
-		next = engineState{}
-	} else if next.user == x.User {
-		return nil
+		x.engine, x.forgetEngine = newEngineState(&x.config.User), false
 	}
-	next.user = x.User
-	keys, err := next.user.localize(next.engineID)
-	if err != nil {
-		return err
-	}
-	if len(next.engineID) == 0 {
-		// No keys before discovery, only their protocols: a message signed
-		// or encrypted then (EncodeMessage) fails the key check.
-		keys.auth, keys.priv = nil, nil
-	}
-	next.keys = keys
-	x.engine, x.forgetEngine = next, false
-	return nil
 }
 
 // ForgetEngine makes the client forget what it learned of the agent's SNMPv3
@@ -145,8 +129,8 @@ func (x *Client) startEngine() error {
 // that is running keeps the state it has.
 // Call it when a request fails with an error that matches ErrUnknownEngineID:
 // the agent's engine ID changed (a replaced device), or a forged answer to the
-// discovery gave the client another engine's. Like the configuration, it is
-// not safe to call while a request runs on another goroutine.
+// discovery gave the client another engine's. It is not safe to call while a
+// request runs on another goroutine.
 func (x *Client) ForgetEngine() {
 	x.forgetEngine = true
 }

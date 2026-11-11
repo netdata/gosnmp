@@ -71,7 +71,7 @@ func TestOIDPackedFirstSubidentifier(t *testing.T) {
 						}
 					})
 					t.Run("decode", func(t *testing.T) {
-						got, err := (&Client{}).DecodeMessage(field.wire)
+						got, err := mustClient(Config{}).DecodeMessage(field.wire)
 						if err != nil {
 							t.Fatal(err)
 						}

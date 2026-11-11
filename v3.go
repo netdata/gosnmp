@@ -55,12 +55,6 @@ func (f SecurityLevel) valid() bool { return f == NoAuthNoPriv || f == AuthNoPri
 // writes it, and the decoder accepts no other (RFC 3412 section 7.2 step 4).
 const usmSecurityModel = 3
 
-// validateParametersV3 checks the client's SNMPv3 configuration: a user that
-// fits SecurityLevel.
-func (x *Client) validateParametersV3() error {
-	return x.User.validate(x.SecurityLevel)
-}
-
 // sign writes the digest of the marshalled SNMPv3 message msg into the
 // content of its msgAuthenticationParameters, at offset auth, with keys when
 // the level asks for authentication; a key that does not fit the protocol is
@@ -228,10 +222,6 @@ type v3Wire struct {
 // the User-based Security Model, the only one the package implements (RFC
 // 3412 section 7.2 step 4).
 var errNotUSM = errors.New("error parsing SNMPV3: the security model is not USM")
-
-// errInvalidLevel is the error of a client's security level that is not one
-// of the three (validate).
-var errInvalidLevel = errors.New("validate: SecurityLevel must be populated with an appropriate security level")
 
 // errMsgFlags is the error of an SNMPv3 msgFlags that is not an OCTET STRING
 // of one octet (RFC 3412 section 6).

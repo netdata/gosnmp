@@ -9,61 +9,64 @@
 package gosnmp
 
 import (
+	"cmp"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
 const (
-	// MaxOids is the default of Client.MaxOids, the maximum number of OIDs in
+	// MaxOids is the default of Config.MaxOids, the maximum number of OIDs in
 	// a Get request and in each request of a walk. MaxOids too high can cause
 	// remote devices to fail strangely. 60 seems to be a common value that
-	// works; set Client.MaxOids to change it.
+	// works; set Config.MaxOids to change it.
 	MaxOids = 60
+
+	// defaultPort and defaultTimeout are the defaults of Config.Port and
+	// Config.Timeout (net-snmp's timeout).
+	defaultPort    = 161
+	defaultTimeout = time.Second
 
 	// defaultMaxRepetitions is the max-repetitions BulkWalkAll sends for a
 	// zero argument; Java SNMP uses 50, net-snmp 10.
 	defaultMaxRepetitions = 50
 )
 
-// Client is an SNMP client: its exported fields configure it, Connect opens
-// its connection, and its methods send requests. A Client is not safe for
-// concurrent use, Close excepted: requests share its connection, receive
-// buffer and deadline, so run one request at a time, or give each goroutine
-// its own Client.
-type Client struct {
-	// Target is the agent's host name or IP address, which Connect dials.
+// Config configures a Client. NewClient checks it and fills in its
+// defaults; the client keeps it as it is.
+type Config struct {
+	// Target is the agent's host name or IP address, which Connect dials; an
+	// empty Target fails Connect. A client that only encodes and decodes
+	// messages needs none.
 	Target string
 
-	// Port is the agent's port, usually 161; it has no default.
+	// Port is the agent's port; zero means 161.
 	Port uint16
+
+	// Version is the SNMP version: Version1, Version2c or Version3; another
+	// value fails NewClient. The zero value is Version1, as the version is
+	// encoded.
+	Version Version
 
 	// Community is the community of SNMPv1 and SNMPv2c messages.
 	Community string
 
-	// Version is the SNMP version: Version1, Version2c or Version3.
-	Version Version
-
 	// Timeout is how long each attempt of a request waits for its answer, and
-	// how long Connect may take to look up Target and dial. It has no default:
-	// a zero Timeout times out every attempt at once, and leaves Connect
-	// without a time limit.
+	// how long Connect may take to look up Target and dial; zero means 1 s.
 	Timeout time.Duration
 
-	// Retries is the number of attempts after the first; a negative value
-	// counts as 0.
+	// Retries is the number of attempts after the first; zero makes one
+	// attempt.
 	Retries int
 
 	// MaxOids is the maximum number of OIDs in a Get request, and in each
-	// request of a walk, which carries one. Connect replaces zero with the
-	// MaxOids constant.
+	// request of a walk, which carries one; zero means the MaxOids constant.
 	MaxOids int
 
 	// SecurityLevel is the SNMPv3 security level: NoAuthNoPriv, AuthNoPriv or
-	// AuthPriv; another value fails Connect. The encoder sets the reportable
-	// flag of each message by its PDU type (RFC 3412 section 6.4: set for
-	// requests and informs, clear for the others).
+	// AuthPriv. The encoder sets the reportable flag of each message by its
+	// PDU type (RFC 3412 section 6.4: set for requests and informs, clear for
+	// the others).
 	SecurityLevel SecurityLevel
 
 	// User is the SNMPv3 user. What the client learns of the agent's engine
@@ -74,16 +77,22 @@ type Client struct {
 	// ContextName is the SNMPv3 context name of requests; their context
 	// engine ID is the agent's engine ID.
 	ContextName string
+}
 
-	// requestID and msgID count the request IDs and the SNMPv3 msgIDs;
-	// requestIDSet and msgIDSet report that they were started, at a random
-	// value on first use or by SetRequestID and SetMsgID.
-	requestID    atomic.Uint32
-	msgID        atomic.Uint32
-	requestIDSet atomic.Bool
-	msgIDSet     atomic.Bool
+// Client is an SNMP client: NewClient makes it from a Config, Connect opens
+// its connection, and its methods send requests. A Client is not safe for
+// concurrent use, Close excepted: requests share its connection, receive
+// buffer and deadline, so run one request at a time, or give each goroutine
+// its own Client.
+type Client struct {
+	// config is the configuration NewClient checked, with its defaults.
+	config Config
 
-	// rx is the receive buffer, allocated by the first request.
+	// requestID and msgID count the request IDs and the SNMPv3 msgIDs from
+	// the random values NewClient drew.
+	requestID, msgID uint32
+
+	// rx is the receive buffer, allocated by the first successful Connect.
 	rx *receiveBuffer // has to be pointer due to https://github.com/golang/go/issues/11728
 
 	// engine is the SNMPv3 engine state requests read and commit, and
@@ -106,6 +115,56 @@ type Client struct {
 	// attempt is the running attempt, which the request's context
 	// interrupts.
 	attempt runningAttempt
+}
+
+// NewClient returns a client of config with its defaults filled in: Port
+// 161, Timeout 1 s and MaxOids the MaxOids constant for zero values. A
+// Version other than the three, and a negative Timeout, Retries or MaxOids
+// fail it; so do, for SNMPv3, a security level other than the three, a user
+// the level does not fit (a name outside 1..32 octets, a protocol out of its
+// set, a protocol the level needs missing, a protocol without a passphrase)
+// and keys that do not derive (FIPS 140-only mode refuses MD5 and SHA-1). The
+// SNMPv3 fields of an SNMPv1 or SNMPv2c client are not checked. Its errors
+// name the field. The client keeps the configuration: nothing changes it.
+func NewClient(config Config) (*Client, error) {
+	if err := config.check(); err != nil {
+		return nil, err
+	}
+	config.Port = cmp.Or(config.Port, defaultPort)
+	config.Timeout = cmp.Or(config.Timeout, defaultTimeout)
+	config.MaxOids = cmp.Or(config.MaxOids, MaxOids)
+	return &Client{
+		config:    config,
+		requestID: randomID(),
+		msgID:     randomID(),
+		engine:    newEngineState(&config.User),
+	}, nil
+}
+
+// check checks the configuration as NewClient does.
+func (c *Config) check() error {
+	switch {
+	case c.Version != Version1 && c.Version != Version2c && c.Version != Version3:
+		return fmt.Errorf("Config.Version is %v, not Version1, Version2c or Version3", c.Version)
+	case c.Timeout < 0:
+		return fmt.Errorf("Config.Timeout %v is negative", c.Timeout)
+	case c.Retries < 0:
+		return fmt.Errorf("Config.Retries %d is negative", c.Retries)
+	case c.MaxOids < 0:
+		return fmt.Errorf("Config.MaxOids %d is negative", c.MaxOids)
+	case c.Version != Version3:
+		return nil
+	}
+	// validate names the user's fields and the level as fields of Config.
+	if err := c.User.validate(c.SecurityLevel); err != nil {
+		return fmt.Errorf("Config.%w", err)
+	}
+	// The keys derive for the engine ID discovery finds; before it, they must
+	// derive all the same: FIPS 140-only mode, for one, refuses MD5 and SHA-1.
+	if _, err := c.User.localize(nil); err != nil {
+		return fmt.Errorf("Config.User: %w", err)
+	}
+	return nil
 }
 
 // VarBind is a variable binding (varbind): the name of an object and its
@@ -179,46 +238,21 @@ const (
 	InconsistentName                       // The name in a variable binding specifies a variable that does not exist.
 )
 
-// prepare readies the client for Connect, EncodeMessage and
-// DecodeMessage, which call it each time: it fills in the default MaxOids,
-// rejects a negative MaxOids and, for SNMPv3, checks the security level and
-// parameters.
-func (x *Client) prepare() error {
-	if x.MaxOids == 0 {
-		x.MaxOids = MaxOids
-	} else if x.MaxOids < 0 {
-		return fmt.Errorf("field MaxOids cannot be less than 0")
-	}
-
-	if x.Version == Version3 {
-		if err := x.validateParametersV3(); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// EncodeMessage encodes a request or trap, for another transport or for
-// tests: it prepares the client as Connect does, builds the message with
-// NewMessage and numbers it with the next request ID and, for SNMPv3, the
-// next msgID, as a request's attempt does. An SNMPv3 message takes the
-// client's engine state as a request starts it (startEngine): its engine ID
-// and context engine ID, the keys localized to it, and the latest engine boots
-// and time received, not advanced as a request's attempt advances them. It runs
-// no discovery: before the client knows the agent's engine the message has no
-// engine ID and no keys, so an authenticated or private one fails. On an error
-// it returns no message.
+// EncodeMessage encodes a request or trap, for another transport or for tests:
+// it builds the message with NewMessage and numbers it with the next request ID
+// and, for SNMPv3, the next msgID, as a request's attempt does. An SNMPv3
+// message takes the client's engine state as a request starts it (startEngine):
+// its engine ID and context engine ID, the keys localized to it, and the latest
+// engine boots and time received, not advanced as a request's attempt advances
+// them. It runs no discovery: before the client knows the agent's engine the
+// message has no engine ID and no keys, so an authenticated or private one
+// fails. On an error it returns no message.
 func (x *Client) EncodeMessage(pduType PDUType, varBinds []VarBind, nonRepeaters uint8, maxRepetitions uint32) ([]byte, error) {
-	if err := x.prepare(); err != nil {
-		return nil, err
-	}
 	pkt := x.NewMessage(pduType, varBinds, nonRepeaters, maxRepetitions)
 	pkt.RequestID = x.nextRequestID()
 	var keys usmKeys
-	if x.Version == Version3 {
-		if err := x.startEngine(); err != nil {
-			return nil, err
-		}
+	if x.config.Version == Version3 {
+		x.startEngine()
 		x.engine.stamp(pkt)
 		pkt.SecurityParameters.AuthoritativeEngineBoots = x.engine.clock.boots
 		pkt.SecurityParameters.AuthoritativeEngineTime = x.engine.clock.latest
@@ -228,21 +262,17 @@ func (x *Client) EncodeMessage(pduType PDUType, varBinds []VarBind, nonRepeaters
 	return pkt.marshalMsg(&keys)
 }
 
-// DecodeMessage decodes a message, from another transport or for tests,
-// after preparing the client as Connect does; an SNMPv3 message with the
-// client's User, whose keys it derives for the message's engine ID: the
-// authentication key when the message asks for authentication, the privacy key
-// to decrypt. Of the security processing (RFC 3414 section 3.2) it makes only
-// the checks that need no digest: the user must have the protocols the message
-// asks for, and the message is decrypted exactly when it asks for privacy; it
-// checks neither the user name, the digest nor the time window, nor any
-// minimum level. It does not write data (see the package documentation for the
-// values that alias it). On an error it returns no message.
+// DecodeMessage decodes a message, from another transport or for tests; an
+// SNMPv3 message with the configuration's User, whose keys it derives for the
+// message's engine ID: the authentication key when the message asks for
+// authentication, the privacy key to decrypt. Of the security processing (RFC
+// 3414 section 3.2) it makes only the checks that need no digest: the user must
+// have the protocols the message asks for, and the message is decrypted exactly
+// when it asks for privacy; it checks neither the user name, the digest nor the
+// time window, nor any minimum level. It does not write data (see the package
+// documentation for the values that alias it). On an error it returns no
+// message.
 func (x *Client) DecodeMessage(data []byte) (*Message, error) {
-	if err := x.prepare(); err != nil {
-		return nil, err
-	}
-
 	result := new(Message)
 	cursor, w, err := unmarshalHeader(data, result)
 	if err != nil {
@@ -250,7 +280,7 @@ func (x *Client) DecodeMessage(data []byte) (*Message, error) {
 	}
 	if result.Version == Version3 {
 		var in inbound
-		if in, err = receiveV3(data, w, result, &x.User, nil); err != nil {
+		if in, err = receiveV3(data, w, result, &x.config.User, nil); err != nil {
 			return nil, fmt.Errorf("unable to decode packet header: %w", err)
 		}
 		if data, cursor, err = in.scopedPDU(result); err != nil {

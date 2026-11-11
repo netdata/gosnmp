@@ -33,7 +33,7 @@ func TestEngineV3MaximumBoots(t *testing.T) {
 					tr := newEngineTranscript(t)
 					a := newFakeV3Agent(tr, agentCreds, sysDescr)
 					c := newFakeTransport(tr, a.handle)
-					x := newEngineClientFrom(t, c, &Client{
+					x := newEngineClientFrom(t, c, Config{
 						Version: Version3, SecurityLevel: AuthNoPriv,
 						User: agentUserOf("codec-md5"), Timeout: time.Second, Retries: 1,
 					})

@@ -300,7 +300,7 @@ func TestTrapEncodedReplay(t *testing.T) {
 		"learned":    {LearnUsers: []User{user}, MaxLearned: 1},
 	} {
 		t.Run(name, func(t *testing.T) {
-			sender := &Client{Version: Version3, SecurityLevel: AuthPriv, User: user}
+			sender := mustClient(Config{Version: Version3, SecurityLevel: AuthPriv, User: user})
 			seedEngine(usmCharEngineID, 3, 77)(sender)
 			wire, err := sender.EncodeMessage(SNMPv2Trap, usmPlainVars, 0, 0)
 			require.NoError(t, err)

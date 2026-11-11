@@ -96,7 +96,10 @@ func TestPDU(t *testing.T) {
 		}
 	}
 
-	sess := &gosnmp.Client{Community: "public", Version: gosnmp.Version2c}
+	sess, err := gosnmp.NewClient(gosnmp.Config{Community: "public", Version: gosnmp.Version2c})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	for i, tc := range pduCases {
 		tstpdu := tc
@@ -229,7 +232,10 @@ func TestDecodeRecorded(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			x := &gosnmp.Client{}
+			x, err := gosnmp.NewClient(gosnmp.Config{})
+			if err != nil {
+				t.Fatal(err)
+			}
 			res, err := x.DecodeMessage(pkt)
 			if err != nil {
 				t.Fatal(err)

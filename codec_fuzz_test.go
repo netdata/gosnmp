@@ -94,7 +94,7 @@ func FuzzDecodeReencode(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		first, err := (&Client{}).DecodeMessage(bytes.Clone(data))
+		first, err := mustClient(Config{}).DecodeMessage(bytes.Clone(data))
 		if err != nil {
 			return
 		}
@@ -107,7 +107,7 @@ func FuzzDecodeReencode(f *testing.F) {
 			t.Fatalf("decoded packet does not encode: %v\ninput: %x", err, data)
 		}
 
-		second, err := (&Client{}).DecodeMessage(bytes.Clone(encoded))
+		second, err := mustClient(Config{}).DecodeMessage(bytes.Clone(encoded))
 		if err != nil {
 			t.Fatalf("re-encoded packet does not decode: %v\ninput:      %x\nre-encoded: %x", err, data, encoded)
 		}

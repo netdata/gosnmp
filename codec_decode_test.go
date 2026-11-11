@@ -48,7 +48,7 @@ type decodeCase struct {
 // dumpDecode decodes c with DecodeMessage and, for a case with SNMPv3
 // credentials, with a receiver of its own (dumpReceive).
 func dumpDecode(t *testing.T, c decodeCase) string {
-	x := &Client{}
+	x := mustClient(Config{})
 	if c.decoder != nil {
 		x = c.decoder()
 	}
@@ -80,7 +80,7 @@ func dumpDecode(t *testing.T, c decodeCase) string {
 		d.line("input: modified " + dumpBytes(in))
 	}
 	dumpPacket(&d, p)
-	dumpReencode(&d, p, &x.User, c.in)
+	dumpReencode(&d, p, &x.config.User, c.in)
 	dumpReceive(t, &d, c)
 	return d.String()
 }
@@ -97,7 +97,7 @@ func dumpReceive(t *testing.T, d *dumpWriter, c decodeCase) {
 	}
 	// A user NewReceiver refuses, such as one with a protocol and no
 	// passphrase, is refused for every engine ID.
-	user := c.decoder().User
+	user := c.decoder().config.User
 	if _, err := NewReceiver(ReceiverConfig{Users: []EngineUser{{EngineID: []byte(codecEngineID), User: user}}}); err != nil {
 		d.line("receive: NewReceiver " + dumpError(err))
 		return
@@ -448,7 +448,7 @@ func usmUser(auth AuthProtocol, authPass string, priv PrivProtocol, privPass str
 // usmDecoder returns a decoder configured for the synthetic codec-user credentials.
 func usmDecoder(auth AuthProtocol, authPass string, priv PrivProtocol, privPass string) func() *Client {
 	return func() *Client {
-		return &Client{User: usmUser(auth, authPass, priv, privPass)}
+		return mustClient(Config{User: usmUser(auth, authPass, priv, privPass)})
 	}
 }
 

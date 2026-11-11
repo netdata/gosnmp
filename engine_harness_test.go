@@ -10,10 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"net"
 	"os"
-	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -321,61 +319,33 @@ func transportOf(tb testing.TB, x *Client) *fakeTransport {
 	return c
 }
 
-// newEngineClient returns a v1/v2c client on conn with a 1 s timeout and 2
-// retries, completed by newEngineClientFrom.
-func newEngineClient(tb testing.TB, version Version, conn *fakeTransport) *Client {
-	tb.Helper()
-	return newEngineClientFrom(tb, conn, &Client{
-		Version:   version,
-		Community: "public",
-		Timeout:   time.Second,
-		Retries:   2,
-	})
+// engineConfig returns the configuration of a v1/v2c client with a 1 s
+// timeout and 2 retries.
+func engineConfig(version Version) Config {
+	return Config{Version: version, Community: "public", Timeout: time.Second, Retries: 2}
 }
 
-// newEngineClientFrom completes x on conn as Connect would leave it, with the
-// receive buffer its first request allocates, request IDs starting after 1000,
-// message IDs after 2000 and the next salt 0x101.
-func newEngineClientFrom(tb testing.TB, conn *fakeTransport, x *Client) *Client {
+// newEngineClient returns a client of engineConfig on conn, completed by
+// newEngineClientFrom.
+func newEngineClient(tb testing.TB, version Version, conn *fakeTransport) *Client {
 	tb.Helper()
-	if err := x.prepare(); err != nil {
+	return newEngineClientFrom(tb, conn, engineConfig(version))
+}
+
+// newEngineClientFrom returns the client NewClient makes of config on conn,
+// as Connect would leave it, with request IDs starting after 1000, message IDs
+// after 2000 and the next salt 0x101.
+func newEngineClientFrom(tb testing.TB, conn *fakeTransport, config Config) *Client {
+	tb.Helper()
+	x, err := NewClient(config)
+	if err != nil {
 		tb.Fatal(err)
 	}
 	usm.Salts.Set(0x101)
 	x.conn = conn
 	x.rx = new(receiveBuffer)
-	x.SetRequestID(1000)
-	x.SetMsgID(2000)
+	x.requestID, x.msgID = 1000, 2000
 	return x
-}
-
-// configOf returns the client's configuration a request must not write: its
-// exported fields, the SNMPv3 User included.
-func configOf(x *Client) map[string]any {
-	v := reflect.ValueOf(x).Elem()
-	cfg := make(map[string]any)
-	for i := range v.NumField() {
-		if f := v.Type().Field(i); f.IsExported() {
-			cfg[f.Name] = v.Field(i).Interface()
-		}
-	}
-	return cfg
-}
-
-// addConfigChanges records the configuration fields whose values changed
-// from before to the client's current ones: a test's code may change them,
-// the library may not.
-func (tr *engineTranscript) addConfigChanges(before map[string]any, x *Client) {
-	after := configOf(x)
-	var changed []string
-	for _, name := range slices.Sorted(maps.Keys(before)) {
-		if !reflect.DeepEqual(before[name], after[name]) {
-			changed = append(changed, name)
-		}
-	}
-	if len(changed) > 0 {
-		tr.addf("client configuration changed: %s", strings.Join(changed, ", "))
-	}
 }
 
 // decodeMessage decodes a v1/v2c message, as an agent reads a request.

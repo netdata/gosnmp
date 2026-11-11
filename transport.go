@@ -13,24 +13,27 @@ import (
 	"time"
 )
 
-// Connect readies the client and opens its connection, a UDP socket connected
-// to Target and Port (see the package documentation), the only connection a
-// client has; a client connects before its requests. ctx bounds Connect only,
-// its lookup of Target and its dial, with Timeout; each request takes its own.
-// It sends nothing, so it succeeds whether or not an agent answers. The new
-// connection replaces the client's, which Connect closes; when Connect fails,
-// the client keeps the connection it had. A nil ctx fails Connect before it
-// changes the client.
+// Connect opens the client's connection, a UDP socket connected to the
+// configuration's Target and Port (see the package documentation), the only
+// connection a client has; a client connects before its requests. ctx bounds
+// Connect only, its lookup of Target and its dial, with Timeout; each request
+// takes its own. It sends nothing, so it succeeds whether or not an agent
+// answers. The new connection replaces the client's, which Connect closes;
+// when Connect fails, the client keeps the connection it had. A nil ctx, and
+// then an empty Target, fail Connect before it changes the client.
 func (x *Client) Connect(ctx context.Context) error {
 	if ctx == nil {
 		return errNilContext
 	}
-	if err := x.prepare(); err != nil {
-		return err
+	if x.config.Target == "" {
+		return errNoTarget
 	}
-	conn, err := dial(ctx, x.Timeout, net.JoinHostPort(x.Target, strconv.Itoa(int(x.Port))))
+	conn, err := dial(ctx, x.config.Timeout, net.JoinHostPort(x.config.Target, strconv.Itoa(int(x.config.Port))))
 	if err != nil {
 		return fmt.Errorf("error establishing connection to host: %w", err)
+	}
+	if x.rx == nil {
+		x.rx = new(receiveBuffer)
 	}
 	x.mu.Lock()
 	old := x.conn
@@ -151,10 +154,11 @@ func (x *Client) interrupt(seq uint64) {
 }
 
 // errNoConn is the error of a request on a client Connect never connected
-// (and Close never closed), errClosed after Close, and errNilContext of a
-// request or Connect given a nil context.
+// (and Close never closed), errClosed after Close, errNilContext of a request
+// or Connect given a nil context, and errNoTarget of Connect without a Target.
 var (
 	errNoConn     = errors.New("the client is not connected: call Connect first")
+	errNoTarget   = errors.New("Config.Target is empty")
 	errClosed     = fmt.Errorf("the client was closed: %w", net.ErrClosed)
 	errNilContext = errors.New("nil context")
 )

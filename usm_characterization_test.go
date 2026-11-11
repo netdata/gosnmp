@@ -481,7 +481,7 @@ func TestUSMAuthFieldEmpty(t *testing.T) {
 			in := buf[:len(msg):len(buf)]
 			_, err := decoder().DecodeMessage(in)
 			require.NoError(t, err, "DecodeMessage")
-			_, _, err = receiverAt(t, []byte(usmCharEngineID), decoder().User).Receive(in)
+			_, _, err = receiverAt(t, []byte(usmCharEngineID), decoder().config.User).Receive(in)
 			assert.ErrorIs(t, err, errNotAuthentic, "Receive")
 			assert.Equal(t, append(bytes.Clone(msg), bytes.Repeat([]byte{0xaa}, spare)...), buf, "the input and the octets after it")
 		})
@@ -582,9 +582,8 @@ func TestUSMPasswordCache(t *testing.T) {
 	}
 }
 
-// TestUSMValidate pins which SNMPv3 users a Client rejects before decoding or
-// encoding, and the messages it rejects them with. The users that pass decode
-// a noAuthNoPriv message.
+// TestUSMValidate pins which SNMPv3 users NewClient rejects, and the messages
+// it rejects them with. The users that pass decode a noAuthNoPriv message.
 func TestUSMValidate(t *testing.T) {
 	msg := craftedV3NoAuth(craftedScopedResp)
 
@@ -598,29 +597,29 @@ func TestUSMValidate(t *testing.T) {
 		},
 		"noAuthNoPriv without user": {
 			flags: NoAuthNoPriv, user: User{},
-			wantErr: "User.Name is required",
+			wantErr: "Config.User.Name is required",
 		},
 		"noAuthNoPriv with a user name of 32 octets": {
 			flags: NoAuthNoPriv, user: User{Name: strings.Repeat("u", 32)},
 		},
 		"noAuthNoPriv with a user name of 33 octets": {
 			flags: NoAuthNoPriv, user: User{Name: strings.Repeat("u", 33)},
-			wantErr: "User.Name is 33 octets, more than 32",
+			wantErr: "Config.User.Name is 33 octets, more than 32",
 		},
 		"authNoPriv": {
 			flags: AuthNoPriv, user: User{Name: "u", AuthProtocol: SHA, AuthPassphrase: "p"},
 		},
 		"authNoPriv without protocol": {
 			flags: AuthNoPriv, user: User{Name: "u", AuthPassphrase: "p"},
-			wantErr: "User.AuthProtocol is required",
+			wantErr: "Config.User.AuthProtocol is required",
 		},
 		"authNoPriv without passphrase": {
 			flags: AuthNoPriv, user: User{Name: "u", AuthProtocol: SHA},
-			wantErr: "User.AuthPassphrase is required when an authentication protocol is specified",
+			wantErr: "Config.User.AuthPassphrase is required when an authentication protocol is specified",
 		},
 		"authNoPriv without user": {
 			flags: AuthNoPriv, user: User{AuthProtocol: SHA, AuthPassphrase: "p"},
-			wantErr: "User.Name is required",
+			wantErr: "Config.User.Name is required",
 		},
 		"authPriv": {
 			flags: AuthPriv, user: User{
@@ -630,39 +629,41 @@ func TestUSMValidate(t *testing.T) {
 		},
 		"authPriv without privacy protocol": {
 			flags: AuthPriv, user: User{Name: "u", AuthProtocol: SHA, AuthPassphrase: "p"},
-			wantErr: "User.PrivProtocol is required",
+			wantErr: "Config.User.PrivProtocol is required",
 		},
 		"authPriv without authentication protocol": {
 			flags: AuthPriv, user: User{Name: "u", PrivProtocol: AES, PrivPassphrase: "q"},
-			wantErr: "User.AuthProtocol is required",
+			wantErr: "Config.User.AuthProtocol is required",
 		},
 		"authPriv without privacy passphrase": {
 			flags: AuthPriv, user: User{Name: "u", AuthProtocol: SHA, AuthPassphrase: "p", PrivProtocol: AES},
-			wantErr: "User.PrivPassphrase is required when a privacy protocol is specified",
+			wantErr: "Config.User.PrivPassphrase is required when a privacy protocol is specified",
 		},
 		"authPriv without either passphrase": {
 			flags: AuthPriv, user: User{Name: "u", AuthProtocol: SHA, PrivProtocol: AES},
-			wantErr: "User.PrivPassphrase is required when a privacy protocol is specified",
+			wantErr: "Config.User.PrivPassphrase is required when a privacy protocol is specified",
 		},
 		"noAuthNoPriv with a privacy protocol and no passphrase": {
 			flags: NoAuthNoPriv, user: User{Name: "u", PrivProtocol: AES},
-			wantErr: "User.PrivPassphrase is required when a privacy protocol is specified",
+			wantErr: "Config.User.PrivPassphrase is required when a privacy protocol is specified",
 		},
 		"privacy flag without authentication flag": {
 			flags: 0x2, user: User{Name: "u"},
-			wantErr: "validate: SecurityLevel must be populated with an appropriate security level",
+			wantErr: "Config.SecurityLevel SecurityLevel(2) is not NoAuthNoPriv, AuthNoPriv or AuthPriv",
 		},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			x := &Client{Version: Version3, SecurityLevel: tc.flags, User: tc.user}
-			_, err := x.DecodeMessage(bytes.Clone(msg))
-			if tc.wantErr == "" {
-				assert.NoError(t, err)
+			x, err := NewClient(Config{Version: Version3, SecurityLevel: tc.flags, User: tc.user})
+			if tc.wantErr != "" {
+				assert.EqualError(t, err, tc.wantErr)
+				assert.Nil(t, x)
 				return
 			}
-			assert.EqualError(t, err, tc.wantErr)
+			require.NoError(t, err)
+			_, err = x.DecodeMessage(bytes.Clone(msg))
+			assert.NoError(t, err)
 		})
 	}
 }

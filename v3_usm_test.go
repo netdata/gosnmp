@@ -201,10 +201,9 @@ func TestUSMUnsupportedProtocols(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Run("validate", func(t *testing.T) {
-				x := &Client{Version: Version3, SecurityLevel: tc.flags, User: user(tc.auth, tc.priv)}
-				// Validation runs before decoding, so an empty message reaches it.
-				_, err := x.DecodeMessage(nil)
-				assert.EqualError(t, err, tc.wantErr)
+				x, err := NewClient(Config{Version: Version3, SecurityLevel: tc.flags, User: user(tc.auth, tc.priv)})
+				assert.EqualError(t, err, "Config."+tc.wantErr)
+				assert.Nil(t, x)
 			})
 			t.Run("keys", func(t *testing.T) {
 				u := user(tc.auth, tc.priv)
@@ -623,7 +622,7 @@ func TestUSMFIPS140OnlyDecrypt(t *testing.T) {
 				require.NoError(t, err)
 			})
 			client := func() *Client {
-				return &Client{Version: Version3, SecurityLevel: AuthPriv, User: user}
+				return mustClient(Config{Version: Version3, SecurityLevel: AuthPriv, User: user})
 			}
 			paths := map[string]func() error{
 				"receiver": func() error {

@@ -18,11 +18,11 @@ import (
 // for a message it encodes itself.
 func (x *Client) NewMessage(pduType PDUType, varBinds []VarBind, nonRepeaters uint8, maxRepetitions uint32) *Message {
 	return &Message{
-		Version:            x.Version,
-		Community:          x.Community,
-		SecurityLevel:      x.SecurityLevel,
-		SecurityParameters: SecurityParameters{UserName: x.User.Name},
-		ContextName:        x.ContextName,
+		Version:            x.config.Version,
+		Community:          x.config.Community,
+		SecurityLevel:      x.config.SecurityLevel,
+		SecurityParameters: SecurityParameters{UserName: x.config.User.Name},
+		ContextName:        x.config.ContextName,
 		ErrorStatus:        0,
 		ErrorIndex:         0,
 		PDUType:            pduType,
@@ -51,8 +51,8 @@ func (x *Client) Get(ctx context.Context, oids []string) (result *Message, err e
 // varbind, with maxRepetitions for a GetBulk, after checking their count
 // against MaxOids: Get's, and each of a walk's GetNext and GetBulk requests.
 func (x *Client) oidRequest(pdutype PDUType, oids []string, maxRepetitions uint32) (*Message, error) {
-	if len(oids) > x.MaxOids {
-		return nil, fmt.Errorf("oid count (%d) is greater than MaxOids (%d)", len(oids), x.MaxOids)
+	if len(oids) > x.config.MaxOids {
+		return nil, fmt.Errorf("oid count (%d) is greater than MaxOids (%d)", len(oids), x.config.MaxOids)
 	}
 	pdus := make([]VarBind, 0, len(oids))
 	for _, oid := range oids {
