@@ -358,7 +358,7 @@ func readSecurityParameters(packet []byte, off int, m *Message, w *v3Wire) error
 		return err
 	}
 	if len(engineID) > maxDecodedEngineIDLen {
-		return w, fmt.Errorf("error parsing %smsgAuthoritativeEngineID: %d octets, more than %d", usmField, len(engineID), maxDecodedEngineIDLen)
+		return fmt.Errorf("error parsing %smsgAuthoritativeEngineID: %d octets, more than %d", usmField, len(engineID), maxDecodedEngineIDLen)
 	}
 	h.AuthoritativeEngineID = bytes.Clone(engineID)
 	if h.AuthoritativeEngineBoots, err = usmEngineValue(&ur, "msgAuthoritativeEngineBoots"); err != nil {
