@@ -49,6 +49,7 @@ func TestMarshalLongOctetStringFields(t *testing.T) {
 		"community 128 bytes": {community: long(128)},
 		"community 256 bytes": {community: long(256)},
 		"community 300 bytes": {community: long(300)},
+		"engine ID 64 bytes":  {engineID: long(64), userName: "user"},
 		"engine ID 128 bytes": {engineID: long(128), userName: "user"},
 		"engine ID 300 bytes": {engineID: long(300), userName: "user"},
 		"user name 32 bytes":  {engineID: "\x80\x00\x1f\x88\x04engine", userName: long(32)},
@@ -72,6 +73,17 @@ func TestMarshalLongOctetStringFields(t *testing.T) {
 			msg, err := packet.Encode(nil)
 			if err != nil {
 				t.Fatalf("Encode: %v", err)
+			}
+			if len(want.engineID) > maxDecodedEngineIDLen {
+				// Longer than the decoder takes: the fields as the encoder
+				// laid them out.
+				_, err = (&Client{}).DecodeMessage(msg)
+				require.ErrorIs(t, err, ErrInvalidMsgs)
+				m := splitV3Message(t, msg)
+				if got := (fields{engineID: string(m.usm[0]), userName: string(m.usm[3])}); got != want {
+					t.Errorf("encoded %+v, want %+v", got, want)
+				}
+				return
 			}
 
 			decoded, err := (&Client{}).DecodeMessage(msg)

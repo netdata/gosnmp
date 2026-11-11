@@ -147,6 +147,11 @@ const (
 	minMsgMaxSize  = 484
 	maxMsgMaxSize  = 2147483647
 	maxUserNameLen = 32 // msgUserName octets (RFC 3414 section 2.4)
+	// The longest msgAuthoritativeEngineID the decoder takes, net-snmp
+	// v5.9.4's: twice RFC 3411's 32 octets. net-snmp's agent drops a message
+	// naming a longer one without a Report, so a client that took one from a
+	// forged answer would never learn that the agent does not know it.
+	maxDecodedEngineIDLen = 64
 )
 
 // checkV3Header checks the SNMPv3 header fields of an outgoing message: a
@@ -349,6 +354,9 @@ func parseV3(packet []byte, cursor int, response *Message) (v3Wire, error) {
 	engineID, err := usmOctets(&ur, "msgAuthoritativeEngineID")
 	if err != nil {
 		return w, err
+	}
+	if len(engineID) > maxDecodedEngineIDLen {
+		return w, fmt.Errorf("error parsing %smsgAuthoritativeEngineID: %d octets, more than %d", usmField, len(engineID), maxDecodedEngineIDLen)
 	}
 	h.AuthoritativeEngineID = bytes.Clone(engineID)
 	if h.AuthoritativeEngineBoots, err = usmEngineValue(&ur, "msgAuthoritativeEngineBoots"); err != nil {

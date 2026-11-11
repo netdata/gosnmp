@@ -202,11 +202,13 @@
 // [ErrNotInTimeWindow] (a deviation from RFC 3414 section 3.2 step 7 b and
 // net-snmp, which reject it until their cached time is cleared).
 //
-// So the client never leaves an engine ID by itself: after a request that fails
-// with [ErrUnknownEngineID], an application calls [Client.ForgetEngine], which
-// recovers both a replaced device and an engine ID a forged discovery answer
-// gave the client (the agent answers the authenticated request with a
-// usmStatsUnknownEngineIDs Report).
+// So a client whose requests are authenticated never leaves an engine ID by
+// itself (one without authentication follows the agent, above): after a request
+// that fails with [ErrUnknownEngineID], an application calls
+// [Client.ForgetEngine], which recovers both a replaced device and an engine ID
+// a forged discovery answer gave the client, when the agent answers the
+// authenticated request with a usmStatsUnknownEngineIDs Report, as net-snmp's
+// does for every engine ID the decoder takes.
 //
 // # Walks
 //
@@ -269,17 +271,17 @@
 // (RFC 3412 section 6, RFC 3414 section 2.4): msgID 0..2147483647, msgMaxSize
 // 484..2147483647, msgFlags an OCTET STRING of one octet, the User-based
 // Security Model's number, flags that do not ask for privacy without
-// authentication, the USM fields of their types, engine boots and time within
-// 0..2147483647 and a user name of at most 32 octets; a decoded message keeps
-// the security level of msgFlags, not its reportableFlag or reserved bits. A
-// length needs its length octet, takes at most eight long-form ones, and must
-// fit what remains; bytes after the message, the PDU, the varbind list or a
-// varbind's value fail it. As net-snmp does, the decoder reads the SNMPv3
-// header and a plaintext scoped PDU against the rest of the message (a
-// msgGlobalData declared shorter than its fields, security parameters declared
-// to cover the scoped PDU, and a scoped PDU declared shorter than its content,
-// are read), and decrypts the content an encrypted scoped PDU declares,
-// ignoring octets after it.
+// authentication, the USM fields of their types, an engine ID of at most 64
+// octets, engine boots and time within 0..2147483647 and a user name of at most
+// 32 octets; a decoded message keeps the security level of msgFlags, not its
+// reportableFlag or reserved bits. A length needs its length octet, takes at
+// most eight long-form ones, and must fit what remains; bytes after the
+// message, the PDU, the varbind list or a varbind's value fail it. As net-snmp
+// does, the decoder reads the SNMPv3 header and a plaintext scoped PDU against
+// the rest of the message (a msgGlobalData declared shorter than its fields,
+// security parameters declared to cover the scoped PDU, and a scoped PDU
+// declared shorter than its content, are read), and decrypts the content an
+// encrypted scoped PDU declares, ignoring octets after it.
 //
 // It accepts some malformed values, because devices send them: an OctetString
 // may declare one octet more than its varbind holds (seen from MikroTik

@@ -820,6 +820,12 @@ func TestSignDigestOffset(t *testing.T) {
 		"USM SEQUENCE over 255 octets": {
 			engineID: func(*testing.T, AuthProtocol, PrivProtocol) string { return longEngineID(250) },
 		},
+		// The longest fields the decoder takes: a USM SEQUENCE over 127
+		// octets but for MD5 without privacy.
+		"longest engine ID and user name": {
+			user:     func(AuthProtocol) string { return strings.Repeat("u", maxUserNameLen) },
+			engineID: func(*testing.T, AuthProtocol, PrivProtocol) string { return longEngineID(maxDecodedEngineIDLen) },
+		},
 		"security parameters of 127 octets": {
 			engineID: func(t *testing.T, auth AuthProtocol, priv PrivProtocol) string {
 				return engineIDForUSMLen(t, auth, priv, 127)
@@ -863,11 +869,6 @@ func TestSignDigestOffset(t *testing.T) {
 					m.usm[4] = make([]byte, len(digest))
 					unsigned := m.bytes()
 
-					_, w, err := unmarshalHeader(data, new(Message))
-					require.NoError(t, err)
-					assert.Equal(t, [2]int{authParamsOffset(t, data), auth.spec().MACLen}, [2]int{w.authOff, w.authLen},
-						"the parse finds the field where the encoder put it")
-
 					u := signedTestUser(auth, priv, user)
 					key, err := u.authKey([]byte(engineID))
 					require.NoError(t, err)
@@ -877,7 +878,15 @@ func TestSignDigestOffset(t *testing.T) {
 
 					x := &Client{Version: Version3, SecurityLevel: signedTestFlags(priv), User: u}
 					res, err := x.UnmarshalTrap(bytes.Clone(data), false)
+					if len(engineID) > maxDecodedEngineIDLen {
+						require.ErrorIs(t, err, ErrInvalidMsgs, "an engine ID longer than the decoder takes")
+						return
+					}
 					require.NoError(t, err)
+					_, w, err := unmarshalHeader(data, new(Message))
+					require.NoError(t, err)
+					assert.Equal(t, [2]int{authParamsOffset(t, data), auth.spec().MACLen}, [2]int{w.authOff, w.authLen},
+						"the parse finds the field where the encoder put it")
 					h := &res.SecurityParameters
 					assert.Equal(t, []string{engineID, user}, []string{string(h.AuthoritativeEngineID), h.UserName})
 					if tc.variables != nil {

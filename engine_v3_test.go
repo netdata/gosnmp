@@ -316,6 +316,13 @@ func withoutEngineID(p *agentOut) {
 	p.ContextEngineID = nil
 }
 
+// fromOversizedEngine makes an answer name an engine ID longer than net-snmp
+// v5.9.4 parses (64 octets), which its agent drops without a Report.
+func fromOversizedEngine(p *agentOut) {
+	p.SecurityParameters.AuthoritativeEngineID = bytes.Repeat([]byte{0x42}, 65)
+	p.ContextEngineID = nil
+}
+
 // fromOtherEngine makes an answer come from the agent's other engine ID.
 func fromOtherEngine(p *agentOut) {
 	p.SecurityParameters.AuthoritativeEngineID = []byte(agentOtherEngineID)
@@ -1553,6 +1560,16 @@ func v3Scenarios() map[string]v3Scenario {
 		})},
 		"discard/wrong-digest-then-answer": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			level: AuthNoPriv, why: "Response signed with another key", edit: otherAuthKey, then: true,
+		})},
+		// A forged answer naming an engine ID longer than an agent parses is
+		// discarded, so the client neither keeps nor lends it.
+		"discard/oversized-engine-id-discovery-then-answer": {user: "codec-md5", script: onRequest(1, agentAnswer{
+			report: usmStatsUnknownEngineIDs, why: "forged discovery answer naming a 65-octet engine ID",
+			edit: fromOversizedEngine, then: true,
+		})},
+		"discard/oversized-engine-id-report-then-answer": {user: "codec-noauth", script: onRequest(2, agentAnswer{
+			report: usmStatsUnknownEngineIDs, why: "forged Report naming a 65-octet engine ID",
+			edit: fromOversizedEngine, then: true,
 		})},
 		"discard/unsupported-level-then-answer": {user: "codec-md5", script: onRequest(2, agentAnswer{
 			level: AuthNoPriv, why: "Response encrypted for an authNoPriv request", edit: encryptedForAuthNoPriv, then: true,
