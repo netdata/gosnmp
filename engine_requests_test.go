@@ -364,6 +364,12 @@ func engineScenarios() map[string]engineScenario {
 		"timeout/zero":          {agent: answer(sysDescr), setup: func(x *Client, _ *fakeTransport) { x.Timeout = 0 }},
 		"answer/second-attempt": {agent: answerFromSecond(sysDescr)},
 
+		// Configuration values no agent can be asked with: a negative Timeout
+		// times out every attempt at once, and a version other than the three
+		// fails the first attempt's encoding, which sends nothing.
+		"config/negative-timeout": {agent: answer(sysDescr), setup: func(x *Client, _ *fakeTransport) { x.Timeout = -time.Second }},
+		"config/unknown-version":  {agent: answer(sysDescr), setup: func(x *Client, _ *fakeTransport) { x.Version = Version(7) }},
+
 		// Reply matching.
 		"answer/late": {agent: func(n int, req []byte) []agentReply {
 			if n == 1 {

@@ -98,6 +98,38 @@ func TestConnect(t *testing.T) {
 	}
 }
 
+// TestConnectEmptyTarget pins Connect with an empty Target: it dials the
+// local system, which Linux and macOS connect to.
+func TestConnectEmptyTarget(t *testing.T) {
+	x := &Client{Port: unusedUDPPort(t), Version: Version2c, Community: "public", Timeout: time.Second}
+	err := x.Connect(context.Background())
+	if err != nil {
+		assert.ErrorContains(t, err, "error establishing connection to host: dial udp :")
+		assert.Nil(t, x.conn)
+		return
+	}
+	defer x.Close()
+	remote, ok := x.conn.(*net.UDPConn).RemoteAddr().(*net.UDPAddr)
+	require.True(t, ok)
+	assert.True(t, remote.IP.IsLoopback() || remote.IP.IsUnspecified(), "remote address %v", remote)
+}
+
+// TestConnectPortZero pins Connect with Port 0: it dials port 0, which Linux
+// connects to and macOS refuses.
+func TestConnectPortZero(t *testing.T) {
+	x := &Client{Target: "127.0.0.1", Version: Version2c, Community: "public", Timeout: time.Second}
+	err := x.Connect(context.Background())
+	if err != nil {
+		assert.ErrorContains(t, err, "error establishing connection to host: dial udp 127.0.0.1:0")
+		assert.Nil(t, x.conn)
+		return
+	}
+	defer x.Close()
+	remote, ok := x.conn.(*net.UDPConn).RemoteAddr().(*net.UDPAddr)
+	require.True(t, ok)
+	assert.Equal(t, 0, remote.Port)
+}
+
 // TestUDPAgentAddress checks where a request goes after Port changed from
 // agent A's to agent B's: to A, the peer the socket Connect dialed.
 func TestUDPAgentAddress(t *testing.T) {

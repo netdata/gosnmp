@@ -592,6 +592,24 @@
 300ms result: packet nil, error "the client was closed: use of closed network connection" *fmt.wrapError (is net.ErrClosed)
 300ms client after: retries=2 next request id=1002
 
+== requests/config/negative-timeout
+0s    client: 2c timeout=-1s retries=2
+0s    deadline in the past
+0s    write #1: 2c "public" GetRequest id=1001 [.1.3.6.1.2.1.1.1.0]
+0s    write #1: deadline
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    write #2: deadline
+0s    write #3: 2c "public" GetRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+0s    write #3: deadline
+0s    result: packet nil, error "request timeout (after 2 retries)" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
+0s    client after: retries=2 next request id=1004
+
+== requests/config/unknown-version
+0s    client: Version(7) timeout=1s retries=2
+0s    deadline +1s
+0s    result: packet nil, error "marshal: unable to marshal SNMP version 7: not 1, 2c or 3" *fmt.wrapError
+0s    client after: retries=2 next request id=1002
+
 == requests/context/canceled-after-request
 0s    client: 2c timeout=1s retries=2
 0s    deadline +1s
