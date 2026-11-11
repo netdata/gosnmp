@@ -67,19 +67,19 @@ var errReplyNotInTime = inCategory(ErrNotInTimeWindow, errors.New("the reply is 
 
 // settle commits the engine state an SNMPv3 reply that answers the exchange's
 // request carries, after the match, and returns out, the attempt's outcome,
-// with the commit or its error, or, for an authenticated reply outside the
-// time window, the error that discards it. A discovery answer (an
-// unknownEngineIDs Report, or the unknownUserNames Report some devices send,
-// carrying an engine ID) gives the engine ID, its keys and an unauthenticated
-// clock, or ends the request when it names no engine ID or the keys do not
-// derive. A reply whose digest checked against the request (verified) gives
-// its engine ID (another one takes keys derived for it, and no clock) and the
-// clock replyClock gives; maximum boots are rejected before either recovery
-// exception. Unverified, a Response, which answers only a request without
-// authentication and names its engine ID (exchange.answers: the engine
-// state's, a lent one, or none for discovery), gives that engine ID and the
-// clock replyClock gives. A reply whose engine ID gives no valid state answers
-// without a commit.
+// with the commit or its error, or, for an authenticated reply outside the time
+// window, the error that discards it. A discovery answer (an unknownEngineIDs
+// Report, the unknownUserNames Report some devices send, or a notInTimeWindows
+// Report, carrying an engine ID) gives the engine ID, its keys and an
+// unauthenticated clock, or ends the request when it names no engine ID or the
+// keys do not derive. A reply whose digest checked against the request
+// (verified) gives its engine ID (another one takes keys derived for it, and no
+// clock) and the clock replyClock gives; maximum boots are rejected before
+// either recovery exception. Unverified, a Response, which answers only a
+// request without authentication and names its engine ID (exchange.answers: the
+// engine state's, a lent one, or none for discovery), gives that engine ID and
+// the clock replyClock gives. A reply whose engine ID gives no valid state
+// answers without a commit.
 func (e *exchange) settle(out attemptOutcome) (attemptOutcome, error) {
 	c, reply := e.c, out.reply
 	if reply.Version != Version3 {

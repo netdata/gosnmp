@@ -54,9 +54,10 @@ type Message struct {
 	// encoder sends 65535 for zero.
 	MsgMaxSize uint32
 
-	// ErrorStatus and ErrorIndex are the PDU's error status and index, each
-	// decoded to its low byte; a GetBulkRequest has NonRepeaters and
-	// MaxRepetitions in their place.
+	// ErrorStatus and ErrorIndex are the PDU's error status and index; a
+	// GetBulkRequest has NonRepeaters and MaxRepetitions in their place.
+	// Decoded, an error status outside 0..255 fails the message, and an error
+	// index or non-repeaters above 255 reads as 255.
 	ErrorStatus    ErrorStatus
 	ErrorIndex     uint8
 	NonRepeaters   uint8
@@ -193,12 +194,12 @@ func (m *Message) Encode(user *User) ([]byte, error) {
 // EncodeMessage encodes a request or trap, for another transport or for tests:
 // it builds the message with NewMessage and numbers it with the next request ID
 // and, for SNMPv3, the next msgID, as a request's attempt does. An SNMPv3
-// message takes the client's engine state as a request starts it (startEngine):
-// its engine ID and context engine ID, the keys localized to it, and the latest
-// engine boots and time received, not advanced as a request's attempt advances
-// them. It runs no discovery: before the client knows the agent's engine the
-// message has no engine ID and no keys, so an authenticated or private one
-// fails. On an error it returns no message.
+// message takes the client's engine state as a request starts it: its engine ID
+// and context engine ID, the keys localized to it, and the latest engine boots
+// and time received, not advanced as a request's attempt advances them. It runs
+// no discovery: before the client knows the agent's engine the message has no
+// engine ID and no keys, so an authenticated or private one fails. On an error
+// it returns no message.
 func (c *Client) EncodeMessage(pduType PDUType, varBinds []VarBind, nonRepeaters uint8, maxRepetitions uint32) ([]byte, error) {
 	m := c.NewMessage(pduType, varBinds, nonRepeaters, maxRepetitions)
 	m.RequestID = c.nextRequestID()

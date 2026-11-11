@@ -108,10 +108,12 @@
 // # Errors
 //
 // Every error of an incoming message unwraps ([errors.Is]) to exactly one
-// category, an exported error named after the counter RFC 3412, RFC 3414 or RFC
-// 3418 counts the message in, as net-snmp v5.9.4 counts it, with a text of its
-// own: an error of DecodeMessage, of Receive, of ReadEnvelope, and the reason a
-// request discards a reply for. The categories:
+// category: an error of DecodeMessage, of Receive, of ReadEnvelope, and the
+// reason a request discards a reply for. A category is an exported error with a
+// text of its own, named after the counter RFC 3412, RFC 3414 or RFC 3418
+// counts the message in, as net-snmp v5.9.4 counts it, but for
+// [ErrUnmatchedReply], a reply that does not answer the request. The
+// categories:
 //
 //   - [ErrASNParse] (snmpInASNParseErrs): the message does not parse, of any
 //     version: its encoding, a header field of another type or outside its
@@ -315,14 +317,16 @@
 // of the agent's engine is its engine state (RFC 3414 section 2.3), internal to
 // it: the engine ID, the user's keys localized to it and the engine boots and
 // time; requests take the engine ID as their context engine ID. Every request
-// reads it; only an answer that matched a request changes it, whole, once the
-// new state is valid. A request without an engine ID first discovers it (RFC
+// reads it; an answer that matched a request changes it, whole, once the new
+// state is valid, and otherwise only [Client.ForgetEngine] and the drop of its
+// clock (both below) do. A request without an engine ID first discovers it (RFC
 // 3414 section 4): it sends an unauthenticated, empty Get and takes the engine
 // ID, boots and time of the answer, with keys derived for that engine ID. The
 // answer is usually a usmStatsUnknownEngineIDs Report; a
 // usmStatsUnknownUserNames Report that carries an engine ID, as some devices
-// send, serves too (a Response answers discovery only with neither an engine ID
-// nor a context engine ID: see below). An answer without an engine ID ends the
+// send, serves too, and so does a usmStatsNotInTimeWindows Report that carries
+// one (a Response answers discovery only with neither an engine ID nor a
+// context engine ID: see below). An answer without an engine ID ends the
 // request with an error that matches [ErrUnknownEngineID]: the client learns
 // nothing, and the next request discovers again. Keys that do not derive (FIPS
 // 140-only mode refuses MD5 and SHA-1) fail NewClient.
@@ -440,9 +444,10 @@
 // passphrase (RFC 3414 appendix A.2.1). The package caches that result for
 // every client and receiver, by passphrase and hash, for the life of the
 // process; it holds the passphrases in memory meanwhile. The Reeder key
-// extension (AES192C, AES256C) hashes the localized key the same way, so it
-// adds a result per user and engine ID, and DecodeMessage, which decrypts
-// without checking the digest, one per engine ID its messages name; a
+// extension (AES192C, AES256C) hashes the localized key the same way when it is
+// shorter than the cipher's key (from MD5 or SHA-1, or SHA-224 for AES256C), so
+// it adds a result per such user and engine ID, and DecodeMessage, which
+// decrypts without checking the digest, one per engine ID its messages name; a
 // receiver's, one per user it has, learns or may learn, and one per engine ID
 // an authentic message of a LearnUser names when the receiver does not learn it
 // (an unreportable inform or request, a message that does not decrypt or whose

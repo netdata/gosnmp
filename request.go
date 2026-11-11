@@ -25,9 +25,9 @@ func (c *Client) Get(ctx context.Context, oids []string) (result *Message, err e
 	return c.send(ctx, req)
 }
 
-// oidRequest builds the request packet of pdutype for oids, each as a Null
-// varbind, with maxRepetitions for a GetBulk, after checking their count
-// against MaxOids: Get's, and each of a walk's GetNext and GetBulk requests.
+// oidRequest builds the request of pduType for oids, each as a Null varbind,
+// with maxRepetitions for a GetBulk, after checking their count against
+// MaxOids: Get's, and each of a walk's GetNext and GetBulk requests.
 func (c *Client) oidRequest(pduType PDUType, oids []string, maxRepetitions uint32) (*Message, error) {
 	if len(oids) > c.config.MaxOids {
 		return nil, fmt.Errorf("oid count (%d) is greater than MaxOids (%d)", len(oids), c.config.MaxOids)

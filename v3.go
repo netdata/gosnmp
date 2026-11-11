@@ -35,17 +35,17 @@ const (
 // (appendV3Header).
 const reportableFlag = 0x4
 
-// authFlag reports whether f has the authFlag (bit 0x1, RFC 3412 section 6.4)
+// authFlag reports whether sl has the authFlag (bit 0x1, RFC 3412 section 6.4)
 // set: the message asks for authentication. A set flag is a request, not
 // proof that the message was authenticated.
 func (sl SecurityLevel) authFlag() bool { return sl&0x1 != 0 }
 
-// privFlag reports whether f has the privFlag (bit 0x2) set: the message asks
+// privFlag reports whether sl has the privFlag (bit 0x2) set: the message asks
 // for privacy. Without the authFlag the combination is invalid (RFC 3412
 // section 7.2 step 5 d).
 func (sl SecurityLevel) privFlag() bool { return sl&0x2 != 0 }
 
-// valid reports whether f is one of the three security levels.
+// valid reports whether sl is one of the three security levels.
 func (sl SecurityLevel) valid() bool { return sl == NoAuthNoPriv || sl == AuthNoPriv || sl == AuthPriv }
 
 //go:generate go tool -modfile=tools/go.mod stringer -type=SecurityLevel
@@ -100,10 +100,9 @@ var errScopedPDUType = inCategory(ErrASNParse, errors.New("error parsing SNMPV3 
 // PDU, once the header fields (checkV3Header) fit and keys has the protocols
 // the level needs, with varBinds as appendPDU takes them. It also returns the
 // offset of the msgAuthenticationParameters content in dst, where sign writes
-// the digest. A
-// message the level encrypts gets the next salt of usm.Salts, never the
-// message's PrivacyParameters, so that no two messages share one, whatever the
-// caller copied into them.
+// the digest. A message the level encrypts gets the next salt of usm.Salts,
+// never the message's PrivacyParameters, so that no two messages share one,
+// whatever the caller copied into them.
 func (m *Message) appendV3(dst []byte, keys *usmKeys, varBinds []byte) ([]byte, int, error) {
 	if err := m.checkV3Header(); err != nil {
 		return nil, 0, err

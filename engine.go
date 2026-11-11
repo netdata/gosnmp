@@ -15,18 +15,17 @@ import (
 	"time"
 )
 
-// send runs the request req within ctx and returns its
-// answer, a Response whose error-status is NoError, or no message with the
-// error of a request that fails: marked with ErrAnswered when an answer ended
-// it (the message request returns beside its error), requestPanicked's error
-// for one that panics, and a *StatusError for a Response with another
-// error-status. A nil ctx fails the request before it starts. The library
-// prevents panics of its own: the recover is for the caller's code the request
-// runs on its goroutine (the methods of the context it calls) and for bugs,
-// which would otherwise end the process of a caller that runs requests on a
-// goroutine without a recover. A flag, not recover's value, tells that the
-// request panicked: under GODEBUG=panicnil=1, recover returns nil for
-// panic(nil).
+// send runs the request req within ctx and returns its answer, a Response whose
+// error-status is NoError, or no message with the error of a request that
+// fails: marked with ErrAnswered when an answer ended it (the message request
+// returns beside its error), requestPanicked's error for one that panics, and a
+// *StatusError for a Response with another error-status. A nil ctx fails the
+// request before it starts. The library prevents panics of its own: the recover
+// is for the caller's code the request runs on its goroutine (the methods of
+// the context it calls) and for bugs, which would otherwise end the process of
+// a caller that runs requests on a goroutine without a recover. A flag, not
+// recover's value, tells that the request panicked: under GODEBUG=panicnil=1,
+// recover returns nil for panic(nil).
 //
 // req is a request of the Read Class (RFC 3411 section 2.8.1), a Get,
 // GetNext or GetBulk, as every request the client sends: the SNMPv3 engine
@@ -611,20 +610,19 @@ var (
 // unmatched returns the error with text, of ErrUnmatchedReply.
 func unmatched(text string) error { return inCategory(ErrUnmatchedReply, errors.New(text)) }
 
-// answers reports whether reply, a message decode read for the request,
-// answers it, with the error of a Report that does, or else the reason it does
-// not (RFC 3412 section 7.2 steps 11 and 12; net-snmp's snmpv3_verify_msg). An
-// SNMPv3 Report answers, whatever its request ID, level and context (security
+// answers reports whether reply, a message decode read for the request, answers
+// it, with the error of a Report that does, or else the reason it does not (RFC
+// 3412 section 7.2 steps 11 and 12; net-snmp's snmpv3_verify_msg). An SNMPv3
+// Report answers, whatever its request ID, level and context (security
 // processing bound its user, and with authentication its engine ID), with its
-// counter's error
-// (reportKindOf), none for a resync Report. A Response answers with the
-// request ID of the attempt it names (attemptOf: an SNMPv3 one by its msgID,
-// so with that attempt's pair of IDs) and, for SNMPv3, the request's security
-// level (the auth and priv flags), user name, engine ID, context engine ID and
-// context name (step 12 b). Nothing else answers: a request sent back
-// unchanged, SNMPv1 and SNMPv2c Reports. A message that does not answer leaves
-// the request outstanding, as net-snmp does (step 12 b discards the request
-// unless the model or level differs): a forged one cannot end it.
+// counter's error (reportKindOf), none for a resync Report. A Response answers
+// with the request ID of the attempt it names (attemptOf: an SNMPv3 one by its
+// msgID, so with that attempt's pair of IDs) and, for SNMPv3, the request's
+// security level (the auth and priv flags), user name, engine ID, context
+// engine ID and context name (step 12 b). Nothing else answers: a request sent
+// back unchanged, SNMPv1 and SNMPv2c Reports. A message that does not answer
+// leaves the request outstanding, as net-snmp does (step 12 b discards the
+// request unless the model or level differs): a forged one cannot end it.
 func (e *exchange) answers(reply *Message, earlier []sentIDs) (bool, error) {
 	if kind, ok := reportKindOf(reply); ok {
 		if kind.resync {
@@ -674,9 +672,9 @@ const (
 type reportKind struct {
 	// err is the request's error.
 	err error
-	// resync marks the Reports that say the request's engine ID or time is
-	// out of date: they answer without err. discoverEngine takes the engine
-	// parameters of one; send sends the request again with them, or returns
+	// resync marks the Reports that say the request's engine ID or time is out
+	// of date: they answer without err. discoverEngine takes the engine
+	// parameters of one; request sends the request again with them, or returns
 	// err when it may not or when a resync Report answers that too.
 	resync bool
 	// namesEngine marks the Report that names the engine ID the request

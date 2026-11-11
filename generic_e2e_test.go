@@ -6,8 +6,8 @@
 // SNMP MIB-2 host. Potential test systems could include a router, NAS box, printer,
 // or a linux box running snmpd, snmpsimd.py, etc.
 //
-// Ensure "gosnmp-test-host" is defined in your hosts file, and points to your
-// generic test system.
+// Set GOSNMP_TARGET and GOSNMP_PORT to the test system (see README.md,
+// "Running the Tests").
 
 //go:build end2end
 

@@ -48,7 +48,8 @@ A receiver (`NewReceiver`) decodes the notifications a manager receives:
 Connect and the requests take a context, which bounds that call. The library writes no log or other output and never
 exits the process: every function reports through its results and errors. A call that fails returns no result with
 its error, but a walk, which also returns the values it collected before the error. Each error of an incoming message
-matches one exported category named after the RFC counter that counts it (`errors.Is`).
+matches one exported category (`errors.Is`), named after the RFC counter that counts it but for `ErrUnmatchedReply`, a
+reply that does not answer the request.
 
 Each varbind holds a `Value` of one Go type per SMI type (an Integer is an `int32`, a Counter32 a `uint32`, an IpAddress
 a `netip.Addr`, ...), read through its accessor (`Int32`, `Uint32`, `IP`, ...) and built by its constructor
@@ -109,7 +110,7 @@ if err != nil {
 	// A rejected SNMPv3 message may get a Report that lets its sender
 	// discover the engine or its time: the caller decides whether to
 	// send it, and how often.
-	if response != nil {
+	if response != nil && reportAllowed() {
 		_, _ = conn.WriteToUDP(response, from)
 	}
 	log.Printf("rejected a datagram from %v: %v", from, err)
@@ -191,9 +192,10 @@ go test -v -tags end2end ./...
 ```
 
 `go test ./...` runs all unit tests, including the public API consistency tests in
-`gosnmp_api_test.go`. The end-to-end integration tests in `generic_e2e_test.go` need a
-running SNMP agent and the environment variables above, so they only build with the
-`end2end` build tag.
+`gosnmp_api_test.go`. The end-to-end tests in `generic_e2e_test.go` and `receiver_e2e_test.go`
+need a running SNMP agent and the environment variables above, so they only build with the
+`end2end` build tag; the receiver's also need net-snmp's `snmpinform` on the `PATH`, which the
+Docker image and CI install.
 
 The generic end-to-end integration test `generic_e2e_test.go` should
 work against any SNMP MIB-2 compliant host (e.g. a router, NAS box, printer).
@@ -233,7 +235,7 @@ go test -coverprofile cover.out ./...
 go tool cover -html cover.out
 ```
 
-To measure the password-to-key cache, compare the cached and uncached key derivation benchmarks:
+To measure key localization with the password-to-key cache filled:
 
 ```shell
 go test -run '^$' -bench 'BenchmarkUSMKeys'

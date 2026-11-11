@@ -79,7 +79,9 @@ func ExampleNewClient_snmpv3() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println(result.VarBinds[0].Value)
+	for _, vb := range result.VarBinds {
+		fmt.Printf("%s = %v\n", vb.Name, vb.Value)
+	}
 }
 
 // A failed request returns no message: its error tells whether the agent
@@ -99,13 +101,21 @@ func ExampleClient_Get() {
 	var status *gosnmp.StatusError
 	switch {
 	case err == nil:
-		uptime, _ := result.VarBinds[0].Value.Uint32()
-		fmt.Println("uptime:", time.Duration(uptime)*10*time.Millisecond)
+		// An agent without the object answers NoSuchObject or NoSuchInstance
+		// in its place, without an error: check each value's type.
+		for _, vb := range result.VarBinds {
+			if ticks, ok := vb.Value.Uint32(); ok && vb.Value.Type() == gosnmp.TimeTicks {
+				fmt.Println("uptime:", time.Duration(ticks)*10*time.Millisecond)
+			} else {
+				fmt.Printf("%s: %v\n", vb.Name, vb.Value.Type())
+			}
+		}
 	case errors.As(err, &status):
 		// A Response with an error-status: the agent answered.
 		fmt.Printf("the agent answered %v for varbind %d\n", status.Status, status.Index)
 	case errors.Is(err, gosnmp.ErrAnswered):
-		// An SNMPv3 Report, whose counter's category the error matches.
+		// An SNMPv3 Report (of an SNMPv3 client), whose counter's category
+		// the error matches.
 		fmt.Println("the agent answered:", err)
 	default:
 		// No answer: a timeout, the context, a transport error.
@@ -206,8 +216,11 @@ func ExampleReceiver() {
 func ExampleReceiver_Receive() {
 	// The receiver's own engine, the authoritative engine of the informs it
 	// receives: the caller keeps the engine ID and the boots across restarts
-	// and raises the boots at each.
+	// and raises the boots at each (RFC 3414 section 2.2.2).
 	localEngineID := []byte{0x80, 0x00, 0x1f, 0x88, 0x04, 't', 'r', 'a', 'p', 's'}
+	// raiseBoots stands for the caller's store: it loads the boots of the
+	// last start, adds one, stores and returns them.
+	raiseBoots := func() uint32 { return 1 }
 	user := gosnmp.User{
 		Name:           "monitor",
 		AuthProtocol:   gosnmp.SHA256,
@@ -217,7 +230,7 @@ func ExampleReceiver_Receive() {
 	}
 	receiver, err := gosnmp.NewReceiver(gosnmp.ReceiverConfig{
 		EngineID:    localEngineID,
-		EngineBoots: 1,
+		EngineBoots: raiseBoots(),
 		// Informs name the receiver's engine; an agent's traps name its own.
 		Users: []gosnmp.EngineUser{
 			{EngineID: localEngineID, User: user},
@@ -233,6 +246,18 @@ func ExampleReceiver_Receive() {
 		log.Fatal(err)
 	}
 	defer conn.Close()
+	// A Report goes to a source anyone can forge and can be larger than the
+	// datagram it answers: send at most reportsPerSecond of them.
+	const reportsPerSecond = 10
+	var reportWindow time.Time
+	var reportsSent int
+	reportAllowed := func() bool {
+		if now := time.Now(); now.Sub(reportWindow) >= time.Second {
+			reportWindow, reportsSent = now, 0
+		}
+		reportsSent++
+		return reportsSent <= reportsPerSecond
+	}
 	buf := make([]byte, 65535)
 	for {
 		n, from, err := conn.ReadFromUDP(buf)
@@ -244,7 +269,7 @@ func ExampleReceiver_Receive() {
 			// A rejected SNMPv3 message may get a Report that lets its sender
 			// discover the engine or its time: the caller decides whether to
 			// send it, and how often.
-			if response != nil {
+			if response != nil && reportAllowed() {
 				_, _ = conn.WriteToUDP(response, from)
 			}
 			log.Printf("rejected a datagram from %v: %v", from, err)
