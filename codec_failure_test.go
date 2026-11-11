@@ -27,8 +27,8 @@ func TestDecodeFailureNoMessage(t *testing.T) {
 	}
 	const (
 		header = "unable to decode packet header: "
-		body   = "unable to decode packet body: error in unmarshalResponse: "
-		trapV1 = "unable to decode packet body: error in unmarshalTrapV1: error parsing SNMPv1 trap "
+		body   = "unable to decode packet body: error in the PDU: "
+		trapV1 = "unable to decode packet body: error in the SNMPv1 trap PDU: error parsing SNMPv1 trap "
 		usm    = header + "error parsing SNMPV3 User Security Model "
 		notInt = ": not an INTEGER"
 		notStr = ": not an OCTET STRING"

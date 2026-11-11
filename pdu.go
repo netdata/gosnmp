@@ -278,12 +278,12 @@ func readPayload(packet []byte, cursor int, m *Message) error {
 	m.PDUType = requestType
 	if requestType == Trap {
 		if err := unmarshalTrapV1(packet[cursor:], m); err != nil {
-			return fmt.Errorf("error in unmarshalTrapV1: %w", err)
+			return fmt.Errorf("error in the SNMPv1 trap PDU: %w", err)
 		}
 		return nil
 	}
 	if err := unmarshalPDU(packet[cursor:], requestType, m); err != nil {
-		return fmt.Errorf("error in unmarshalResponse: %w", err)
+		return fmt.Errorf("error in the PDU: %w", err)
 	}
 	return nil
 }
