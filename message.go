@@ -4,7 +4,11 @@
 
 package gosnmp
 
-import "net/netip"
+import (
+	"fmt"
+	"math"
+	"net/netip"
+)
 
 // Version is the SNMP version of a message, as it is encoded. Its String
 // is "1", "2c" or "3", and "Version(N)" for another value.
@@ -115,6 +119,57 @@ func (t PDUType) confirmed() bool {
 	return false
 }
 
+//go:generate go tool -modfile=tools/go.mod stringer -type ErrorStatus
+
+// ErrorStatus is the error-status of a PDU (RFC 3416 section 3): NoError, or
+// why the agent did not process a request as asked.
+type ErrorStatus uint8
+
+// The error statuses (RFC 3416; SNMPv1 has the first six).
+const (
+	NoError             ErrorStatus = iota // No error occurred. This code is also used in all request PDUs, since they have no error status to report.
+	TooBig                                 // The size of the Response-PDU would be too large to transport.
+	NoSuchName                             // The name of a requested object was not found.
+	BadValue                               // A value in the request didn't match the structure that the recipient of the request had for the object. For example, an object in the request was specified with an incorrect length or type.
+	ReadOnly                               // An attempt was made to set a variable that has an Access value indicating that it is read-only.
+	GenErr                                 // An error occurred other than one indicated by a more specific error code in this table.
+	NoAccess                               // Access was denied to the object for security reasons.
+	WrongType                              // The object type in a variable binding is incorrect for the object.
+	WrongLength                            // A variable binding specifies a length incorrect for the object.
+	WrongEncoding                          // A variable binding specifies an encoding incorrect for the object.
+	WrongValue                             // The value given in a variable binding is not possible for the object.
+	NoCreation                             // A specified variable does not exist and cannot be created.
+	InconsistentValue                      // A variable binding specifies a value that could be held by the variable but cannot be assigned to it at this time.
+	ResourceUnavailable                    // An attempt to set a variable required a resource that is not available.
+	CommitFailed                           // An attempt to set a particular variable failed.
+	UndoFailed                             // An attempt to set a particular variable as part of a group of variables failed, and the attempt to then undo the setting of other variables was not successful.
+	AuthorizationError                     // A problem occurred in authorization.
+	NotWritable                            // The variable cannot be written or created.
+	InconsistentName                       // The name in a variable binding specifies a variable that does not exist.
+)
+
+// NewMessage builds a request or trap message of pduType with the varbinds
+// varBinds from the client's version, community, SNMPv3 security level, user
+// name and context name; maxRepetitions is kept with its top bit cleared. An
+// SNMPv3 message's engine fields and context engine ID are left empty: a
+// request takes them from the client's engine state, and the caller sets them
+// for a message it encodes itself.
+func (c *Client) NewMessage(pduType PDUType, varBinds []VarBind, nonRepeaters uint8, maxRepetitions uint32) *Message {
+	return &Message{
+		Version:            c.config.Version,
+		Community:          c.config.Community,
+		SecurityLevel:      c.config.SecurityLevel,
+		SecurityParameters: SecurityParameters{UserName: c.config.User.Name},
+		ContextName:        c.config.ContextName,
+		ErrorStatus:        0,
+		ErrorIndex:         0,
+		PDUType:            pduType,
+		NonRepeaters:       nonRepeaters,
+		MaxRepetitions:     maxRepetitions & math.MaxInt32,
+		VarBinds:           varBinds,
+	}
+}
+
 // Encode encodes the message as it is, ready for the wire. An SNMPv3
 // message is encrypted and signed when its security level asks for it, with
 // user's keys localized to its engine ID (SecurityParameters'
@@ -133,4 +188,59 @@ func (m *Message) Encode(user *User) ([]byte, error) {
 		}
 	}
 	return m.marshalMsg(&keys)
+}
+
+// EncodeMessage encodes a request or trap, for another transport or for tests:
+// it builds the message with NewMessage and numbers it with the next request ID
+// and, for SNMPv3, the next msgID, as a request's attempt does. An SNMPv3
+// message takes the client's engine state as a request starts it (startEngine):
+// its engine ID and context engine ID, the keys localized to it, and the latest
+// engine boots and time received, not advanced as a request's attempt advances
+// them. It runs no discovery: before the client knows the agent's engine the
+// message has no engine ID and no keys, so an authenticated or private one
+// fails. On an error it returns no message.
+func (c *Client) EncodeMessage(pduType PDUType, varBinds []VarBind, nonRepeaters uint8, maxRepetitions uint32) ([]byte, error) {
+	m := c.NewMessage(pduType, varBinds, nonRepeaters, maxRepetitions)
+	m.RequestID = c.nextRequestID()
+	var keys usmKeys
+	if c.config.Version == Version3 {
+		c.startEngine()
+		c.engine.stamp(m)
+		m.SecurityParameters.AuthoritativeEngineBoots = c.engine.clock.boots
+		m.SecurityParameters.AuthoritativeEngineTime = c.engine.clock.latest
+		keys = c.engine.keys
+		m.MsgID = c.nextMsgID()
+	}
+	return m.marshalMsg(&keys)
+}
+
+// DecodeMessage decodes a message, from another transport or for tests; an
+// SNMPv3 message with the configuration's User, whose keys it derives for the
+// message's engine ID: the authentication key when the message asks for
+// authentication, the privacy key to decrypt. Of the security processing (RFC
+// 3414 section 3.2) it makes only the checks that need no digest: the user must
+// have the protocols the message asks for, and the message is decrypted exactly
+// when it asks for privacy; it checks neither the user name, the digest nor the
+// time window, nor any minimum level. It does not write data (see the package
+// documentation for the values that alias it). On an error it returns no
+// message.
+func (c *Client) DecodeMessage(data []byte) (*Message, error) {
+	result := new(Message)
+	cursor, w, err := unmarshalHeader(data, result)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode packet header: %w", err)
+	}
+	if result.Version == Version3 {
+		var in inbound
+		if in, err = receiveV3(data, w, result, &c.config.User, nil); err != nil {
+			return nil, fmt.Errorf("unable to decode packet header: %w", err)
+		}
+		if data, cursor, err = in.scopedPDU(result); err != nil {
+			return nil, err
+		}
+	}
+	if err = unmarshalPayload(data, cursor, result); err != nil {
+		return nil, fmt.Errorf("unable to decode packet body: %w", err)
+	}
+	return result, nil
 }

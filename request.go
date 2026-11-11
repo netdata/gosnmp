@@ -7,30 +7,7 @@ package gosnmp
 import (
 	"context"
 	"fmt"
-	"math"
 )
-
-// NewMessage builds a request or trap message of pduType with the varbinds
-// varBinds from the client's version, community, SNMPv3 security level, user
-// name and context name; maxRepetitions is kept with its top bit cleared. An
-// SNMPv3 message's engine fields and context engine ID are left empty: a
-// request takes them from the client's engine state, and the caller sets them
-// for a message it encodes itself.
-func (c *Client) NewMessage(pduType PDUType, varBinds []VarBind, nonRepeaters uint8, maxRepetitions uint32) *Message {
-	return &Message{
-		Version:            c.config.Version,
-		Community:          c.config.Community,
-		SecurityLevel:      c.config.SecurityLevel,
-		SecurityParameters: SecurityParameters{UserName: c.config.User.Name},
-		ContextName:        c.config.ContextName,
-		ErrorStatus:        0,
-		ErrorIndex:         0,
-		PDUType:            pduType,
-		NonRepeaters:       nonRepeaters,
-		MaxRepetitions:     maxRepetitions & math.MaxInt32,
-		VarBinds:           varBinds,
-	}
-}
 
 // Get sends a GET request for oids, at most MaxOids of them, within ctx, and
 // returns the answer, a Response whose error-status is NoError; on an error it

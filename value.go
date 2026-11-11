@@ -13,6 +13,48 @@ import (
 	"github.com/netdata/gosnmp/internal/ber"
 )
 
+// VarBind is a variable binding (varbind): the name of an object and its
+// value. Requests, answers and traps carry them in Message.VarBinds.
+type VarBind struct {
+	// Name is the object's OID in dotted form, such as ".1.3.6.1.2.1.1.1.0":
+	// with the leading dot when decoded from an OBJECT IDENTIFIER, with or
+	// without it when sent. A name a device sent as an OCTET STRING or an
+	// IpAddress is kept as text.
+	Name string
+
+	// Value is the value; the requests of Get and the walks send Null.
+	Value Value
+}
+
+//go:generate go tool -modfile=tools/go.mod stringer -type ValueType
+
+// ValueType is the BER tag of a varbind value, which names its type.
+type ValueType byte
+
+// The value types: the SMI's (RFC 2578), ASN.1's Null, net-snmp's OpaqueFloat
+// and OpaqueDouble, which it wraps in an Opaque, and the exceptions of RFC 3416
+// (NoSuchObject, NoSuchInstance, EndOfMibView). UnknownType is a value of a
+// type the decoder does not decode, such as ASN.1's BOOLEAN or BIT STRING.
+const (
+	UnknownType      ValueType = 0x00
+	Integer          ValueType = 0x02
+	OctetString      ValueType = 0x04
+	Null             ValueType = 0x05
+	ObjectIdentifier ValueType = 0x06
+	IPAddress        ValueType = 0x40
+	Counter32        ValueType = 0x41
+	Gauge32          ValueType = 0x42
+	TimeTicks        ValueType = 0x43
+	Opaque           ValueType = 0x44
+	Counter64        ValueType = 0x46
+	Uinteger32       ValueType = 0x47
+	OpaqueFloat      ValueType = 0x78
+	OpaqueDouble     ValueType = 0x79
+	NoSuchObject     ValueType = 0x80
+	NoSuchInstance   ValueType = 0x81
+	EndOfMibView     ValueType = 0x82
+)
+
 // Value is a varbind's value: its type and the number, octets or OID it
 // holds. Each type holds one Go type, read through its accessor:
 //
