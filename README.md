@@ -102,7 +102,7 @@ for _, vb := range result.VarBinds {
 ```
 
 A receiver decodes each datagram the caller reads; the caller checks the PDU type and the community and sends the
-answer, if any (`ExampleReceiver_Receive`):
+answer, if any, Reports at a rate it limits (`reportAllowed`; all of it in `ExampleReceiver_Receive`):
 
 ```go
 notification, response, err := receiver.Receive(buf[:n])
@@ -192,10 +192,10 @@ go test -v -tags end2end ./...
 ```
 
 `go test ./...` runs all unit tests, including the public API consistency tests in
-`gosnmp_api_test.go`. The end-to-end tests in `generic_e2e_test.go` and `receiver_e2e_test.go`
-need a running SNMP agent and the environment variables above, so they only build with the
-`end2end` build tag; the receiver's also need net-snmp's `snmpinform` on the `PATH`, which the
-Docker image and CI install.
+`gosnmp_api_test.go`. The end-to-end tests only build with the `end2end` build tag and run when
+`GOSNMP_TARGET` is set: those in `generic_e2e_test.go` against the SNMP agent the environment
+variables above name, those in `receiver_e2e_test.go` with net-snmp's `snmpinform` on the `PATH`,
+which the Docker image and CI install.
 
 The generic end-to-end integration test `generic_e2e_test.go` should
 work against any SNMP MIB-2 compliant host (e.g. a router, NAS box, printer).

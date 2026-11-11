@@ -247,7 +247,8 @@ func ExampleReceiver_Receive() {
 	}
 	defer conn.Close()
 	// A Report goes to a source anyone can forge and can be larger than the
-	// datagram it answers: send at most reportsPerSecond of them.
+	// datagram it answers: send at most reportsPerSecond of them in each
+	// one-second window.
 	const reportsPerSecond = 10
 	var reportWindow time.Time
 	var reportsSent int
