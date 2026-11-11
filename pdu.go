@@ -282,7 +282,7 @@ func readPayload(packet []byte, cursor int, m *Message) error {
 		}
 		return nil
 	}
-	if err := unmarshalResponse(packet[cursor:], requestType, m); err != nil {
+	if err := unmarshalPDU(packet[cursor:], requestType, m); err != nil {
 		return fmt.Errorf("error in unmarshalResponse: %w", err)
 	}
 	return nil
@@ -317,44 +317,60 @@ func requestIDRead(packet []byte, cursor int) bool {
 	return err == nil
 }
 
-// unmarshalResponse reads a PDU of pduType other than the SNMPv1 trap: the
-// request ID, an Integer32 whose two's complement RequestID holds; the
-// non-repeaters (readCount) and the max-repetitions, not negative (RFC 3416), of
-// a GetBulkRequest, or the error status, 0..255, and the error index
-// (readCount) of any other PDU; and the varbinds. Fields read before an error
-// stay set.
-func unmarshalResponse(packet []byte, pduType PDUType, m *Message) error {
+// unmarshalPDU reads a PDU of pduType other than the SNMPv1 trap: the request
+// ID, an Integer32 whose two's complement RequestID holds; the fields after it
+// (readBulkFields of a GetBulkRequest, readErrorFields of any other PDU); and
+// the varbinds. Fields read before an error stay set.
+func unmarshalPDU(packet []byte, pduType PDUType, m *Message) error {
 	r, requestID, err := readRequestID(packet)
 	if err != nil {
 		return err
 	}
 	m.RequestID = requestID
 	if pduType == GetBulkRequest {
-		if m.NonRepeaters, err = readCount(&r); err != nil {
-			return fmt.Errorf("error parsing SNMP packet non repeaters: %w", err)
-		}
-		maxRepetitions, err := readInt32(&r)
-		if err == nil && maxRepetitions < 0 {
-			err = fmt.Errorf("%d is negative", maxRepetitions)
-		}
-		if err != nil {
-			return fmt.Errorf("error parsing SNMP packet max repetitions: %w", err)
-		}
-		m.MaxRepetitions = uint32(maxRepetitions) //nolint:gosec // not negative
+		err = readBulkFields(&r, m)
 	} else {
-		errorStatus, err := readInt32(&r)
-		if err == nil && (errorStatus < 0 || errorStatus > math.MaxUint8) {
-			err = fmt.Errorf("%d is outside 0..255", errorStatus)
-		}
-		if err != nil {
-			return fmt.Errorf("error parsing SNMP packet error: %w", err)
-		}
-		m.ErrorStatus = ErrorStatus(errorStatus) //nolint:gosec // 0..255
-		if m.ErrorIndex, err = readCount(&r); err != nil {
-			return fmt.Errorf("error parsing SNMP packet error index: %w", err)
-		}
+		err = readErrorFields(&r, m)
+	}
+	if err != nil {
+		return err
 	}
 	return unmarshalVBL(r.Rest(), m)
+}
+
+// readBulkFields reads a GetBulkRequest's non-repeaters (readCount) and
+// max-repetitions, not negative (RFC 3416 section 3).
+func readBulkFields(r *ber.Reader, m *Message) error {
+	var err error
+	if m.NonRepeaters, err = readCount(r); err != nil {
+		return fmt.Errorf("error parsing SNMP packet non repeaters: %w", err)
+	}
+	maxRepetitions, err := readInt32(r)
+	if err == nil && maxRepetitions < 0 {
+		err = fmt.Errorf("%d is negative", maxRepetitions)
+	}
+	if err != nil {
+		return fmt.Errorf("error parsing SNMP packet max repetitions: %w", err)
+	}
+	m.MaxRepetitions = uint32(maxRepetitions) //nolint:gosec // not negative
+	return nil
+}
+
+// readErrorFields reads a PDU's error status, 0..255, and error index
+// (readCount) (RFC 3416 section 3).
+func readErrorFields(r *ber.Reader, m *Message) error {
+	errorStatus, err := readInt32(r)
+	if err == nil && (errorStatus < 0 || errorStatus > math.MaxUint8) {
+		err = fmt.Errorf("%d is outside 0..255", errorStatus)
+	}
+	if err != nil {
+		return fmt.Errorf("error parsing SNMP packet error: %w", err)
+	}
+	m.ErrorStatus = ErrorStatus(errorStatus) //nolint:gosec // 0..255
+	if m.ErrorIndex, err = readCount(r); err != nil {
+		return fmt.Errorf("error parsing SNMP packet error index: %w", err)
+	}
+	return nil
 }
 
 // unmarshalTrapV1 reads an SNMPv1 trap PDU: the enterprise, an OBJECT
