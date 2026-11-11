@@ -338,18 +338,6 @@ func (h *SecurityParameters) checkWireFields() error {
 // passwordCache derives the keys of every user.
 var passwordCache = usm.NewCache() //nolint:gochecknoglobals // one cache for every client and receiver
 
-// newDiscoveryPacket returns the request that discovers the authoritative
-// engine's ID, boots and time (RFC 3414 section 4): an unauthenticated Get
-// without variable bindings and with empty security parameters, which the
-// encoder sends reportable as every request.
-func newDiscoveryPacket() *Message {
-	return &Message{
-		Version:       Version3,
-		SecurityLevel: NoAuthNoPriv,
-		PDUType:       GetRequest,
-	}
-}
-
 // sign writes the digest of packet, an outgoing message whose
 // msgAuthenticationParameters content at offset auth still holds the zeros of
 // appendMACPlaceholder, into that content.

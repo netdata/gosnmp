@@ -1486,7 +1486,7 @@ func TestUnmarshalEmptyPanic(t *testing.T) {
 }
 
 func TestV3USMInitialPacket(t *testing.T) {
-	blankPacket := newDiscoveryPacket()
+	blankPacket := newDiscoveryRequest()
 	iBytes, err := blankPacket.Encode(nil)
 	if err != nil {
 		t.Errorf("#TestV3USMInitialPacket: Encode() err returned: %v", err)

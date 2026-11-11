@@ -354,25 +354,25 @@ func (e *exchange) unanswered(err error) error {
 // a reply answers it, the attempt's deadline passes or the context is done. A
 // reply to an earlier attempt, one of earlier, answers it too.
 func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
-	x := e.c
+	c := e.c
 	if err := e.ctx.Err(); err != nil {
 		return attemptOutcome{kind: attemptContextDone, err: err}
 	}
-	conn, err := x.connection()
+	conn, err := c.connection()
 	if err != nil {
 		return attemptOutcome{kind: attemptFailed, err: err}
 	}
 	var deadline time.Time
-	deadline, e.contextDeadline = attemptDeadline(e.ctx, x.config.Timeout)
+	deadline, e.contextDeadline = attemptDeadline(e.ctx, c.config.Timeout)
 	if err = conn.SetDeadline(deadline); err != nil {
 		return attemptOutcome{kind: attemptFailed, err: err}
 	}
 	// The context interrupts the attempt from here on, after its deadline: an
 	// interrupt before it would be undone by it. Close, at any time, closes
 	// the attempt's connection, on which the attempt fails.
-	defer x.interruptible(e.ctx, conn).end()
+	defer c.interruptible(e.ctx, conn).end()
 
-	e.req.RequestID = x.nextRequestID()
+	e.req.RequestID = c.nextRequestID()
 	// An encoding failure is not retried: another attempt would fail the same
 	// way.
 	outBuf, err := e.encode()
@@ -404,13 +404,13 @@ func attemptDeadline(ctx context.Context, timeout time.Duration) (deadline time.
 // An authenticated request is signed with the exchange's key, which must fit
 // its protocol (usm.Auth.CheckKey).
 func (e *exchange) encode() ([]byte, error) {
-	x, p := e.c, e.req
-	if p.Version == Version3 {
-		p.MsgID = x.nextMsgID()
-		h := &p.SecurityParameters
+	c, req := e.c, e.req
+	if req.Version == Version3 {
+		req.MsgID = c.nextMsgID()
+		h := &req.SecurityParameters
 		h.AuthoritativeEngineBoots, h.AuthoritativeEngineTime = e.sec.clock.timeFor(time.Now())
 	}
-	out, err := p.marshalMsg(&e.sec.keys)
+	out, err := req.marshalMsg(&e.sec.keys)
 	if err != nil {
 		return nil, fmt.Errorf("marshal: %w", err)
 	}
@@ -422,9 +422,9 @@ func (e *exchange) encode() ([]byte, error) {
 // or that the commit rejects is discarded, its reason recorded (discard), and
 // the read goes on until the attempt's deadline (RFC 3412 section 7.2).
 func (e *exchange) await(conn transport, earlier []sentIDs) attemptOutcome {
-	x := e.c
+	c := e.c
 	for {
-		resp, err := receive(conn, x.rx)
+		resp, err := receive(conn, c.rx)
 		if err != nil {
 			return ioFailure(err)
 		}
@@ -641,16 +641,16 @@ func (e *exchange) answers(reply *Message, earlier []sentIDs) (bool, error) {
 	if e.req.Version != Version3 {
 		return true, nil
 	}
-	p := e.req
-	got, want := &reply.SecurityParameters, &p.SecurityParameters
+	req := e.req
+	got, want := &reply.SecurityParameters, &req.SecurityParameters
 	switch {
-	case reply.SecurityLevel != p.SecurityLevel:
+	case reply.SecurityLevel != req.SecurityLevel:
 		return false, errOtherLevel
 	case got.UserName != want.UserName:
 		return false, errOtherUser
 	case !bytes.Equal(got.AuthoritativeEngineID, want.AuthoritativeEngineID):
 		return false, errOtherEngine
-	case !bytes.Equal(reply.ContextEngineID, p.ContextEngineID) || reply.ContextName != p.ContextName:
+	case !bytes.Equal(reply.ContextEngineID, req.ContextEngineID) || reply.ContextName != req.ContextName:
 		return false, errOtherContext
 	}
 	return true, nil
@@ -702,18 +702,18 @@ var reportKinds = map[string]reportKind{ //nolint:gochecknoglobals // a read-onl
 	reportCounter(snmpUnknownPDUHandlers):       {err: ErrUnknownPDUHandlers},
 }
 
-// reportKindOf returns the kind of p as a Report, and false when p is not an
+// reportKindOf returns the kind of m as a Report, and false when m is not an
 // SNMPv3 Report. The agent puts the counter of the error it detected in the
 // Report's varbinds; the Report's request ID is the request's, or 0 when the
 // agent could not read it. As in net-snmp's snmpv3_get_report_type, the first
 // varbind names the counter, with one instance sub-identifier of any value;
 // none, or another name, gives ErrUnknownReportPDU.
-func reportKindOf(p *Message) (reportKind, bool) {
-	if p.Version != Version3 || p.PDUType != Report {
+func reportKindOf(m *Message) (reportKind, bool) {
+	if m.Version != Version3 || m.PDUType != Report {
 		return reportKind{}, false
 	}
-	if len(p.VarBinds) > 0 {
-		if kind, ok := reportKinds[reportCounter(p.VarBinds[0].Name)]; ok {
+	if len(m.VarBinds) > 0 {
+		if kind, ok := reportKinds[reportCounter(m.VarBinds[0].Name)]; ok {
 			return kind, true
 		}
 	}

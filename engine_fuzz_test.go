@@ -124,7 +124,7 @@ func engineReplyExchange(tb testing.TB, r engineReplyRequest) *exchange {
 	if x.config.Version == Version3 {
 		x.startEngine()
 		if r.discover {
-			packet = newDiscoveryPacket()
+			packet = newDiscoveryRequest()
 		} else {
 			x.engine.stamp(packet)
 			sec = attemptSecurity{clock: x.engine.clock, keys: x.engine.keys}

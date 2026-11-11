@@ -28,14 +28,26 @@ func (c *Client) negotiateInitialSecurityParameters(ctx context.Context, req *Me
 // (exchange.settle), and gives req the engine state. A discovery whose
 // answer was not committed returns its error with the answer, if any.
 func (c *Client) discoverEngine(ctx context.Context, req *Message) (*Message, error) {
-	discoveryPacket := newDiscoveryPacket()
-	discoveryPacket.ContextName = req.ContextName
-	answer, committed, err := c.sendOneRequest(ctx, discoveryPacket, true, attemptSecurity{})
+	discovery := newDiscoveryRequest()
+	discovery.ContextName = req.ContextName
+	answer, committed, err := c.sendOneRequest(ctx, discovery, true, attemptSecurity{})
 	if !committed {
 		return answer, err
 	}
 	c.engine.stamp(req)
 	return nil, nil
+}
+
+// newDiscoveryRequest returns the request that discovers the authoritative
+// engine's ID, boots and time (RFC 3414 section 4): an unauthenticated Get
+// without variable bindings and with empty security parameters, which the
+// encoder sends reportable as every request.
+func newDiscoveryRequest() *Message {
+	return &Message{
+		Version:       Version3,
+		SecurityLevel: NoAuthNoPriv,
+		PDUType:       GetRequest,
+	}
 }
 
 // engineFoundDespiteUnknownUser reports whether a discovery that failed with

@@ -88,7 +88,7 @@ func (c *Client) interruptible(ctx context.Context, conn transport) attemptInter
 	c.attempt.conn = conn
 	seq := c.attempt.seq
 	c.mu.Unlock()
-	a := attemptInterrupts{x: c, seq: seq}
+	a := attemptInterrupts{c: c, seq: seq}
 	// Until this returns, the caller cannot defer end. Roll back setup if
 	// a context's method panics, including while AfterFunc registers it.
 	completed := false
@@ -106,7 +106,7 @@ func (c *Client) interruptible(ctx context.Context, conn transport) attemptInter
 
 // attemptInterrupts are the interrupts of attempt seq.
 type attemptInterrupts struct {
-	x           *Client
+	c           *Client
 	seq         uint64
 	stopContext func() bool
 }
@@ -125,7 +125,7 @@ func (a attemptInterrupts) end() {
 // that has started is waited for, so that its deadline cannot land after a
 // later attempt's.
 func (a attemptInterrupts) clear() {
-	c := a.x
+	c := a.c
 	c.mu.Lock()
 	interrupted := c.attempt.interrupted
 	c.attempt.conn, c.attempt.interrupted = nil, nil
