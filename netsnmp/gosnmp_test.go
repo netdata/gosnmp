@@ -96,7 +96,8 @@ func TestPDU(t *testing.T) {
 		}
 	}
 
-	sess, err := gosnmp.NewClient(gosnmp.Config{Community: "public", Version: gosnmp.Version2c})
+	config := gosnmp.Config{Community: "public", Version: gosnmp.Version2c}
+	sess, err := gosnmp.NewClient(config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +112,7 @@ func TestPDU(t *testing.T) {
 			pkt := sess.NewMessage(gosnmp.SetRequest, pdus, 0, 0)
 			pkt.RequestID++
 
-			exp, err := netSnmpPduPkt(fname, pdus[0], sess, pkt.RequestID, testing.Verbose())
+			exp, err := netSnmpPduPkt(fname, pdus[0], config, pkt.RequestID, testing.Verbose())
 			if err != nil {
 				t.Fatal(err)
 			}

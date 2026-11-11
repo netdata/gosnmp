@@ -14,6 +14,6 @@ func isPlayback() bool {
 	return true
 }
 
-func netSnmpPduPkt(fname string, _ gosnmp.VarBind, _ *gosnmp.Client, _ uint32, _ bool) ([]byte, error) {
+func netSnmpPduPkt(fname string, _ gosnmp.VarBind, _ gosnmp.Config, _ uint32, _ bool) ([]byte, error) {
 	return readRecording(fname)
 }

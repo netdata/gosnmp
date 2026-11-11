@@ -113,7 +113,7 @@ func verToSnmpVer(in gosnmp.Version) (C.int, error) {
 	}
 }
 
-func netSnmpPduPkt(fname string, gopdu gosnmp.VarBind, gosess *gosnmp.Client, reqid uint32, verbose bool) ([]byte, error) {
+func netSnmpPduPkt(fname string, gopdu gosnmp.VarBind, config gosnmp.Config, reqid uint32, verbose bool) ([]byte, error) {
 	var errout *C.char
 	var err error
 
@@ -131,15 +131,15 @@ func netSnmpPduPkt(fname string, gopdu gosnmp.VarBind, gosess *gosnmp.Client, re
 	// create session
 	sess := &C.struct_snmp_session{
 		version:       C.SNMP_DEFAULT_VERSION,
-		community:     (*C.uchar)(unsafe.Pointer(C.CString(gosess.Community))),
-		community_len: C.size_t(len(gosess.Community)),
+		community:     (*C.uchar)(unsafe.Pointer(C.CString(config.Community))),
+		community_len: C.size_t(len(config.Community)),
 	}
 	defer C.free(unsafe.Pointer(sess.community))
 
 	// create pdu
 	pdu := C.snmp_pdu_create(C.SNMP_MSG_SET)
 	defer C.free(unsafe.Pointer(pdu))
-	tmp, err := verToSnmpVer(gosess.Version)
+	tmp, err := verToSnmpVer(config.Version)
 	if err != nil {
 		return nil, err
 	}
