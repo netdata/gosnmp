@@ -389,9 +389,9 @@ func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
 	if err = conn.SetDeadline(deadline); err != nil {
 		return attemptOutcome{kind: attemptFailed, err: err}
 	}
-	// Close and the context interrupt the attempt from here on, after its
-	// deadline: an interrupt before it would be undone by it. A Close before
-	// that closed the attempt's connection, on which the attempt fails.
+	// The context interrupts the attempt from here on, after its deadline: an
+	// interrupt before it would be undone by it. Close, at any time, closes
+	// the attempt's connection, on which the attempt fails.
 	defer x.interruptible(e.cfg.ctx, conn).end()
 
 	e.packet.RequestID = x.nextRequestID()

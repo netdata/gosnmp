@@ -42,15 +42,14 @@ func (x *Client) Connect(ctx context.Context) error {
 	return nil
 }
 
-// Close closes the client's connection and interrupts the running attempt.
-// Any goroutine may call it, also while a request runs, which it ends: once
-// Close has run, a request whose attempt ends without a reply fails with an
-// error wrapping net.ErrClosed, as do later requests until Connect opens a
+// Close closes the client's connection, which ends the running attempt at
+// once. Any goroutine may call it, also while a request runs, which it ends:
+// once Close has run, a request whose attempt ends without a reply fails with
+// an error wrapping net.ErrClosed, as do later requests until Connect opens a
 // connection (see the package documentation). Only the first call closes the
 // connection; later calls, and calls on a client never connected, return nil.
 func (x *Client) Close() error {
-	conn, attempt := x.markClosed()
-	x.interrupt(attempt)
+	conn := x.markClosed()
 	if conn == nil {
 		return nil
 	}
@@ -58,17 +57,17 @@ func (x *Client) Close() error {
 }
 
 // markClosed marks the client closed and returns its connection, which it
-// removes, and the number of the running attempt, for Close to interrupt.
-func (x *Client) markClosed() (transport, uint64) {
+// removes.
+func (x *Client) markClosed() transport {
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	conn := x.conn
 	x.conn, x.closed = nil, true
-	return conn, x.attempt.seq
+	return conn
 }
 
-// runningAttempt is the attempt a request runs, which Close and the request's
-// context interrupt: the connection it uses, nil once it ends; its number,
+// runningAttempt is the attempt a request runs, which the request's context
+// interrupts: the connection it uses, nil once it ends; its number,
 // which keeps a late interrupt from reaching a later attempt; and interrupted,
 // which closes once an interrupt that started has set its deadline.
 type runningAttempt struct {
@@ -78,9 +77,8 @@ type runningAttempt struct {
 }
 
 // interruptible makes the attempt that uses conn the client's running attempt,
-// which Close interrupts, and which ctx interrupts once it is done. The
-// attempt calls it after setting its deadline, which would otherwise undo an
-// interrupt, and ends it with end.
+// which ctx interrupts once it is done. The attempt calls it after setting its
+// deadline, which would otherwise undo an interrupt, and ends it with end.
 func (x *Client) interruptible(ctx context.Context, conn transport) attemptInterrupts {
 	x.mu.Lock()
 	x.attempt.seq++
@@ -152,9 +150,9 @@ func (x *Client) interrupt(seq uint64) {
 	_ = conn.SetDeadline(time.Unix(1, 0))
 }
 
-// errNoConn is the error of a request on a client Connect never connected,
-// errClosed after Close, and errNilContext of a request or Connect given a nil
-// context.
+// errNoConn is the error of a request on a client Connect never connected
+// (and Close never closed), errClosed after Close, and errNilContext of a
+// request or Connect given a nil context.
 var (
 	errNoConn     = errors.New("the client is not connected: call Connect first")
 	errClosed     = fmt.Errorf("the client was closed: %w", net.ErrClosed)

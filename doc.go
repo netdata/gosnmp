@@ -19,7 +19,8 @@
 // the default [MaxOids], checks the SNMPv3 configuration and opens the client's
 // connection, a UDP socket connected to Target and Port, which replaces the one
 // it had (a failed Connect keeps it). The client has no other connection: a
-// request before the first Connect fails before it sends anything. The client
+// request before its first successful Connect fails before it sends anything,
+// with an error that says so. The client
 // owns its connection: [Client.Close] closes it, and so does a Connect that
 // replaces it. Connect may be called again after Close. A request reads the
 // client's configuration when it starts and does not change it: a change the
@@ -48,11 +49,12 @@
 // and its deadline, the receive buffer and the SNMPv3 engine state, so run one
 // request at a time, or give each goroutine its own client. Close is the
 // exception: any goroutine may call it at any time, also to end a running
-// request: it interrupts the running attempt, as a done context does. Once
-// Close has run, a request whose attempt ends without a reply fails with an
-// error wrapping [net.ErrClosed], whatever else ended the attempt, a done
-// context included, and so do later requests until Connect opens a connection.
-// A [Receiver] and the package's key cache are safe for concurrent use.
+// request: it closes the connection, which ends the running attempt at once,
+// as a done context does. Once Close has run, a request whose attempt ends
+// without a reply fails with an error wrapping [net.ErrClosed], whatever else
+// ended the attempt, a done context included, and so do later requests until
+// Connect opens a connection. A [Receiver] and the package's key cache are safe
+// for concurrent use.
 //
 // # Attempts and timeouts
 //

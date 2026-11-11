@@ -92,9 +92,10 @@ type Client struct {
 	engine       engineState
 	forgetEngine bool
 
-	// mu guards conn, closed and attempt against Close, which may run on any
-	// goroutine: Connect and Close change them under it, each attempt reads
-	// them and registers itself under it.
+	// mu guards conn and closed against Close, which may run on any
+	// goroutine, and attempt against the request's context, whose interrupt
+	// runs on a goroutine of its own: Connect and Close change conn and closed
+	// under it, each attempt reads them and registers itself under it.
 	mu sync.Mutex
 	// conn is the client's connection, the UDP socket Connect opened, nil
 	// before the first Connect and after Close. The client owns it: Close and
@@ -102,8 +103,8 @@ type Client struct {
 	conn transport
 	// closed reports that Close ran since the last successful Connect.
 	closed bool
-	// attempt is the running attempt, which Close and the request's context
-	// interrupt.
+	// attempt is the running attempt, which the request's context
+	// interrupts.
 	attempt runningAttempt
 }
 

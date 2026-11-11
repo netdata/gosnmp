@@ -620,9 +620,9 @@ func engineScenarios() map[string]engineScenario {
 			},
 		},
 		// A Close while the canceled context's interrupt still sets its
-		// deadline, held until 200 ms: the attempt's interrupt has started, so
-		// Close closes the connection without waiting for it, and the request
-		// ends when the interrupt does.
+		// deadline, held until 200 ms: Close closes the connection without
+		// waiting for the interrupt, and the request ends when the interrupt
+		// does.
 		"context/canceled-then-closed-while-interrupting": {
 			context: canceledAfter(50 * time.Millisecond),
 			setup: func(x *Client, c *fakeTransport) {
@@ -686,15 +686,10 @@ func engineScenarios() map[string]engineScenario {
 		}},
 		// The client closed from another goroutine, as Netdata's SNMP topology
 		// does when its context ends, while the request waits.
-		// The read the interrupt wakes looks only once Close has closed the
-		// connection too: either may come first otherwise.
-		"close/from-another-goroutine": {setup: func(x *Client, c *fakeTransport) {
-			hold := make(chan struct{})
-			c.holdWake = hold
+		"close/from-another-goroutine": {setup: func(x *Client, _ *fakeTransport) {
 			go func() {
 				time.Sleep(300 * time.Millisecond)
 				_ = x.Close()
-				close(hold)
 			}()
 		}},
 		// The connection closed under the attempt, not by Close, as a Connect
@@ -945,8 +940,8 @@ func (c *panicInterruptContext) AfterFunc(func()) func() bool {
 
 // TestRequestContextPanicCleanup checks that a context that panics while the
 // attempt sets up or ends its interrupts leaves no active attempt behind: after
-// Close and a new connection, cancellation and Close still interrupt the next
-// request without waiting for its timeout.
+// Close and a new connection, cancellation and Close still end the next request
+// without waiting for its timeout.
 func TestRequestContextPanicCleanup(t *testing.T) {
 	for _, stage := range []string{"Done", "AfterFunc", "stop"} {
 		for _, value := range []struct {
