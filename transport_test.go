@@ -102,6 +102,29 @@ func TestConnectDefaultPort(t *testing.T) {
 	assert.Equal(t, 161, remote.Port)
 }
 
+// TestRequestResolvesNoName checks that a request resolves no name: Connect
+// looks up a Target that is a name, and a request then goes over the socket
+// Connect dialed, with no lookup, while the name no longer resolves.
+func TestRequestResolvesNoName(t *testing.T) {
+	dns := newStubDNS(t)
+	port, _ := udpAgent(t, func(_ int, req []byte) []byte { return replyTo(req, nil, sysDescr) })
+	x := mustClient(Config{
+		Target: "agent.codec.invalid.", Port: port, Version: Version2c, Community: "public",
+		Timeout: 500 * time.Millisecond,
+	})
+	require.NoError(t, x.Connect(context.Background()))
+	defer x.Close()
+	dns.answering.Store(false)
+
+	// A lookup now waits in the stub DNS: the context bounds a request that
+	// would make one.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err := x.Get(ctx, []string{engineOID})
+	require.NoError(t, err)
+	assert.Empty(t, dns.held, "lookups during the request")
+}
+
 // TestRetryOnConnectedSocket checks, on a loopback socket, a retry over the
 // socket Connect opened: the agent does not answer the first attempt, and the
 // retry, on the same socket, is answered.
@@ -304,10 +327,12 @@ func TestConnectLookupWithinBounds(t *testing.T) {
 			if bound.cancel {
 				cancel()
 			}
+			// Well within the 1 s default Timeout, so that the bound is the
+			// configured one.
 			select {
 			case err := <-result:
 				assert.ErrorIs(t, err, bound.want)
-			case <-time.After(2 * time.Second):
+			case <-time.After(500 * time.Millisecond):
 				dns.release()
 				t.Errorf("Connect waits for the lookup; after its release: %v", <-result)
 			}

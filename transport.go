@@ -196,8 +196,7 @@ type transport interface {
 }
 
 // dial opens a UDP socket connected to address, "host:port", within ctx and
-// timeout, which bound the dial and its lookup of the host's name together; a
-// zero timeout sets no limit.
+// timeout, which bound the dial and its lookup of the host's name together.
 func dial(ctx context.Context, timeout time.Duration, address string) (*net.UDPConn, error) {
 	dialer := net.Dialer{Timeout: timeout}
 	conn, err := dialer.DialContext(ctx, "udp", address)

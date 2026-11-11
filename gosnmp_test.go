@@ -57,12 +57,12 @@ func TestNewClient(t *testing.T) {
 			want:   result{err: "Config.Version is Version(2), not Version1, Version2c or Version3"},
 		},
 		"negative timeout": {
-			config: Config{Version: Version2c, Timeout: -time.Second},
-			want:   result{err: "Config.Timeout -1s is negative"},
+			config: Config{Version: Version2c, Timeout: -time.Nanosecond},
+			want:   result{err: "Config.Timeout -1ns is negative"},
 		},
 		"negative retries": {
-			config: Config{Version: Version2c, Retries: -3},
-			want:   result{err: "Config.Retries -3 is negative"},
+			config: Config{Version: Version2c, Retries: -1},
+			want:   result{err: "Config.Retries -1 is negative"},
 		},
 		"negative max OIDs": {
 			config: Config{Version: Version2c, MaxOids: -1},
