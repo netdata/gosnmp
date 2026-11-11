@@ -916,7 +916,7 @@ func panicUnmarshalParseRawFieldTimeTicks() []byte {
 
 /*
 panicUnmarshalDecryptPacketIndex() tests a boundary condition that results in a panic
-in decryptPacket when handling malformed data.
+in the decryption of the scoped PDU when handling malformed data.
 */
 func panicUnmarshalDecryptPacketIndex() []byte {
 	return []byte{
@@ -930,7 +930,7 @@ func panicUnmarshalDecryptPacketIndex() []byte {
 }
 
 /*
-panicUnmarshalDecryptPacketIndex() tests a boundary condition that results in a panic
+panicUnmarshalDecryptNoPriv() tests a boundary condition that results in a panic
 in the decryption of the scoped PDU when handling malformed data.
 */
 func panicUnmarshalDecryptNoPriv() []byte {

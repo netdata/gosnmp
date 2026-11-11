@@ -376,6 +376,26 @@ func TestV3ReplyDecode(t *testing.T) {
 		require.ErrorIs(t, err, errMsgFlags)
 	})
 
+	// A header field after the msgID that fails leaves the message as far as
+	// decode read it, its msgID included, so that rankOf can rank it.
+	for name, report := range map[string][]byte{
+		"msgMaxSize below 484": craftedV3(intTLV(7), intTLV(100), octets("\x00"), intTLV(3),
+			craftedUSM(octets(usmCharEngineID), intTLV(3), intTLV(77), octets("codec-user"), octets(""), octets("")),
+			tlv(0x30, octets(usmCharEngineID), octets(""), craftedPDU(Report, craftedVBL(craftedVB(intTLV(5)))))),
+		"negative engine boots": craftedV3(intTLV(7), intTLV(65507), octets("\x00"), intTLV(3),
+			craftedUSM(octets(usmCharEngineID), intTLV(-1), intTLV(77), octets("codec-user"), octets(""), octets("")),
+			tlv(0x30, octets(usmCharEngineID), octets(""), craftedPDU(Report, craftedVBL(craftedVB(intTLV(5)))))),
+	} {
+		t.Run(name+" after the msgID", func(t *testing.T) {
+			e, _ := request(AuthNoPriv, NoPriv)
+			reply, verified, err := e.decode(report, nil)
+			require.NotNil(t, reply, "the message as far as decode read it")
+			assert.Equal(t, uint32(7), reply.MsgID)
+			assert.False(t, verified)
+			require.ErrorIs(t, err, ErrASNParse)
+		})
+	}
+
 	t.Run("header that fails before its msgID", func(t *testing.T) {
 		e, _ := request(AuthNoPriv, NoPriv)
 		report := craftedV3(intTLV(-1), intTLV(65507), octets("\x00"), intTLV(3),

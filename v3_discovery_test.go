@@ -126,7 +126,7 @@ func (m *mockAgentUnknownUserNames) serve() {
 		// sends noAuthNoPriv requests, which take no keys.
 		pkt, cursor, err := unmarshalScopedPDU(buf[:n], cursor, req, req.SecurityLevel.privFlag(), &usmKeys{})
 		if err != nil {
-			m.sendErr(fmt.Errorf("decryptPacket: %w", err))
+			m.sendErr(fmt.Errorf("unmarshalScopedPDU: %w", err))
 			continue
 		}
 

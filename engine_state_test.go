@@ -264,6 +264,28 @@ func TestEngineTimeFor(t *testing.T) {
 	}
 }
 
+// TestEngineSettleDiscoveryTimeWindowReport pins that an unauthenticated
+// notInTimeWindow Report answering the engine discovery serves as its answer:
+// it answers without an error (a resync Report) and its engine ID commits
+// with an unauthenticated clock.
+func TestEngineSettleDiscoveryTimeWindowReport(t *testing.T) {
+	x := stateClient(undiscovered(stateUser))
+	report := &Message{
+		Version: Version3, SecurityLevel: NoAuthNoPriv, PDUType: Report,
+		VarBinds:           []VarBind{{Name: usmStatsNotInTimeWindows}},
+		SecurityParameters: SecurityParameters{AuthoritativeEngineID: []byte(usmCharEngineID), AuthoritativeEngineBoots: 9, AuthoritativeEngineTime: 99},
+	}
+	e := exchange{c: x, req: newDiscoveryRequest(), discovery: true}
+	answered, err := e.answers(report, nil)
+	require.True(t, answered)
+	require.NoError(t, err)
+	out, err := e.settle(attemptOutcome{kind: attemptReply, reply: report})
+	require.NoError(t, err)
+	require.True(t, out.committed)
+	assert.Equal(t, [4]any{[]byte(usmCharEngineID), uint32(9), uint32(99), fromUnauthenticated},
+		[4]any{x.engine.engineID, x.engine.clock.boots, x.engine.clock.latest, x.engine.clock.source})
+}
+
 // TestEngineReplyClock pins the clock a settling reply gives
 // (exchange.replyClock): an unverified reply's unauthenticated clock does not
 // replace an authenticated one (net-snmp's set_enginetime); an authenticated
@@ -296,6 +318,10 @@ func TestEngineReplyClock(t *testing.T) {
 		},
 		"unverified, no clock": {
 			boots: 3, engineTime: 5, want: result{clockOf(3, 5, now, fromUnauthenticated), true},
+		},
+		"unverified notInTimeWindow Report, an unauthenticated clock": {
+			current: unauth, kind: reportKind{timeWindow: true}, boots: 3, engineTime: 5,
+			want: result{clockOf(3, 5, now, fromUnauthenticated), true},
 		},
 		"notInTimeWindow Report, lower boots": {
 			current: auth, verified: true, kind: reportKind{timeWindow: true}, boots: 3, engineTime: 5,
