@@ -67,11 +67,11 @@ func main() {
 func printValue(vb gosnmp.VarBind) {
 	fmt.Printf("%s = ", vb.Name)
 
-	switch vb.Type {
-	case gosnmp.OctetString:
-		b := vb.Value.([]byte)
+	if b, ok := vb.Value.Bytes(); ok {
 		fmt.Printf("STRING: %s\n", string(b))
-	default:
-		fmt.Printf("TYPE %d: %d\n", vb.Type, gosnmp.ToBigInt(vb.Value))
+	} else if n, ok := vb.Value.Int64(); ok {
+		fmt.Printf("%v: %d\n", vb.Value.Type(), n)
+	} else {
+		fmt.Printf("%v\n", vb.Value.Type())
 	}
 }

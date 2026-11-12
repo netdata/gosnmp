@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"fmt"
 	"net"
+	"net/netip"
 	"reflect"
 	"runtime"
 	"strings"
@@ -54,10 +55,9 @@ type testsEnmarshalVarbindPosition struct {
 		~/go/bin/go-bindata -uncompressed *.pcap
 	*/
 
-	start    int
-	finish   int
-	pduType  ValueType
-	pduValue any
+	start  int
+	finish int
+	value  Value
 }
 
 type testsEnmarshalT struct {
@@ -92,14 +92,14 @@ var testsEnmarshal = []testsEnmarshalT{
 		0x1d, // vbl start
 		0xa0, // finish
 		[]testsEnmarshalVarbindPosition{
-			{".1.3.6.1.2.1.1.7.0", 0x20, 0x2d, Null, nil},
-			{".1.3.6.1.2.1.2.2.1.10.1", 0x2e, 0x3d, Null, nil},
-			{".1.3.6.1.2.1.2.2.1.5.1", 0x3e, 0x4d, Null, nil},
-			{".1.3.6.1.2.1.1.4.0", 0x4e, 0x5b, Null, nil},
-			{".1.3.6.1.2.1.43.5.1.1.15.1", 0x5c, 0x6c, Null, nil},
-			{".1.3.6.1.2.1.4.21.1.1.127.0.0.1", 0x6d, 0x7f, Null, nil},
-			{".1.3.6.1.4.1.23.2.5.1.1.1.4.2", 0x80, 0x92, Null, nil},
-			{".1.3.6.1.2.1.1.3.0", 0x93, 0xa0, Null, nil},
+			{".1.3.6.1.2.1.1.7.0", 0x20, 0x2d, NullValue()},
+			{".1.3.6.1.2.1.2.2.1.10.1", 0x2e, 0x3d, NullValue()},
+			{".1.3.6.1.2.1.2.2.1.5.1", 0x3e, 0x4d, NullValue()},
+			{".1.3.6.1.2.1.1.4.0", 0x4e, 0x5b, NullValue()},
+			{".1.3.6.1.2.1.43.5.1.1.15.1", 0x5c, 0x6c, NullValue()},
+			{".1.3.6.1.2.1.4.21.1.1.127.0.0.1", 0x6d, 0x7f, NullValue()},
+			{".1.3.6.1.4.1.23.2.5.1.1.1.4.2", 0x80, 0x92, NullValue()},
+			{".1.3.6.1.2.1.1.3.0", 0x93, 0xa0, NullValue()},
 		},
 	},
 	{
@@ -114,7 +114,7 @@ var testsEnmarshal = []testsEnmarshalT{
 		0x1f, // vbl start
 		0x36, // finish
 		[]testsEnmarshalVarbindPosition{
-			{".1.3.6.1.4.1.318.1.1.4.4.2.1.3.5", 0x21, 0x36, Integer, 1},
+			{".1.3.6.1.4.1.318.1.1.4.4.2.1.3.5", 0x21, 0x36, IntegerValue(1)},
 		},
 	},
 	{
@@ -129,7 +129,7 @@ var testsEnmarshal = []testsEnmarshalT{
 		0x1f, // vbl start
 		0x36, // finish
 		[]testsEnmarshalVarbindPosition{
-			{".1.3.6.1.4.1.318.1.1.4.4.2.1.3.5", 0x21, 0x36, Integer, 2},
+			{".1.3.6.1.4.1.318.1.1.4.4.2.1.3.5", 0x21, 0x36, IntegerValue(2)},
 		},
 	},
 	// MrSpock Set stuff
@@ -147,8 +147,7 @@ var testsEnmarshal = []testsEnmarshalT{
 		[]testsEnmarshalVarbindPosition{
 			{
 				".1.3.6.1.4.1.2863.205.1.1.75.1.0",
-				0x1e, 0x32, OctetString,
-				[]byte{0x80},
+				0x1e, 0x32, OctetStringValue([]byte{0x80}),
 			},
 		},
 	},
@@ -166,7 +165,7 @@ var testsEnmarshal = []testsEnmarshalT{
 		[]testsEnmarshalVarbindPosition{
 			{
 				".1.3.6.1.4.1.2863.205.1.1.75.2.0",
-				0x1e, 0x37, OctetString, []byte("telnet"),
+				0x1e, 0x37, OctetStringValue([]byte("telnet")),
 			},
 		},
 	},
@@ -183,10 +182,10 @@ var testsEnmarshal = []testsEnmarshalT{
 		0x1c, // vbl start
 		0x7f, // finish
 		[]testsEnmarshalVarbindPosition{
-			{".1.3.6.1.4.1.2863.205.10.1.33.2.5.1.2.2", 0x1e, 0x36, Integer, 5001},
-			{".1.3.6.1.4.1.2863.205.10.1.33.2.5.1.3.2", 0x37, 0x4f, Integer, 5001},
-			{".1.3.6.1.4.1.2863.205.10.1.33.2.5.1.4.2", 0x50, 0x67, Integer, 2},
-			{".1.3.6.1.4.1.2863.205.10.1.33.2.5.1.5.2", 0x68, 0x7f, Integer, 1},
+			{".1.3.6.1.4.1.2863.205.10.1.33.2.5.1.2.2", 0x1e, 0x36, IntegerValue(5001)},
+			{".1.3.6.1.4.1.2863.205.10.1.33.2.5.1.3.2", 0x37, 0x4f, IntegerValue(5001)},
+			{".1.3.6.1.4.1.2863.205.10.1.33.2.5.1.4.2", 0x50, 0x67, IntegerValue(2)},
+			{".1.3.6.1.4.1.2863.205.10.1.33.2.5.1.5.2", 0x68, 0x7f, IntegerValue(1)},
 		},
 	},
 	// Issue 35, empty responses.
@@ -221,11 +220,11 @@ var testsEnmarshal = []testsEnmarshalT{
 		0x1c, // vbl start
 		0x82, // finish
 		[]testsEnmarshalVarbindPosition{
-			{".1.3.6.1.2.1.1.3.0", 0x1e, 0x2f, TimeTicks, uint32(18542501)},
-			{".1.3.6.1.6.3.1.1.4.1.0", 0x30, 0x45, ObjectIdentifier, ".1.3.6.1.2.1.1"},
-			{".1.3.6.1.2.1.1.1.0", 0x46, 0x5d, OctetString, "red laptop"},
-			{".1.3.6.1.2.1.1.7.0", 0x5e, 0x6c, Integer, 5},
-			{".1.3.6.1.2.1.1.2", 0x6d, 0x82, ObjectIdentifier, ".1.3.6.1.4.1.2.3.4.5"},
+			{".1.3.6.1.2.1.1.3.0", 0x1e, 0x2f, TimeTicksValue(18542501)},
+			{".1.3.6.1.6.3.1.1.4.1.0", 0x30, 0x45, ObjectIdentifierValue(".1.3.6.1.2.1.1")},
+			{".1.3.6.1.2.1.1.1.0", 0x46, 0x5d, OctetStringValue([]byte("red laptop"))},
+			{".1.3.6.1.2.1.1.7.0", 0x5e, 0x6c, IntegerValue(5)},
+			{".1.3.6.1.2.1.1.2", 0x6d, 0x82, ObjectIdentifierValue(".1.3.6.1.4.1.2.3.4.5")},
 		},
 	},
 }
@@ -235,7 +234,7 @@ var testsEnmarshal = []testsEnmarshalT{
 // vbPosPdus returns a slice of oids in the given test
 func vbPosPdus(test testsEnmarshalT) (pdus []VarBind) {
 	for _, vbp := range test.vbPositions {
-		pdu := VarBind{Name: vbp.oid, Type: vbp.pduType, Value: vbp.pduValue}
+		pdu := VarBind{Name: vbp.oid, Value: vbp.value}
 		pdus = append(pdus, pdu)
 	}
 	return pdus
@@ -259,7 +258,7 @@ func checkByteEquality(t *testing.T, test testsEnmarshalT, testBytes []byte,
 func TestEnmarshalVarbind(t *testing.T) {
 	for _, test := range testsEnmarshal {
 		for j, test2 := range test.vbPositions {
-			snmppdu := &VarBind{Name: test2.oid, Type: test2.pduType, Value: test2.pduValue}
+			snmppdu := &VarBind{Name: test2.oid, Value: test2.value}
 			testBytes, err := appendVarbind(nil, snmppdu)
 			if err != nil {
 				t.Errorf("#%s:%d:%s err returned: %v",
@@ -396,43 +395,35 @@ var testsUnmarshal = []struct {
 			VarBinds: []VarBind{
 				{
 					Name:  ".1.3.6.1.2.1.1.7.0",
-					Type:  Integer,
-					Value: 104,
+					Value: IntegerValue(104),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.2.2.1.10.1",
-					Type:  Counter32,
-					Value: uint(271070065),
+					Value: Counter32Value(271070065),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.2.2.1.5.1",
-					Type:  Gauge32,
-					Value: uint(100000000),
+					Value: Gauge32Value(100000000),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.1.4.0",
-					Type:  OctetString,
-					Value: []byte("Administrator"),
+					Value: OctetStringValue([]byte("Administrator")),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.43.5.1.1.15.1",
-					Type:  Null,
-					Value: nil,
+					Value: NullValue(),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.4.21.1.1.127.0.0.1",
-					Type:  IPAddress,
-					Value: "127.0.0.1",
+					Value: IPAddressValue(netip.MustParseAddr("127.0.0.1")),
 				},
 				{
 					Name:  ".1.3.6.1.4.1.23.2.5.1.1.1.4.2",
-					Type:  OctetString,
-					Value: []byte{0x00, 0x15, 0x99, 0x37, 0x76, 0x2b},
+					Value: OctetStringValue([]byte{0x00, 0x15, 0x99, 0x37, 0x76, 0x2b}),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.1.3.0",
-					Type:  TimeTicks,
-					Value: uint32(318870100),
+					Value: TimeTicksValue(318870100),
 				},
 			},
 		},
@@ -449,53 +440,43 @@ var testsUnmarshal = []struct {
 			VarBinds: []VarBind{
 				{
 					Name:  ".1.3.6.1.2.1.1.7.0",
-					Type:  Integer,
-					Value: 78,
+					Value: IntegerValue(78),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.2.2.1.2.6",
-					Type:  OctetString,
-					Value: []byte("GigabitEthernet0"),
+					Value: OctetStringValue([]byte("GigabitEthernet0")),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.2.2.1.5.3",
-					Type:  Gauge32,
-					Value: uint(4294967295),
+					Value: Gauge32Value(4294967295),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.2.2.1.7.2",
-					Type:  NoSuchInstance,
-					Value: nil,
+					Value: NoSuchInstanceValue(),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.2.2.1.9.3",
-					Type:  TimeTicks,
-					Value: uint32(2970),
+					Value: TimeTicksValue(2970),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.3.1.1.2.10.1.10.11.0.17",
-					Type:  OctetString,
-					Value: []byte{0x00, 0x07, 0x7d, 0x4d, 0x09, 0x00},
+					Value: OctetStringValue([]byte{0x00, 0x07, 0x7d, 0x4d, 0x09, 0x00}),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.3.1.1.3.10.1.10.11.0.2",
-					Type:  IPAddress,
-					Value: "10.11.0.2",
+					Value: IPAddressValue(netip.MustParseAddr("10.11.0.2")),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.4.20.1.1.110.143.197.1",
-					Type:  IPAddress,
-					Value: "110.143.197.1",
+					Value: IPAddressValue(netip.MustParseAddr("110.143.197.1")),
 				},
 				{
 					Name:  ".1.3.6.1.66.1",
-					Type:  NoSuchObject,
-					Value: nil,
+					Value: NoSuchObjectValue(),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.1.2.0",
-					Type:  ObjectIdentifier,
-					Value: ".1.3.6.1.4.1.9.1.1166",
+					Value: ObjectIdentifierValue(".1.3.6.1.4.1.9.1.1166"),
 				},
 			},
 		},
@@ -512,8 +493,7 @@ var testsUnmarshal = []struct {
 			VarBinds: []VarBind{
 				{
 					Name:  ".1.3.6.1.4.1.318.1.1.4.4.2.1.3.5",
-					Type:  Integer,
-					Value: 1,
+					Value: IntegerValue(1),
 				},
 			},
 		},
@@ -530,8 +510,7 @@ var testsUnmarshal = []struct {
 			VarBinds: []VarBind{
 				{
 					Name:  ".1.3.6.1.4.1.318.1.1.4.4.2.1.3.5",
-					Type:  Integer,
-					Value: 2,
+					Value: IntegerValue(2),
 				},
 			},
 		},
@@ -548,33 +527,27 @@ var testsUnmarshal = []struct {
 			VarBinds: []VarBind{
 				{
 					Name:  ".1.3.6.1.2.1.3.1.1.3.2.1.192.168.104.2",
-					Type:  IPAddress,
-					Value: "192.168.104.2",
+					Value: IPAddressValue(netip.MustParseAddr("192.168.104.2")),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.92.1.2.1.0",
-					Type:  Counter32,
-					Value: uint(0),
+					Value: Counter32Value(0),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.1.9.1.3.3",
-					Type:  OctetString,
-					Value: []byte("The MIB module for managing IP and ICMP implementations"),
+					Value: OctetStringValue([]byte("The MIB module for managing IP and ICMP implementations")),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.1.9.1.4.2",
-					Type:  TimeTicks,
-					Value: uint32(21),
+					Value: TimeTicksValue(21),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.2.1.0",
-					Type:  Integer,
-					Value: 3,
+					Value: IntegerValue(3),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.1.2.0",
-					Type:  ObjectIdentifier,
-					Value: ".1.3.6.1.4.1.8072.3.2.10",
+					Value: ObjectIdentifierValue(".1.3.6.1.4.1.8072.3.2.10"),
 				},
 			},
 		},
@@ -591,53 +564,43 @@ var testsUnmarshal = []struct {
 			VarBinds: []VarBind{
 				{
 					Name:  ".1.3.6.1.2.1.1.9.1.4.1",
-					Type:  TimeTicks,
-					Value: uint32(21),
+					Value: TimeTicksValue(21),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.1.9.1.4.2",
-					Type:  TimeTicks,
-					Value: uint32(21),
+					Value: TimeTicksValue(21),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.1.9.1.4.3",
-					Type:  TimeTicks,
-					Value: uint32(21),
+					Value: TimeTicksValue(21),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.1.9.1.4.4",
-					Type:  TimeTicks,
-					Value: uint32(21),
+					Value: TimeTicksValue(21),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.1.9.1.4.5",
-					Type:  TimeTicks,
-					Value: uint32(21),
+					Value: TimeTicksValue(21),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.1.9.1.4.6",
-					Type:  TimeTicks,
-					Value: uint32(23),
+					Value: TimeTicksValue(23),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.1.9.1.4.7",
-					Type:  TimeTicks,
-					Value: uint32(23),
+					Value: TimeTicksValue(23),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.1.9.1.4.8",
-					Type:  TimeTicks,
-					Value: uint32(23),
+					Value: TimeTicksValue(23),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.2.1.0",
-					Type:  Integer,
-					Value: 3,
+					Value: IntegerValue(3),
 				},
 				{
 					Name:  ".1.3.6.1.2.1.2.2.1.1.1",
-					Type:  Integer,
-					Value: 1,
+					Value: IntegerValue(1),
 				},
 			},
 		},
@@ -665,8 +628,7 @@ var testsUnmarshal = []struct {
 			VarBinds: []VarBind{
 				{
 					Name:  ".1.3.6.1.2.1.31.1.1.1.10.1",
-					Type:  Counter64,
-					Value: uint64(1527943),
+					Value: Counter64Value(1527943),
 				},
 			},
 		},
@@ -683,8 +645,7 @@ var testsUnmarshal = []struct {
 			VarBinds: []VarBind{
 				{
 					Name:  ".1.3.6.1.4.1.6574.4.2.12.1.0",
-					Type:  OpaqueFloat,
-					Value: float32(10.0),
+					Value: OpaqueFloatValue(10.0),
 				},
 			},
 		},
@@ -701,8 +662,7 @@ var testsUnmarshal = []struct {
 			VarBinds: []VarBind{
 				{
 					Name:  ".1.3.6.1.4.1.34187.74195.2.1.24590",
-					Type:  Opaque,
-					Value: []byte{0x41, 0xf0, 0x00, 0x00},
+					Value: OpaqueValue([]byte{0x41, 0xf0, 0x00, 0x00}),
 				},
 			},
 		},
@@ -719,8 +679,7 @@ var testsUnmarshal = []struct {
 			VarBinds: []VarBind{
 				{
 					Name:  ".1.3.6.1.4.1.6574.4.2.12.1.0",
-					Type:  OpaqueDouble,
-					Value: float64(10.0),
+					Value: OpaqueDoubleValue(10.0),
 				},
 			},
 		},
@@ -749,8 +708,7 @@ var testsUnmarshal = []struct {
 			VarBinds: []VarBind{
 				{
 					Name:  ".1.3.6.1.6.3.15.1.1.4.0",
-					Type:  Counter32,
-					Value: uint(21),
+					Value: Counter32Value(21),
 				},
 			},
 		},
@@ -774,7 +732,7 @@ func TestUnmarshalErrors(t *testing.T) {
 }
 
 // unmarshalView holds the decoded packet fields that TestUnmarshal compares,
-// including the exact Go type of every varbind value.
+// including every varbind value, its type and content.
 type unmarshalView struct {
 	Version        Version
 	Community      string
@@ -1562,7 +1520,7 @@ func TestSendOneRequest_dups(t *testing.T) {
 
 	go serveResponses(t, srvr, x, sendCopies(srvr, x.Retries+2))
 
-	pdus := []VarBind{{Name: ".1.2", Type: Null}}
+	pdus := []VarBind{{Name: ".1.2", Value: NullValue()}}
 	// This is not actually a Response, but we need something our test server can unmarshal.
 	reqPkt := x.NewMessage(Response, pdus, 0, 0)
 
@@ -1604,8 +1562,7 @@ func serveResponses(t *testing.T, srvr *net.UDPConn, x *Client, send func(reply 
 		rspPkt := x.NewMessage(Response, []VarBind{
 			{
 				Name:  ".1.2",
-				Type:  Integer,
-				Value: 123,
+				Value: IntegerValue(123),
 			},
 		}, 0, 0)
 		rspPkt.RequestID = reqPkt.RequestID
@@ -1781,47 +1738,47 @@ func TestMarshalVarbindRoundTrip(t *testing.T) {
 		pdu  VarBind
 	}{
 		// Integer with various OID sizes
-		{"Integer/small OID", VarBind{Name: smallOID, Type: Integer, Value: 42}},
-		{"Integer/large OID", VarBind{Name: largeOID, Type: Integer, Value: 42}},
+		{"Integer/small OID", VarBind{Name: smallOID, Value: IntegerValue(42)}},
+		{"Integer/large OID", VarBind{Name: largeOID, Value: IntegerValue(42)}},
 
 		// Null
-		{"Null/small OID", VarBind{Name: smallOID, Type: Null, Value: nil}},
-		{"Null/large OID", VarBind{Name: largeOID, Type: Null, Value: nil}},
+		{"Null/small OID", VarBind{Name: smallOID, Value: NullValue()}},
+		{"Null/large OID", VarBind{Name: largeOID, Value: NullValue()}},
 
 		// Counter32
-		{"Counter32/small OID", VarBind{Name: smallOID, Type: Counter32, Value: uint(1000)}},
-		{"Counter32/large OID", VarBind{Name: largeOID, Type: Counter32, Value: uint(1000)}},
+		{"Counter32/small OID", VarBind{Name: smallOID, Value: Counter32Value(1000)}},
+		{"Counter32/large OID", VarBind{Name: largeOID, Value: Counter32Value(1000)}},
 
 		// Gauge32
-		{"Gauge32/small OID", VarBind{Name: smallOID, Type: Gauge32, Value: uint(500)}},
-		{"Gauge32/large OID", VarBind{Name: largeOID, Type: Gauge32, Value: uint(500)}},
+		{"Gauge32/small OID", VarBind{Name: smallOID, Value: Gauge32Value(500)}},
+		{"Gauge32/large OID", VarBind{Name: largeOID, Value: Gauge32Value(500)}},
 
 		// TimeTicks
-		{"TimeTicks/small OID", VarBind{Name: smallOID, Type: TimeTicks, Value: uint32(123456)}},
-		{"TimeTicks/large OID", VarBind{Name: largeOID, Type: TimeTicks, Value: uint32(123456)}},
+		{"TimeTicks/small OID", VarBind{Name: smallOID, Value: TimeTicksValue(123456)}},
+		{"TimeTicks/large OID", VarBind{Name: largeOID, Value: TimeTicksValue(123456)}},
 
 		// OctetString with various sizes
-		{"OctetString/small OID/small value", VarBind{Name: smallOID, Type: OctetString, Value: []byte("test")}},
-		{"OctetString/large OID/small value", VarBind{Name: largeOID, Type: OctetString, Value: []byte("test")}},
-		{"OctetString/small OID/large value", VarBind{Name: smallOID, Type: OctetString, Value: make([]byte, 200)}},
+		{"OctetString/small OID/small value", VarBind{Name: smallOID, Value: OctetStringValue([]byte("test"))}},
+		{"OctetString/large OID/small value", VarBind{Name: largeOID, Value: OctetStringValue([]byte("test"))}},
+		{"OctetString/small OID/large value", VarBind{Name: smallOID, Value: OctetStringValue(make([]byte, 200))}},
 
 		// ObjectIdentifier as value
-		{"ObjectIdentifier/small OID", VarBind{Name: smallOID, Type: ObjectIdentifier, Value: ".1.3.6.1.2.1"}},
-		{"ObjectIdentifier/large OID", VarBind{Name: largeOID, Type: ObjectIdentifier, Value: ".1.3.6.1.2.1"}},
+		{"ObjectIdentifier/small OID", VarBind{Name: smallOID, Value: ObjectIdentifierValue(".1.3.6.1.2.1")}},
+		{"ObjectIdentifier/large OID", VarBind{Name: largeOID, Value: ObjectIdentifierValue(".1.3.6.1.2.1")}},
 
 		// IPAddress
-		{"IPAddress/small OID", VarBind{Name: smallOID, Type: IPAddress, Value: "192.168.1.1"}},
-		{"IPAddress/large OID", VarBind{Name: largeOID, Type: IPAddress, Value: "192.168.1.1"}},
+		{"IPAddress/small OID", VarBind{Name: smallOID, Value: IPAddressValue(netip.MustParseAddr("192.168.1.1"))}},
+		{"IPAddress/large OID", VarBind{Name: largeOID, Value: IPAddressValue(netip.MustParseAddr("192.168.1.1"))}},
 
 		// Counter64
-		{"Counter64/small OID", VarBind{Name: smallOID, Type: Counter64, Value: uint64(9999999999)}},
-		{"Counter64/large OID", VarBind{Name: largeOID, Type: Counter64, Value: uint64(9999999999)}},
+		{"Counter64/small OID", VarBind{Name: smallOID, Value: Counter64Value(9999999999)}},
+		{"Counter64/large OID", VarBind{Name: largeOID, Value: Counter64Value(9999999999)}},
 
 		// NoSuchObject, NoSuchInstance, EndOfMibView
-		{"NoSuchObject/small OID", VarBind{Name: smallOID, Type: NoSuchObject, Value: nil}},
-		{"NoSuchObject/large OID", VarBind{Name: largeOID, Type: NoSuchObject, Value: nil}},
-		{"NoSuchInstance/small OID", VarBind{Name: smallOID, Type: NoSuchInstance, Value: nil}},
-		{"EndOfMibView/small OID", VarBind{Name: smallOID, Type: EndOfMibView, Value: nil}},
+		{"NoSuchObject/small OID", VarBind{Name: smallOID, Value: NoSuchObjectValue()}},
+		{"NoSuchObject/large OID", VarBind{Name: largeOID, Value: NoSuchObjectValue()}},
+		{"NoSuchInstance/small OID", VarBind{Name: smallOID, Value: NoSuchInstanceValue()}},
+		{"EndOfMibView/small OID", VarBind{Name: smallOID, Value: EndOfMibViewValue()}},
 	}
 
 	for _, tt := range tests {
@@ -1857,13 +1814,13 @@ func TestMarshalVarbindRoundTrip(t *testing.T) {
 			if err != nil {
 				t.Fatalf("reading the value TLV: %v", err)
 			}
-			typ, _, err := decodeValue(ValueType(tag), content)
+			val, err := decodeValue(ValueType(tag), content)
 			if err != nil {
 				t.Fatalf("decodeValue() error = %v", err)
 			}
 
-			if typ != tt.pdu.Type {
-				t.Errorf("Type mismatch: got %v, want %v", typ, tt.pdu.Type)
+			if typ := val.Type(); typ != tt.pdu.Value.Type() {
+				t.Errorf("Type mismatch: got %v, want %v", typ, tt.pdu.Value.Type())
 			}
 		})
 	}
@@ -1930,8 +1887,7 @@ func testUnmarshalVBL(t *testing.T, packet []byte) ([]VarBind, error) {
 // wantPDU describes an expected parsed varbind for value-level assertions.
 type wantPDU struct {
 	name string
-	typ  ValueType
-	val  any
+	val  Value
 }
 
 // assertPDUs checks that each parsed PDU matches the expected name, type, and value.
@@ -1944,11 +1900,11 @@ func assertPDUs(t *testing.T, got []VarBind, want []wantPDU) {
 		if got[i].Name != w.name {
 			t.Errorf("PDU[%d].Name = %q, want %q", i, got[i].Name, w.name)
 		}
-		if got[i].Type != w.typ {
-			t.Errorf("PDU[%d].Type = %v, want %v", i, got[i].Type, w.typ)
+		if got[i].Value.Type() != w.val.Type() {
+			t.Errorf("PDU[%d].Type = %v, want %v", i, got[i].Value.Type(), w.val.Type())
 		}
 		if !reflect.DeepEqual(got[i].Value, w.val) {
-			t.Errorf("PDU[%d].Value = %v (%T), want %v (%T)", i, got[i].Value, got[i].Value, w.val, w.val)
+			t.Errorf("PDU[%d].Value = %s, want %s", i, dumpValue(got[i].Value), dumpValue(w.val))
 		}
 	}
 }
@@ -1969,39 +1925,39 @@ func TestUnmarshalVBL(t *testing.T) {
 		// Well-formed packets
 		{
 			"OctetString", buildVBL(goodVB(0x01, OctetString, []byte("test")), goodVB(0x02, OctetString, []byte("data"))), false, 2,
-			[]wantPDU{{".1.3.6.1", OctetString, []byte("test")}, {".1.3.6.2", OctetString, []byte("data")}},
+			[]wantPDU{{".1.3.6.1", OctetStringValue([]byte("test"))}, {".1.3.6.2", OctetStringValue([]byte("data"))}},
 		},
 		{
 			"Integer", buildVBL(goodVB(0x01, Integer, []byte{0x01})), false, 1,
-			[]wantPDU{{".1.3.6.1", Integer, 1}},
+			[]wantPDU{{".1.3.6.1", IntegerValue(1)}},
 		},
 		{
 			"Counter32", buildVBL(goodVB(0x01, Counter32, []byte{0x00, 0x01, 0x00, 0x00})), false, 1,
-			[]wantPDU{{".1.3.6.1", Counter32, uint(65536)}},
+			[]wantPDU{{".1.3.6.1", Counter32Value(65536)}},
 		},
 		{
 			"Counter64", buildVBL(goodVB(0x01, Counter64, []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00})), false, 1,
-			[]wantPDU{{".1.3.6.1", Counter64, uint64(65536)}},
+			[]wantPDU{{".1.3.6.1", Counter64Value(65536)}},
 		},
 		{
 			"Gauge32", buildVBL(goodVB(0x01, Gauge32, []byte{0x00, 0x00, 0x00, 0x2a})), false, 1,
-			[]wantPDU{{".1.3.6.1", Gauge32, uint(42)}},
+			[]wantPDU{{".1.3.6.1", Gauge32Value(42)}},
 		},
 		{
 			"TimeTicks", buildVBL(goodVB(0x01, TimeTicks, []byte{0x00, 0x01, 0x51, 0x80})), false, 1,
-			[]wantPDU{{".1.3.6.1", TimeTicks, uint32(86400)}},
+			[]wantPDU{{".1.3.6.1", TimeTicksValue(86400)}},
 		},
 		{
 			"IPAddress", buildVBL(goodVB(0x01, IPAddress, []byte{0x0a, 0x00, 0x00, 0x01})), false, 1,
-			[]wantPDU{{".1.3.6.1", IPAddress, "10.0.0.1"}},
+			[]wantPDU{{".1.3.6.1", IPAddressValue(netip.MustParseAddr("10.0.0.1"))}},
 		},
 		{
 			"ObjectIdentifier", buildVBL(goodVB(0x01, ObjectIdentifier, []byte{0x2b, 0x06, 0x01})), false, 1,
-			[]wantPDU{{".1.3.6.1", ObjectIdentifier, ".1.3.6.1"}},
+			[]wantPDU{{".1.3.6.1", ObjectIdentifierValue(".1.3.6.1")}},
 		},
 		{
 			"Null", buildVBL(goodVB(0x01, Null, nil)), false, 1,
-			[]wantPDU{{".1.3.6.1", Null, nil}},
+			[]wantPDU{{".1.3.6.1", NullValue()}},
 		},
 		{"empty_VBL_short_form", []byte{0x30, 0x00}, false, 0, nil},
 		{"empty_VBL_long_form_BER", []byte{0x30, 0x82, 0x00, 0x00}, false, 0, nil},
@@ -2009,27 +1965,27 @@ func TestUnmarshalVBL(t *testing.T) {
 		// Recoverable OctetString lengths
 		{
 			"OctetString_overdeclared_by_one,valid", buildVBL(badVB(0x01, OctetString, []byte("test"), 5), goodVB(0x02, OctetString, []byte("data"))), false, 2,
-			[]wantPDU{{".1.3.6.1", OctetString, []byte("test")}, {".1.3.6.2", OctetString, []byte("data")}},
+			[]wantPDU{{".1.3.6.1", OctetStringValue([]byte("test"))}, {".1.3.6.2", OctetStringValue([]byte("data"))}},
 		},
 		{
 			"OctetString_overdeclared_by_one_last", buildVBL(badVB(0x01, OctetString, []byte("test"), 5)), false, 1,
-			[]wantPDU{{".1.3.6.1", OctetString, []byte("test")}},
+			[]wantPDU{{".1.3.6.1", OctetStringValue([]byte("test"))}},
 		},
 		{
 			"OctetString_empty_overdeclared_by_one", buildVBL(badVB(0x01, OctetString, nil, 1)), false, 1,
-			[]wantPDU{{".1.3.6.1", OctetString, []byte{}}},
+			[]wantPDU{{".1.3.6.1", OctetStringValue([]byte{})}},
 		},
 		{
 			"OctetString_overdeclared_by_one_long_form,valid", buildVBL(badVB(0x01, OctetString, largeContent, 201), goodVB(0x02, OctetString, []byte("ok"))), false, 2,
-			[]wantPDU{{".1.3.6.1", OctetString, largeContent}, {".1.3.6.2", OctetString, []byte("ok")}},
+			[]wantPDU{{".1.3.6.1", OctetStringValue(largeContent)}, {".1.3.6.2", OctetStringValue([]byte("ok"))}},
 		},
 		{
 			"large_OctetString_off_by_one_last", buildVBL(badVB(0x01, OctetString, largeString, 448)), false, 1,
-			[]wantPDU{{".1.3.6.1", OctetString, largeString}},
+			[]wantPDU{{".1.3.6.1", OctetStringValue(largeString)}},
 		},
 		{
 			"large_OctetString_off_by_one,valid", buildVBL(badVB(0x01, OctetString, largeString, 448), goodVB(0x02, OctetString, []byte("ok"))), false, 2,
-			[]wantPDU{{".1.3.6.1", OctetString, largeString}, {".1.3.6.2", OctetString, []byte("ok")}},
+			[]wantPDU{{".1.3.6.1", OctetStringValue(largeString)}, {".1.3.6.2", OctetStringValue([]byte("ok"))}},
 		},
 
 		// Invalid value lengths
@@ -2042,11 +1998,11 @@ func TestUnmarshalVBL(t *testing.T) {
 		// Malformed varbind at different positions
 		{
 			"valid,bad", buildVBL(goodVB(0x01, OctetString, []byte("good")), badVB(0x02, OctetString, []byte("bad"), 10)), true, 1,
-			[]wantPDU{{".1.3.6.1", OctetString, []byte("good")}},
+			[]wantPDU{{".1.3.6.1", OctetStringValue([]byte("good"))}},
 		},
 		{
 			"valid,bad,valid", buildVBL(goodVB(0x01, OctetString, []byte("first")), badVB(0x02, OctetString, []byte("x"), 5), goodVB(0x03, OctetString, []byte("third"))), true, 1,
-			[]wantPDU{{".1.3.6.1", OctetString, []byte("first")}},
+			[]wantPDU{{".1.3.6.1", OctetStringValue([]byte("first"))}},
 		},
 		{"bad,bad,valid", buildVBL(badVB(0x01, OctetString, []byte("a"), 5), badVB(0x02, OctetString, []byte("b"), 5), goodVB(0x03, OctetString, []byte("ok"))), true, 0, nil},
 
@@ -2057,7 +2013,7 @@ func TestUnmarshalVBL(t *testing.T) {
 		{"OID_length_exceeds_data", buildVBL(buildSequence(append(buildTLVHeader(0x06, 10), 0x2b, 0x06, 0x01))), true, 0, nil},
 		{
 			"zero_length_OID", buildVBL(buildSequence(append([]byte{0x06, 0x00}, 0x04, 0x04, 0x74, 0x65, 0x73, 0x74))), false, 1,
-			[]wantPDU{{".0.0", OctetString, []byte("test")}},
+			[]wantPDU{{".0.0", OctetStringValue([]byte("test"))}},
 		},
 
 		// Trailing bytes inside varbind body (value TLV doesn't fill SEQUENCE)
@@ -2068,13 +2024,13 @@ func TestUnmarshalVBL(t *testing.T) {
 		{"short_value_with_padding", buildVBL(rawVB(0x01, []byte{0x04, 0x01, 0x41, 0x00, 0x00})), true, 0, nil},
 		{
 			"valid,trailing_junk", buildVBL(goodVB(0x01, OctetString, []byte("ok")), rawVB(0x02, []byte{0x05, 0x00, 0xFF})), true, 1,
-			[]wantPDU{{".1.3.6.1", OctetString, []byte("ok")}},
+			[]wantPDU{{".1.3.6.1", OctetStringValue([]byte("ok"))}},
 		},
 
 		// Unknown type
 		{
 			"unknown_type_well_formed", buildVBL(rawVB(0x01, []byte{0xC0, 0x02, 0x01, 0x02})), false, 1,
-			[]wantPDU{{".1.3.6.1", UnknownType, nil}},
+			[]wantPDU{{".1.3.6.1", Value{}}},
 		},
 		{"unknown_type_malformed_length", buildVBL(rawVB(0x01, []byte{0xC0, 0x05})), true, 0, nil},
 
@@ -2088,7 +2044,7 @@ func TestUnmarshalVBL(t *testing.T) {
 		// Varbind boundary isolation
 		{
 			"cross_contamination", buildVBL(badVB(0x01, OctetString, []byte("AAAA"), 5), goodVB(0x02, OctetString, []byte("SECRET"))), false, 2,
-			[]wantPDU{{".1.3.6.1", OctetString, []byte("AAAA")}, {".1.3.6.2", OctetString, []byte("SECRET")}},
+			[]wantPDU{{".1.3.6.1", OctetStringValue([]byte("AAAA"))}, {".1.3.6.2", OctetStringValue([]byte("SECRET"))}},
 		},
 	}
 

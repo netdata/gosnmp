@@ -140,7 +140,7 @@ func TestUDPAgentAddress(t *testing.T) {
 	}
 	agent := func(name string) uint16 {
 		port, _ := udpAgent(t, func(_ int, req []byte) []byte {
-			return replyTo(req, nil, VarBind{Name: engineOID, Type: OctetString, Value: []byte(name)})
+			return replyTo(req, nil, VarBind{Name: engineOID, Value: OctetStringValue([]byte(name))})
 		})
 		return port
 	}
@@ -162,7 +162,8 @@ func TestUDPAgentAddress(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Len(t, res.VarBinds, 1)
-			assert.Equal(t, tc.want, string(res.VarBinds[0].Value.([]byte)))
+			got, _ := res.VarBinds[0].Value.Bytes()
+			assert.Equal(t, tc.want, string(got))
 		})
 	}
 }
@@ -617,7 +618,7 @@ func TestCloseDuringWalk(t *testing.T) {
 			i, _ := strconv.Atoi(arc)
 			next = root + "." + strconv.Itoa(i+1)
 		}
-		return replyTo(req, nil, VarBind{Name: next, Type: OctetString, Value: []byte("codec")})
+		return replyTo(req, nil, VarBind{Name: next, Value: OctetStringValue([]byte("codec"))})
 	})
 	h := NewHandler()
 	h.SetTarget("127.0.0.1")

@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"fmt"
 	"math"
+	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
@@ -23,16 +24,12 @@ import (
 // produce for packets that cover every PDU layout, SNMPv3 security level,
 // length form and OID edge case, or whether they fail or panic.
 func TestEncodeCharacterization(t *testing.T) {
-	cases, wide := encodeCases(t)
+	cases := encodeCases(t)
 
 	results := make([]goldenCase, 0, len(cases))
 	for _, c := range cases {
-		gc := goldenCase{name: c.name, wide: wide[c.name]}
-		if !gc.skipped() {
-			usm.Salts.Set(0x0000000700000001) // the salt of an encrypted case
-			gc.dump = dumpEncode(c.encode)
-		}
-		results = append(results, gc)
+		usm.Salts.Set(0x0000000700000001) // the salt of an encrypted case
+		results = append(results, goldenCase{name: c.name, dump: dumpEncode(c.encode)})
 	}
 	codecGolden.check(t, "encode", results)
 }
@@ -62,7 +59,7 @@ func TestMarshalLongOctetStringFields(t *testing.T) {
 				Community: want.community,
 				PDUType:   GetRequest,
 				RequestID: 1,
-				VarBinds:  []VarBind{{Name: ".1.3.6.1.2.1.1.1.0", Type: Null}},
+				VarBinds:  []VarBind{{Name: ".1.3.6.1.2.1.1.1.0", Value: NullValue()}},
 			}
 			if want.community == "" {
 				packet.Version = Version3
@@ -105,16 +102,16 @@ func TestMarshalLongOctetStringFields(t *testing.T) {
 // TestMarshalUnencodableValues checks that Message.Encode reports caller values
 // it cannot encode as errors instead of panicking.
 func TestMarshalUnencodableValues(t *testing.T) {
-	varbind := func(typ ValueType, value any) *Message {
+	varbind := func(value Value) *Message {
 		return &Message{
 			Version:   Version2c,
 			Community: "public",
 			PDUType:   SetRequest,
 			RequestID: 1,
-			VarBinds:  []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Type: typ, Value: value}},
+			VarBinds:  []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Value: value}},
 		}
 	}
-	trap := func(agentAddress string) *Message {
+	trap := func(agentAddress netip.Addr) *Message {
 		return &Message{
 			Version:      Version1,
 			Community:    "public",
@@ -125,13 +122,10 @@ func TestMarshalUnencodableValues(t *testing.T) {
 		}
 	}
 	tests := map[string]*Message{
-		"Integer with a uint8 value":                varbind(Integer, uint8(200)),
-		"ObjectIdentifier with an int value":        varbind(ObjectIdentifier, 5),
-		"ObjectIdentifier with a []byte value":      varbind(ObjectIdentifier, []byte(".1.3.6.1")),
-		"ObjectIdentifier with a nil value":         varbind(ObjectIdentifier, nil),
-		"IPAddress with a string that is not an IP": varbind(IPAddress, "x"),
-		"v1 trap with an empty agent address":       trap(""),
-		"v1 trap with an agent address not an IP":   trap("x"),
+		"ObjectIdentifier with an empty OID":  varbind(ObjectIdentifierValue("")),
+		"IPAddress of the zero Addr":          varbind(IPAddressValue(netip.Addr{})),
+		"v1 trap with an empty agent address": trap(netip.Addr{}),
+		"v1 trap with an IPv6 agent address":  trap(netip.MustParseAddr("2001:db8::1")),
 	}
 
 	for name, packet := range tests {
@@ -145,61 +139,95 @@ func TestMarshalUnencodableValues(t *testing.T) {
 	}
 }
 
-// TestEncodeValueTypesCharacterization pins, for every value tag, the value
-// TLV that Message.Encode writes for each Go value type, or whether it fails or
-// panics. It records which Go types the encoder accepts.
+// TestEncodeValueTypesCharacterization pins, for every value type, the value
+// TLV that Message.Encode writes for its constructor's edge values, the zero
+// Value included, or whether it fails or panics.
 func TestEncodeValueTypesCharacterization(t *testing.T) {
-	tags := []ValueType{
-		UnknownType, Boolean, Integer, BitString, OctetString, Null, ObjectIdentifier, ObjectDescription, IPAddress,
-		Counter32, Gauge32, TimeTicks, Opaque, NsapAddress, Counter64, Uinteger32, OpaqueFloat, OpaqueDouble,
-		NoSuchObject, NoSuchInstance, EndOfMibView,
+	type sample struct {
+		call  string // the constructor call that builds value
+		value Value
 	}
-	values := []struct {
-		label string
-		value any
+	octets := func(name string, of func([]byte) Value) []sample {
+		return []sample{
+			{name + "(nil)", of(nil)},
+			{name + "([]byte{})", of([]byte{})},
+			{name + `([]byte("x"))`, of([]byte("x"))},
+			{name + "([]byte{192, 0, 2, 1})", of([]byte{192, 0, 2, 1})},
+		}
+	}
+	unsigned32 := func(name string, of func(uint32) Value) []sample {
+		return []sample{
+			{name + "(0)", of(0)},
+			{name + "(5)", of(5)},
+			{name + "(200)", of(200)},
+			{name + "(MaxUint32)", of(math.MaxUint32)},
+		}
+	}
+	types := []struct {
+		typ     ValueType
+		samples []sample
 	}{
-		{"nil", nil},
-		{"int(0)", 0},
-		{"int(-1)", -1},
-		{"int(MaxInt32)", math.MaxInt32},
-		{"int(MinInt32)", math.MinInt32},
-		{"int8(-1)", int8(-1)},
-		{"int32(-5)", int32(-5)},
-		{"int64(5)", int64(5)},
-		{"int64(MaxInt64)", int64(math.MaxInt64)},
-		{"uint(5)", uint(5)},
-		{"uint8(200)", uint8(200)},
-		{"uint32(MaxUint32)", uint32(math.MaxUint32)},
-		{"uint64(2^40)", uint64(1 << 40)},
-		{"uint64(MaxUint64)", uint64(math.MaxUint64)},
-		{"float32(1.5)", float32(1.5)},
-		{"float64(-2.25)", float64(-2.25)},
-		{`string("1.3.6.1")`, "1.3.6.1"},
-		{`string("192.0.2.1")`, "192.0.2.1"},
-		{`string("2001:db8::1")`, "2001:db8::1"},
-		{`string("::ffff:192.0.2.1")`, "::ffff:192.0.2.1"},
-		{`string("x")`, "x"},
-		{`[]byte("x")`, []byte("x")},
-		{"[]byte{}", []byte{}},
-		{"[]byte{192, 0, 2, 1}", []byte{192, 0, 2, 1}},
-		{"[]byte{1, 2, 3, 4, 5}", []byte{1, 2, 3, 4, 5}},
-		{"[]byte of 2001:db8::1", []byte{0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}},
+		{UnknownType, []sample{{"Value{}", Value{}}}},
+		{Integer, []sample{
+			{"IntegerValue(0)", IntegerValue(0)},
+			{"IntegerValue(-1)", IntegerValue(-1)},
+			{"IntegerValue(MaxInt32)", IntegerValue(math.MaxInt32)},
+			{"IntegerValue(MinInt32)", IntegerValue(math.MinInt32)},
+		}},
+		{OctetString, octets("OctetStringValue", OctetStringValue)},
+		{Null, []sample{{"NullValue()", NullValue()}}},
+		{ObjectIdentifier, []sample{
+			{`ObjectIdentifierValue("1.3.6.1")`, ObjectIdentifierValue("1.3.6.1")},
+			{`ObjectIdentifierValue(".1.3.6.1")`, ObjectIdentifierValue(".1.3.6.1")},
+			{`ObjectIdentifierValue("x")`, ObjectIdentifierValue("x")},
+		}},
+		{IPAddress, []sample{
+			{"IPAddressValue(192.0.2.1)", IPAddressValue(netip.MustParseAddr("192.0.2.1"))},
+			{"IPAddressValue(::ffff:192.0.2.1)", IPAddressValue(netip.MustParseAddr("::ffff:192.0.2.1"))},
+			{"IPAddressValue(2001:db8::1)", IPAddressValue(netip.MustParseAddr("2001:db8::1"))},
+			{"IPAddressValue(fe80::1%eth0)", IPAddressValue(netip.MustParseAddr("fe80::1%eth0"))},
+			{"IPAddressValue(netip.Addr{})", IPAddressValue(netip.Addr{})},
+		}},
+		{Counter32, unsigned32("Counter32Value", Counter32Value)},
+		{Gauge32, unsigned32("Gauge32Value", Gauge32Value)},
+		{TimeTicks, unsigned32("TimeTicksValue", TimeTicksValue)},
+		{Opaque, octets("OpaqueValue", OpaqueValue)},
+		{Counter64, []sample{
+			{"Counter64Value(5)", Counter64Value(5)},
+			{"Counter64Value(2^40)", Counter64Value(1 << 40)},
+			{"Counter64Value(MaxUint64)", Counter64Value(math.MaxUint64)},
+		}},
+		{Uinteger32, unsigned32("Uinteger32Value", Uinteger32Value)},
+		{OpaqueFloat, []sample{
+			{"OpaqueFloatValue(1.5)", OpaqueFloatValue(1.5)},
+			{"OpaqueFloatValue(-2.25)", OpaqueFloatValue(-2.25)},
+		}},
+		{OpaqueDouble, []sample{
+			{"OpaqueDoubleValue(1.5)", OpaqueDoubleValue(1.5)},
+			{"OpaqueDoubleValue(-2.25)", OpaqueDoubleValue(-2.25)},
+		}},
+		{NoSuchObject, []sample{{"NoSuchObjectValue()", NoSuchObjectValue()}}},
+		{NoSuchInstance, []sample{{"NoSuchInstanceValue()", NoSuchInstanceValue()}}},
+		{EndOfMibView, []sample{{"EndOfMibViewValue()", EndOfMibViewValue()}}},
 	}
 
-	results := make([]goldenCase, 0, len(tags))
-	for _, tag := range tags {
+	results := make([]goldenCase, 0, len(types))
+	for _, tc := range types {
 		var d dumpWriter
-		for _, v := range values {
+		for _, v := range tc.samples {
+			if v.value.Type() != tc.typ {
+				t.Fatalf("%s is a %v, not a %v", v.call, v.value.Type(), tc.typ)
+			}
 			pkt := &Message{
 				Version:   Version2c,
 				Community: "public",
 				PDUType:   SetRequest,
 				RequestID: 1,
-				VarBinds:  []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Type: tag, Value: v.value}},
+				VarBinds:  []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Value: v.value}},
 			}
-			d.linef("%s: %s", v.label, dumpVarbindValue(pkt))
+			d.linef("%s: %s", v.call, dumpVarbindValue(pkt))
 		}
-		results = append(results, goldenCase{name: fmt.Sprintf("0x%02x %s", byte(tag), tag), dump: d.String()})
+		results = append(results, goldenCase{name: fmt.Sprintf("0x%02x %s", byte(tc.typ), tc.typ), dump: d.String()})
 	}
 	codecGolden.check(t, "encode-value-types", results)
 }
@@ -212,8 +240,8 @@ func TestEncodeReportableFlag(t *testing.T) {
 	pduTypes := []PDUType{
 		GetRequest, GetNextRequest, GetBulkRequest, SetRequest, InformRequest, Response, SNMPv2Trap, Report, Trap,
 	}
-	trap := TrapV1Header{Enterprise: ".1.3.6.1.4.1.20372", AgentAddress: "192.0.2.1", GenericTrap: 6}
-	vars := []VarBind{{Name: ".1.3.6.1.2.1.1.1.0", Type: Null}}
+	trap := TrapV1Header{Enterprise: ".1.3.6.1.4.1.20372", AgentAddress: netip.MustParseAddr("192.0.2.1"), GenericTrap: 6}
+	vars := []VarBind{{Name: ".1.3.6.1.2.1.1.1.0", Value: NullValue()}}
 
 	for _, pdu := range pduTypes {
 		for _, level := range []SecurityLevel{NoAuthNoPriv, AuthNoPriv} {
@@ -339,47 +367,68 @@ func TestEncodeDerivesLevelKeys(t *testing.T) {
 // TestValueKinds checks the value kinds: a type with a kind encodes and one
 // without does not, and the decoder reads each kind's boundary values as the
 // encoder writes them back to the same type and a value that encodes the same.
+// Every type with a kind has samples, built by its constructor; the zero Value
+// (UnknownType) is the one value without a kind a constructor builds.
 func TestValueKinds(t *testing.T) {
 	maxOID := ".2.4294967295" + strings.Repeat(".4294967295", 126) // 128 arcs, each the largest
-	samples := map[valueKind][]any{
-		kindNone:       {nil},
-		kindNull:       {nil},
-		kindInteger:    {1, 0, math.MinInt32, math.MaxInt32},
-		kindUnsigned32: {uint32(1), uint32(0), uint32(math.MaxUint32), uint(math.MaxUint32)},
-		kindCounter64:  {uint64(1), uint64(0), uint64(math.MaxUint64)},
-		kindOctets:     {[]byte("x"), []byte{}, "text"},
-		kindOID:        {".1.3.6.1", ".0.0", maxOID},
-		kindIPAddress:  {"192.0.2.1", []byte{192, 0, 2, 1}, "2001:db8::1", make([]byte, 16)},
+	unsigned32 := func(of func(uint32) Value) []Value {
+		return []Value{of(1), of(0), of(math.MaxUint32)}
+	}
+	octets := func(of func([]byte) Value) []Value {
+		return []Value{of([]byte("x")), of([]byte{}), of([]byte("text"))}
+	}
+	samples := map[ValueType][]Value{
+		UnknownType:      {{}},
+		Null:             {NullValue()},
+		NoSuchObject:     {NoSuchObjectValue()},
+		NoSuchInstance:   {NoSuchInstanceValue()},
+		EndOfMibView:     {EndOfMibViewValue()},
+		Integer:          {IntegerValue(1), IntegerValue(0), IntegerValue(math.MinInt32), IntegerValue(math.MaxInt32)},
+		Counter32:        unsigned32(Counter32Value),
+		Gauge32:          unsigned32(Gauge32Value),
+		TimeTicks:        unsigned32(TimeTicksValue),
+		Uinteger32:       unsigned32(Uinteger32Value),
+		Counter64:        {Counter64Value(1), Counter64Value(0), Counter64Value(math.MaxUint64)},
+		OctetString:      octets(OctetStringValue),
+		Opaque:           octets(OpaqueValue),
+		ObjectIdentifier: {ObjectIdentifierValue(".1.3.6.1"), ObjectIdentifierValue(".0.0"), ObjectIdentifierValue(maxOID)},
+		IPAddress: {
+			IPAddressValue(netip.MustParseAddr("192.0.2.1")), IPAddressValue(netip.MustParseAddr("2001:db8::1")),
+			IPAddressValue(netip.IPv6Unspecified()),
+		},
+		OpaqueFloat:  {OpaqueFloatValue(1), OpaqueFloatValue(-0.5), OpaqueFloatValue(math.MaxFloat32)},
+		OpaqueDouble: {OpaqueDoubleValue(1), OpaqueDoubleValue(math.MaxFloat64)},
 	}
 	for tag := range 256 {
 		kind := valueKinds[tag]
-		values := samples[kind]
-		switch ValueType(tag) {
-		case OpaqueFloat:
-			values = []any{float32(1), float32(-0.5), float32(math.MaxFloat32)}
-		case OpaqueDouble:
-			values = []any{float64(1), math.MaxFloat64}
+		values, ok := samples[ValueType(tag)]
+		if kind != kindNone && !ok {
+			t.Errorf("%v: a kind without samples", ValueType(tag))
 		}
 		for _, value := range values {
-			out, err := appendValue(nil, ValueType(tag), value)
+			if value.Type() != ValueType(tag) {
+				t.Fatalf("%v: a sample of %v", ValueType(tag), value.Type())
+			}
+			out, err := appendValue(nil, value)
 			switch {
 			case kind == kindNone && err == nil:
 				t.Errorf("%v: encodes without a kind", ValueType(tag))
 			case kind != kindNone && err != nil:
-				t.Errorf("%v %#v: %v", ValueType(tag), value, err)
+				t.Errorf("%v %s: %v", ValueType(tag), dumpValue(value), err)
 			case err == nil:
 				r := ber.NewReader(out)
 				wireTag, content, err := r.Next()
 				if err != nil {
 					t.Fatalf("%v: %x: %v", ValueType(tag), out, err)
 				}
-				typ, decoded, err := decodeValue(ValueType(wireTag), content)
+				decoded, err := decodeValue(ValueType(wireTag), content)
 				if err != nil {
 					t.Fatalf("%v: decoding %x: %v", ValueType(tag), out, err)
 				}
-				again, err := appendValue(nil, typ, decoded)
-				if typ != ValueType(tag) || err != nil || !bytes.Equal(again, out) {
-					t.Errorf("%v %#v: decodes as %v %#v, which encodes as %x (%v), not %x", ValueType(tag), value, typ, decoded, again, err, out)
+				again, err := appendValue(nil, decoded)
+				if decoded.Type() != ValueType(tag) || err != nil || !bytes.Equal(again, out) {
+					t.Errorf("%v %s: decodes as %v %s, which encodes as %x (%v), not %x",
+						ValueType(tag), dumpValue(value), decoded.Type(), dumpValue(decoded), again, err, out)
 				}
 			}
 		}
@@ -567,38 +616,31 @@ func codecHeader() SecurityParameters {
 	}
 }
 
-// encodeCases returns the encode characterization cases and the names of those
-// whose input needs a 64-bit int or uint (goldenCase.wide).
-func encodeCases(t *testing.T) ([]encodeCase, map[string]bool) {
+// encodeCases returns the encode characterization cases.
+func encodeCases(t *testing.T) []encodeCase {
 	t.Helper()
 
-	wide := make(map[string]bool)
-	wideCase := func(name string, encode func() ([]byte, error)) encodeCase {
-		wide[name] = true
-		return encodeCase{name, encode}
-	}
-
-	nullVar := []VarBind{{Name: ".1.3.6.1.2.1.1.1.0", Type: Null}}
+	nullVar := []VarBind{{Name: ".1.3.6.1.2.1.1.1.0", Value: NullValue()}}
 	mixedVars := []VarBind{
-		{Name: ".1.3.6.1.2.1.1.7.0", Type: Integer, Value: 104},
-		{Name: ".1.3.6.1.2.1.1.4.0", Type: OctetString, Value: []byte("Administrator")},
-		{Name: ".1.3.6.1.2.1.1.2.0", Type: ObjectIdentifier, Value: ".1.3.6.1.4.1.8072.3.2.10"},
-		{Name: ".1.3.6.1.2.1.4.20.1.1.192.0.2.1", Type: IPAddress, Value: "192.0.2.1"},
-		{Name: ".1.3.6.1.2.1.2.2.1.10.1", Type: Counter32, Value: uint32(271070065)},
-		{Name: ".1.3.6.1.2.1.2.2.1.5.1", Type: Gauge32, Value: uint(100000000)},
-		{Name: ".1.3.6.1.2.1.1.3.0", Type: TimeTicks, Value: uint32(318870100)},
-		{Name: ".1.3.6.1.2.1.31.1.1.1.10.1", Type: Counter64, Value: uint64(1527943)},
-		{Name: ".1.3.6.1.4.1.2021.1", Type: Opaque, Value: []byte{0x9f, 0x78, 0x04, 0x41, 0x20, 0x00, 0x00}},
-		{Name: ".1.3.6.1.4.1.6574.4.2.12.1.0", Type: OpaqueFloat, Value: float32(10.0)},
-		{Name: ".1.3.6.1.4.1.6574.4.2.12.2.0", Type: OpaqueDouble, Value: float64(10.0)},
-		{Name: ".1.3.6.1.2.1.1.3.1", Type: Uinteger32, Value: uint32(7)},
-		{Name: ".1.3.6.1.2.1.1.9.0", Type: NoSuchObject},
-		{Name: ".1.3.6.1.2.1.1.9.1", Type: NoSuchInstance},
-		{Name: ".1.3.6.1.2.1.1.9.2", Type: EndOfMibView},
+		{Name: ".1.3.6.1.2.1.1.7.0", Value: IntegerValue(104)},
+		{Name: ".1.3.6.1.2.1.1.4.0", Value: OctetStringValue([]byte("Administrator"))},
+		{Name: ".1.3.6.1.2.1.1.2.0", Value: ObjectIdentifierValue(".1.3.6.1.4.1.8072.3.2.10")},
+		{Name: ".1.3.6.1.2.1.4.20.1.1.192.0.2.1", Value: IPAddressValue(netip.MustParseAddr("192.0.2.1"))},
+		{Name: ".1.3.6.1.2.1.2.2.1.10.1", Value: Counter32Value(271070065)},
+		{Name: ".1.3.6.1.2.1.2.2.1.5.1", Value: Gauge32Value(100000000)},
+		{Name: ".1.3.6.1.2.1.1.3.0", Value: TimeTicksValue(318870100)},
+		{Name: ".1.3.6.1.2.1.31.1.1.1.10.1", Value: Counter64Value(1527943)},
+		{Name: ".1.3.6.1.4.1.2021.1", Value: OpaqueValue([]byte{0x9f, 0x78, 0x04, 0x41, 0x20, 0x00, 0x00})},
+		{Name: ".1.3.6.1.4.1.6574.4.2.12.1.0", Value: OpaqueFloatValue(10.0)},
+		{Name: ".1.3.6.1.4.1.6574.4.2.12.2.0", Value: OpaqueDoubleValue(10.0)},
+		{Name: ".1.3.6.1.2.1.1.3.1", Value: Uinteger32Value(7)},
+		{Name: ".1.3.6.1.2.1.1.9.0", Value: NoSuchObjectValue()},
+		{Name: ".1.3.6.1.2.1.1.9.1", Value: NoSuchInstanceValue()},
+		{Name: ".1.3.6.1.2.1.1.9.2", Value: EndOfMibViewValue()},
 	}
 	trap := TrapV1Header{
 		Enterprise:   ".1.3.6.1.4.1.20372",
-		AgentAddress: "192.0.2.1",
+		AgentAddress: netip.MustParseAddr("192.0.2.1"),
 		GenericTrap:  6,
 		SpecificTrap: 42,
 		Timestamp:    256,
@@ -606,12 +648,6 @@ func encodeCases(t *testing.T) ([]encodeCase, map[string]bool) {
 
 	v2c := func(pduType PDUType, vars []VarBind) *Message {
 		return &Message{Version: Version2c, Community: "public", PDUType: pduType, RequestID: 1, VarBinds: vars}
-	}
-	beyondInt32 := int64(math.MaxInt32) + 1
-	beyondUint32 := uint64(math.MaxUint32) + 1
-	// uintValue is a SetRequest of one varbind of typ holding the uint v.
-	uintValue := func(typ ValueType, v uint64) *Message {
-		return v2c(SetRequest, []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Type: typ, Value: uint(v)}})
 	}
 	v1Trap := func(edit func(*TrapV1Header)) *Message {
 		tr := trap
@@ -637,12 +673,12 @@ func encodeCases(t *testing.T) ([]encodeCase, map[string]bool) {
 	hostVars := func(n int) []VarBind {
 		vars := make([]VarBind, n)
 		for i := range vars {
-			vars[i] = VarBind{Name: ".1.3.6.1.2.1.1.5." + strconv.Itoa(i), Type: OctetString, Value: []byte("codec-host-" + strconv.Itoa(i))}
+			vars[i] = VarBind{Name: ".1.3.6.1.2.1.1.5." + strconv.Itoa(i), Value: OctetStringValue([]byte("codec-host-" + strconv.Itoa(i)))}
 		}
 		return vars
 	}
 	withVars := func(p *Message, vars []VarBind) *Message { p.VarBinds = vars; return p }
-	oidName := func(name string) *Message { return v2c(GetRequest, []VarBind{{Name: name, Type: Null}}) }
+	oidName := func(name string) *Message { return v2c(GetRequest, []VarBind{{Name: name, Value: NullValue()}}) }
 	// withPacketSalt gives the packet a salt of its own, unlike the drawn one:
 	// the encoder must neither send nor encrypt with it.
 	withPacketSalt := func(p *Message) *Message {
@@ -692,22 +728,18 @@ func encodeCases(t *testing.T) ([]encodeCase, map[string]bool) {
 		{"v2c/request-id-2^31", marshal(edit(v2c(GetRequest, nullVar), func(p *Message) { p.RequestID = 1 << 31 }))},
 		{"v2c/request-id-max-uint32", marshal(edit(v2c(GetRequest, nullVar), func(p *Message) { p.RequestID = math.MaxUint32 }))},
 		{"v2c/version-2", marshal(edit(v2c(GetRequest, nullVar), func(p *Message) { p.Version = 2 }))},
-		wideCase("v2c/set-request/counter32-uint-2^32", marshal(uintValue(Counter32, beyondUint32))),
-		wideCase("v2c/set-request/gauge32-uint-2^32", marshal(uintValue(Gauge32, beyondUint32))),
-		wideCase("v2c/set-request/timeticks-uint-2^32", marshal(uintValue(TimeTicks, beyondUint32))),
-		wideCase("v2c/set-request/uinteger32-uint-2^32", marshal(uintValue(Uinteger32, beyondUint32))),
 
 		// Lengths.
 		{"v2c/community-empty", marshal(edit(v2c(GetRequest, nullVar), func(p *Message) { p.Community = "" }))},
 		{"v2c/community-127", marshal(edit(v2c(GetRequest, nullVar), func(p *Message) { p.Community = strings.Repeat("c", 127) }))},
 		{"v2c/community-128", marshal(edit(v2c(GetRequest, nullVar), func(p *Message) { p.Community = strings.Repeat("c", 128) }))},
 		{"v2c/community-256", marshal(edit(v2c(GetRequest, nullVar), func(p *Message) { p.Community = strings.Repeat("c", 256) }))},
-		{"v2c/octet-string-127", marshal(v2c(SetRequest, []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Type: OctetString, Value: []byte(strings.Repeat("o", 127))}}))},
+		{"v2c/octet-string-127", marshal(v2c(SetRequest, []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Value: OctetStringValue([]byte(strings.Repeat("o", 127)))}}))},
 		// 116 value octets make the varbind content exactly 128 bytes, the first long-form length.
-		{"v2c/varbind-content-128", marshal(v2c(SetRequest, []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Type: OctetString, Value: []byte(strings.Repeat("o", 116))}}))},
-		{"v2c/octet-string-200", marshal(v2c(SetRequest, []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Type: OctetString, Value: []byte(strings.Repeat("o", 200))}}))},
-		{"v2c/octet-string-300", marshal(v2c(SetRequest, []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Type: OctetString, Value: []byte(strings.Repeat("o", 300))}}))},
-		{"v2c/octet-string-70000", marshal(v2c(SetRequest, []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Type: OctetString, Value: []byte(strings.Repeat("o", 70000))}}))},
+		{"v2c/varbind-content-128", marshal(v2c(SetRequest, []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Value: OctetStringValue([]byte(strings.Repeat("o", 116)))}}))},
+		{"v2c/octet-string-200", marshal(v2c(SetRequest, []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Value: OctetStringValue([]byte(strings.Repeat("o", 200)))}}))},
+		{"v2c/octet-string-300", marshal(v2c(SetRequest, []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Value: OctetStringValue([]byte(strings.Repeat("o", 300)))}}))},
+		{"v2c/octet-string-70000", marshal(v2c(SetRequest, []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Value: OctetStringValue([]byte(strings.Repeat("o", 70000)))}}))},
 		{"v2c/100-varbinds", marshal(v2c(GetRequest, slices.Repeat(nullVar, 100)))},
 
 		// Varbind names.
@@ -735,17 +767,13 @@ func encodeCases(t *testing.T) ([]encodeCase, map[string]bool) {
 
 		// v1 Trap.
 		{"v1-trap/basic", marshal(v1Trap(func(*TrapV1Header) {}))},
-		{"v1-trap/agent-address-empty", marshal(v1Trap(func(tr *TrapV1Header) { tr.AgentAddress = "" }))},
-		{"v1-trap/agent-address-ipv4-mapped", marshal(v1Trap(func(tr *TrapV1Header) { tr.AgentAddress = "::ffff:192.0.2.1" }))},
-		{"v1-trap/agent-address-ipv6", marshal(v1Trap(func(tr *TrapV1Header) { tr.AgentAddress = "2001:db8::1" }))},
-		{"v1-trap/agent-address-invalid", marshal(v1Trap(func(tr *TrapV1Header) { tr.AgentAddress = "not-an-ip" }))},
+		{"v1-trap/agent-address-empty", marshal(v1Trap(func(tr *TrapV1Header) { tr.AgentAddress = netip.Addr{} }))},
+		{"v1-trap/agent-address-ipv4-mapped", marshal(v1Trap(func(tr *TrapV1Header) { tr.AgentAddress = netip.MustParseAddr("::ffff:192.0.2.1") }))},
+		{"v1-trap/agent-address-ipv6", marshal(v1Trap(func(tr *TrapV1Header) { tr.AgentAddress = netip.MustParseAddr("2001:db8::1") }))},
 		{"v1-trap/enterprise-empty", marshal(v1Trap(func(tr *TrapV1Header) { tr.Enterprise = "" }))},
 		{"v1-trap/generic-negative", marshal(v1Trap(func(tr *TrapV1Header) { tr.GenericTrap = -1 }))},
 		{"v1-trap/specific-max-int32", marshal(v1Trap(func(tr *TrapV1Header) { tr.SpecificTrap = math.MaxInt32 }))},
-		wideCase("v1-trap/generic-2^31", marshal(v1Trap(func(tr *TrapV1Header) { tr.GenericTrap = int(beyondInt32) }))),
-		wideCase("v1-trap/specific-2^31", marshal(v1Trap(func(tr *TrapV1Header) { tr.SpecificTrap = int(beyondInt32) }))),
 		{"v1-trap/timestamp-max-uint32", marshal(v1Trap(func(tr *TrapV1Header) { tr.Timestamp = math.MaxUint32 }))},
-		wideCase("v1-trap/timestamp-2^32", marshal(v1Trap(func(tr *TrapV1Header) { tr.Timestamp = uint(beyondUint32) }))),
 		{"v1-trap/in-v2c-message", marshal(edit(v1Trap(func(*TrapV1Header) {}), func(p *Message) { p.Version = Version2c }))},
 
 		// SNMPv3.
@@ -858,5 +886,5 @@ func encodeCases(t *testing.T) ([]encodeCase, map[string]bool) {
 			seedEngine(codecEngineID, 7, 1234)(x)
 			return x.EncodeMessage(GetRequest, nullVar, 0, 0)
 		}},
-	}, wide
+	}
 }

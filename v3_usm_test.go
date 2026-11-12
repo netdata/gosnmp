@@ -465,7 +465,7 @@ func TestUSMTrapMistypedFields(t *testing.T) {
 func TestUSMTrapTableSkipsV1V2c(t *testing.T) {
 	useEngineTimes(t)
 	vbl := craftedVBL(craftedVB(intTLV(5)))
-	vars := []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Type: Integer, Value: 5}}
+	vars := []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Value: IntegerValue(5)}}
 	tests := map[string]struct {
 		in          []byte
 		wantVersion Version
@@ -797,7 +797,7 @@ func TestSignDigestOffset(t *testing.T) {
 		return e
 	}
 	value := func(n int) []VarBind {
-		return []VarBind{{Name: ".1.3.6.1.2.1.1.1.0", Type: OctetString, Value: bytes.Repeat([]byte("v"), n)}}
+		return []VarBind{{Name: ".1.3.6.1.2.1.1.1.0", Value: OctetStringValue(bytes.Repeat([]byte("v"), n))}}
 	}
 	// placeholder is the field as marshal appends it before signing.
 	placeholder := func(auth AuthProtocol) string {

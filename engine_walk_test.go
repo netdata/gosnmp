@@ -32,13 +32,13 @@ type mibAgent struct {
 // walkMIB is the MIB of the walk tests: the system group, an interface table
 // column and one object after them.
 var walkMIB = []VarBind{
-	{Name: ".1.3.6.1.2.1.1.1.0", Type: OctetString, Value: []byte("codec agent")},
-	{Name: ".1.3.6.1.2.1.1.3.0", Type: TimeTicks, Value: uint32(4200)},
-	{Name: ".1.3.6.1.2.1.1.5.0", Type: OctetString, Value: []byte("codec-host")},
-	{Name: ".1.3.6.1.2.1.2.2.1.2.1", Type: OctetString, Value: []byte("lo")},
-	{Name: ".1.3.6.1.2.1.2.2.1.2.2", Type: OctetString, Value: []byte("eth0")},
-	{Name: ".1.3.6.1.2.1.2.2.1.2.10", Type: OctetString, Value: []byte("eth1")},
-	{Name: ".1.3.6.1.4.1.99.1.0", Type: Integer, Value: 7},
+	{Name: ".1.3.6.1.2.1.1.1.0", Value: OctetStringValue([]byte("codec agent"))},
+	{Name: ".1.3.6.1.2.1.1.3.0", Value: TimeTicksValue(4200)},
+	{Name: ".1.3.6.1.2.1.1.5.0", Value: OctetStringValue([]byte("codec-host"))},
+	{Name: ".1.3.6.1.2.1.2.2.1.2.1", Value: OctetStringValue([]byte("lo"))},
+	{Name: ".1.3.6.1.2.1.2.2.1.2.2", Value: OctetStringValue([]byte("eth0"))},
+	{Name: ".1.3.6.1.2.1.2.2.1.2.10", Value: OctetStringValue([]byte("eth1"))},
+	{Name: ".1.3.6.1.4.1.99.1.0", Value: IntegerValue(7)},
 }
 
 const (
@@ -88,7 +88,7 @@ func (a *mibAgent) answer(req *Message) *Message {
 		default:
 			panic(fmt.Sprintf("agent cannot answer %v", req.PDUType))
 		}
-		if v1 && len(got) == 1 && got[0].Type >= NoSuchObject {
+		if v1 && len(got) == 1 && got[0].Value.Type() >= NoSuchObject {
 			out.ErrorStatus, out.ErrorIndex = NoSuchName, uint8(i+1) //nolint:gosec // a test request
 			out.VarBinds = req.VarBinds
 			return out
@@ -114,7 +114,7 @@ func (a *mibAgent) repeat(req *Message) []VarBind {
 		ended := 0
 		for i, name := range last {
 			vb := a.next(name)
-			if vb.Type == EndOfMibView {
+			if vb.Value.Type() == EndOfMibView {
 				ended++
 			}
 			vbs = append(vbs, vb)
@@ -137,10 +137,10 @@ func (a *mibAgent) get(name string) VarBind {
 	parent := name[:max(strings.LastIndexByte(name, '.'), 0)]
 	for _, vb := range a.mib {
 		if strings.HasPrefix(vb.Name, parent+".") {
-			return VarBind{Name: name, Type: NoSuchInstance}
+			return VarBind{Name: name, Value: NoSuchInstanceValue()}
 		}
 	}
-	return VarBind{Name: name, Type: NoSuchObject}
+	return VarBind{Name: name, Value: NoSuchObjectValue()}
 }
 
 // next is the first object after name, or endOfMibView.
@@ -150,7 +150,7 @@ func (a *mibAgent) next(name string) VarBind {
 			return vb
 		}
 	}
-	return VarBind{Name: name, Type: EndOfMibView}
+	return VarBind{Name: name, Value: EndOfMibViewValue()}
 }
 
 // walkScenario is one walk run against a mibAgent.
@@ -231,13 +231,13 @@ func walkScenarios() map[string]walkScenario {
 		// An agent echoing the root as the first answer: the root is in the
 		// subtree and not after the requested name.
 		"leaf/root-echo": {
-			root: walkSystem, script: onWalkRequest(1, varbinds(VarBind{Name: walkSystem, Type: Integer, Value: 1})),
+			root: walkSystem, script: onWalkRequest(1, varbinds(VarBind{Name: walkSystem, Value: IntegerValue(1)})),
 		},
 		// The leaf's Get answered with a name under the root: one Get, nothing
 		// passed on.
 		"leaf/get-answer-in-subtree": {
 			root:   ".1.3.6.1.2.1.1.5.0",
-			script: onWalkRequest(2, varbinds(VarBind{Name: ".1.3.6.1.2.1.1.5.0.1", Type: OctetString, Value: []byte("inside")})),
+			script: onWalkRequest(2, varbinds(VarBind{Name: ".1.3.6.1.2.1.1.5.0.1", Value: OctetStringValue([]byte("inside"))})),
 		},
 		// The leaf's Get unanswered: the walk returns the request's error.
 		"leaf/get-error": {
@@ -285,28 +285,28 @@ func walkScenarios() map[string]walkScenario {
 			root: walkIfDescr, bulk: true, script: onWalkRequest(1, varbinds(ifDescr(1), ifDescr(0), ifDescr(2))),
 		},
 		"exception/no-such-object": {
-			root: walkSystem, script: onWalkRequest(2, varbinds(VarBind{Name: walkMIB[1].Name, Type: NoSuchObject})),
+			root: walkSystem, script: onWalkRequest(2, varbinds(VarBind{Name: walkMIB[1].Name, Value: NoSuchObjectValue()})),
 		},
 		"exception/no-such-instance-bulk": {
 			root: walkSystem, bulk: true,
-			script: onWalkRequest(1, varbinds(walkMIB[0], VarBind{Name: walkMIB[1].Name, Type: NoSuchInstance}, walkMIB[2])),
+			script: onWalkRequest(1, varbinds(walkMIB[0], VarBind{Name: walkMIB[1].Name, Value: NoSuchInstanceValue()}, walkMIB[2])),
 		},
 		// An exception value outside the subtree as the walk's first value:
 		// the subtree is checked first, as in net-snmp, so the walk gets the
 		// root.
 		"exception/outside-first-value": {
 			root:   ".1.3.6.1.2.1.1.5.0",
-			script: onWalkRequest(1, varbinds(VarBind{Name: ifDescr(0).Name, Type: NoSuchObject})),
+			script: onWalkRequest(1, varbinds(VarBind{Name: ifDescr(0).Name, Value: NoSuchObjectValue()})),
 		},
 		// A name equal to the root lies in the subtree and fails the
 		// increasing check.
 		"root-in-bulk-response": {
 			root: walkSystem, bulk: true,
-			script: onWalkRequest(1, varbinds(walkMIB[0], VarBind{Name: walkSystem, Type: Integer, Value: 1}, walkMIB[1])),
+			script: onWalkRequest(1, varbinds(walkMIB[0], VarBind{Name: walkSystem, Value: IntegerValue(1)}, walkMIB[1])),
 		},
 		"root-in-response": {
 			root:   walkSystem,
-			script: onWalkRequest(2, varbinds(VarBind{Name: walkSystem, Type: Integer, Value: 1})),
+			script: onWalkRequest(2, varbinds(VarBind{Name: walkSystem, Value: IntegerValue(1)})),
 		},
 		// A name before the root lies outside the subtree.
 		"below-root/first-value": {root: walkIfDescr, script: onWalkRequest(1, varbinds(walkMIB[0]))},
@@ -322,7 +322,7 @@ func walkScenarios() map[string]walkScenario {
 		// A name that extends the root's last arc lies outside the subtree.
 		"sibling-arc": {
 			root:   walkIfDescr,
-			script: onWalkRequest(4, varbinds(VarBind{Name: walkIfDescr + "0.1", Type: OctetString, Value: []byte("sibling")})),
+			script: onWalkRequest(4, varbinds(VarBind{Name: walkIfDescr + "0.1", Value: OctetStringValue([]byte("sibling"))})),
 		},
 
 		// User code changing the client during a walk: the walk keeps the
@@ -468,7 +468,7 @@ func TestEngineWalkRootSpellings(t *testing.T) {
 								gets++
 							}
 							if tc.equal && n == 1 {
-								out.VarBinds = []VarBind{{Name: tc.root, Type: Integer, Value: 1}}
+								out.VarBinds = []VarBind{{Name: tc.root, Value: IntegerValue(1)}}
 							}
 							return false
 						}}
@@ -547,9 +547,9 @@ func BenchmarkWalk(b *testing.B) {
 	const root = ".1.3.6.1.4.1.99999.1.1.1.1.2.3.4"
 	mib := make([]VarBind, 0, 101)
 	for i := range 100 {
-		mib = append(mib, VarBind{Name: fmt.Sprintf("%s.%d", root, i+1), Type: Counter64, Value: uint64(i)})
+		mib = append(mib, VarBind{Name: fmt.Sprintf("%s.%d", root, i+1), Value: Counter64Value(uint64(i))})
 	}
-	mib = append(mib, VarBind{Name: ".1.3.6.1.4.1.99999.1.1.1.1.2.3.5.1", Type: Integer, Value: 1})
+	mib = append(mib, VarBind{Name: ".1.3.6.1.4.1.99999.1.1.1.1.2.3.5.1", Value: IntegerValue(1)})
 
 	for name, walkAll := range map[string]func(x *Client) ([]VarBind, error){
 		"WalkAll":     func(x *Client) ([]VarBind, error) { return x.WalkAll(root) },

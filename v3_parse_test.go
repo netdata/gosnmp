@@ -503,7 +503,7 @@ func TestV3ReplyDecode(t *testing.T) {
 		e, _ := request(AuthPriv, AES)
 		data := reply(&Message{
 			SecurityLevel: NoAuthNoPriv, SecurityParameters: signedTestHeader(usmOtherEngineID, "codec-user"),
-			PDUType: Report, VarBinds: []VarBind{{Name: ".1.3.6.1.6.3.15.1.1.4.0", Type: Counter32, Value: uint32(1)}},
+			PDUType: Report, VarBinds: []VarBind{{Name: ".1.3.6.1.6.3.15.1.1.4.0", Value: Counter32Value(1)}},
 		}, nil)
 		before := passwordCache.Len()
 		got, verified, err := e.decode(data, nil)
