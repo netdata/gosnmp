@@ -100,7 +100,8 @@ func TestMarshalLongOctetStringFields(t *testing.T) {
 }
 
 // TestMarshalUnencodableValues checks that Message.Encode reports caller values
-// it cannot encode as errors instead of panicking.
+// it cannot encode as errors instead of panicking, with the error's text where
+// the case gives one.
 func TestMarshalUnencodableValues(t *testing.T) {
 	varbind := func(value Value) *Message {
 		return &Message{
@@ -121,19 +122,29 @@ func TestMarshalUnencodableValues(t *testing.T) {
 			GenericTrap:  6,
 		}
 	}
-	tests := map[string]*Message{
-		"ObjectIdentifier with an empty OID":  varbind(ObjectIdentifierValue("")),
-		"IPAddress of the zero Addr":          varbind(IPAddressValue(netip.Addr{})),
-		"v1 trap with an empty agent address": trap(netip.Addr{}),
-		"v1 trap with an IPv6 agent address":  trap(netip.MustParseAddr("2001:db8::1")),
+	tests := map[string]struct {
+		msg     *Message
+		wantErr string
+	}{
+		"ObjectIdentifier with an empty OID": {msg: varbind(ObjectIdentifierValue(""))},
+		"IPAddress of the zero Addr":         {msg: varbind(IPAddressValue(netip.Addr{}))},
+		"v1 trap with an empty agent address": {
+			msg: trap(netip.Addr{}), wantErr: "unable to marshal SNMPv1 AgentAddress: no address",
+		},
+		"v1 trap with an IPv6 agent address": {
+			msg: trap(netip.MustParseAddr("2001:db8::1")), wantErr: "unable to marshal SNMPv1 AgentAddress: 2001:db8::1 is not an IPv4 address",
+		},
 	}
 
-	for name, packet := range tests {
+	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			var err error
-			panicked, _ := observe(func() { _, err = packet.Encode(nil) })
+			panicked, _ := observe(func() { _, err = tc.msg.Encode(nil) })
 			if panicked || err == nil {
-				t.Errorf("Encode panicked: %v, error: %v; want an error", panicked, err)
+				t.Fatalf("Encode panicked: %v, error: %v; want an error", panicked, err)
+			}
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
 			}
 		})
 	}

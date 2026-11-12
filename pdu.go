@@ -581,7 +581,10 @@ func (m *Message) appendTrapV1Header(dst []byte) ([]byte, error) {
 		return nil, err
 	}
 	agentAddress := m.AgentAddress.Unmap()
-	if !agentAddress.Is4() {
+	switch {
+	case !agentAddress.IsValid():
+		return nil, errors.New("unable to marshal SNMPv1 AgentAddress: no address")
+	case !agentAddress.Is4():
 		return nil, fmt.Errorf("unable to marshal SNMPv1 AgentAddress: %v is not an IPv4 address", m.AgentAddress)
 	}
 	octets := agentAddress.As4()
