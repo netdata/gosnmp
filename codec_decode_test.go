@@ -106,7 +106,7 @@ func dumpReceive(t *testing.T, d *dumpWriter, c decodeCase) {
 
 	in := bytes.Clone(c.in)
 	var err error
-	panicked, wroteStdout := observe(func() { _, err = r.Receive(in) })
+	panicked, wroteStdout := observe(func() { _, _, err = r.Receive(in) })
 	switch {
 	case panicked:
 		d.line("receive: panic")

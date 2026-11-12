@@ -264,7 +264,7 @@ func checkLevel(auth AuthProtocol, priv PrivProtocol, level SecurityLevel) error
 	return nil
 }
 
-// levelFloor is the security level a trap receiver requires of a message for
+// levelFloor is the security level a receiver requires of a message for
 // u at the least: authentication when u has an authentication protocol,
 // privacy optional.
 func (u *User) levelFloor() SecurityLevel {

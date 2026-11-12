@@ -103,7 +103,7 @@ func rewireV3(t *testing.T, data []byte, user *User, engineID []byte, flags Secu
 var timelyReceivers = []struct {
 	name    string
 	config  func(engineID []byte) ReceiverConfig
-	informs bool // the receiver takes informs
+	informs bool // informs reach the receiver's users; a learning one learns none
 }{
 	{"registered", func(engineID []byte) ReceiverConfig {
 		var config ReceiverConfig
@@ -130,9 +130,11 @@ func timelyUsers() []User {
 // than the latest updates the receiver's notion of the engine's time, which
 // then advances with the receiver's clock, and is accepted; an older one more
 // than 150 s behind that notion, one of lower boots, and one of an engine at
-// the maximum boots are rejected; informs and unauthenticated traps are neither checked nor
-// recorded, and each credential has its own records. A learned user's first
-// trap starts its record.
+// the maximum boots are rejected; an inform, whatever its reportable flag, is
+// checked and recorded as a trap, then rejected, its engine being another's
+// (RFC 3412 section 7.2 step 13 a); unauthenticated traps are neither checked
+// nor recorded, and each credential has its own records. A learned user's
+// first trap starts its record.
 func TestTrapTimeliness(t *testing.T) {
 	const maxBoots = 2147483647
 	ok := func(boots, time uint32) timelyMessage { return timelyMessage{boots: boots, time: time} }
@@ -147,6 +149,8 @@ func TestTrapTimeliness(t *testing.T) {
 	inform := func(m timelyMessage) timelyMessage { m.inform = true; return m }
 	flipped := func(m timelyMessage) timelyMessage { m.flipped = true; return m }
 	from := func(user string, m timelyMessage) timelyMessage { m.user = user; return m }
+	// elsewhere is an inform in the time window, rejected for its engine.
+	elsewhere := func(m timelyMessage) timelyMessage { m.inform, m.want = true, ErrUnknownEngineID; return m }
 
 	tests := map[string][]timelyMessage{
 		"the latest again, at once":           {ok(3, 1000), ok(3, 1000)},
@@ -164,10 +168,10 @@ func TestTrapTimeliness(t *testing.T) {
 		"boots 2147483647 after an update":    {ok(3, 1000), rejected(maxBoots, 10), rejected(3, 1001), rejected(4, 1)},
 		"boots above 2147483647, then low":    {invalid(maxBoots+1, 10), ok(1, 1)},
 		"time above 2147483647, then low":     {invalid(1, maxBoots+1), ok(1, 1)},
-		"informs, then a trap":                {inform(ok(3, 1000)), inform(ok(2, 1)), ok(1, 1)},
+		"informs, then a trap":                {elsewhere(ok(3, 1000)), inform(rejected(2, 1)), rejected(1, 1)},
 		"reportable traps, 151 s later":       {flipped(ok(3, 1000)), after(151*time.Second, flipped(rejected(3, 1000)))},
 		"a reportable trap, then lower boots": {flipped(ok(5, 100)), rejected(4, 999)},
-		"unreportable informs, then a trap":   {flipped(inform(ok(3, 1000))), flipped(inform(ok(2, 1))), ok(1, 1)},
+		"unreportable informs, then a trap":   {flipped(elsewhere(ok(3, 1000))), flipped(inform(rejected(2, 1))), rejected(1, 1)},
 		"unauthenticated, then authenticated": {from("plain-user", ok(100, 100)), ok(3, 77)},
 		"unauthenticated, 151 s later":        {from("plain-user", ok(3, 1000)), after(151*time.Second, from("plain-user", ok(3, 1000)))},
 		"another credential, lower boots":     {ok(9, 9), from("other-user", ok(1, 1))},
@@ -178,8 +182,8 @@ func TestTrapTimeliness(t *testing.T) {
 		for _, r := range timelyReceivers {
 			t.Run(name+"/"+r.name, func(t *testing.T) {
 				for _, m := range msgs {
-					if m.inform && !r.informs {
-						t.Skip("informs are never learned")
+					if (m.inform || m.flipped) && !r.informs {
+						t.Skip("a learning receiver learns no inform or reportable message")
 					}
 				}
 				seq++
@@ -187,7 +191,7 @@ func TestTrapTimeliness(t *testing.T) {
 				x, advance := newTestReceiver(t, r.config([]byte(engineID)))
 				for i, m := range msgs {
 					advance(m.wait)
-					_, err := x.Receive(encodeTimely(t, engineID, m))
+					_, _, err := x.Receive(encodeTimely(t, engineID, m))
 					if m.want == nil {
 						assert.NoError(t, err, "message %d", i)
 					} else {
@@ -301,11 +305,11 @@ func TestTrapEncodedReplay(t *testing.T) {
 			wire, err := sender.EncodeMessage(SNMPv2Trap, usmPlainVars, 0, 0)
 			require.NoError(t, err)
 			receiver, advance := newTestReceiver(t, config)
-			got, err := receiver.Receive(bytes.Clone(wire))
+			got, _, err := receiver.Receive(bytes.Clone(wire))
 			require.NoError(t, err)
 			require.Equal(t, AuthPriv, got.Message.SecurityLevel)
 			advance(24 * time.Hour)
-			_, err = receiver.Receive(bytes.Clone(wire))
+			_, _, err = receiver.Receive(bytes.Clone(wire))
 			require.ErrorIs(t, err, ErrNotInTimeWindow)
 		})
 	}

@@ -5,22 +5,31 @@
 package gosnmp
 
 import (
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
 
-// newTestReceiver returns the receiver of config, whose time records run on a
-// clock of their own, which starts at a fixed instant and moves only when the
-// returned advance is called.
+// newTestReceiver returns the receiver of config, whose local engine time and
+// time records run on a clock of their own, which starts at a fixed instant
+// and moves only when the returned advance is called.
 func newTestReceiver(tb testing.TB, config ReceiverConfig) (r *Receiver, advance func(time.Duration)) {
 	tb.Helper()
-	r, err := NewReceiver(config)
-	require.NoError(tb, err)
+	var mu sync.Mutex
 	clock := time.Unix(1_000_000_000, 0)
-	r.times.now = func() time.Time { return clock }
-	return r, func(d time.Duration) { clock = clock.Add(d) }
+	r, err := newReceiver(config, func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		return clock
+	})
+	require.NoError(tb, err)
+	return r, func(d time.Duration) {
+		mu.Lock()
+		defer mu.Unlock()
+		clock = clock.Add(d)
+	}
 }
 
 // receiverAt returns a receiver (newTestReceiver) of users, each registered
@@ -51,7 +60,7 @@ func receiverFor(tb testing.TB, datagram []byte, users ...User) *Receiver {
 // receiveMessage returns the message r accepted from datagram, or nil with
 // the error.
 func receiveMessage(r *Receiver, datagram []byte) (*Message, error) {
-	n, err := r.Receive(datagram)
+	n, _, err := r.Receive(datagram)
 	if err != nil {
 		return nil, err
 	}

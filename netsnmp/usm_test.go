@@ -91,7 +91,7 @@ func TestUSM(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			n, err := r.Receive(bytes.Clone(want.message))
+			n, _, err := r.Receive(bytes.Clone(want.message))
 			if err != nil {
 				t.Fatalf("Receive of the net-snmp-secured message: %v", err)
 			}

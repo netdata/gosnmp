@@ -175,10 +175,10 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: 1.27.x
-      - name: Start snmpd with the test users
+      - name: Start snmpd with the test users; install snmpinform
         run: |
           sudo apt-get update
-          sudo apt-get -y install snmpd
+          sudo apt-get -y install snmpd snmp
           sudo ./snmp_users.sh
           sudo sed -i -e 's/^agentaddress.*$/agentaddress 127.0.0.1/' /etc/snmp/snmpd.conf
           sudo service snmpd restart

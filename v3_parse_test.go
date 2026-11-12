@@ -236,7 +236,7 @@ func TestV3ReceiverRules(t *testing.T) {
 			if _, err := NewReceiver(ReceiverConfig{Users: []EngineUser{{EngineID: []byte(codecEngineID), User: u}}}); err != nil {
 				return err
 			}
-			_, err := receiverFor(t, in, u).Receive(in)
+			_, _, err := receiverFor(t, in, u).Receive(in)
 			return err
 		}},
 		{"DecodeMessage", func(u User, in []byte) error {
@@ -309,7 +309,7 @@ func TestV3DecodeKeyDerivation(t *testing.T) {
 			r, _ := newTestReceiver(t, ReceiverConfig{LearnUsers: []User{reeder}, MaxLearned: 1})
 			in := tc.in(newEngine())
 			before := passwordCache.Len()
-			_, _ = r.Receive(in)
+			_, _, _ = r.Receive(in)
 			assert.Equal(t, tc.want, passwordCache.Len()-before)
 		})
 	}
@@ -541,48 +541,6 @@ func TestV3ReplyDecode(t *testing.T) {
 	})
 }
 
-// TestV3InformResponse pins the round trip Netdata's trap receiver makes for
-// an inform: it decodes the InformRequest with its user registered for the
-// inform's engine ID, its own (the receiver of a notification of the
-// Confirmed Class is the authoritative engine, RFC 3414 section 1.5.1),
-// copies the decoded USM header into the response and encodes it with that
-// user; the sender must decode the response as authentic, with a receiver of
-// its user registered for the response's engine ID.
-func TestV3InformResponse(t *testing.T) {
-	tests := map[string]struct {
-		priv PrivProtocol
-	}{
-		"authNoPriv": {priv: NoPriv},
-		"authPriv":   {priv: AES},
-	}
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			sender := signedTestUser(SHA, tc.priv, "codec-user")
-			inform, err := (&Message{
-				Version: Version3, SecurityLevel: signedTestFlags(tc.priv),
-				SecurityParameters: signedTestHeader(usmOtherEngineID, "codec-user"), MsgID: 11, PDUType: InformRequest,
-				RequestID: 12, VarBinds: usmPlainVars,
-			}).Encode(&sender)
-			require.NoError(t, err)
-
-			receiver := usmUser(SHA, "codec-auth-pass", tc.priv, "codec-priv-pass")
-			got, err := receiveMessage(receiverAt(t, []byte(usmOtherEngineID), receiver), bytes.Clone(inform))
-			require.NoError(t, err)
-
-			resp, err := (&Message{
-				Version: Version3, SecurityLevel: got.SecurityLevel,
-				SecurityParameters: got.SecurityParameters, MsgID: got.MsgID, PDUType: Response,
-				RequestID: got.RequestID, VarBinds: got.VarBinds,
-			}).Encode(&receiver)
-			require.NoError(t, err)
-
-			back, err := receiveMessage(receiverFor(t, resp, sender), resp)
-			require.NoError(t, err)
-			assert.Equal(t, usmPlainVars, back.VarBinds)
-		})
-	}
-}
-
 // TestV3ParseErrorTexts pins the words of the header parse's new errors that
 // Netdata's trap receiver maps to labels: a message of another security model
 // is a USM failure, a malformed msgFlags a decode failure.
@@ -639,7 +597,7 @@ func TestV3DigestField(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := receiverFor(t, tc.in, decoder().User).Receive(tc.in)
+			_, _, err := receiverFor(t, tc.in, decoder().User).Receive(tc.in)
 			require.ErrorIs(t, err, tc.want)
 		})
 	}
