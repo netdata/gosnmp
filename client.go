@@ -80,11 +80,12 @@ type Config struct {
 
 // Client is an SNMP client: NewClient makes it from a Config, Connect opens
 // its connection, and its methods send requests. A zero Client, which
-// NewClient did not make, has a zero configuration without its defaults: it
-// can only encode SNMPv1 messages and decode messages. A Client is not safe for
-// concurrent use, Close excepted: requests share its connection, receive
-// buffer and deadline, so run one request at a time, or give each goroutine
-// its own Client.
+// NewClient did not make, has a zero configuration without its defaults: it can
+// only encode SNMPv1 messages, whose request IDs it numbers from 1 where
+// NewClient draws a random start, and decode messages. A Client is not safe for
+// concurrent use, Close excepted: requests share its connection, receive buffer
+// and deadline, so run one request at a time, or give each goroutine its own
+// Client.
 type Client struct {
 	// config is the configuration NewClient checked, with its defaults.
 	config Config
@@ -123,10 +124,12 @@ type Client struct {
 // Version other than the three, and a negative Timeout, Retries or MaxOids
 // fail it; so do, for SNMPv3, a security level other than the three, a user
 // the level does not fit (a name outside 1..32 octets, a protocol out of its
-// set, a protocol the level needs missing, a protocol without a passphrase)
-// and keys that do not derive (FIPS 140-only mode refuses MD5 and SHA-1). The
-// SNMPv3 fields of an SNMPv1 or SNMPv2c client are not checked. Its errors
-// name the field. The client keeps the configuration: nothing changes it.
+// set, a protocol the level needs missing, a protocol without a passphrase),
+// keys that do not derive, at any level (FIPS 140-only mode refuses MD5 and
+// SHA-1), and, at AuthPriv, a privacy cipher the process cannot use (FIPS
+// 140-only mode refuses DES and AES-CFB, so every privacy protocol). The SNMPv3
+// fields of an SNMPv1 or SNMPv2c client are not checked. Its errors name the
+// field. The client keeps the configuration: nothing changes it.
 func NewClient(config Config) (*Client, error) {
 	if err := config.check(); err != nil {
 		return nil, err
@@ -162,8 +165,16 @@ func (c *Config) check() error {
 	}
 	// The keys derive for the engine ID discovery finds; before it, they must
 	// derive all the same: FIPS 140-only mode, for one, refuses MD5 and SHA-1.
-	if _, err := c.User.localize(nil); err != nil {
+	keys, err := c.User.localize(nil)
+	if err != nil {
 		return fmt.Errorf("Config.User: %w", err)
+	}
+	// A level with privacy encrypts every request with the cipher, which the
+	// process must be able to use: FIPS 140-only mode refuses DES and AES-CFB.
+	if c.SecurityLevel.privFlag() {
+		if err := keys.privProtocol.spec().CheckUse(keys.priv); err != nil {
+			return fmt.Errorf("Config.User.PrivProtocol %v: %w", c.User.PrivProtocol, err)
+		}
 	}
 	return nil
 }

@@ -587,6 +587,36 @@ func TestUSMFIPS140OnlyEncodeNoAuth(t *testing.T) {
 	}
 }
 
+// TestUSMFIPS140OnlyEncrypt checks, when run with GODEBUG=fips140=only, that
+// Message.Encode refuses to encrypt with a cipher the mode refuses (DES,
+// AES-CFB), for every privacy protocol, with a local failure that unwraps to
+// no category; NewClient refuses such a client before any request
+// (TestEngineV3FIPS140OnlyNewClient).
+func TestUSMFIPS140OnlyEncrypt(t *testing.T) {
+	if !fips140.Enforced() {
+		t.Skip("run with GODEBUG=fips140=only")
+	}
+	for _, priv := range usmPrivProtocols[1:] {
+		t.Run(priv.String(), func(t *testing.T) {
+			cipher := "AES-CFB"
+			if priv == DES {
+				cipher = "DES"
+			}
+			user := User{
+				Name: "codec-user", AuthProtocol: SHA256, AuthPassphrase: "codec-auth-pass",
+				PrivProtocol: priv, PrivPassphrase: "codec-priv-pass",
+			}
+			out, err := (&Message{
+				Version: Version3, SecurityLevel: AuthPriv, PDUType: SNMPv2Trap, VarBinds: usmCharVarbinds,
+				SecurityParameters: SecurityParameters{AuthoritativeEngineID: []byte(usmCharEngineID), UserName: "codec-user"},
+			}).Encode(&user)
+			require.EqualError(t, err, "usm: encrypting: "+cipher+" is not allowed in FIPS 140-only mode")
+			assert.Nil(t, out)
+			assert.Empty(t, categoriesOf(err), "a local failure is in no category")
+		})
+	}
+}
+
 // TestUSMFIPS140OnlyDecrypt checks, when run with GODEBUG=fips140=only, that
 // a receiver whose privacy cipher the mode refuses (DES, AES-CFB) rejects an
 // authPriv message made with enforcement off with the refusal, a local
@@ -621,8 +651,10 @@ func TestUSMFIPS140OnlyDecrypt(t *testing.T) {
 				}).Encode(&user)
 				require.NoError(t, err)
 			})
+			// The decoders take the message's level: a client at authNoPriv,
+			// which NewClient takes in this mode, decodes the authPriv one.
 			client := func() *Client {
-				return mustClient(Config{Version: Version3, SecurityLevel: AuthPriv, User: user})
+				return mustClient(Config{Version: Version3, SecurityLevel: AuthNoPriv, User: user})
 			}
 			paths := map[string]func() error{
 				"receiver": func() error {

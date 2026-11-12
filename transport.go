@@ -137,12 +137,12 @@ func (a attemptInterrupts) clear() {
 
 // interrupt makes the pending and later reads and writes of attempt seq fail
 // at once, with a deadline in the past on its connection, while the attempt
-// runs; once one interrupt has started, others do nothing. It sets the
+// runs; the context's AfterFunc runs it at most once per attempt. It sets the
 // deadline without mu, which a slow SetDeadline then cannot hold.
 func (c *Client) interrupt(seq uint64) {
 	c.mu.Lock()
 	conn := c.attempt.conn
-	if conn == nil || c.attempt.seq != seq || c.attempt.interrupted != nil {
+	if conn == nil || c.attempt.seq != seq {
 		c.mu.Unlock()
 		return
 	}

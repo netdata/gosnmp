@@ -166,7 +166,8 @@
 // discarded replies included; errors of the caller's own code (a context it
 // gave, and a panic in one) pass through unchanged. A failed request returns no
 // message, so this is how a caller tells an agent that answered from one that
-// did not.
+// did not, but for a walk whose answer fails its increasing check: that error
+// is not marked (see [Client.BulkWalkAll]).
 //
 // The categories are variables only so that errors.Is can match them; do not
 // assign to them. The library makes some of its errors with their values when
@@ -330,7 +331,9 @@
 // context engine ID: see below). An answer without an engine ID ends the
 // request with an error that matches [ErrUnknownEngineID]: the client learns
 // nothing, and the next request discovers again. Keys that do not derive (FIPS
-// 140-only mode refuses MD5 and SHA-1) fail NewClient.
+// 140-only mode refuses MD5 and SHA-1) fail NewClient, and so does, at
+// AuthPriv, a privacy cipher the mode refuses (DES and AES-CFB, so every
+// privacy protocol).
 //
 // The engine boots and time are a clock: the latest values received and when,
 // advancing with the local clock (RFC 3414 section 2.3); each attempt of a
@@ -427,11 +430,12 @@
 // protocol's hash (RFC 3414, RFC 7860), a privacy key the cipher's key (AES's,
 // or DES's 16 octets of key and pre-IV); the salt of an encrypted message is 8
 // octets. Signing, verifying, encrypting and decrypting refuse anything else,
-// and AES-CFB in FIPS 140-only mode, with an error. A [User] holds passphrases,
-// not keys: the keys derive from non-empty passphrases of any length (RFC 3414
-// section 11.2 asks for at least 8 octets), localized to the engine ID at hand
-// (RFC 3414 section 2.6). A client derives them once when it is made, for no
-// engine ID, to check that they derive, and when its engine state takes an
+// and DES and AES-CFB in FIPS 140-only mode, with an error. A [User] holds
+// passphrases, not keys: the keys derive from non-empty passphrases of any
+// length (RFC 3414 section 11.2 asks for at least 8 octets), localized to the
+// engine ID at hand (RFC 3414 section 2.6). A client derives them once when it
+// is made, for no engine ID, to check that they derive (and, at AuthPriv, that
+// the process may use the privacy cipher), and when its engine state takes an
 // engine ID (discovery, an answer it takes, a Report lent to a resend);
 // decoding a reply derives none. [Client.DecodeMessage] derives them for the
 // engine ID a message names, the authentication key when the message asks for
@@ -468,20 +472,22 @@
 // set for requests and informs, clear for responses, reports and traps.
 //
 // The decoder applies one rule per value type and header field, with the same
-// results on every platform. An INTEGER, value or header field, has one to
-// eight octets and is cut to 32 bits by two's complement (an Integer32, RFC
-// 2578 section 7.1.1); Uinteger32, Counter32, Gauge32 and TimeTicks values are
-// unsigned, of one to eight octets or nine with a leading zero, and keep their
-// low 32 bits; an OBJECT IDENTIFIER has at most 128 arcs. A header field must
-// be of its type and, once cut, within its range, or it fails the message, as a
-// missing one does: the version SNMPv1, SNMPv2c or SNMPv3; the community,
-// contextEngineID and contextName OCTET STRINGs; the error status 0..255; the
-// error index and non-repeaters not negative, read as 255 above it (the most
-// their fields hold); max-repetitions not negative; an SNMPv1 trap's enterprise
-// an OBJECT IDENTIFIER, its agent address four octets, an IpAddress or an OCTET
-// STRING, and its timestamp TimeTicks or another unsigned type, as net-snmp
-// v5.9.4 takes it. The SNMPv3 header takes net-snmp's field rules (RFC 3412
-// section 6, RFC 3414 section 2.4): msgID 0..2147483647, msgMaxSize
+// results on every platform. An INTEGER has one to eight octets: an Integer
+// value is cut to 32 bits by two's complement (an Integer32, RFC 2578 section
+// 7.1.1), an INTEGER header field is read whole; Uinteger32, Counter32, Gauge32
+// and TimeTicks values are unsigned, of one to eight octets or nine with a
+// leading zero, and keep their low 32 bits; an OBJECT IDENTIFIER has at most
+// 128 arcs. A header field must be of its type and within its range, or it
+// fails the message, as a missing one does: the version SNMPv1, SNMPv2c or
+// SNMPv3; the community, contextEngineID and contextName OCTET STRINGs; the
+// request ID an Integer32, or its 32 bits sent unsigned; the error status
+// 0..255; the error index and non-repeaters 0..2147483647, read as 255 above
+// it (the most their fields hold); max-repetitions 0..2147483647; an SNMPv1
+// trap's enterprise an OBJECT IDENTIFIER, its agent address four octets, an
+// IpAddress or an OCTET STRING, its generic and specific trap Integer32s, and
+// its timestamp TimeTicks or another unsigned type, as net-snmp v5.9.4 takes
+// it, read as such a value. The SNMPv3 header takes net-snmp's field rules
+// (RFC 3412 section 6, RFC 3414 section 2.4): msgID 0..2147483647, msgMaxSize
 // 484..2147483647, msgFlags an OCTET STRING of one octet, the User-based
 // Security Model's number, flags that do not ask for privacy without
 // authentication, the USM fields of their types, an engine ID of at most 64
@@ -505,9 +511,15 @@
 // from net-snmp v5.9.4:
 //
 //   - an empty OBJECT IDENTIFIER reads as .0.0, not .0
-//   - an INTEGER outside the int32 range keeps its low 32 bits as an int32
-//     (3000000000 reads -1294967296), where net-snmp keeps them unsigned above
-//     it and negates them below it
+//   - an Integer value outside the int32 range keeps its low 32 bits as an
+//     int32 (3000000000 reads -1294967296), where net-snmp keeps them unsigned
+//     above it and negates them below it
+//   - an INTEGER header field outside its range fails the message also when
+//     its low 32 bits lie in it, where net-snmp cuts it to 32 bits first (a
+//     version of 2^32+1 reads as SNMPv2c there, an error status of 2^32 as
+//     noError)
+//   - an SNMPv1 generic or specific trap of 2^31..2^32-1, sent unsigned, fails
+//     the message, where net-snmp keeps it (the request ID keeps those 32 bits)
 //   - the community and context fields take OCTET STRINGs only, and an SNMPv1
 //     agent address four octets or an empty IpAddress, where net-snmp takes
 //     other string types (of up to four octets for the agent address)

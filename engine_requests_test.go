@@ -1397,38 +1397,40 @@ func (c *errOnCall) Err() error {
 // without a reply, that once Close has run the request fails with the
 // client's closed error, which wraps net.ErrClosed: Close runs as an attempt
 // ends otherwise, or as the request decides whether to retry, through the
-// connection's or the context's code.
+// connection's or the context's code. An attempt Close ends in the
+// connection's code runs with retries left too: the retry decision and the
+// next attempt, which fails at once on the closed client, write nothing more.
 func TestCloseWinsOverAttemptOutcome(t *testing.T) {
 	tests := map[string]struct {
 		retries int
 		// set makes the attempt end so, closing x as it does; cancel ends ctx.
 		set func(x *Client, c *fakeTransport, cancel context.CancelFunc)
 		// errCall, when set, is the call of the context's Err that cancels it
-		// and closes x, its last call, after writes writes.
+		// and closes x, its last call. writes is the number of writes.
 		errCall, writes int
 	}{
-		"read timeout": {set: func(x *Client, c *fakeTransport, _ context.CancelFunc) {
+		"read timeout": {writes: 1, set: func(x *Client, c *fakeTransport, _ context.CancelFunc) {
 			c.failRead = func(int) error { _ = x.Close(); return os.ErrDeadlineExceeded }
 		}},
-		"write timeout": {set: func(x *Client, c *fakeTransport, _ context.CancelFunc) {
+		"write timeout": {writes: 1, set: func(x *Client, c *fakeTransport, _ context.CancelFunc) {
 			c.failWrite = func(int) error { _ = x.Close(); return os.ErrDeadlineExceeded }
 		}},
-		"read error": {set: func(x *Client, c *fakeTransport, _ context.CancelFunc) {
+		"read error": {writes: 1, set: func(x *Client, c *fakeTransport, _ context.CancelFunc) {
 			c.failRead = func(int) error { _ = x.Close(); return refused }
 		}},
-		"write error": {set: func(x *Client, c *fakeTransport, _ context.CancelFunc) {
+		"write error": {writes: 1, set: func(x *Client, c *fakeTransport, _ context.CancelFunc) {
 			c.failWrite = func(int) error { _ = x.Close(); return errEngineWrite }
 		}},
-		"closed read": {set: func(x *Client, c *fakeTransport, _ context.CancelFunc) {
+		"closed read": {writes: 1, set: func(x *Client, c *fakeTransport, _ context.CancelFunc) {
 			c.failRead = func(int) error { _ = x.Close(); return closedRead }
 		}},
-		"deadline failure": {set: func(x *Client, c *fakeTransport, _ context.CancelFunc) {
+		"deadline failure": {writes: 0, set: func(x *Client, c *fakeTransport, _ context.CancelFunc) {
 			c.deadlineErr = errors.New("codec deadline failure")
 			c.beforeDeadline = func() { _ = x.Close() }
 		}},
 		// The context's interrupt ends the read, and the caller closes the
 		// client, as a caller that ends a job does.
-		"context interrupt": {set: func(x *Client, c *fakeTransport, cancel context.CancelFunc) {
+		"context interrupt": {writes: 1, set: func(x *Client, c *fakeTransport, cancel context.CancelFunc) {
 			c.failRead = func(int) error { cancel(); _ = x.Close(); return os.ErrDeadlineExceeded }
 		}},
 		// Every attempt times out. The context's Err runs at each attempt's
@@ -1446,28 +1448,34 @@ func TestCloseWinsOverAttemptOutcome(t *testing.T) {
 		},
 	}
 	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			conn := newFakeTransport(nil, nil)
-			config := engineConfig(Version2c)
-			config.Retries = tc.retries
-			x := newEngineClientFrom(t, conn, config)
-			base, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			ctx := base
-			if tc.errCall != 0 {
-				ctx = &errOnCall{Context: base, n: tc.errCall, act: func() { cancel(); _ = x.Close() }}
-			}
-			tc.set(x, conn, cancel)
+		retries := []int{tc.retries}
+		if tc.errCall == 0 {
+			retries = []int{0, 2}
+		}
+		for _, r := range retries {
+			t.Run(fmt.Sprintf("%s/retries %d", name, r), func(t *testing.T) {
+				conn := newFakeTransport(nil, nil)
+				config := engineConfig(Version2c)
+				config.Retries = r
+				x := newEngineClientFrom(t, conn, config)
+				base, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				ctx := base
+				if tc.errCall != 0 {
+					ctx = &errOnCall{Context: base, n: tc.errCall, act: func() { cancel(); _ = x.Close() }}
+				}
+				tc.set(x, conn, cancel)
 
-			res, err := x.Get(ctx, []string{engineOID})
-			assert.Nil(t, res)
-			require.ErrorIs(t, err, errClosed)
-			require.ErrorIs(t, err, net.ErrClosed)
-			if c, ok := ctx.(*errOnCall); ok {
-				assert.Equal(t, [2]int{tc.errCall, tc.writes}, [2]int{c.calls, conn.writes},
-					"the context's Err calls and the writes: Close ran where the case says")
-			}
-		})
+				res, err := x.Get(ctx, []string{engineOID})
+				assert.Nil(t, res)
+				require.ErrorIs(t, err, errClosed)
+				require.ErrorIs(t, err, net.ErrClosed)
+				assert.Equal(t, tc.writes, conn.writes, "the writes")
+				if c, ok := ctx.(*errOnCall); ok {
+					assert.Equal(t, tc.errCall, c.calls, "the context's Err calls: Close ran where the case says")
+				}
+			})
+		}
 	}
 }
 

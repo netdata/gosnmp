@@ -337,7 +337,8 @@ func decodeValue(tag ValueType, content []byte) (Value, error) {
 // int32Value decodes INTEGER content of one to eight octets and cuts it to 32
 // bits by two's complement, the width of SNMP's Integer32 (RFC 2578 section
 // 7.1.1), on every platform. net-snmp v5.9.4 cuts too, but keeps a value above
-// 2^31-1 as its low 32 bits, unsigned, which a 32-bit int cannot hold.
+// 2^31-1 as its low 32 bits, unsigned, which a 32-bit int cannot hold. It reads
+// Integer values; the INTEGER header fields are read whole (readInteger).
 func int32Value(content []byte) (int32, error) {
 	v, err := ber.Int64(content)
 	return int32(v), err //nolint:gosec // the cut
