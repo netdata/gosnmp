@@ -178,7 +178,7 @@
 2s    read from 127.0.0.2:161: 4 octets, not decodable (error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input)
 2s    hook OnRecv
 3s    read from 127.0.0.2:161: deadline
-3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
+3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, ErrASNParse, net.Error timeout)
 3s    client after: retries=2 next request id=1004
 
 == requests/answer/garbage-then-valid
@@ -356,7 +356,7 @@
 2s    read from 127.0.0.2:161: 1 "public" Response id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 2s    hook OnRecv
 3s    read from 127.0.0.2:161: deadline
-3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: the reply is of another SNMP version than the request" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
+3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: the reply is of another SNMP version than the request" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, ErrUnmatchedReply, net.Error timeout)
 3s    client after: retries=2 next request id=1004
 
 == requests/answer/other-version-then-valid
@@ -403,7 +403,7 @@
 2s    read from 127.0.0.2:161: 3 msgID=0 noAuthNoPriv user="public" engine="" boots=0 time=0 context=""/"" Response id=1003 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 2s    hook OnRecv
 3s    read from 127.0.0.2:161: deadline
-3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: the reply is of another SNMP version than the request" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
+3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: the reply is of another SNMP version than the request" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, ErrUnmatchedReply, net.Error timeout)
 3s    client after: retries=2 next request id=1004
 
 == requests/answer/other-version-v3-get-response
@@ -434,7 +434,7 @@
 2s    read from 127.0.0.2:161: 3 msgID=7 noAuthNoPriv user="public" engine="" boots=0 time=0 scoped PDU not decodable
 2s    hook OnRecv
 3s    read from 127.0.0.2:161: deadline
-3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: the reply is of another SNMP version than the request" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
+3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: the reply is of another SNMP version than the request" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, ErrUnmatchedReply, net.Error timeout)
 3s    client after: retries=2 next request id=1004
 
 == requests/answer/other-version-v3-msg-id-zero
@@ -465,7 +465,7 @@
 2s    read from 127.0.0.2:161: 3 msgID=0 noAuthNoPriv user="public" engine="" boots=0 time=0 scoped PDU not decodable
 2s    hook OnRecv
 3s    read from 127.0.0.2:161: deadline
-3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: the reply is of another SNMP version than the request" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
+3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: the reply is of another SNMP version than the request" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, ErrUnmatchedReply, net.Error timeout)
 3s    client after: retries=2 next request id=1004
 
 == requests/answer/other-version-v3-report
@@ -496,7 +496,7 @@
 2s    read from 127.0.0.2:161: 3 msgID=7 noAuthNoPriv user="public" engine="" boots=0 time=0 scoped PDU not decodable
 2s    hook OnRecv
 3s    read from 127.0.0.2:161: deadline
-3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: the reply is of another SNMP version than the request" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
+3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: the reply is of another SNMP version than the request" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, ErrUnmatchedReply, net.Error timeout)
 3s    client after: retries=2 next request id=1004
 
 == requests/answer/other-version-v3-unknown-engine-report
@@ -527,7 +527,7 @@
 2s    read from 127.0.0.2:161: 3 msgID=7 noAuthNoPriv user="public" engine="" boots=0 time=0 scoped PDU not decodable
 2s    hook OnRecv
 3s    read from 127.0.0.2:161: deadline
-3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: the reply is of another SNMP version than the request" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
+3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: the reply is of another SNMP version than the request" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, ErrUnmatchedReply, net.Error timeout)
 3s    client after: retries=2 next request id=1004
 
 == requests/answer/reflected-request
@@ -697,7 +697,7 @@
 2s    read from 127.0.0.2:161: 4 octets, not decodable (error verifying packet sanity: invalid packet length: TLV length exceeds the remaining input)
 2s    hook OnRecv
 3s    read from 127.0.0.2:161: deadline
-3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: error in unmarshalResponse: error parsing SNMP packet error: -1 is outside 0..255" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
+3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: error in unmarshalResponse: error parsing SNMP packet error: -1 is outside 0..255" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, ErrASNParse, net.Error timeout)
 3s    client after: retries=2 next request id=1004
 
 == requests/answer/unknown-pdu-type
@@ -728,7 +728,7 @@
 2s    read from 127.0.0.2:161: 52 octets, not decodable (unknown PDUType 0xaf)
 2s    hook OnRecv
 3s    read from 127.0.0.2:161: deadline
-3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: unknown PDUType 0xaf" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
+3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: unknown PDUType 0xaf" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, ErrASNParse, net.Error timeout)
 3s    client after: retries=2 next request id=1004
 
 == requests/answer/v1-trap
@@ -759,7 +759,7 @@
 2s    read from 127.0.0.2:161: 1 "public" Trap id=0 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
 2s    hook OnRecv
 3s    read from 127.0.0.2:161: deadline
-3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: the reply is of another SNMP version than the request" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
+3s    result: packet nil, error "request timeout (after 2 retries): last discarded reply: the reply is of another SNMP version than the request" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, ErrUnmatchedReply, net.Error timeout)
 3s    client after: retries=2 next request id=1004
 
 == requests/answer/wrong-id
@@ -1196,7 +1196,7 @@
 10ms  read: 42 octets, not decodable (invalid packet header)
 10ms  hook OnRecv
 1s    read: deadline
-1s    result: packet nil, error "request timeout (after 0 retries): last discarded reply: invalid packet header" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, net.Error timeout)
+1s    result: packet nil, error "request timeout (after 0 retries): last discarded reply: invalid packet header" *gosnmp.attemptsError (is os.ErrDeadlineExceeded, ErrASNParse, net.Error timeout)
 1s    client after: retries=0 next request id=1002
 
 == requests/deadline-error

@@ -78,7 +78,7 @@ func TestMarshalLongOctetStringFields(t *testing.T) {
 				// Longer than the decoder takes: the fields as the encoder
 				// laid them out.
 				_, err = (&Client{}).DecodeMessage(msg)
-				require.ErrorIs(t, err, ErrInvalidMsgs)
+				require.ErrorIs(t, err, ErrASNParse)
 				m := splitV3Message(t, msg)
 				if got := (fields{engineID: string(m.usm[0]), userName: string(m.usm[3])}); got != want {
 					t.Errorf("encoded %+v, want %+v", got, want)

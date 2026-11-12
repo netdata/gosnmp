@@ -34,15 +34,15 @@ decode: error (ErrDecryption)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-des/ciphertext-minus-8
-decode: error (ErrInvalidPacketLength, ErrDecryption)
+decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-des/flags-no-auth-no-priv
-decode: error (ErrInvalidMsgs)
-unmarshal-trap: error (ErrInvalidMsgs)
+decode: error (ErrASNParse)
+unmarshal-trap: error (ErrASNParse)
 
 == decrypt/sha-des/flags-auth-no-priv
-decode: error (ErrInvalidMsgs)
+decode: error (ErrASNParse)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-des/flags-privacy-only
@@ -50,12 +50,12 @@ decode: error (ErrInvalidMsgs)
 unmarshal-trap: error (ErrInvalidMsgs)
 
 == decrypt/sha-des/engine-id-empty
-decode: error (ErrInvalidPacketLength, ErrDecryption)
+decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
 unmarshal-trap: error (ErrUnknownEngineID)
 
 == decrypt/sha-des/receiver-aes
-decode: error (ErrInvalidPacketLength, ErrDecryption)
-unmarshal-trap: error (ErrInvalidPacketLength, ErrDecryption)
+decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
+unmarshal-trap: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
 
 == decrypt/sha-des/receiver-priv-pass-empty
 decode: error
@@ -91,19 +91,19 @@ decode: error (ErrDecryption)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes/ciphertext-minus-1
-decode: error (ErrInvalidPacketLength, ErrDecryption)
+decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes/ciphertext-minus-8
-decode: error (ErrInvalidPacketLength, ErrDecryption)
+decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes/flags-no-auth-no-priv
-decode: error (ErrInvalidMsgs)
-unmarshal-trap: error (ErrInvalidMsgs)
+decode: error (ErrASNParse)
+unmarshal-trap: error (ErrASNParse)
 
 == decrypt/sha-aes/flags-auth-no-priv
-decode: error (ErrInvalidMsgs)
+decode: error (ErrASNParse)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes/flags-privacy-only
@@ -111,7 +111,7 @@ decode: error (ErrInvalidMsgs)
 unmarshal-trap: error (ErrInvalidMsgs)
 
 == decrypt/sha-aes/engine-id-empty
-decode: error (ErrInvalidPacketLength, ErrDecryption)
+decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
 unmarshal-trap: error (ErrUnknownEngineID)
 
 == decrypt/sha-aes/receiver-des
@@ -152,19 +152,19 @@ decode: error (ErrDecryption)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes192/ciphertext-minus-1
-decode: error (ErrInvalidPacketLength, ErrDecryption)
+decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes192/ciphertext-minus-8
-decode: error (ErrInvalidPacketLength, ErrDecryption)
+decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes192/flags-no-auth-no-priv
-decode: error (ErrInvalidMsgs)
-unmarshal-trap: error (ErrInvalidMsgs)
+decode: error (ErrASNParse)
+unmarshal-trap: error (ErrASNParse)
 
 == decrypt/sha-aes192/flags-auth-no-priv
-decode: error (ErrInvalidMsgs)
+decode: error (ErrASNParse)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes192/flags-privacy-only
@@ -172,7 +172,7 @@ decode: error (ErrInvalidMsgs)
 unmarshal-trap: error (ErrInvalidMsgs)
 
 == decrypt/sha-aes192/engine-id-empty
-decode: error (ErrInvalidPacketLength, ErrDecryption)
+decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
 unmarshal-trap: error (ErrUnknownEngineID)
 
 == decrypt/sha-aes192/receiver-des
@@ -213,19 +213,19 @@ decode: error (ErrDecryption)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes256/ciphertext-minus-1
-decode: error (ErrInvalidPacketLength, ErrDecryption)
+decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes256/ciphertext-minus-8
-decode: error (ErrInvalidPacketLength, ErrDecryption)
+decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes256/flags-no-auth-no-priv
-decode: error (ErrInvalidMsgs)
-unmarshal-trap: error (ErrInvalidMsgs)
+decode: error (ErrASNParse)
+unmarshal-trap: error (ErrASNParse)
 
 == decrypt/sha-aes256/flags-auth-no-priv
-decode: error (ErrInvalidMsgs)
+decode: error (ErrASNParse)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes256/flags-privacy-only
@@ -233,7 +233,7 @@ decode: error (ErrInvalidMsgs)
 unmarshal-trap: error (ErrInvalidMsgs)
 
 == decrypt/sha-aes256/engine-id-empty
-decode: error (ErrInvalidPacketLength, ErrDecryption)
+decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
 unmarshal-trap: error (ErrUnknownEngineID)
 
 == decrypt/sha-aes256/receiver-des
@@ -274,19 +274,19 @@ decode: error (ErrDecryption)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes192c/ciphertext-minus-1
-decode: error (ErrInvalidPacketLength, ErrDecryption)
+decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes192c/ciphertext-minus-8
-decode: error (ErrInvalidPacketLength, ErrDecryption)
+decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes192c/flags-no-auth-no-priv
-decode: error (ErrInvalidMsgs)
-unmarshal-trap: error (ErrInvalidMsgs)
+decode: error (ErrASNParse)
+unmarshal-trap: error (ErrASNParse)
 
 == decrypt/sha-aes192c/flags-auth-no-priv
-decode: error (ErrInvalidMsgs)
+decode: error (ErrASNParse)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes192c/flags-privacy-only
@@ -294,7 +294,7 @@ decode: error (ErrInvalidMsgs)
 unmarshal-trap: error (ErrInvalidMsgs)
 
 == decrypt/sha-aes192c/engine-id-empty
-decode: error (ErrInvalidPacketLength, ErrDecryption)
+decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
 unmarshal-trap: error (ErrUnknownEngineID)
 
 == decrypt/sha-aes192c/receiver-des
@@ -335,19 +335,19 @@ decode: error (ErrDecryption)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes256c/ciphertext-minus-1
-decode: error (ErrInvalidPacketLength, ErrDecryption)
+decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes256c/ciphertext-minus-8
-decode: error (ErrInvalidPacketLength, ErrDecryption)
+decode: error (ErrDecryption) detail (ber.ErrInvalidPacketLength)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes256c/flags-no-auth-no-priv
-decode: error (ErrInvalidMsgs)
-unmarshal-trap: error (ErrInvalidMsgs)
+decode: error (ErrASNParse)
+unmarshal-trap: error (ErrASNParse)
 
 == decrypt/sha-aes256c/flags-auth-no-priv
-decode: error (ErrInvalidMsgs)
+decode: error (ErrASNParse)
 unmarshal-trap: error (ErrWrongDigest)
 
 == decrypt/sha-aes256c/flags-privacy-only

@@ -43,7 +43,17 @@ func FuzzEngineReply(f *testing.F) {
 		}
 	}
 	f.Fuzz(func(t *testing.T, which uint8, reply []byte) {
-		x := engineReplyClient(engineReplyRequests[int(which)%len(engineReplyRequests)])
+		r := engineReplyRequests[int(which)%len(engineReplyRequests)]
+		// The reason the first exchange would discard the reply for, or the
+		// error of a Report that answers it, is in exactly one category.
+		e := engineReplyExchange(t, r)
+		read, _, err := e.decode(reply, nil)
+		if err == nil {
+			_, err = e.answers(read, nil)
+		}
+		checkCategory(t, "the reply", err)
+
+		x := engineReplyClient(r)
 		// One read per exchange (the discovery, the request, a resend), each
 		// followed by the attempt's timeout.
 		exchange := []scriptedRead{{data: reply}, {err: os.ErrDeadlineExceeded}}
