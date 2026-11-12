@@ -166,7 +166,8 @@
 // discarded replies included; errors of the caller's own code (a context it
 // gave, and a panic in one) pass through unchanged. A failed request returns no
 // message, so this is how a caller tells an agent that answered from one that
-// did not.
+// did not, but for a walk whose answer fails its increasing check: that error
+// is not marked (see [Client.BulkWalkAll]).
 //
 // The categories are variables only so that errors.Is can match them; do not
 // assign to them. The library makes some of its errors with their values when

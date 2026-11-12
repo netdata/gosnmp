@@ -42,9 +42,12 @@ import (
 // error for a name in the subtree, rootOid included, that is not after the
 // requested one (each name of an answer is compared with the requested one).
 // It also differs from net-snmp where a failed Get of a leaf rootOid (a
-// timeout, a Report) fails the walk, which net-snmp ignores, and where the
-// walk stops at the first value that ends it, while net-snmp goes on printing
-// the values of the same answer that lie in the subtree.
+// timeout, a Report) fails the walk, which net-snmp ignores; where the walk
+// stops at the first value that ends it, while net-snmp goes on printing the
+// values of the same answer that lie in the subtree; where net-snmp prints the
+// varbind that fails its increasing check, which the walk does not return; and
+// where net-snmp prints every varbind of the leaf Get's answer, of which the
+// walk takes the first.
 // ctx bounds the walk, each of its requests and the Get of a leaf root: a done
 // ctx ends the walk with its error and the values before it, and a nil ctx
 // fails it before its first request is sent. maxRepetitions is the
@@ -60,9 +63,13 @@ func (c *Client) BulkWalkAll(ctx context.Context, rootOid string, maxRepetitions
 // WalkAll walks the subtree under rootOid with GETNEXT requests, one per
 // value, where BulkWalkAll asks for many at a time, and returns its values and
 // how the walk ended. It walks SNMPv1 agents too, and otherwise starts, ends
-// and fails as BulkWalkAll does; net-snmp's snmpwalk differs only for a name
-// before rootOid, which fails its increasing check where WalkAll ends (or, as
-// the first answer, gets rootOid).
+// and fails as BulkWalkAll does. It differs from net-snmp's snmpwalk where
+// BulkWalkAll differs from snmpbulkwalk, and for a name before rootOid, which
+// snmpwalk takes in the subtree and so fails its increasing check, where
+// WalkAll ends (or, as the first answer, gets rootOid); snmpwalk also checks
+// each name against the one before it in the same answer, where WalkAll checks
+// it against the requested one, which differs only for an answer of more than
+// the one varbind it asks for.
 func (c *Client) WalkAll(ctx context.Context, rootOid string) (results []VarBind, end WalkEnd, err error) {
 	return c.walk(ctx, GetNextRequest, rootOid, 0)
 }

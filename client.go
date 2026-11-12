@@ -80,11 +80,12 @@ type Config struct {
 
 // Client is an SNMP client: NewClient makes it from a Config, Connect opens
 // its connection, and its methods send requests. A zero Client, which
-// NewClient did not make, has a zero configuration without its defaults: it
-// can only encode SNMPv1 messages and decode messages. A Client is not safe for
-// concurrent use, Close excepted: requests share its connection, receive
-// buffer and deadline, so run one request at a time, or give each goroutine
-// its own Client.
+// NewClient did not make, has a zero configuration without its defaults: it can
+// only encode SNMPv1 messages, whose request IDs it numbers from 1 where
+// NewClient draws a random start, and decode messages. A Client is not safe for
+// concurrent use, Close excepted: requests share its connection, receive buffer
+// and deadline, so run one request at a time, or give each goroutine its own
+// Client.
 type Client struct {
 	// config is the configuration NewClient checked, with its defaults.
 	config Config
