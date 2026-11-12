@@ -39,7 +39,7 @@ func main() {
 		oid = flag.Args()[1]
 	}
 
-	client := &gosnmp.GoSNMP{
+	client := &gosnmp.Client{
 		Target:    target,
 		Port:      161,
 		Community: community,
@@ -55,8 +55,8 @@ func main() {
 	defer client.Close()
 
 	values, err := client.BulkWalkAll(oid)
-	for _, pdu := range values {
-		printValue(pdu)
+	for _, vb := range values {
+		printValue(vb)
 	}
 	if err != nil {
 		fmt.Printf("Walk Error: %v\n", err)
@@ -64,14 +64,14 @@ func main() {
 	}
 }
 
-func printValue(pdu gosnmp.SnmpPDU) {
-	fmt.Printf("%s = ", pdu.Name)
+func printValue(vb gosnmp.VarBind) {
+	fmt.Printf("%s = ", vb.Name)
 
-	switch pdu.Type {
+	switch vb.Type {
 	case gosnmp.OctetString:
-		b := pdu.Value.([]byte)
+		b := vb.Value.([]byte)
 		fmt.Printf("STRING: %s\n", string(b))
 	default:
-		fmt.Printf("TYPE %d: %d\n", pdu.Type, gosnmp.ToBigInt(pdu.Value))
+		fmt.Printf("TYPE %d: %d\n", vb.Type, gosnmp.ToBigInt(vb.Value))
 	}
 }

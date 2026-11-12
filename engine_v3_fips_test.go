@@ -19,7 +19,7 @@ import (
 
 // getFirstOf2 runs two Gets, records the first one's result and returns the
 // second's.
-func getFirstOf2(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+func getFirstOf2(x *Client, a *fakeV3Agent) (*Message, error) {
 	res, err := x.Get([]string{engineOID})
 	a.tr.addf("first Get: %s", describeEngineResult(res, err))
 	return x.Get([]string{engineOID})
@@ -38,7 +38,7 @@ func v3FIPSScenarios() map[string]v3Scenario {
 		"discovery/sha512-aes256c": {user: "codec-sha512-aes256c"},
 		// A refused key derivation for a given engine ID ends the request.
 		"known-engine/md5": {
-			user: "codec-md5", setup: func(_ *GoSNMP, sp *UsmSecurityParameters) { sp.AuthoritativeEngineID = agentEngineID },
+			user: "codec-md5", setup: func(_ *Client, sp *UsmSecurityParameters) { sp.AuthoritativeEngineID = agentEngineID },
 		},
 	}
 }
@@ -75,8 +75,8 @@ func TestEngineV3FIPS140OnlyDiscoveryPreflight(t *testing.T) {
 	}
 	tests := []struct {
 		name        string
-		auth        SnmpV3AuthProtocol
-		priv        SnmpV3PrivProtocol
+		auth        AuthProtocol
+		priv        PrivProtocol
 		authKeyOnly bool
 		wantErr     string
 	}{
@@ -139,7 +139,7 @@ func TestEngineV3FIPS140OnlyDiscoveryPreflight(t *testing.T) {
 				if tc.priv > NoPriv {
 					flags = AuthPriv
 				}
-				x := newEngineClientFrom(t, tr, fakePacketTransport{c}, &GoSNMP{
+				x := newEngineClientFrom(t, tr, fakePacketTransport{c}, &Client{
 					Version: Version3, MsgFlags: flags, SecurityModel: UserSecurityModel,
 					SecurityParameters: sp, ContextEngineID: "codec-context", Timeout: time.Second, Retries: 2,
 				})

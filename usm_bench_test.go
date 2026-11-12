@@ -12,7 +12,7 @@ import (
 // MD5 and SHA extend), with and without the password-to-key cache.
 func BenchmarkUSMKeys(b *testing.B) {
 	for _, cached := range []bool{true, false} {
-		for _, auth := range []SnmpV3AuthProtocol{MD5, SHA, SHA512} {
+		for _, auth := range []AuthProtocol{MD5, SHA, SHA512} {
 			name := auth.String() + "/cached"
 			if !cached {
 				name = auth.String() + "/uncached"
@@ -44,16 +44,16 @@ func BenchmarkUSMKeys(b *testing.B) {
 
 // usmBenchPrivProtocols are the privacy protocols the USM message benchmarks
 // use with SHA authentication.
-var usmBenchPrivProtocols = []SnmpV3PrivProtocol{NoPriv, DES, AES, AES256, AES256C}
+var usmBenchPrivProtocols = []PrivProtocol{NoPriv, DES, AES, AES256, AES256C}
 
-// BenchmarkUSMEncode measures MarshalMsg of a secured SNMPv3 trap.
+// BenchmarkUSMEncode measures Message.Encode of a secured SNMPv3 trap.
 func BenchmarkUSMEncode(b *testing.B) {
 	for _, priv := range usmBenchPrivProtocols {
 		b.Run(priv.String(), func(b *testing.B) {
 			pkt := usmCharPacket(b, priv, usmCharVarbinds)
 			b.ReportAllocs()
 			for b.Loop() {
-				if _, err := pkt.MarshalMsg(); err != nil {
+				if _, err := pkt.Encode(); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -109,7 +109,7 @@ func BenchmarkUSMDecodeTable(b *testing.B) {
 			if err := table.Add("codec-user", usmDecoder(SHA, "codec-auth-pass", priv, "codec-priv-pass")().SecurityParameters); err != nil {
 				b.Fatal(err)
 			}
-			x := &GoSNMP{Version: Version3, TrapSecurityParametersTable: table}
+			x := &Client{Version: Version3, TrapSecurityParametersTable: table}
 			in := make([]byte, len(data))
 			b.ReportAllocs()
 			for b.Loop() {

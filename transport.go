@@ -18,7 +18,7 @@ import (
 // its requests. It sends nothing, so it succeeds whether or not an agent
 // answers. The new connection replaces the client's, which Connect closes; when
 // Connect fails, the client keeps the connection it had.
-func (x *GoSNMP) Connect() error {
+func (x *Client) Connect() error {
 	if err := x.prepare(); err != nil {
 		return err
 	}
@@ -44,7 +44,7 @@ func (x *GoSNMP) Connect() error {
 // connection or Conn is set (see the package documentation). Only the first
 // call closes the connection; later calls, and calls on a client without a
 // connection, return nil.
-func (x *GoSNMP) Close() error {
+func (x *Client) Close() error {
 	conn, attempt := x.markClosed()
 	x.interrupt(attempt)
 	if conn == nil {
@@ -56,7 +56,7 @@ func (x *GoSNMP) Close() error {
 // markClosed marks the client closed and returns the connection Conn held,
 // which it removes, and the number of the running attempt, for Close to
 // interrupt.
-func (x *GoSNMP) markClosed() (net.Conn, uint64) {
+func (x *Client) markClosed() (net.Conn, uint64) {
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	conn := x.Conn
@@ -78,7 +78,7 @@ type runningAttempt struct {
 // which Close interrupts, and which ctx interrupts once it is done. The
 // attempt calls it after setting its deadline, which would otherwise undo an
 // interrupt, and ends it with end.
-func (x *GoSNMP) interruptible(ctx context.Context, conn net.Conn) attemptInterrupts {
+func (x *Client) interruptible(ctx context.Context, conn net.Conn) attemptInterrupts {
 	x.mu.Lock()
 	x.attempt.seq++
 	x.attempt.conn = conn
@@ -102,7 +102,7 @@ func (x *GoSNMP) interruptible(ctx context.Context, conn net.Conn) attemptInterr
 
 // attemptInterrupts are the interrupts of attempt seq.
 type attemptInterrupts struct {
-	x           *GoSNMP
+	x           *Client
 	seq         uint64
 	stopContext func() bool
 }
@@ -135,7 +135,7 @@ func (a attemptInterrupts) clear() {
 // at once, with a deadline in the past on its connection, while the attempt
 // runs; once one interrupt has started, others do nothing. It sets the
 // deadline without mu, which a slow SetDeadline then cannot hold.
-func (x *GoSNMP) interrupt(seq uint64) {
+func (x *Client) interrupt(seq uint64) {
 	x.mu.Lock()
 	conn := x.attempt.conn
 	if conn == nil || x.attempt.seq != seq || x.attempt.interrupted != nil {
@@ -152,13 +152,13 @@ func (x *GoSNMP) interrupt(seq uint64) {
 // errNoConn is the error of a request on a client without a connection, and
 // errClosed after Close.
 var (
-	errNoConn = errors.New("&GoSNMP.Conn is missing. Provide a connection or use Connect()")
+	errNoConn = errors.New("&Client.Conn is missing. Provide a connection or use Connect()")
 	errClosed = fmt.Errorf("the client was closed: %w", net.ErrClosed)
 )
 
 // isClosed reports whether Close closed the client's connection, which no
 // Connect or Conn has replaced since.
-func (x *GoSNMP) isClosed() bool {
+func (x *Client) isClosed() bool {
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	return x.Conn == nil && x.closed
@@ -166,7 +166,7 @@ func (x *GoSNMP) isClosed() bool {
 
 // connection returns the connection Conn holds, which an attempt of a request
 // uses. It fails without a connection, with net.ErrClosed after Close.
-func (x *GoSNMP) connection() (net.Conn, error) {
+func (x *Client) connection() (net.Conn, error) {
 	x.mu.Lock()
 	defer x.mu.Unlock()
 	switch {

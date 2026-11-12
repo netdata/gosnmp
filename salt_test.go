@@ -17,22 +17,22 @@ import (
 // security parameters), is encrypted with a salt of its own: each encoding
 // draws a new one, neither the received salt nor the previous encoding's.
 func TestReencodeDrawsNewSalt(t *testing.T) {
-	for _, priv := range []SnmpV3PrivProtocol{DES, AES, AES256C} {
+	for _, priv := range []PrivProtocol{DES, AES, AES256C} {
 		t.Run(priv.String(), func(t *testing.T) {
 			data := usmCharTrap(t, priv, usmCharVarbinds)
 			inSalt := splitV3Message(t, data).usm[5]
 
 			decoder := usmDecoder(SHA, "codec-auth-pass", priv, "codec-priv-pass")()
-			in, err := decoder.SnmpDecodePacket(bytes.Clone(data))
+			in, err := decoder.DecodeMessage(bytes.Clone(data))
 			require.NoError(t, err)
 			require.Equal(t, inSalt, in.SecurityParameters.usm().PrivacyParameters)
 
 			respond := func() []byte {
 				t.Helper()
 				resp := *in
-				resp.PDUType = GetResponse
+				resp.PDUType = Response
 				resp.SecurityParameters = in.SecurityParameters.Copy()
-				out, marshalErr := resp.MarshalMsg()
+				out, marshalErr := resp.Encode()
 				require.NoError(t, marshalErr)
 				return out
 			}
@@ -44,14 +44,14 @@ func TestReencodeDrawsNewSalt(t *testing.T) {
 
 			// The response decrypts with its own salt, the context fields too
 			// (a wrong DES IV garbles only the first eight octets).
-			got, err := decoder.SnmpDecodePacket(first)
+			got, err := decoder.DecodeMessage(first)
 			require.NoError(t, err)
 			type scoped struct {
 				contextEngineID, contextName string
-				variables                    []SnmpPDU
+				variables                    []VarBind
 			}
 			assert.Equal(t, scoped{in.ContextEngineID, in.ContextName, usmCharVarbinds},
-				scoped{got.ContextEngineID, got.ContextName, got.Variables})
+				scoped{got.ContextEngineID, got.ContextName, got.VarBinds})
 		})
 	}
 }

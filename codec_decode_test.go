@@ -23,10 +23,10 @@ import (
 	"github.com/netdata/gosnmp/internal/usm"
 )
 
-// TestDecodeCharacterization pins what SnmpDecodePacket returns for every
+// TestDecodeCharacterization pins what DecodeMessage returns for every
 // fixture, crafted edge case and fuzz corpus entry: the error (by exported
 // sentinel only) or the complete packet with the Go type of every value,
-// whether the input buffer was modified, and what MarshalMsg makes of the
+// whether the input buffer was modified, and what Message.Encode makes of the
 // result. Partial results returned together with an error are not pinned.
 func TestDecodeCharacterization(t *testing.T) {
 	cases := slices.Concat(decodeFixtureCases(t), decodeCraftedCases(), decodeV3ParseCases(), decodeFuzzCorpusCases(t))
@@ -38,26 +38,26 @@ func TestDecodeCharacterization(t *testing.T) {
 	codecGolden.check(t, "decode", results)
 }
 
-// decodeCase is one SnmpDecodePacket input and the decoder configuration.
+// decodeCase is one DecodeMessage input and the decoder configuration.
 type decodeCase struct {
 	name    string
 	in      []byte
-	decoder func() *GoSNMP // nil means a zero GoSNMP
+	decoder func() *Client // nil means a zero Client
 }
 
-// dumpDecode decodes c with SnmpDecodePacket and, for a trap, UnmarshalTrap,
+// dumpDecode decodes c with DecodeMessage and, for a trap, UnmarshalTrap,
 // with trap timeliness records of its own.
 func dumpDecode(t *testing.T, c decodeCase) string {
 	useEngineTimes(t)
-	x := &GoSNMP{}
+	x := &Client{}
 	if c.decoder != nil {
 		x = c.decoder()
 	}
 
 	in := bytes.Clone(c.in)
-	var p *SnmpPacket
+	var p *Message
 	var err error
-	panicked, wroteStdout := observe(func() { p, err = x.SnmpDecodePacket(in) })
+	panicked, wroteStdout := observe(func() { p, err = x.DecodeMessage(in) })
 
 	var d dumpWriter
 	switch {
@@ -137,7 +137,7 @@ func (d *dumpWriter) linef(format string, args ...any) { d.line(fmt.Sprintf(form
 
 func (d *dumpWriter) String() string { return strings.Join(d.lines, "\n") }
 
-func dumpPacket(d *dumpWriter, p *SnmpPacket) {
+func dumpPacket(d *dumpWriter, p *Message) {
 	d.linef("version: %d (%s)", p.Version, p.Version)
 	d.linef("community: %q", p.Community)
 	if p.Version == Version3 || p.MsgID != 0 || p.MsgMaxSize != 0 || p.MsgFlags != 0 || p.SecurityModel != 0 ||
@@ -155,7 +155,7 @@ func dumpPacket(d *dumpWriter, p *SnmpPacket) {
 		d.linef("security-parameters: %T", sp)
 	}
 	d.linef("pdu: 0x%02x (%s) request-id=%d error=%d (%s) error-index=%d non-repeaters=%d max-repetitions=%d",
-		byte(p.PDUType), p.PDUType, p.RequestID, uint8(p.Error), p.Error, p.ErrorIndex, p.NonRepeaters, p.MaxRepetitions)
+		byte(p.PDUType), p.PDUType, p.RequestID, uint8(p.ErrorStatus), p.ErrorStatus, p.ErrorIndex, p.NonRepeaters, p.MaxRepetitions)
 	if p.Enterprise != "" || p.AgentAddress != "" || p.GenericTrap != 0 || p.SpecificTrap != 0 || p.Timestamp != 0 {
 		d.linef("trap-v1: enterprise=%q agent-address=%q generic=%d specific=%d timestamp=%d",
 			p.Enterprise, p.AgentAddress, p.GenericTrap, p.SpecificTrap, p.Timestamp)
@@ -163,12 +163,12 @@ func dumpPacket(d *dumpWriter, p *SnmpPacket) {
 	if p.IsInform {
 		d.line("inform: true")
 	}
-	if p.Variables == nil {
+	if p.VarBinds == nil {
 		d.line("varbinds: nil")
 	} else {
-		d.linef("varbinds: %d", len(p.Variables))
+		d.linef("varbinds: %d", len(p.VarBinds))
 	}
-	for i, v := range p.Variables {
+	for i, v := range p.VarBinds {
 		d.linef("vb[%d]: %s 0x%02x (%s) %s", i, v.Name, byte(v.Type), v.Type, dumpValue(v.Value))
 	}
 }
@@ -194,18 +194,18 @@ func dumpValue(v any) string {
 	}
 }
 
-// dumpReencode pins what MarshalMsg makes of a decoded packet. The encoder
+// dumpReencode pins what Message.Encode makes of a decoded packet. The encoder
 // draws the salt of an encrypted message: it gets the received salt when that
 // is eight octets, so that "identical" shows the codec round trip, and a fixed
 // one otherwise.
-func dumpReencode(d *dumpWriter, p *SnmpPacket, original []byte) {
+func dumpReencode(d *dumpWriter, p *Message, original []byte) {
 	usm.Salts.Set(0x0000000700000001)
 	if sp := usmOf(p.SecurityParameters); sp != nil && len(sp.PrivacyParameters) == 8 {
 		usm.Salts.Set(binary.BigEndian.Uint64(sp.PrivacyParameters))
 	}
 	var out []byte
 	var err error
-	panicked, wroteStdout := observe(func() { out, err = p.MarshalMsg() })
+	panicked, wroteStdout := observe(func() { out, err = p.Encode() })
 	switch {
 	case panicked:
 		d.line("reencode: panic")
@@ -256,7 +256,7 @@ func decodeFixtureCases(t testing.TB) []decodeCase {
 	}
 	for _, f := range []struct {
 		in      func() []byte
-		decoder func() *GoSNMP
+		decoder func() *Client
 	}{
 		{v3AuthNoPrivSHAResponse, usmDecoder(SHA, "codec-auth-pass", NoPriv, "")},
 		{v3AuthPrivSHAAESResponse, usmDecoder(SHA, "codec-auth-pass", AES, "codec-priv-pass")},
@@ -386,9 +386,9 @@ func craftedMsg(version int64, pdu []byte) []byte {
 	return tlv(0x30, intTLV(version), octets("public"), pdu)
 }
 
-// craftedValue wraps one varbind value TLV in a v2c GetResponse.
+// craftedValue wraps one varbind value TLV in a v2c Response.
 func craftedValue(value []byte) []byte {
-	return craftedMsg(1, craftedPDU(GetResponse, craftedVBL(craftedVB(value))))
+	return craftedMsg(1, craftedPDU(Response, craftedVBL(craftedVB(value))))
 }
 
 // craftedV1Trap builds a v1 Trap message from its header fields and varbind list.
@@ -414,7 +414,7 @@ func craftedUSM(engineID, boots, engineTime, user, authParams, privParams []byte
 var (
 	craftedEngineID   = tlv(byte(OctetString), []byte("\x80\x00\x1f\x88\x04codec-engine"))
 	craftedNoAuthUSM  = craftedUSM(craftedEngineID, intTLV(7), intTLV(1234), octets("codec-user"), octets(""), octets(""))
-	craftedScopedResp = tlv(0x30, craftedEngineID, octets("ctx"), craftedPDU(GetResponse, craftedVBL(craftedVB(intTLV(5)))))
+	craftedScopedResp = tlv(0x30, craftedEngineID, octets("ctx"), craftedPDU(Response, craftedVBL(craftedVB(intTLV(5)))))
 )
 
 func craftedV3NoAuth(scoped []byte) []byte {
@@ -422,9 +422,9 @@ func craftedV3NoAuth(scoped []byte) []byte {
 }
 
 // usmDecoder returns a decoder configured for the synthetic codec-user credentials.
-func usmDecoder(auth SnmpV3AuthProtocol, authPass string, priv SnmpV3PrivProtocol, privPass string) func() *GoSNMP {
-	return func() *GoSNMP {
-		return &GoSNMP{SecurityParameters: &UsmSecurityParameters{
+func usmDecoder(auth AuthProtocol, authPass string, priv PrivProtocol, privPass string) func() *Client {
+	return func() *Client {
+		return &Client{SecurityParameters: &UsmSecurityParameters{
 			UserName:                 "codec-user",
 			AuthenticationProtocol:   auth,
 			AuthenticationPassphrase: authPass,
@@ -436,8 +436,8 @@ func usmDecoder(auth SnmpV3AuthProtocol, authPass string, priv SnmpV3PrivProtoco
 
 // usmDecoderLocalized returns a decoder whose credentials are already
 // localized to the fixtures' engine ID, as they are after discovery.
-func usmDecoderLocalized(auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol) func() *GoSNMP {
-	return func() *GoSNMP {
+func usmDecoderLocalized(auth AuthProtocol, priv PrivProtocol) func() *Client {
+	return func() *Client {
 		x := usmDecoder(auth, "codec-auth-pass", priv, "codec-priv-pass")()
 		sp := x.SecurityParameters.(*UsmSecurityParameters)
 		sp.AuthoritativeEngineID = "\x80\x00\x1f\x88\x04codec-engine"
@@ -450,8 +450,8 @@ func usmDecoderLocalized(auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol) func(
 
 // usmDecoderEngineIDWithoutKeys returns a decoder that knows the fixtures'
 // engine ID but has no localized keys.
-func usmDecoderEngineIDWithoutKeys(auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol) func() *GoSNMP {
-	return func() *GoSNMP {
+func usmDecoderEngineIDWithoutKeys(auth AuthProtocol, priv PrivProtocol) func() *Client {
+	return func() *Client {
 		x := usmDecoder(auth, "codec-auth-pass", priv, "codec-priv-pass")()
 		x.SecurityParameters.(*UsmSecurityParameters).AuthoritativeEngineID = "\x80\x00\x1f\x88\x04codec-engine"
 		return x
@@ -486,21 +486,21 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/msg/length-8-octets-wrapping", in: craftedValue(cat([]byte{byte(OctetString), 0x88, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xf6}, []byte("hello")))},
 
 		// Version and community.
-		{name: "crafted/version/0", in: craftedMsg(0, craftedPDU(GetResponse, craftedVBL(nullVB)))},
-		{name: "crafted/version/2", in: craftedMsg(2, craftedPDU(GetResponse, craftedVBL(nullVB)))},
-		{name: "crafted/version/3-with-community", in: craftedMsg(3, craftedPDU(GetResponse, craftedVBL(nullVB)))},
-		{name: "crafted/version/256", in: craftedMsg(256, craftedPDU(GetResponse, craftedVBL(nullVB)))},
-		{name: "crafted/version/-1", in: craftedMsg(-1, craftedPDU(GetResponse, craftedVBL(nullVB)))},
-		{name: "crafted/version/2^32+1", in: craftedMsg(1<<32+1, craftedPDU(GetResponse, craftedVBL(nullVB)))},
-		{name: "crafted/version/octet-string", in: tlv(0x30, octets("\x01"), octets("public"), craftedPDU(GetResponse, craftedVBL(nullVB)))},
-		{name: "crafted/version/empty-integer", in: tlv(0x30, tlv(byte(Integer)), octets("public"), craftedPDU(GetResponse, craftedVBL(nullVB)))},
+		{name: "crafted/version/0", in: craftedMsg(0, craftedPDU(Response, craftedVBL(nullVB)))},
+		{name: "crafted/version/2", in: craftedMsg(2, craftedPDU(Response, craftedVBL(nullVB)))},
+		{name: "crafted/version/3-with-community", in: craftedMsg(3, craftedPDU(Response, craftedVBL(nullVB)))},
+		{name: "crafted/version/256", in: craftedMsg(256, craftedPDU(Response, craftedVBL(nullVB)))},
+		{name: "crafted/version/-1", in: craftedMsg(-1, craftedPDU(Response, craftedVBL(nullVB)))},
+		{name: "crafted/version/2^32+1", in: craftedMsg(1<<32+1, craftedPDU(Response, craftedVBL(nullVB)))},
+		{name: "crafted/version/octet-string", in: tlv(0x30, octets("\x01"), octets("public"), craftedPDU(Response, craftedVBL(nullVB)))},
+		{name: "crafted/version/empty-integer", in: tlv(0x30, tlv(byte(Integer)), octets("public"), craftedPDU(Response, craftedVBL(nullVB)))},
 		{name: "crafted/version/only", in: tlv(0x30, intTLV(1))},
-		{name: "crafted/community/empty", in: tlv(0x30, intTLV(1), octets(""), craftedPDU(GetResponse, craftedVBL(nullVB)))},
-		{name: "crafted/community/integer", in: tlv(0x30, intTLV(1), intTLV(5), craftedPDU(GetResponse, craftedVBL(nullVB)))},
-		{name: "crafted/community/long-200", in: tlv(0x30, intTLV(1), octets(long200), craftedPDU(GetResponse, craftedVBL(nullVB)))},
-		{name: "crafted/community/binary", in: tlv(0x30, intTLV(1), octets("\xff\x00\x80"), craftedPDU(GetResponse, craftedVBL(nullVB)))},
-		{name: "crafted/community/oid", in: tlv(0x30, intTLV(1), craftedOID, craftedPDU(GetResponse, craftedVBL(nullVB)))},
-		{name: "crafted/community/ipaddress", in: tlv(0x30, intTLV(1), tlv(byte(IPAddress), []byte{192, 0, 2, 1}), craftedPDU(GetResponse, craftedVBL(nullVB)))},
+		{name: "crafted/community/empty", in: tlv(0x30, intTLV(1), octets(""), craftedPDU(Response, craftedVBL(nullVB)))},
+		{name: "crafted/community/integer", in: tlv(0x30, intTLV(1), intTLV(5), craftedPDU(Response, craftedVBL(nullVB)))},
+		{name: "crafted/community/long-200", in: tlv(0x30, intTLV(1), octets(long200), craftedPDU(Response, craftedVBL(nullVB)))},
+		{name: "crafted/community/binary", in: tlv(0x30, intTLV(1), octets("\xff\x00\x80"), craftedPDU(Response, craftedVBL(nullVB)))},
+		{name: "crafted/community/oid", in: tlv(0x30, intTLV(1), craftedOID, craftedPDU(Response, craftedVBL(nullVB)))},
+		{name: "crafted/community/ipaddress", in: tlv(0x30, intTLV(1), tlv(byte(IPAddress), []byte{192, 0, 2, 1}), craftedPDU(Response, craftedVBL(nullVB)))},
 		{name: "crafted/community/missing-pdu", in: tlv(0x30, intTLV(1), octets("public"))},
 
 		// PDU types and header fields.
@@ -519,53 +519,53 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/pdu/report-in-v2c", in: craftedMsg(1, craftedPDU(Report, craftedVBL(nullVB)))},
 		{name: "crafted/pdu/unknown-tag", in: craftedMsg(1, tlv(0xa9, intTLV(1), intTLV(0), intTLV(0), craftedVBL(nullVB)))},
 		{name: "crafted/pdu/sequence-tag", in: craftedMsg(1, tlv(0x30, intTLV(1), intTLV(0), intTLV(0), craftedVBL(nullVB)))},
-		{name: "crafted/pdu/length-short", in: craftedMsg(1, cat([]byte{byte(GetResponse), 0x05}, intTLV(1), intTLV(0), intTLV(0), craftedVBL(nullVB)))},
-		{name: "crafted/pdu/request-id-negative", in: craftedMsg(1, tlv(byte(GetResponse), intTLV(-1), intTLV(0), intTLV(0), craftedVBL(nullVB)))},
-		{name: "crafted/pdu/request-id-2^31", in: craftedMsg(1, tlv(byte(GetResponse), intTLV(1<<31), intTLV(0), intTLV(0), craftedVBL(nullVB)))},
-		{name: "crafted/pdu/request-id-2^32", in: craftedMsg(1, tlv(byte(GetResponse), intTLV(1<<32), intTLV(0), intTLV(0), craftedVBL(nullVB)))},
-		{name: "crafted/pdu/request-id-9-octets", in: craftedMsg(1, tlv(byte(GetResponse), tlv(byte(Integer), []byte{1, 0, 0, 0, 0, 0, 0, 0, 0}), intTLV(0), intTLV(0), craftedVBL(nullVB)))},
-		{name: "crafted/pdu/request-id-octet-string", in: craftedMsg(1, tlv(byte(GetResponse), octets("\x01"), intTLV(0), intTLV(0), craftedVBL(nullVB)))},
-		{name: "crafted/pdu/request-id-empty", in: craftedMsg(1, tlv(byte(GetResponse), tlv(byte(Integer)), intTLV(0), intTLV(0), craftedVBL(nullVB)))},
-		{name: "crafted/pdu/error-status-5", in: craftedMsg(1, tlv(byte(GetResponse), intTLV(1), intTLV(5), intTLV(1), craftedVBL(nullVB)))},
-		{name: "crafted/pdu/error-status-255", in: craftedMsg(1, tlv(byte(GetResponse), intTLV(1), intTLV(255), intTLV(0), craftedVBL(nullVB)))},
-		{name: "crafted/pdu/error-status-256", in: craftedMsg(1, tlv(byte(GetResponse), intTLV(1), intTLV(256), intTLV(0), craftedVBL(nullVB)))},
-		{name: "crafted/pdu/error-status-negative", in: craftedMsg(1, tlv(byte(GetResponse), intTLV(1), intTLV(-1), intTLV(0), craftedVBL(nullVB)))},
-		{name: "crafted/pdu/error-index-300", in: craftedMsg(1, tlv(byte(GetResponse), intTLV(1), intTLV(0), intTLV(300), craftedVBL(nullVB)))},
-		{name: "crafted/pdu/error-index-255", in: craftedMsg(1, tlv(byte(GetResponse), intTLV(1), intTLV(0), intTLV(255), craftedVBL(nullVB)))},
-		{name: "crafted/pdu/error-index-negative", in: craftedMsg(1, tlv(byte(GetResponse), intTLV(1), intTLV(0), intTLV(-1), craftedVBL(nullVB)))},
-		{name: "crafted/pdu/error-index-octet-string", in: craftedMsg(1, tlv(byte(GetResponse), intTLV(1), intTLV(0), octets("\x01"), craftedVBL(nullVB)))},
+		{name: "crafted/pdu/length-short", in: craftedMsg(1, cat([]byte{byte(Response), 0x05}, intTLV(1), intTLV(0), intTLV(0), craftedVBL(nullVB)))},
+		{name: "crafted/pdu/request-id-negative", in: craftedMsg(1, tlv(byte(Response), intTLV(-1), intTLV(0), intTLV(0), craftedVBL(nullVB)))},
+		{name: "crafted/pdu/request-id-2^31", in: craftedMsg(1, tlv(byte(Response), intTLV(1<<31), intTLV(0), intTLV(0), craftedVBL(nullVB)))},
+		{name: "crafted/pdu/request-id-2^32", in: craftedMsg(1, tlv(byte(Response), intTLV(1<<32), intTLV(0), intTLV(0), craftedVBL(nullVB)))},
+		{name: "crafted/pdu/request-id-9-octets", in: craftedMsg(1, tlv(byte(Response), tlv(byte(Integer), []byte{1, 0, 0, 0, 0, 0, 0, 0, 0}), intTLV(0), intTLV(0), craftedVBL(nullVB)))},
+		{name: "crafted/pdu/request-id-octet-string", in: craftedMsg(1, tlv(byte(Response), octets("\x01"), intTLV(0), intTLV(0), craftedVBL(nullVB)))},
+		{name: "crafted/pdu/request-id-empty", in: craftedMsg(1, tlv(byte(Response), tlv(byte(Integer)), intTLV(0), intTLV(0), craftedVBL(nullVB)))},
+		{name: "crafted/pdu/error-status-5", in: craftedMsg(1, tlv(byte(Response), intTLV(1), intTLV(5), intTLV(1), craftedVBL(nullVB)))},
+		{name: "crafted/pdu/error-status-255", in: craftedMsg(1, tlv(byte(Response), intTLV(1), intTLV(255), intTLV(0), craftedVBL(nullVB)))},
+		{name: "crafted/pdu/error-status-256", in: craftedMsg(1, tlv(byte(Response), intTLV(1), intTLV(256), intTLV(0), craftedVBL(nullVB)))},
+		{name: "crafted/pdu/error-status-negative", in: craftedMsg(1, tlv(byte(Response), intTLV(1), intTLV(-1), intTLV(0), craftedVBL(nullVB)))},
+		{name: "crafted/pdu/error-index-300", in: craftedMsg(1, tlv(byte(Response), intTLV(1), intTLV(0), intTLV(300), craftedVBL(nullVB)))},
+		{name: "crafted/pdu/error-index-255", in: craftedMsg(1, tlv(byte(Response), intTLV(1), intTLV(0), intTLV(255), craftedVBL(nullVB)))},
+		{name: "crafted/pdu/error-index-negative", in: craftedMsg(1, tlv(byte(Response), intTLV(1), intTLV(0), intTLV(-1), craftedVBL(nullVB)))},
+		{name: "crafted/pdu/error-index-octet-string", in: craftedMsg(1, tlv(byte(Response), intTLV(1), intTLV(0), octets("\x01"), craftedVBL(nullVB)))},
 
 		// Varbind list and varbind framing.
-		{name: "crafted/vbl/empty", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL()))},
-		{name: "crafted/vbl/missing", in: craftedMsg(1, tlv(byte(GetResponse), intTLV(1), intTLV(0), intTLV(0)))},
-		{name: "crafted/vbl/not-sequence", in: craftedMsg(1, craftedPDU(GetResponse, tlv(0x31, nullVB)))},
-		{name: "crafted/vbl/length-exceeds", in: craftedMsg(1, craftedPDU(GetResponse, cat([]byte{0x30, byte(len(nullVB) + 1)}, nullVB)))},
-		{name: "crafted/vbl/trailing-garbage", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(nullVB, []byte{0x00})))},
-		{name: "crafted/vbl/100-varbinds", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(slices.Repeat([][]byte{nullVB}, 100)...)))},
-		{name: "crafted/vb/not-sequence", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x31, craftedOID, tlv(byte(Null))))))},
-		{name: "crafted/vb/empty-sequence", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30))))},
-		{name: "crafted/vb/name-octet-string", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, octets("abc"), tlv(byte(Null))))))},
-		{name: "crafted/vb/name-ipaddress", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, tlv(byte(IPAddress), []byte{192, 0, 2, 1}), tlv(byte(Null))))))},
-		{name: "crafted/vb/name-ipaddress-empty", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, tlv(byte(IPAddress)), tlv(byte(Null))))))},
-		{name: "crafted/vb/name-integer", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, intTLV(5), tlv(byte(Null))))))},
-		{name: "crafted/vb/missing-value", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, craftedOID))))},
-		{name: "crafted/vb/two-values", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, craftedOID, intTLV(1), intTLV(2)))))},
-		{name: "crafted/vb/length-exceeds-vbl", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(cat([]byte{0x30, byte(len(craftedOID) + 3)}, craftedOID, tlv(byte(Null))))))},
+		{name: "crafted/vbl/empty", in: craftedMsg(1, craftedPDU(Response, craftedVBL()))},
+		{name: "crafted/vbl/missing", in: craftedMsg(1, tlv(byte(Response), intTLV(1), intTLV(0), intTLV(0)))},
+		{name: "crafted/vbl/not-sequence", in: craftedMsg(1, craftedPDU(Response, tlv(0x31, nullVB)))},
+		{name: "crafted/vbl/length-exceeds", in: craftedMsg(1, craftedPDU(Response, cat([]byte{0x30, byte(len(nullVB) + 1)}, nullVB)))},
+		{name: "crafted/vbl/trailing-garbage", in: craftedMsg(1, craftedPDU(Response, craftedVBL(nullVB, []byte{0x00})))},
+		{name: "crafted/vbl/100-varbinds", in: craftedMsg(1, craftedPDU(Response, craftedVBL(slices.Repeat([][]byte{nullVB}, 100)...)))},
+		{name: "crafted/vb/not-sequence", in: craftedMsg(1, craftedPDU(Response, craftedVBL(tlv(0x31, craftedOID, tlv(byte(Null))))))},
+		{name: "crafted/vb/empty-sequence", in: craftedMsg(1, craftedPDU(Response, craftedVBL(tlv(0x30))))},
+		{name: "crafted/vb/name-octet-string", in: craftedMsg(1, craftedPDU(Response, craftedVBL(tlv(0x30, octets("abc"), tlv(byte(Null))))))},
+		{name: "crafted/vb/name-ipaddress", in: craftedMsg(1, craftedPDU(Response, craftedVBL(tlv(0x30, tlv(byte(IPAddress), []byte{192, 0, 2, 1}), tlv(byte(Null))))))},
+		{name: "crafted/vb/name-ipaddress-empty", in: craftedMsg(1, craftedPDU(Response, craftedVBL(tlv(0x30, tlv(byte(IPAddress)), tlv(byte(Null))))))},
+		{name: "crafted/vb/name-integer", in: craftedMsg(1, craftedPDU(Response, craftedVBL(tlv(0x30, intTLV(5), tlv(byte(Null))))))},
+		{name: "crafted/vb/missing-value", in: craftedMsg(1, craftedPDU(Response, craftedVBL(tlv(0x30, craftedOID))))},
+		{name: "crafted/vb/two-values", in: craftedMsg(1, craftedPDU(Response, craftedVBL(tlv(0x30, craftedOID, intTLV(1), intTLV(2)))))},
+		{name: "crafted/vb/length-exceeds-vbl", in: craftedMsg(1, craftedPDU(Response, craftedVBL(cat([]byte{0x30, byte(len(craftedOID) + 3)}, craftedOID, tlv(byte(Null))))))},
 		// A value of one octet, its tag, ending the varbind.
-		{name: "crafted/vb/value-tag-only", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, craftedOID, []byte{byte(Null)}))))},
+		{name: "crafted/vb/value-tag-only", in: craftedMsg(1, craftedPDU(Response, craftedVBL(tlv(0x30, craftedOID, []byte{byte(Null)}))))},
 
 		// Varbind names.
-		{name: "crafted/oid/empty", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, tlv(byte(ObjectIdentifier)), tlv(byte(Null))))))},
-		{name: "crafted/oid/single-byte", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, tlv(byte(ObjectIdentifier), []byte{0x2b}), tlv(byte(Null))))))},
-		{name: "crafted/oid/first-arc-2", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, tlv(byte(ObjectIdentifier), []byte{0x88, 0x37, 0x01}), tlv(byte(Null))))))},
-		{name: "crafted/oid/arc-max-uint32", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, tlv(byte(ObjectIdentifier), []byte{0x2b, 0x8f, 0xff, 0xff, 0xff, 0x7f}), tlv(byte(Null))))))},
-		{name: "crafted/oid/arc-2^32", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, tlv(byte(ObjectIdentifier), []byte{0x2b, 0x90, 0x80, 0x80, 0x80, 0x00}), tlv(byte(Null))))))},
-		{name: "crafted/oid/truncated-arc", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, tlv(byte(ObjectIdentifier), []byte{0x2b, 0x06, 0x81}), tlv(byte(Null))))))},
-		{name: "crafted/oid/non-minimal-arc", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, tlv(byte(ObjectIdentifier), []byte{0x2b, 0x80, 0x06}), tlv(byte(Null))))))},
-		{name: "crafted/oid/130-arcs", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, tlv(byte(ObjectIdentifier), cat([]byte{0x2b}, bytes.Repeat([]byte{0x81, 0x01}, 129))), tlv(byte(Null))))))},
+		{name: "crafted/oid/empty", in: craftedMsg(1, craftedPDU(Response, craftedVBL(tlv(0x30, tlv(byte(ObjectIdentifier)), tlv(byte(Null))))))},
+		{name: "crafted/oid/single-byte", in: craftedMsg(1, craftedPDU(Response, craftedVBL(tlv(0x30, tlv(byte(ObjectIdentifier), []byte{0x2b}), tlv(byte(Null))))))},
+		{name: "crafted/oid/first-arc-2", in: craftedMsg(1, craftedPDU(Response, craftedVBL(tlv(0x30, tlv(byte(ObjectIdentifier), []byte{0x88, 0x37, 0x01}), tlv(byte(Null))))))},
+		{name: "crafted/oid/arc-max-uint32", in: craftedMsg(1, craftedPDU(Response, craftedVBL(tlv(0x30, tlv(byte(ObjectIdentifier), []byte{0x2b, 0x8f, 0xff, 0xff, 0xff, 0x7f}), tlv(byte(Null))))))},
+		{name: "crafted/oid/arc-2^32", in: craftedMsg(1, craftedPDU(Response, craftedVBL(tlv(0x30, tlv(byte(ObjectIdentifier), []byte{0x2b, 0x90, 0x80, 0x80, 0x80, 0x00}), tlv(byte(Null))))))},
+		{name: "crafted/oid/truncated-arc", in: craftedMsg(1, craftedPDU(Response, craftedVBL(tlv(0x30, tlv(byte(ObjectIdentifier), []byte{0x2b, 0x06, 0x81}), tlv(byte(Null))))))},
+		{name: "crafted/oid/non-minimal-arc", in: craftedMsg(1, craftedPDU(Response, craftedVBL(tlv(0x30, tlv(byte(ObjectIdentifier), []byte{0x2b, 0x80, 0x06}), tlv(byte(Null))))))},
+		{name: "crafted/oid/130-arcs", in: craftedMsg(1, craftedPDU(Response, craftedVBL(tlv(0x30, tlv(byte(ObjectIdentifier), cat([]byte{0x2b}, bytes.Repeat([]byte{0x81, 0x01}, 129))), tlv(byte(Null))))))},
 		// The packed first sub-identifier holds two arcs.
-		{name: "crafted/oid/128-arcs", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, tlv(byte(ObjectIdentifier), cat([]byte{0x2b}, bytes.Repeat([]byte{0x01}, 126))), tlv(byte(Null))))))},
-		{name: "crafted/oid/129-arcs", in: craftedMsg(1, craftedPDU(GetResponse, craftedVBL(tlv(0x30, tlv(byte(ObjectIdentifier), cat([]byte{0x2b}, bytes.Repeat([]byte{0x01}, 127))), tlv(byte(Null))))))},
+		{name: "crafted/oid/128-arcs", in: craftedMsg(1, craftedPDU(Response, craftedVBL(tlv(0x30, tlv(byte(ObjectIdentifier), cat([]byte{0x2b}, bytes.Repeat([]byte{0x01}, 126))), tlv(byte(Null))))))},
+		{name: "crafted/oid/129-arcs", in: craftedMsg(1, craftedPDU(Response, craftedVBL(tlv(0x30, tlv(byte(ObjectIdentifier), cat([]byte{0x2b}, bytes.Repeat([]byte{0x01}, 127))), tlv(byte(Null))))))},
 
 		// Integer values.
 		{name: "crafted/value/integer/empty", in: craftedValue(tlv(byte(Integer)))},
@@ -720,9 +720,9 @@ func decodeCraftedCases() []decodeCase {
 			decoder: usmDecoder(SHA, "codec-auth-pass", AES, "codec-priv-pass"),
 		},
 		{name: "crafted/v3/scoped-pdu-missing", in: tlv(0x30, intTLV(3), tlv(0x30, intTLV(42), intTLV(65507), octets("\x00"), intTLV(3)), tlv(byte(OctetString), craftedNoAuthUSM))},
-		{name: "crafted/v3/context-engine-id-integer", in: craftedV3NoAuth(tlv(0x30, intTLV(1), octets("ctx"), craftedPDU(GetResponse, craftedVBL(nullVB))))},
-		{name: "crafted/v3/context-engine-id-oid", in: craftedV3NoAuth(tlv(0x30, craftedOID, octets("ctx"), craftedPDU(GetResponse, craftedVBL(nullVB))))},
-		{name: "crafted/v3/context-name-ipaddress", in: craftedV3NoAuth(tlv(0x30, craftedEngineID, tlv(byte(IPAddress), []byte{192, 0, 2, 1}), craftedPDU(GetResponse, craftedVBL(nullVB))))},
+		{name: "crafted/v3/context-engine-id-integer", in: craftedV3NoAuth(tlv(0x30, intTLV(1), octets("ctx"), craftedPDU(Response, craftedVBL(nullVB))))},
+		{name: "crafted/v3/context-engine-id-oid", in: craftedV3NoAuth(tlv(0x30, craftedOID, octets("ctx"), craftedPDU(Response, craftedVBL(nullVB))))},
+		{name: "crafted/v3/context-name-ipaddress", in: craftedV3NoAuth(tlv(0x30, craftedEngineID, tlv(byte(IPAddress), []byte{192, 0, 2, 1}), craftedPDU(Response, craftedVBL(nullVB))))},
 		{name: "crafted/v3/context-name-missing", in: craftedV3NoAuth(tlv(0x30, craftedEngineID))},
 		{name: "crafted/v3/auth-flag-zero-decoder", in: craftedV3(intTLV(42), intTLV(65507), octets("\x01"), intTLV(3), craftedNoAuthUSM, craftedScopedResp)},
 		{
@@ -781,7 +781,7 @@ func decodeCraftedCases() []decodeCase {
 	}
 }
 
-// The v3 fixtures are GetResponse messages made by MarshalMsg for user
+// The v3 fixtures are Response messages made by Message.Encode for user
 // "codec-user", engine ID 80001f8804"codec-engine", boots 7, time 1234,
 // context "codec-context", authentication passphrase "codec-auth-pass" and
 // privacy passphrase "codec-priv-pass". They carry sysName.0 = "codec-host"
@@ -837,14 +837,14 @@ func v3AuthPrivMD5DESResponse() []byte {
 	}
 }
 
-// v3Fixtures are more GetResponse messages made the same way: one per
+// v3Fixtures are more Response messages made the same way: one per
 // authentication protocol, and scoped PDUs long enough (4 and 20 varbinds of
 // sysName-like OctetStrings) to need long-form lengths in plaintext and
 // encrypted form.
 var v3Fixtures = []struct {
 	name string
-	auth SnmpV3AuthProtocol
-	priv SnmpV3PrivProtocol
+	auth AuthProtocol
+	priv PrivProtocol
 	hex  string
 }{
 	{"md5-no-priv", MD5, NoPriv, "3081b70201033011020400001092020300ffe304010102010304383036041180001f8804636f6465632d656e67696e65020107020204d2040a636f6465632d75736572040cc80d165de740913804ce588604003065041180001f8804636f6465632d656e67696e65040d636f6465632d636f6e74657874a241020301e2400201000201003034301806082b06010201010500040c636f6465632d686f73742d30301806082b06010201010501040c636f6465632d686f73742d31"},

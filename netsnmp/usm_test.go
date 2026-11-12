@@ -27,7 +27,7 @@ import (
 // key extension for AES-192/256), encrypts the scoped PDU and computes the
 // HMAC of an SNMPv3 trap whose framing (headers and the plaintext scoped PDU)
 // comes from gosnmp. The test then requires that gosnmp derives the same keys,
-// that MarshalMsg produces exactly the net-snmp-secured message, and that
+// that Message.Encode produces exactly the net-snmp-secured message, and that
 // UnmarshalTrap authenticates and decrypts it. Without `-tags netsnmp` the
 // net-snmp results come from testdata/TestUSM; `-rec` rewrites them. The
 // recordings also pin gosnmp's framing, so re-record only for an intended
@@ -54,7 +54,7 @@ func TestUSM(t *testing.T) {
 			sp := pkt.SecurityParameters.(*gosnmp.UsmSecurityParameters)
 			got := usmRecording{authKey: sp.SecretKey, privKey: sp.PrivacyKey}
 			c.setNextSalt()
-			msg, err := pkt.MarshalMsg()
+			msg, err := pkt.Encode()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -95,7 +95,7 @@ func TestUSM(t *testing.T) {
 				ContextName:     usmContextName,
 				PDUType:         gosnmp.SNMPv2Trap,
 				RequestID:       usmRequestID,
-				Variables:       usmVarbinds,
+				VarBinds:        usmVarbinds,
 			}
 			if diff := cmp.Diff(wantView, newUSMTrapView(res)); diff != "" {
 				t.Errorf("decoded trap differs (-want +got):\n%s", diff)
@@ -118,7 +118,7 @@ const (
 // usmEngineID is a net-snmp style engine ID (enterprise 8072, text format).
 const usmEngineID = "\x80\x00\x1f\x88\x04oracle-engine"
 
-var usmVarbinds = []gosnmp.SnmpPDU{
+var usmVarbinds = []gosnmp.VarBind{
 	{Name: ".1.3.6.1.2.1.1.3.0", Type: gosnmp.TimeTicks, Value: uint32(12345)},
 	{Name: ".1.3.6.1.6.3.1.1.4.1.0", Type: gosnmp.ObjectIdentifier, Value: ".1.3.6.1.4.1.8072.2.3.0.1"},
 	{Name: ".1.3.6.1.4.1.8072.2.3.2.1", Type: gosnmp.OctetString, Value: []byte("usm-oracle")},
@@ -128,8 +128,8 @@ var usmVarbinds = []gosnmp.SnmpPDU{
 // usmCase is one set of credentials secured by both libraries.
 type usmCase struct {
 	name     string
-	auth     gosnmp.SnmpV3AuthProtocol
-	priv     gosnmp.SnmpV3PrivProtocol
+	auth     gosnmp.AuthProtocol
+	priv     gosnmp.PrivProtocol
 	authPass string
 	privPass string
 	engineID string
@@ -139,8 +139,8 @@ type usmCase struct {
 // privacy protocol, then shapes the key derivation handles separately. New
 // cases need a recording: run `go test -tags netsnmp -rec -run TestUSM`.
 func usmCases() []usmCase {
-	auths := []gosnmp.SnmpV3AuthProtocol{gosnmp.MD5, gosnmp.SHA, gosnmp.SHA224, gosnmp.SHA256, gosnmp.SHA384, gosnmp.SHA512}
-	privs := []gosnmp.SnmpV3PrivProtocol{gosnmp.NoPriv, gosnmp.DES, gosnmp.AES, gosnmp.AES192, gosnmp.AES256, gosnmp.AES192C, gosnmp.AES256C}
+	auths := []gosnmp.AuthProtocol{gosnmp.MD5, gosnmp.SHA, gosnmp.SHA224, gosnmp.SHA256, gosnmp.SHA384, gosnmp.SHA512}
+	privs := []gosnmp.PrivProtocol{gosnmp.NoPriv, gosnmp.DES, gosnmp.AES, gosnmp.AES192, gosnmp.AES256, gosnmp.AES192C, gosnmp.AES256C}
 
 	var cases []usmCase
 	for _, a := range auths {
@@ -224,12 +224,12 @@ func (c usmCase) setNextSalt() {
 }
 
 // packet is the SNMPv2-Trap the authoritative sender secures.
-func (c usmCase) packet() *gosnmp.SnmpPacket {
+func (c usmCase) packet() *gosnmp.Message {
 	sp := c.usm()
 	sp.AuthoritativeEngineID = c.engineID
 	sp.AuthoritativeEngineBoots = usmBoots
 	sp.AuthoritativeEngineTime = usmTime
-	return &gosnmp.SnmpPacket{
+	return &gosnmp.Message{
 		Version:            gosnmp.Version3,
 		MsgFlags:           c.flags(),
 		SecurityModel:      gosnmp.UserSecurityModel,
@@ -239,14 +239,14 @@ func (c usmCase) packet() *gosnmp.SnmpPacket {
 		PDUType:            gosnmp.SNMPv2Trap,
 		MsgID:              usmMsgID,
 		RequestID:          usmRequestID,
-		Variables:          usmVarbinds,
+		VarBinds:           usmVarbinds,
 	}
 }
 
 // receiver is a trap receiver configured for the case's user, with keys
 // localized to the sender's engine ID when the trap arrives.
-func (c usmCase) receiver() *gosnmp.GoSNMP {
-	return &gosnmp.GoSNMP{
+func (c usmCase) receiver() *gosnmp.Client {
+	return &gosnmp.Client{
 		Version:            gosnmp.Version3,
 		MsgFlags:           c.flags(),
 		SecurityModel:      gosnmp.UserSecurityModel,
@@ -319,7 +319,7 @@ func (c usmCase) marshal(flags gosnmp.SnmpV3MsgFlags) ([]byte, error) {
 		return nil, err
 	}
 	c.setNextSalt()
-	return pkt.MarshalMsg()
+	return pkt.Encode()
 }
 
 // encrypt encrypts the scoped PDU with net-snmp. The IVs follow RFC 3414
@@ -400,16 +400,16 @@ type usmTrapView struct {
 	ContextName     string
 	PDUType         gosnmp.PDUType
 	RequestID       uint32
-	Variables       []gosnmp.SnmpPDU
+	VarBinds        []gosnmp.VarBind
 }
 
-func newUSMTrapView(p *gosnmp.SnmpPacket) usmTrapView {
+func newUSMTrapView(p *gosnmp.Message) usmTrapView {
 	v := usmTrapView{
 		ContextEngineID: p.ContextEngineID,
 		ContextName:     p.ContextName,
 		PDUType:         p.PDUType,
 		RequestID:       p.RequestID,
-		Variables:       p.Variables,
+		VarBinds:        p.VarBinds,
 	}
 	if sp, ok := p.SecurityParameters.(*gosnmp.UsmSecurityParameters); ok {
 		v.UserName = sp.UserName

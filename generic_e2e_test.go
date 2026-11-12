@@ -42,7 +42,7 @@ func getTarget(t *testing.T) (string, uint16) {
 	return envTarget, uint16(port)
 }
 
-func connectToTarget(t *testing.T, gs *GoSNMP) {
+func connectToTarget(t *testing.T, gs *Client) {
 	target, port := getTarget(t)
 
 	gs.Target = target
@@ -58,7 +58,7 @@ func connectToTarget(t *testing.T, gs *GoSNMP) {
 }
 
 func TestClose(t *testing.T) {
-	gs := newTestGoSNMP()
+	gs := newTestClient()
 	gs.Retries = 1
 
 	connectToTarget(t, gs)
@@ -82,7 +82,7 @@ func TestClose(t *testing.T) {
 }
 
 func TestClose_NilConnection(t *testing.T) {
-	gs := &GoSNMP{
+	gs := &Client{
 		Conn: nil,
 	}
 
@@ -93,7 +93,7 @@ func TestClose_NilConnection(t *testing.T) {
 }
 
 func TestClose_Concurrent(t *testing.T) {
-	gs := newTestGoSNMP()
+	gs := newTestClient()
 	gs.Timeout = time.Second
 	gs.Retries = 1
 
@@ -114,7 +114,7 @@ func TestClose_Concurrent(t *testing.T) {
 }
 
 func TestGenericBasicGet(t *testing.T) {
-	gs := newTestGoSNMP()
+	gs := newTestClient()
 	connectToTarget(t, gs)
 	defer gs.Conn.Close()
 
@@ -122,20 +122,20 @@ func TestGenericBasicGet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get() failed with error => %v", err)
 	}
-	if len(result.Variables) != 1 {
+	if len(result.VarBinds) != 1 {
 		t.Fatalf("Expected result of size 1")
 	}
-	if result.Variables[0].Type != OctetString {
+	if result.VarBinds[0].Type != OctetString {
 		t.Fatalf("Expected sysDescr to be OctetString")
 	}
-	sysDescr := result.Variables[0].Value.([]byte)
+	sysDescr := result.VarBinds[0].Value.([]byte)
 	if len(sysDescr) == 0 {
 		t.Fatalf("Got a zero length sysDescr")
 	}
 }
 
 func TestGenericMultiGet(t *testing.T) {
-	gs := newTestGoSNMP()
+	gs := newTestClient()
 	connectToTarget(t, gs)
 	defer gs.Conn.Close()
 
@@ -147,10 +147,10 @@ func TestGenericMultiGet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get() failed with error => %v", err)
 	}
-	if len(result.Variables) != 2 {
+	if len(result.VarBinds) != 2 {
 		t.Fatalf("Expected result of size 2")
 	}
-	for _, v := range result.Variables {
+	for _, v := range result.VarBinds {
 		if v.Type != OctetString {
 			t.Fatalf("Expected OctetString")
 		}
@@ -158,7 +158,7 @@ func TestGenericMultiGet(t *testing.T) {
 }
 
 func TestGenericWalk(t *testing.T) {
-	gs := newTestGoSNMP()
+	gs := newTestClient()
 	connectToTarget(t, gs)
 	defer gs.Conn.Close()
 
@@ -172,7 +172,7 @@ func TestGenericWalk(t *testing.T) {
 }
 
 func TestGenericBulkWalk(t *testing.T) {
-	gs := newTestGoSNMP()
+	gs := newTestClient()
 	connectToTarget(t, gs)
 	defer gs.Conn.Close()
 
@@ -186,7 +186,7 @@ func TestGenericBulkWalk(t *testing.T) {
 }
 
 func TestV1BulkWalkError(t *testing.T) {
-	g := newTestGoSNMP()
+	g := newTestClient()
 	g.Version = Version1
 	connectToTarget(t, g)
 
@@ -201,7 +201,7 @@ func TestV1BulkWalkError(t *testing.T) {
 // Standard exception/error tests
 
 func TestMaxOids(t *testing.T) {
-	gs := newTestGoSNMP()
+	gs := newTestClient()
 	connectToTarget(t, gs)
 	defer gs.Conn.Close()
 
@@ -224,7 +224,7 @@ func TestMaxOids(t *testing.T) {
 
 func TestGenericFailureUnknownHost(t *testing.T) {
 	unknownHost := "nonexistent.invalid" // .invalid is guaranteed by RFC 2606 to never resolve.
-	gs := newTestGoSNMP()
+	gs := newTestClient()
 	gs.Target = unknownHost
 	err := gs.Connect()
 	if err == nil {
@@ -249,7 +249,7 @@ func TestGenericFailureConnectionTimeout(t *testing.T) {
 		t.Skip("local testing - skipping this slow one")
 	}
 
-	gs := newTestGoSNMP()
+	gs := newTestClient()
 	gs.Target = "198.51.100.1" // Black hole
 	err := gs.Connect()
 	if err != nil {
@@ -265,7 +265,7 @@ func TestGenericFailureConnectionTimeout(t *testing.T) {
 }
 
 func TestGenericFailureConnectionRefused(t *testing.T) {
-	gs := newTestGoSNMP()
+	gs := newTestClient()
 	gs.Target = "127.0.0.1"
 	gs.Port = 1 // Don't expect SNMP to be running here!
 	err := gs.Connect()
@@ -287,7 +287,7 @@ func TestGenericFailureConnectionRefused(t *testing.T) {
 func TestSnmpV3Users(t *testing.T) {
 	for _, u := range loadSnmpUsers(t) {
 		t.Run(u.name, func(t *testing.T) {
-			gs := newTestGoSNMPv3(u.msgFlags(), u.securityParameters())
+			gs := newTestClientV3(u.msgFlags(), u.securityParameters())
 			connectToTarget(t, gs)
 			defer gs.Conn.Close()
 
@@ -295,10 +295,10 @@ func TestSnmpV3Users(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Get() failed with error => %v", err)
 			}
-			if len(result.Variables) != 1 || result.Variables[0].Type != OctetString {
-				t.Fatalf("Expected one OctetString sysDescr, got %v", result.Variables)
+			if len(result.VarBinds) != 1 || result.VarBinds[0].Type != OctetString {
+				t.Fatalf("Expected one OctetString sysDescr, got %v", result.VarBinds)
 			}
-			if sysDescr := result.Variables[0].Value.([]byte); len(sysDescr) == 0 {
+			if sysDescr := result.VarBinds[0].Value.([]byte); len(sysDescr) == 0 {
 				t.Fatalf("Got a zero length sysDescr")
 			}
 

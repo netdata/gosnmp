@@ -27,8 +27,8 @@ import (
 // against net-snmp.
 
 var (
-	usmAuthProtocols = []SnmpV3AuthProtocol{NoAuth, MD5, SHA, SHA224, SHA256, SHA384, SHA512}
-	usmPrivProtocols = []SnmpV3PrivProtocol{NoPriv, DES, AES, AES192, AES256, AES192C, AES256C}
+	usmAuthProtocols = []AuthProtocol{NoAuth, MD5, SHA, SHA224, SHA256, SHA384, SHA512}
+	usmPrivProtocols = []PrivProtocol{NoPriv, DES, AES, AES192, AES256, AES192C, AES256C}
 )
 
 const (
@@ -51,8 +51,8 @@ func usmKeysOnly(sp *UsmSecurityParameters, engineID string) *UsmSecurityParamet
 // usmKeyCase is one set of credentials whose localized keys are pinned.
 type usmKeyCase struct {
 	name     string
-	auth     SnmpV3AuthProtocol
-	priv     SnmpV3PrivProtocol
+	auth     AuthProtocol
+	priv     PrivProtocol
 	authPass string
 	privPass string
 	engineID string
@@ -72,8 +72,8 @@ func usmKeyCases() []usmKeyCase {
 	// MD5 with DES, SHA with both AES-256 key extensions, SHA-512 whose key
 	// needs no extension.
 	pairs := []struct {
-		auth SnmpV3AuthProtocol
-		priv SnmpV3PrivProtocol
+		auth AuthProtocol
+		priv PrivProtocol
 	}{{MD5, DES}, {SHA, AES256}, {SHA, AES256C}, {SHA512, AES}}
 
 	passphrases := []struct{ name, value string }{
@@ -120,7 +120,7 @@ func usmKeyCases() []usmKeyCase {
 	return cases
 }
 
-func usmPairName(auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol) string {
+func usmPairName(auth AuthProtocol, priv PrivProtocol) string {
 	return strings.ToLower(auth.String() + "-" + priv.String())
 }
 
@@ -162,10 +162,10 @@ func dumpUSMKeys(c usmKeyCase) string {
 }
 
 // usmCharTrap encodes usmCharPacket with the salt usmCharSalt.
-func usmCharTrap(t testing.TB, priv SnmpV3PrivProtocol, variables []SnmpPDU) []byte {
+func usmCharTrap(t testing.TB, priv PrivProtocol, variables []VarBind) []byte {
 	t.Helper()
 	usm.Salts.Set(usmCharSalt(priv))
-	data, err := usmCharPacket(t, priv, variables).MarshalMsg()
+	data, err := usmCharPacket(t, priv, variables).Encode()
 	require.NoError(t, err)
 	return data
 }
@@ -173,7 +173,7 @@ func usmCharTrap(t testing.TB, priv SnmpV3PrivProtocol, variables []SnmpPDU) []b
 // usmCharPacket is an authPriv (authNoPriv without a privacy protocol)
 // SNMPv2-Trap from codec-user, the credentials usmDecoder configures, with
 // the given privacy protocol and its keys initialized.
-func usmCharPacket(t testing.TB, priv SnmpV3PrivProtocol, variables []SnmpPDU) *SnmpPacket {
+func usmCharPacket(t testing.TB, priv PrivProtocol, variables []VarBind) *Message {
 	t.Helper()
 
 	sp := &UsmSecurityParameters{
@@ -191,7 +191,7 @@ func usmCharPacket(t testing.TB, priv SnmpV3PrivProtocol, variables []SnmpPDU) *
 	if priv == NoPriv {
 		flags = AuthNoPriv
 	}
-	return &SnmpPacket{
+	return &Message{
 		Version:            Version3,
 		MsgFlags:           flags,
 		SecurityModel:      UserSecurityModel,
@@ -201,18 +201,18 @@ func usmCharPacket(t testing.TB, priv SnmpV3PrivProtocol, variables []SnmpPDU) *
 		PDUType:            SNMPv2Trap,
 		MsgID:              21,
 		RequestID:          42,
-		Variables:          variables,
+		VarBinds:           variables,
 	}
 }
 
-var usmCharVarbinds = []SnmpPDU{
+var usmCharVarbinds = []VarBind{
 	{Name: ".1.3.6.1.2.1.1.3.0", Type: TimeTicks, Value: uint32(12345)},
 	{Name: ".1.3.6.1.6.3.1.1.4.1.0", Type: ObjectIdentifier, Value: ".1.3.6.1.4.1.8072.2.3.0.1"},
 }
 
 // usmCharSalt is the salt of usmCharTrap's message, the one the USM goldens
 // were recorded with.
-func usmCharSalt(priv SnmpV3PrivProtocol) uint64 {
+func usmCharSalt(priv PrivProtocol) uint64 {
 	if priv == DES {
 		return 0x000000030a0b0c0d
 	}
@@ -277,13 +277,13 @@ func (m v3Message) bytes() []byte {
 		tlv(m.scopedTag, m.scoped))
 }
 
-// TestUSMDecryptCharacterization pins what SnmpDecodePacket (which decrypts
+// TestUSMDecryptCharacterization pins what DecodeMessage (which decrypts
 // without checking the digest) and UnmarshalTrap (which checks it first) make
 // of an authPriv trap whose privacy parameters, ciphertext or msgFlags are
 // changed (an OCTET STRING scoped PDU is decrypted whatever the flags say),
 // or whose receiver has other privacy settings or keys localized to another
 // engine ID (a message from a new engine ID replaces the keys with ones
-// derived from the passphrases before the digest is checked). SnmpDecodePacket
+// derived from the passphrases before the digest is checked). DecodeMessage
 // derives keys only for a new engine ID, so a message with the receiver's
 // (empty) engine ID is decrypted with keys never derived.
 func TestUSMDecryptCharacterization(t *testing.T) {
@@ -307,8 +307,8 @@ func TestUSMDecryptCharacterization(t *testing.T) {
 
 		// localized returns a receiver whose keys are localized to engineID,
 		// optionally without the passphrases they were derived from.
-		localized := func(engineID string, keepPassphrases bool) func() *GoSNMP {
-			return func() *GoSNMP {
+		localized := func(engineID string, keepPassphrases bool) func() *Client {
+			return func() *Client {
 				x := decoder()
 				sp := x.SecurityParameters.(*UsmSecurityParameters)
 				if !keepPassphrases {
@@ -372,7 +372,7 @@ func (m v3Message) withModel(t testing.TB, model byte) v3Message {
 
 // usmFlagsTrap is usmCharTrap, still encrypted, with other msgFlags and the
 // first saltLen octets of its privacy parameters.
-func usmFlagsTrap(t testing.TB, priv SnmpV3PrivProtocol, flags SnmpV3MsgFlags, saltLen int) []byte {
+func usmFlagsTrap(t testing.TB, priv PrivProtocol, flags SnmpV3MsgFlags, saltLen int) []byte {
 	t.Helper()
 	m := splitV3Message(t, usmCharTrap(t, priv, usmCharVarbinds)).withFlags(t, flags)
 	m.usm[5] = m.usm[5][:saltLen]
@@ -383,7 +383,7 @@ func usmFlagsTrap(t testing.TB, priv SnmpV3PrivProtocol, flags SnmpV3MsgFlags, s
 var usmMalformedV3Header = tlv(0x30, intTLV(3), tlv(0x31, intTLV(1)))
 
 // usmPlainVars are the variable bindings of usmPlainTrap.
-var usmPlainVars = []SnmpPDU{{Name: ".1.3.6.1.2.1.1.5.0", Type: Integer, Value: 5}}
+var usmPlainVars = []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Type: Integer, Value: 5}}
 
 // usmPlainTrap is a noAuthNoPriv SNMPv2-Trap with a plaintext scoped PDU,
 // the given security model, engine ID and user name, and no digest or salt.
@@ -411,7 +411,7 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 		scoped := tlv(byte(OctetString), octets(""), octets(""), craftedPDU(SNMPv2Trap, craftedVBL(craftedVB(intTLV(5)))))
 		return craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), usm, scoped)
 	}
-	encryptedWithModel := func(priv SnmpV3PrivProtocol, model byte, saltLen int) []byte {
+	encryptedWithModel := func(priv PrivProtocol, model byte, saltLen int) []byte {
 		m := splitV3Message(t, usmCharTrap(t, priv, usmCharVarbinds)).withModel(t, model)
 		m.usm[5] = m.usm[5][:saltLen]
 		return m.bytes()
@@ -422,14 +422,14 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 	// with the empty key; HMAC pads a key with zeros, so a key of 20 zero
 	// octets gives the same digest.
 	emptyKeyTrap := func() []byte {
-		data, err := (&SnmpPacket{
+		data, err := (&Message{
 			Version: Version3, MsgFlags: AuthNoPriv, SecurityModel: UserSecurityModel,
 			SecurityParameters: &UsmSecurityParameters{
 				UserName: "codec-user", AuthoritativeEngineID: usmCharEngineID, AuthenticationProtocol: SHA,
 				SecretKey: make([]byte, 20),
 			},
-			PDUType: SNMPv2Trap, Variables: usmPlainVars,
-		}).MarshalMsg()
+			PDUType: SNMPv2Trap, VarBinds: usmPlainVars,
+		}).Encode()
 		require.NoError(t, err)
 		return data
 	}
@@ -441,25 +441,25 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 		tableKeysOnly  // keys localized to another engine ID, no passphrases
 		singleKeysOnly // the same, for a single user at authNoPriv
 	)
-	receiver := func(priv SnmpV3PrivProtocol, kind receiverKind) *GoSNMP {
+	receiver := func(priv PrivProtocol, kind receiverKind) *Client {
 		sp := usmDecoder(SHA, "codec-auth-pass", priv, "codec-priv-pass")().SecurityParameters.(*UsmSecurityParameters)
 		switch kind {
 		case single:
-			return &GoSNMP{Version: Version3, MsgFlags: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp}
+			return &Client{Version: Version3, MsgFlags: AuthPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp}
 		case singleKeysOnly:
 			usmKeysOnly(sp, usmOtherEngineID)
-			return &GoSNMP{Version: Version3, MsgFlags: AuthNoPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp}
+			return &Client{Version: Version3, MsgFlags: AuthNoPriv, SecurityModel: UserSecurityModel, SecurityParameters: sp}
 		case tableKeysOnly:
 			usmKeysOnly(sp, usmOtherEngineID)
 		}
 		tb := NewSnmpV3SecurityParametersTable()
 		require.NoError(t, tb.Add("codec-user", sp))
-		return &GoSNMP{Version: Version3, TrapSecurityParametersTable: tb}
+		return &Client{Version: Version3, TrapSecurityParametersTable: tb}
 	}
 
 	tests := map[string]struct {
 		in       func() []byte
-		priv     SnmpV3PrivProtocol
+		priv     PrivProtocol
 		receiver receiverKind
 		is       error // the exported error the rejection unwraps to
 	}{
@@ -551,7 +551,7 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 // TestUSMKeysBoundToEngine pins that parameters with keys given without
 // passphrases decode only messages naming the engine ID the keys are
 // localized to, for every protocol pair: on the trap table path, for a single
-// trap user with its own or the message's flags, and with SnmpDecodePacket. A
+// trap user with its own or the message's flags, and with DecodeMessage. A
 // message naming another engine ID is rejected whatever its security level or
 // user name, with the error of adopting another engine ID, which unwraps to
 // ErrUnknownUsername (the trap paths reject an empty engine ID before; a
@@ -564,22 +564,22 @@ func TestUSMKeysBoundToEngine(t *testing.T) {
 		table receiverKind = iota
 		single
 		singleMessageFlags // useResponseSecurityParameters
-		decodePacket       // SnmpDecodePacket
+		decodePacket       // DecodeMessage
 	)
 	receivers := map[receiverKind]string{
-		table: "table", single: "single", singleMessageFlags: "single, message flags", decodePacket: "SnmpDecodePacket",
+		table: "table", single: "single", singleMessageFlags: "single, message flags", decodePacket: "DecodeMessage",
 	}
 	const boundEngineID = usmOtherEngineID
 
 	// keysOnly is the user's parameters: keys localized to boundEngineID, no
 	// passphrases.
-	keysOnly := func(auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol) *UsmSecurityParameters {
+	keysOnly := func(auth AuthProtocol, priv PrivProtocol) *UsmSecurityParameters {
 		return usmKeysOnly(&UsmSecurityParameters{
 			UserName: "codec-user", AuthenticationProtocol: auth, AuthenticationPassphrase: "codec-auth-pass",
 			PrivacyProtocol: priv, PrivacyPassphrase: "codec-priv-pass",
 		}, boundEngineID)
 	}
-	level := func(priv SnmpV3PrivProtocol) SnmpV3MsgFlags {
+	level := func(priv PrivProtocol) SnmpV3MsgFlags {
 		if priv > NoPriv {
 			return AuthPriv
 		}
@@ -587,20 +587,20 @@ func TestUSMKeysBoundToEngine(t *testing.T) {
 	}
 	// signedTrap is a trap from boundEngineID at the user's level, signed and
 	// encrypted with the user's keys.
-	signedTrap := func(auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol) []byte {
-		data, err := (&SnmpPacket{
+	signedTrap := func(auth AuthProtocol, priv PrivProtocol) []byte {
+		data, err := (&Message{
 			Version: Version3, MsgFlags: level(priv), SecurityModel: UserSecurityModel,
-			SecurityParameters: keysOnly(auth, priv), PDUType: SNMPv2Trap, Variables: usmPlainVars,
-		}).MarshalMsg()
+			SecurityParameters: keysOnly(auth, priv), PDUType: SNMPv2Trap, VarBinds: usmPlainVars,
+		}).Encode()
 		require.NoError(t, err)
 		return data
 	}
-	plainTrap := func(model int64, engineID, user string) func(SnmpV3AuthProtocol, SnmpV3PrivProtocol) []byte {
-		return func(SnmpV3AuthProtocol, SnmpV3PrivProtocol) []byte { return usmPlainTrap(model, engineID, user) }
+	plainTrap := func(model int64, engineID, user string) func(AuthProtocol, PrivProtocol) []byte {
+		return func(AuthProtocol, PrivProtocol) []byte { return usmPlainTrap(model, engineID, user) }
 	}
 
 	tests := map[string]struct {
-		in       func(auth SnmpV3AuthProtocol, priv SnmpV3PrivProtocol) []byte
+		in       func(auth AuthProtocol, priv PrivProtocol) []byte
 		accepted bool
 		noEngine bool  // the trap paths reject the empty engine ID first
 		wantErr  error // instead of the error of adopting another engine ID
@@ -617,24 +617,24 @@ func TestUSMKeysBoundToEngine(t *testing.T) {
 				for rk, receiver := range receivers {
 					t.Run(fmt.Sprintf("%s/%s/%s/%s", name, auth, priv, receiver), func(t *testing.T) {
 						sp, want := keysOnly(auth, priv), keysOnly(auth, priv)
-						x := &GoSNMP{Version: Version3, MsgFlags: level(priv), SecurityModel: UserSecurityModel, SecurityParameters: sp}
+						x := &Client{Version: Version3, MsgFlags: level(priv), SecurityModel: UserSecurityModel, SecurityParameters: sp}
 						if rk == table {
 							tb := NewSnmpV3SecurityParametersTable()
 							require.NoError(t, tb.Add("codec-user", sp))
 							x.SecurityParameters, x.TrapSecurityParametersTable = nil, tb
 						}
 
-						var res *SnmpPacket
+						var res *Message
 						var err error
 						if rk == decodePacket {
-							res, err = x.SnmpDecodePacket(tc.in(auth, priv))
+							res, err = x.DecodeMessage(tc.in(auth, priv))
 						} else {
 							res, err = x.UnmarshalTrap(tc.in(auth, priv), rk == singleMessageFlags)
 						}
 						switch {
 						case tc.accepted:
 							require.NoError(t, err)
-							assert.Equal(t, usmPlainVars, res.Variables)
+							assert.Equal(t, usmPlainVars, res.VarBinds)
 						case rk != decodePacket && tc.noEngine:
 							require.ErrorIs(t, err, ErrUnknownEngineID)
 						case tc.wantErr != nil:
@@ -744,14 +744,14 @@ func TestUSMKeysFor(t *testing.T) {
 // TestUSMAuthFieldEmpty pins that an authNoPriv message with an empty
 // msgAuthenticationParameters, shorter than the 12-octet SHA digest, decodes
 // without a write, whether or not the input has spare capacity:
-// SnmpDecodePacket checks no digest, and UnmarshalTrap finds it not
+// DecodeMessage checks no digest, and UnmarshalTrap finds it not
 // authentic.
 func TestUSMAuthFieldEmpty(t *testing.T) {
 	useEngineTimes(t)
 	usm := craftedUSM(octets(usmCharEngineID), intTLV(0), intTLV(0), octets("codec-user"), octets(""), octets(""))
 	msg := craftedV3(intTLV(42), intTLV(65507), octets("\x01"), intTLV(3), usm, craftedScopedResp)
 	decoder := usmDecoder(SHA, "codec-auth-pass", NoPriv, "")
-	trapDecoder := func() *GoSNMP {
+	trapDecoder := func() *Client {
 		x := decoder()
 		x.Version, x.SecurityModel, x.MsgFlags = Version3, UserSecurityModel, AuthNoPriv
 		return x
@@ -761,8 +761,8 @@ func TestUSMAuthFieldEmpty(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			buf := append(bytes.Clone(msg), bytes.Repeat([]byte{0xaa}, spare)...)
 			in := buf[:len(msg):len(buf)]
-			_, err := decoder().SnmpDecodePacket(in)
-			require.NoError(t, err, "SnmpDecodePacket")
+			_, err := decoder().DecodeMessage(in)
+			require.NoError(t, err, "DecodeMessage")
 			_, err = trapDecoder().UnmarshalTrap(in, false)
 			assert.ErrorIs(t, err, errNotAuthentic, "UnmarshalTrap")
 			assert.Equal(t, append(bytes.Clone(msg), bytes.Repeat([]byte{0xaa}, spare)...), buf, "the input and the octets after it")
@@ -776,7 +776,7 @@ func TestUSMAuthFieldEmpty(t *testing.T) {
 func TestUSMPrivacyPadding(t *testing.T) {
 	for _, priv := range usmPrivProtocols[1:] {
 		for n := range 16 {
-			vbs := []SnmpPDU{{Name: ".1.3.6.1.2.1.1.5.0", Type: OctetString, Value: bytes.Repeat([]byte{'x'}, n)}}
+			vbs := []VarBind{{Name: ".1.3.6.1.2.1.1.5.0", Type: OctetString, Value: bytes.Repeat([]byte{'x'}, n)}}
 			plain := splitV3Message(t, usmCharTrap(t, NoPriv, vbs))
 			secured := splitV3Message(t, usmCharTrap(t, priv, vbs))
 
@@ -800,7 +800,7 @@ func TestUSMPrivacyPadding(t *testing.T) {
 func TestUSMSalts(t *testing.T) {
 	packetSalt := func() []byte { return bytes.Repeat([]byte{0xee}, 8) }
 	tests := map[string]struct {
-		priv  SnmpV3PrivProtocol
+		priv  PrivProtocol
 		next  uint64
 		flags []SnmpV3MsgFlags
 		want  []string
@@ -823,11 +823,11 @@ func TestUSMSalts(t *testing.T) {
 			for _, flags := range tc.flags {
 				sp := codecUSM(t, SHA, tc.priv)
 				sp.PrivacyParameters = packetSalt()
-				pkt := &SnmpPacket{
+				pkt := &Message{
 					Version: Version3, MsgFlags: flags, SecurityModel: UserSecurityModel, SecurityParameters: sp,
 					PDUType: GetRequest,
 				}
-				data, err := pkt.MarshalMsg()
+				data, err := pkt.Encode()
 				require.NoError(t, err)
 				got = append(got, dumpBytes(splitV3Message(t, data).usm[5]))
 				assert.Equal(t, packetSalt(), sp.PrivacyParameters, "the packet's salt")
@@ -838,8 +838,8 @@ func TestUSMSalts(t *testing.T) {
 	t.Run("a message without security parameters is an error", func(t *testing.T) {
 		for name, sp := range map[string]SnmpV3SecurityParameters{"nil": nil, "typed nil": (*UsmSecurityParameters)(nil)} {
 			for _, flags := range []SnmpV3MsgFlags{NoAuthNoPriv, AuthPriv} {
-				pkt := &SnmpPacket{Version: Version3, MsgFlags: flags, SecurityModel: UserSecurityModel, SecurityParameters: sp}
-				_, err := pkt.MarshalMsg()
+				pkt := &Message{Version: Version3, MsgFlags: flags, SecurityModel: UserSecurityModel, SecurityParameters: sp}
+				_, err := pkt.Encode()
 				assert.EqualError(t, err, "SNMPv3 message without security parameters", "%s, %v", name, flags)
 			}
 		}
@@ -847,7 +847,7 @@ func TestUSMSalts(t *testing.T) {
 	t.Run("InitPacket does nothing", func(t *testing.T) {
 		usm.Salts.Set(5)
 		sp := &UsmSecurityParameters{PrivacyProtocol: AES}
-		pkt := &SnmpPacket{Version: Version3, MsgFlags: AuthPriv, SecurityParameters: sp}
+		pkt := &Message{Version: Version3, MsgFlags: AuthPriv, SecurityParameters: sp}
 		require.NoError(t, (&UsmSecurityParameters{PrivacyProtocol: DES}).InitPacket(pkt))
 		assert.Equal(t, &UsmSecurityParameters{PrivacyProtocol: AES}, sp)
 		assert.Equal(t, [8]byte{7: 5}, usm.Salts.Next(), "no salt drawn")
@@ -939,7 +939,7 @@ func TestUSMPasswordCaching(t *testing.T) {
 	}
 }
 
-// TestUSMValidate pins which SNMPv3 settings GoSNMP rejects before decoding
+// TestUSMValidate pins which SNMPv3 settings a Client rejects before decoding
 // or encoding, and the messages it rejects them with. The settings that pass
 // decode a noAuthNoPriv message; keys given without passphrases are localized
 // to its engine ID, since a new engine ID replaces them (decrypt golden).
@@ -1041,8 +1041,8 @@ func TestUSMValidate(t *testing.T) {
 			if model == 0 {
 				model = UserSecurityModel
 			}
-			x := &GoSNMP{Version: Version3, MsgFlags: tc.flags, SecurityModel: model, SecurityParameters: tc.sp}
-			_, err := x.SnmpDecodePacket(bytes.Clone(msg))
+			x := &Client{Version: Version3, MsgFlags: tc.flags, SecurityModel: model, SecurityParameters: tc.sp}
+			_, err := x.DecodeMessage(bytes.Clone(msg))
 			if tc.wantErr == "" {
 				assert.NoError(t, err)
 				return
@@ -1078,7 +1078,7 @@ func TestUSMStrings(t *testing.T) {
 	}
 	// Unset and unknown protocols have no name.
 	for _, v := range []uint8{0, 8} {
-		s := (&UsmSecurityParameters{AuthenticationProtocol: SnmpV3AuthProtocol(v), PrivacyProtocol: SnmpV3PrivProtocol(v)}).Description()
+		s := (&UsmSecurityParameters{AuthenticationProtocol: AuthProtocol(v), PrivacyProtocol: PrivProtocol(v)}).Description()
 		assert.Equal(t, "user=,engine=(),authPass=,privPass=", s, "protocol value %d", v)
 	}
 }
@@ -1086,7 +1086,7 @@ func TestUSMStrings(t *testing.T) {
 // TestUSMHashType pins the hash of every authentication protocol value: MD5
 // for NoAuth, unset and unknown values.
 func TestUSMHashType(t *testing.T) {
-	want := map[SnmpV3AuthProtocol]crypto.Hash{
+	want := map[AuthProtocol]crypto.Hash{
 		0:      crypto.MD5,
 		NoAuth: crypto.MD5,
 		MD5:    crypto.MD5,

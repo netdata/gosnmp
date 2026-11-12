@@ -38,24 +38,24 @@ func TestConnect(t *testing.T) {
 	cancel()
 
 	tests := map[string]struct {
-		setup func(x *GoSNMP)
+		setup func(x *Client)
 		want  connectResult
 	}{
 		"udp": {
 			want: connectResult{connected: true, local: "127.0.0.1"},
 		},
 		"invalid parameters": {
-			setup: func(x *GoSNMP) { x.MaxOids = -1 },
+			setup: func(x *Client) { x.MaxOids = -1 },
 			want:  connectResult{err: "field MaxOids cannot be less than 0"},
 		},
 		"negative timeout": {
-			setup: func(x *GoSNMP) { x.Timeout = -time.Second },
+			setup: func(x *Client) { x.Timeout = -time.Second },
 			want: connectResult{
 				err: "error establishing connection to host: dial udp 127.0.0.1:" + strconv.Itoa(int(udpPort)) + ": i/o timeout",
 			},
 		},
 		"canceled context": {
-			setup: func(x *GoSNMP) { x.Context = canceled },
+			setup: func(x *Client) { x.Context = canceled },
 			want: connectResult{
 				err: "error establishing connection to host: dial udp 127.0.0.1:" + strconv.Itoa(int(udpPort)) + ": operation was canceled",
 			},
@@ -63,7 +63,7 @@ func TestConnect(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			x := &GoSNMP{Target: "127.0.0.1", Port: udpPort, Version: Version2c, Community: "public", Timeout: time.Second}
+			x := &Client{Target: "127.0.0.1", Port: udpPort, Version: Version2c, Community: "public", Timeout: time.Second}
 			if tc.setup != nil {
 				tc.setup(x)
 			}
@@ -110,28 +110,28 @@ func TestUDPAgentAddress(t *testing.T) {
 	}
 	tests := map[string]struct {
 		// conn gives the client its connection; portB is agent B's port.
-		conn func(t *testing.T, x *GoSNMP, portB uint16)
+		conn func(t *testing.T, x *Client, portB uint16)
 		want string // the agent that answers; "" when the request fails
 	}{
-		"the socket Connect opened": {want: "A", conn: func(t *testing.T, x *GoSNMP, _ uint16) {
+		"the socket Connect opened": {want: "A", conn: func(t *testing.T, x *Client, _ uint16) {
 			require.NoError(t, x.Connect())
 		}},
-		"a wrapper of the socket Connect opened": {want: "A", conn: func(t *testing.T, x *GoSNMP, _ uint16) {
+		"a wrapper of the socket Connect opened": {want: "A", conn: func(t *testing.T, x *Client, _ uint16) {
 			require.NoError(t, x.Connect())
 			x.Conn = packetConnWrapper{Conn: x.Conn, pc: x.Conn.(net.PacketConn)}
 		}},
-		"a connected socket the caller set after Connect": {want: "B", conn: func(t *testing.T, x *GoSNMP, portB uint16) {
+		"a connected socket the caller set after Connect": {want: "B", conn: func(t *testing.T, x *Client, portB uint16) {
 			require.NoError(t, x.Connect())
 			replaced := x.Conn
 			t.Cleanup(func() { _ = replaced.Close() })
 			x.Conn = connectedTo(t, portB)
 		}},
-		"a connected socket the caller set after Close": {want: "B", conn: func(t *testing.T, x *GoSNMP, portB uint16) {
+		"a connected socket the caller set after Close": {want: "B", conn: func(t *testing.T, x *Client, portB uint16) {
 			require.NoError(t, x.Connect())
 			require.NoError(t, x.Close())
 			x.Conn = connectedTo(t, portB)
 		}},
-		"an unconnected socket the caller set": {conn: func(t *testing.T, x *GoSNMP, _ uint16) {
+		"an unconnected socket the caller set": {conn: func(t *testing.T, x *Client, _ uint16) {
 			pc, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = pc.Close() })
@@ -140,14 +140,14 @@ func TestUDPAgentAddress(t *testing.T) {
 	}
 	agent := func(name string) uint16 {
 		port, _ := udpAgent(t, func(_ int, req []byte) []byte {
-			return replyTo(req, nil, SnmpPDU{Name: engineOID, Type: OctetString, Value: []byte(name)})
+			return replyTo(req, nil, VarBind{Name: engineOID, Type: OctetString, Value: []byte(name)})
 		})
 		return port
 	}
 	portA, portB := agent("A"), agent("B")
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			x := &GoSNMP{
+			x := &Client{
 				Target: "127.0.0.1", Port: portA, Version: Version2c, Community: "public",
 				Timeout: 500 * time.Millisecond, MaxOids: MaxOids,
 			}
@@ -161,8 +161,8 @@ func TestUDPAgentAddress(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
-			require.Len(t, res.Variables, 1)
-			assert.Equal(t, tc.want, string(res.Variables[0].Value.([]byte)))
+			require.Len(t, res.VarBinds, 1)
+			assert.Equal(t, tc.want, string(res.VarBinds[0].Value.([]byte)))
 		})
 	}
 }
@@ -180,7 +180,7 @@ func TestRequestResolvesNoName(t *testing.T) {
 	defer func() { net.DefaultResolver = defaultResolver }()
 
 	port, _ := udpAgent(t, func(_ int, req []byte) []byte { return replyTo(req, nil, sysDescr) })
-	x := &GoSNMP{
+	x := &Client{
 		Target: "127.0.0.1", Port: port, Version: Version2c, Community: "public",
 		Timeout: 500 * time.Millisecond,
 	}
@@ -200,7 +200,7 @@ func TestRequestResolvesNoName(t *testing.T) {
 func TestRetryUsesConnReplacedByHook(t *testing.T) {
 	portA, _ := udpAgent(t, func(int, []byte) []byte { return nil })
 	portB, _ := udpAgent(t, func(_ int, req []byte) []byte { return replyTo(req, nil, sysDescr) })
-	x := &GoSNMP{
+	x := &Client{
 		Target: "127.0.0.1", Port: portA, Version: Version2c, Community: "public",
 		Timeout: 200 * time.Millisecond, Retries: 1,
 	}
@@ -208,7 +208,7 @@ func TestRetryUsesConnReplacedByHook(t *testing.T) {
 	first := x.Conn
 	defer first.Close()
 	defer x.Close()
-	x.OnRetry = func(x *GoSNMP) {
+	x.OnRetry = func(x *Client) {
 		x.OnRetry = nil
 		conn, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: int(portB)})
 		require.NoError(t, err)
@@ -217,7 +217,7 @@ func TestRetryUsesConnReplacedByHook(t *testing.T) {
 
 	res, err := x.Get([]string{engineOID})
 	require.NoError(t, err)
-	assert.Equal(t, []SnmpPDU{sysDescr}, res.Variables)
+	assert.Equal(t, []VarBind{sysDescr}, res.VarBinds)
 }
 
 // TestConnectIPv6Target checks a request to an agent on the IPv6 loopback
@@ -243,7 +243,7 @@ func TestConnectIPv6Target(t *testing.T) {
 		_ = agent.Close()
 		<-served
 	}()
-	x := &GoSNMP{
+	x := &Client{
 		Target: "::1", Port: uint16(agent.LocalAddr().(*net.UDPAddr).Port), //nolint:gosec // a UDP port
 		Version: Version2c, Community: "public", Timeout: 500 * time.Millisecond,
 	}
@@ -253,7 +253,7 @@ func TestConnectIPv6Target(t *testing.T) {
 
 	res, err := x.Get([]string{engineOID})
 	require.NoError(t, err)
-	assert.Equal(t, []SnmpPDU{sysDescr}, res.Variables)
+	assert.Equal(t, []VarBind{sysDescr}, res.VarBinds)
 }
 
 // TestConnectedSocketOtherSource checks that the socket Connect dials takes
@@ -263,13 +263,13 @@ func TestConnectedSocketOtherSource(t *testing.T) {
 	srvr, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	require.NoError(t, err)
 	defer srvr.Close()
-	x := &GoSNMP{
+	x := &Client{
 		Target: "127.0.0.1", Port: uint16(srvr.LocalAddr().(*net.UDPAddr).Port), //nolint:gosec // a UDP port
 		Version: Version2c, Community: "public", Timeout: 100 * time.Millisecond, Retries: 2,
 	}
 	require.NoError(t, x.Connect())
 	defer x.Close()
-	go serveGetResponses(t, srvr, x, sendFromNewSocket)
+	go serveResponses(t, srvr, x, sendFromNewSocket)
 
 	_, err = x.Get([]string{".1.2"})
 	assert.ErrorIs(t, err, os.ErrDeadlineExceeded)
@@ -388,7 +388,7 @@ func TestConnectLookupWithinBounds(t *testing.T) {
 			dns.answering.Store(false)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			x := &GoSNMP{
+			x := &Client{
 				Target: "agent.codec.invalid.", Port: 161, Version: Version2c, Community: "public",
 				Timeout: bound.timeout, Context: ctx,
 			}
@@ -427,7 +427,7 @@ func (c *closeErrConn) Close() error {
 // and leaves no connection, and that a client without one closes cleanly.
 func TestCloseOnce(t *testing.T) {
 	c := &closeErrConn{}
-	x := &GoSNMP{Conn: c}
+	x := &Client{Conn: c}
 	assert.ErrorIs(t, x.Close(), errCloseConn)
 	assert.Nil(t, x.Conn)
 	assert.NoError(t, x.Close())
@@ -492,7 +492,7 @@ func TestConnectReplacesConnection(t *testing.T) {
 			agent, err := net.ListenPacket("udp4", "127.0.0.1:0")
 			require.NoError(t, err)
 			defer agent.Close()
-			x := &GoSNMP{
+			x := &Client{
 				Target: "127.0.0.1", Port: uint16(agent.LocalAddr().(*net.UDPAddr).Port), //nolint:gosec // a UDP port
 				Version: Version2c, Community: "public", Timeout: time.Second,
 			}
@@ -521,19 +521,19 @@ func TestConnectReplacesConnection(t *testing.T) {
 func TestRequestWithoutConnection(t *testing.T) {
 	tests := map[string]struct {
 		v3     bool
-		before func(t *testing.T, x *GoSNMP)
+		before func(t *testing.T, x *Client)
 		want   error
 	}{
 		"never connected": {want: errNoConn},
-		"after Close": {want: errClosed, before: func(t *testing.T, x *GoSNMP) {
+		"after Close": {want: errClosed, before: func(t *testing.T, x *Client) {
 			require.NoError(t, x.Connect())
 			require.NoError(t, x.Close())
 		}},
-		"SNMPv3 after Close": {v3: true, want: errClosed, before: func(t *testing.T, x *GoSNMP) {
+		"SNMPv3 after Close": {v3: true, want: errClosed, before: func(t *testing.T, x *Client) {
 			require.NoError(t, x.Connect())
 			require.NoError(t, x.Close())
 		}},
-		"Conn removed after Close and Connect": {want: errNoConn, before: func(t *testing.T, x *GoSNMP) {
+		"Conn removed after Close and Connect": {want: errNoConn, before: func(t *testing.T, x *Client) {
 			require.NoError(t, x.Connect())
 			require.NoError(t, x.Close())
 			require.NoError(t, x.Connect())
@@ -543,7 +543,7 @@ func TestRequestWithoutConnection(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			x := &GoSNMP{
+			x := &Client{
 				Target: "127.0.0.1", Port: unusedUDPPort(t), Version: Version2c, Community: "public",
 				Timeout: time.Second, MaxOids: MaxOids,
 			}
@@ -594,7 +594,7 @@ func TestCloseDuringRequest(t *testing.T) {
 	require.NoError(t, h.Connect())
 	res, err := h.Get([]string{engineOID})
 	require.NoError(t, err)
-	assert.Equal(t, []SnmpPDU{sysDescr}, res.Variables)
+	assert.Equal(t, []VarBind{sysDescr}, res.VarBinds)
 	assert.Len(t, reads, 1, "the agent read the request after Connect, not the one after Close")
 }
 
@@ -609,15 +609,15 @@ func TestCloseDuringWalk(t *testing.T) {
 			return nil // the agent does not answer the fifth request
 		}
 		p, err := decodeMessage(req)
-		if err != nil || len(p.Variables) == 0 {
+		if err != nil || len(p.VarBinds) == 0 {
 			return nil
 		}
 		next := root + ".1"
-		if arc, ok := strings.CutPrefix(p.Variables[0].Name, root+"."); ok {
+		if arc, ok := strings.CutPrefix(p.VarBinds[0].Name, root+"."); ok {
 			i, _ := strconv.Atoi(arc)
 			next = root + "." + strconv.Itoa(i+1)
 		}
-		return replyTo(req, nil, SnmpPDU{Name: next, Type: OctetString, Value: []byte("codec")})
+		return replyTo(req, nil, VarBind{Name: next, Type: OctetString, Value: []byte("codec")})
 	})
 	h := NewHandler()
 	h.SetTarget("127.0.0.1")
@@ -667,7 +667,7 @@ func TestCloseDuringRequestConnReplaced(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			port, _ := udpAgent(t, func(int, []byte) []byte { return nil }) // the agent never answers
 			const timeout = 2 * time.Second
-			x := &GoSNMP{Target: "127.0.0.1", Port: port, Version: Version2c, Community: "public", Timeout: timeout}
+			x := &Client{Target: "127.0.0.1", Port: port, Version: Version2c, Community: "public", Timeout: timeout}
 			if tc.context {
 				x.Context = t.Context()
 			}
@@ -688,7 +688,7 @@ func TestCloseDuringRequestConnReplaced(t *testing.T) {
 				_ = x.Close()
 				close(closed)
 			}()
-			x.OnSent = func(x *GoSNMP) {
+			x.OnSent = func(x *Client) {
 				x.OnSent = nil
 				x.Conn = hookConn
 				close(ready)
@@ -734,7 +734,7 @@ func closeOnRelease(h Handler, n int, release func()) *sync.WaitGroup {
 func TestCloseDuringConnect(t *testing.T) {
 	port, _ := udpAgent(t, func(_ int, req []byte) []byte { return replyTo(req, nil, sysDescr) })
 	for range 20 {
-		x := &GoSNMP{Target: "127.0.0.1", Port: port, Version: Version2c, Community: "public", Timeout: 10 * time.Second}
+		x := &Client{Target: "127.0.0.1", Port: port, Version: Version2c, Community: "public", Timeout: 10 * time.Second}
 		require.NoError(t, x.Connect())
 		closed := make(chan error, 1)
 		go func() { closed <- x.Close() }()
@@ -763,7 +763,7 @@ func TestContextCancelDuringRequest(t *testing.T) {
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	x := &GoSNMP{
+	x := &Client{
 		Target: "127.0.0.1", Port: port, Version: Version2c, Community: "public",
 		Timeout: 10 * time.Second, Context: ctx,
 	}
@@ -782,7 +782,7 @@ func TestContextCancelDuringRequest(t *testing.T) {
 	x.Context = context.Background()
 	res, err := x.Get([]string{engineOID})
 	require.NoError(t, err)
-	assert.Equal(t, []SnmpPDU{sysDescr}, res.Variables)
+	assert.Equal(t, []VarBind{sysDescr}, res.VarBinds)
 }
 
 // udpAgent listens on a loopback UDP port and answers request n (counted from

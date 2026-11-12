@@ -16,18 +16,18 @@ import (
 // `-tags netsnmp`; TestUSM reads the recordings instead of calling them.
 var errPlayback = errors.New("net-snmp USM primitives require `-tags netsnmp` and libsnmp")
 
-func netSnmpAuthKey(gosnmp.SnmpV3AuthProtocol, string, string) ([]byte, error) {
+func netSnmpAuthKey(gosnmp.AuthProtocol, string, string) ([]byte, error) {
 	return nil, errPlayback
 }
 
-func netSnmpPrivKey(gosnmp.SnmpV3AuthProtocol, gosnmp.SnmpV3PrivProtocol, string, string) ([]byte, error) {
+func netSnmpPrivKey(gosnmp.AuthProtocol, gosnmp.PrivProtocol, string, string) ([]byte, error) {
 	return nil, errPlayback
 }
 
-func netSnmpHMAC(gosnmp.SnmpV3AuthProtocol, []byte, []byte) ([]byte, error) {
+func netSnmpHMAC(gosnmp.AuthProtocol, []byte, []byte) ([]byte, error) {
 	return nil, errPlayback
 }
 
-func netSnmpEncrypt(gosnmp.SnmpV3PrivProtocol, []byte, []byte, []byte) ([]byte, error) {
+func netSnmpEncrypt(gosnmp.PrivProtocol, []byte, []byte, []byte) ([]byte, error) {
 	return nil, errPlayback
 }

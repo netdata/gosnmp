@@ -12,7 +12,7 @@ import (
 // negotiateInitialSecurityParameters prepares packetOut's security parameters
 // before an SNMPv3 request: it discovers the agent's engine while the engine
 // state has no engine ID, and gives packetOut the engine state.
-func (x *GoSNMP) negotiateInitialSecurityParameters(cfg *requestConfig, packetOut *SnmpPacket) error {
+func (x *Client) negotiateInitialSecurityParameters(cfg *requestConfig, packetOut *Message) error {
 	if x.engine.engineID == "" {
 		return x.discoverEngine(cfg, packetOut)
 	}
@@ -23,7 +23,7 @@ func (x *GoSNMP) negotiateInitialSecurityParameters(cfg *requestConfig, packetOu
 // discoverEngine runs engine discovery (RFC 3414 section 4): it sends the
 // discovery request, whose answer the attempt commits into the engine state
 // (exchange.settle), and gives packetOut the engine state.
-func (x *GoSNMP) discoverEngine(cfg *requestConfig, packetOut *SnmpPacket) error {
+func (x *Client) discoverEngine(cfg *requestConfig, packetOut *Message) error {
 	discoveryPacket := newDiscoveryPacket()
 	discoveryPacket.ContextName = packetOut.ContextName
 	_, committed, err := x.sendOneRequest(cfg, discoveryPacket, true, sourcedClock{})
@@ -38,7 +38,7 @@ func (x *GoSNMP) discoverEngine(cfg *requestConfig, packetOut *SnmpPacket) error
 // ErrUnknownUsername still found the engine: some devices (e.g. Dell EMC
 // switches) answer discovery with usmStatsUnknownUserNames instead of
 // usmStatsUnknownEngineIDs, with valid engine parameters.
-func engineFoundDespiteUnknownUser(result *SnmpPacket, err error) bool {
+func engineFoundDespiteUnknownUser(result *Message, err error) bool {
 	if !errors.Is(err, ErrUnknownUsername) || result == nil {
 		return false
 	}
@@ -69,7 +69,7 @@ var errReplyNotInTime = inCategory(ErrNotInTimeWindow, errors.New("the reply is 
 // authenticated notInTimeWindow Report gives its boots and time whatever their
 // order: the agent's own, matched to the request (a deviation from section 3.2
 // step 7 b, for devices whose boots do not go up when they restart).
-// Unverified, a GetResponse, which answers only a request without
+// Unverified, a Response, which answers only a request without
 // authentication and names its engine ID (exchange.answers: the engine state's,
 // a lent one, or none for discovery), gives that engine ID and an
 // unauthenticated clock, which does not replace an authenticated one
@@ -140,7 +140,7 @@ func (e *exchange) settle(out attemptOutcome) (attemptOutcome, error) {
 // authentic answer of one that does not is its first (the reset of RFC 3414
 // section 2.3). A deviation from section 3.2 step 7 b and net-snmp, which
 // reject such a device until the client forgets its time by other means.
-func (x *GoSNMP) forgetEngineTime() {
+func (x *Client) forgetEngineTime() {
 	next := x.engine
 	next.clock = sourcedClock{}
 	x.commitEngine(next)
@@ -175,7 +175,7 @@ func (e *exchange) resetsClock(boots, engineTime uint32, now time.Time) bool {
 // every unauthenticated clock (sourcedClock.timeFor). It never takes an engine
 // ID: the request would be signed for another engine with the same
 // credentials (section 1.5.2).
-func mayLend(packetOut, report *SnmpPacket, kind reportKind) bool {
+func mayLend(packetOut, report *Message, kind reportKind) bool {
 	if !packetOut.MsgFlags.authFlag() {
 		return true
 	}
@@ -194,7 +194,7 @@ func mayLend(packetOut, report *SnmpPacket, kind reportKind) bool {
 // resend's attempts carry (RFC 3414 section 3.2 checks the engine ID before
 // the time window). The client takes the agent's from the authenticated
 // answer.
-func (x *GoSNMP) lendEngineParameters(packetOut, report *SnmpPacket, kind reportKind) (sourcedClock, error) {
+func (x *Client) lendEngineParameters(packetOut, report *Message, kind reportKind) (sourcedClock, error) {
 	from, sp := report.SecurityParameters.usm(), packetOut.SecurityParameters.usm()
 	if kind.namesEngine {
 		lent, err := x.engine.withEngine(from.AuthoritativeEngineID)

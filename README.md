@@ -32,7 +32,7 @@ GoSNMP has the following SNMP functions:
 * **WalkAll** - retrieve a subtree of values using GETNEXT.
 * **BulkWalkAll** - retrieve a subtree of values using GETBULK (SNMPv2c and SNMPv3 only).
 * **UnmarshalTrap** - decodes received traps and informs; the library does not listen for them.
-* **SnmpEncodePacket** and **SnmpDecodePacket** - encode and decode messages for other transports and for tests.
+* **EncodeMessage** and **DecodeMessage** - encode and decode messages for other transports and for tests.
 
 The library writes no log or other output and never exits the process: every function reports through its results and
 errors.
@@ -59,9 +59,9 @@ https://pkg.go.dev/github.com/netdata/gosnmp
 Here is the body of `examples/example/main.go`, which imports the package as `g`:
 
 ```go
-// A GoSNMP literal configures the client: SNMPv2c to port 161 with the
+// A Client literal configures the client: SNMPv2c to port 161 with the
 // community "public"; Connect fills in MaxOids (60).
-client := &g.GoSNMP{
+client := &g.Client{
     Target:    "192.168.1.10",
     Port:      161,
     Community: "public",
@@ -81,7 +81,7 @@ if err2 != nil {
     log.Fatalf("Get() err: %v", err2)
 }
 
-for i, variable := range result.Variables {
+for i, variable := range result.VarBinds {
     fmt.Printf("%d: oid: %s ", i, variable.Name)
 
     // The Go type of a Value depends on its Type (see the package
@@ -194,7 +194,7 @@ Its SNMPv3 test logs in as each user of `testdata/snmp_users.txt`, one per
 authentication and privacy protocol pair; `snmp_users.sh` creates them in
 net-snmp's `snmpd.conf`, as CI and the Docker image do.
 
-The `netsnmp` module compares gosnmp with net-snmp: packet encodings and the SNMPv3
+The `netsnmp` module compares gosnmp with net-snmp: message encodings and the SNMPv3
 User-based Security Model (localized keys, encryption and authentication for every
 protocol pair). By default it replays the recordings in `netsnmp/testdata`. With libsnmp
 installed (`libsnmp-dev`), `make -C netsnmp test_netsnmp` compares with the library

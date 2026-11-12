@@ -24,7 +24,7 @@ func codecFuzzSeeds(tb testing.TB) [][]byte {
 	return seeds
 }
 
-// FuzzUnmarshal checks that SnmpDecodePacket returns quickly, does not panic
+// FuzzUnmarshal checks that DecodeMessage returns quickly, does not panic
 // and does not write into its input. Its corpus in testdata/fuzz/FuzzUnmarshal
 // is also pinned by TestDecodeCharacterization.
 func FuzzUnmarshal(f *testing.F) {
@@ -32,24 +32,24 @@ func FuzzUnmarshal(f *testing.F) {
 		f.Add(seed)
 	}
 
-	vhandle := GoSNMP{}
+	vhandle := Client{}
 	f.Fuzz(func(t *testing.T, data []byte) {
 		stime := time.Now()
 		in := bytes.Clone(data)
-		_, _ = vhandle.SnmpDecodePacket(in)
+		_, _ = vhandle.DecodeMessage(in)
 
 		if e := time.Since(stime); e > (time.Second * 1) {
-			t.Errorf("SnmpDecodePacket() took too long: %s", e)
+			t.Errorf("DecodeMessage() took too long: %s", e)
 		}
 		if !bytes.Equal(in, data) {
-			t.Errorf("SnmpDecodePacket() wrote into its input: %x", data)
+			t.Errorf("DecodeMessage() wrote into its input: %x", data)
 		}
 	})
 }
 
 // FuzzDecodeReencode checks that the decoder takes no value or field the
-// encoder refuses but the named quirks (decodeQuirk): MarshalMsg encodes what
-// SnmpDecodePacket accepts, the bytes it produces decode again, and a second
+// encoder refuses but the named quirks (decodeQuirk): Message.Encode encodes what
+// DecodeMessage accepts, the bytes it produces decode again, and a second
 // decode and encode pass, drawing the same salt, reproduces them exactly.
 // Decoding the re-encoded bytes does not always return the original values
 // (the quirks and the values the decoder cuts, pinned by
@@ -60,12 +60,12 @@ func FuzzDecodeReencode(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		first, err := (&GoSNMP{}).SnmpDecodePacket(bytes.Clone(data))
+		first, err := (&Client{}).DecodeMessage(bytes.Clone(data))
 		if err != nil {
 			return
 		}
 		usm.Salts.Set(1)
-		encoded, err := first.MarshalMsg()
+		encoded, err := first.Encode()
 		if err != nil {
 			if decodeQuirk(first) {
 				return
@@ -73,12 +73,12 @@ func FuzzDecodeReencode(f *testing.F) {
 			t.Fatalf("decoded packet does not encode: %v\ninput: %x", err, data)
 		}
 
-		second, err := (&GoSNMP{}).SnmpDecodePacket(bytes.Clone(encoded))
+		second, err := (&Client{}).DecodeMessage(bytes.Clone(encoded))
 		if err != nil {
 			t.Fatalf("re-encoded packet does not decode: %v\ninput:      %x\nre-encoded: %x", err, data, encoded)
 		}
 		usm.Salts.Set(1)
-		reencoded, err := second.MarshalMsg()
+		reencoded, err := second.Encode()
 		if err != nil {
 			t.Fatalf("second encode failed: %v\ninput:      %x\nre-encoded: %x", err, data, encoded)
 		}
@@ -92,11 +92,11 @@ func FuzzDecodeReencode(f *testing.F) {
 // and the encoder refuses: a value of UnknownType (an unknown tag, or an
 // unsigned value that does not decode), an empty IpAddress value or SNMPv1
 // agent address, or a varbind name sent as text that is not an OID.
-func decodeQuirk(p *SnmpPacket) bool {
+func decodeQuirk(p *Message) bool {
 	if p.PDUType == Trap && p.AgentAddress == "" {
 		return true
 	}
-	return slices.ContainsFunc(p.Variables, func(v SnmpPDU) bool {
+	return slices.ContainsFunc(p.VarBinds, func(v VarBind) bool {
 		if _, err := ber.AppendOID(nil, v.Name); err != nil {
 			return true
 		}

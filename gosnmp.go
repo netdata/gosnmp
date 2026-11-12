@@ -19,23 +19,23 @@ import (
 )
 
 const (
-	// MaxOids is the default of GoSNMP.MaxOids, the maximum number of OIDs in
+	// MaxOids is the default of Client.MaxOids, the maximum number of OIDs in
 	// a Get request and in each request of a walk. MaxOids too high can cause
 	// remote devices to fail strangely. 60 seems to be a common value that
-	// works; set GoSNMP.MaxOids to change it.
+	// works; set Client.MaxOids to change it.
 	MaxOids = 60
 
 	// defaultMaxRepetitions is the walks' GetBulk max-repetitions unless
-	// GoSNMP.MaxRepetitions is set; Java SNMP uses 50, net-snmp 10.
+	// Client.MaxRepetitions is set; Java SNMP uses 50, net-snmp 10.
 	defaultMaxRepetitions = 50
 )
 
-// GoSNMP is an SNMP client: its exported fields configure it, Connect opens
-// its connection, and its methods send requests. A GoSNMP is not safe for
+// Client is an SNMP client: its exported fields configure it, Connect opens
+// its connection, and its methods send requests. A Client is not safe for
 // concurrent use, Close excepted: requests share its connection, receive
 // buffer and deadline, so run one request at a time, or give each goroutine
-// its own GoSNMP.
-type GoSNMP struct {
+// its own Client.
+type Client struct {
 	// Conn is the connection to the agent, the UDP socket Connect opened, or
 	// set by the caller in its place: the client then lacks Connect's defaults
 	// and checks, so the caller sets the fields it needs (MaxOids, for one); a
@@ -59,7 +59,7 @@ type GoSNMP struct {
 	Community string
 
 	// Version is the SNMP version: Version1, Version2c or Version3.
-	Version SnmpVersion
+	Version Version
 
 	// Context, when set, bounds Connect (its lookup of Target and its dial)
 	// and every request: no attempt starts once it is done, and its
@@ -86,26 +86,26 @@ type GoSNMP struct {
 	//
 	// PreSend is called in each attempt after the request is encoded, before
 	// it is written.
-	PreSend func(*GoSNMP)
+	PreSend func(*Client)
 
 	// OnSent is called in each attempt after the request is written.
-	OnSent func(*GoSNMP)
+	OnSent func(*Client)
 
 	// OnRecv is called after each reply is read, before it is decoded.
-	OnRecv func(*GoSNMP)
+	OnRecv func(*Client)
 
 	// OnRetry is called before each retry: after an attempt that failed in a
 	// way another attempt may cure (a timeout, or another write or read error
 	// than a closed connection), when another attempt follows. It is not
 	// called after the last attempt, nor when the Context is done.
-	OnRetry func(*GoSNMP)
+	OnRetry func(*Client)
 
 	// OnFinish is called each time an exchange (a request and the answer to
 	// it, after any retries) ends without an error, including one answered by
 	// a Report the client resynchronizes from (unknownEngineID, the usual answer
 	// to SNMPv3 engine discovery, or notInTimeWindow). It is not called when an
 	// exchange fails.
-	OnFinish func(*GoSNMP)
+	OnFinish func(*Client)
 
 	// MaxOids is the maximum number of OIDs in a Get request, and in each
 	// request of a walk, which carries one. Connect replaces zero with the
@@ -170,10 +170,10 @@ type GoSNMP struct {
 	attempt runningAttempt
 }
 
-// SnmpPDU is a variable binding (varbind): the name of an object, and the
+// VarBind is a variable binding (varbind): the name of an object, and the
 // type and value of its value. Requests, answers and traps carry them in
-// SnmpPacket.Variables.
-type SnmpPDU struct {
+// Message.VarBinds.
+type VarBind struct {
 	// Value is the value, whose Go type depends on Type (see the package
 	// documentation). The requests of Get and the walks send nil.
 	Value any
@@ -185,13 +185,13 @@ type SnmpPDU struct {
 	Name string
 
 	// Type is the type of the value.
-	Type Asn1BER
+	Type ValueType
 }
 
-//go:generate go tool -modfile=tools/go.mod stringer -type Asn1BER
+//go:generate go tool -modfile=tools/go.mod stringer -type ValueType
 
-// Asn1BER is the BER tag of a varbind value, which names its type.
-type Asn1BER byte
+// ValueType is the BER tag of a varbind value, which names its type.
+type ValueType byte
 
 // The value types: ASN.1's, those of the SMI (RFC 2578), net-snmp's
 // OpaqueFloat and OpaqueDouble, the tags of the floats it wraps in an Opaque,
@@ -199,63 +199,64 @@ type Asn1BER byte
 // The decoder gives UnknownType, which shares 0x00 with EndOfContents, for a
 // value of a type it does not decode.
 const (
-	EndOfContents     Asn1BER = 0x00
-	UnknownType       Asn1BER = 0x00
-	Boolean           Asn1BER = 0x01
-	Integer           Asn1BER = 0x02
-	BitString         Asn1BER = 0x03
-	OctetString       Asn1BER = 0x04
-	Null              Asn1BER = 0x05
-	ObjectIdentifier  Asn1BER = 0x06
-	ObjectDescription Asn1BER = 0x07
-	IPAddress         Asn1BER = 0x40
-	Counter32         Asn1BER = 0x41
-	Gauge32           Asn1BER = 0x42
-	TimeTicks         Asn1BER = 0x43
-	Opaque            Asn1BER = 0x44
-	NsapAddress       Asn1BER = 0x45
-	Counter64         Asn1BER = 0x46
-	Uinteger32        Asn1BER = 0x47
-	OpaqueFloat       Asn1BER = 0x78
-	OpaqueDouble      Asn1BER = 0x79
-	NoSuchObject      Asn1BER = 0x80
-	NoSuchInstance    Asn1BER = 0x81
-	EndOfMibView      Asn1BER = 0x82
+	EndOfContents     ValueType = 0x00
+	UnknownType       ValueType = 0x00
+	Boolean           ValueType = 0x01
+	Integer           ValueType = 0x02
+	BitString         ValueType = 0x03
+	OctetString       ValueType = 0x04
+	Null              ValueType = 0x05
+	ObjectIdentifier  ValueType = 0x06
+	ObjectDescription ValueType = 0x07
+	IPAddress         ValueType = 0x40
+	Counter32         ValueType = 0x41
+	Gauge32           ValueType = 0x42
+	TimeTicks         ValueType = 0x43
+	Opaque            ValueType = 0x44
+	NsapAddress       ValueType = 0x45
+	Counter64         ValueType = 0x46
+	Uinteger32        ValueType = 0x47
+	OpaqueFloat       ValueType = 0x78
+	OpaqueDouble      ValueType = 0x79
+	NoSuchObject      ValueType = 0x80
+	NoSuchInstance    ValueType = 0x81
+	EndOfMibView      ValueType = 0x82
 )
 
-//go:generate go tool -modfile=tools/go.mod stringer -type SNMPError
+//go:generate go tool -modfile=tools/go.mod stringer -type ErrorStatus
 
-// SNMPError is the type for standard SNMP errors.
-type SNMPError uint8
+// ErrorStatus is the error-status of a PDU (RFC 3416 section 3): NoError, or
+// why the agent did not process a request as asked.
+type ErrorStatus uint8
 
-// SNMP Errors
+// The error statuses (RFC 3416; SNMPv1 has the first six).
 const (
-	NoError             SNMPError = iota // No error occurred. This code is also used in all request PDUs, since they have no error status to report.
-	TooBig                               // The size of the Response-PDU would be too large to transport.
-	NoSuchName                           // The name of a requested object was not found.
-	BadValue                             // A value in the request didn't match the structure that the recipient of the request had for the object. For example, an object in the request was specified with an incorrect length or type.
-	ReadOnly                             // An attempt was made to set a variable that has an Access value indicating that it is read-only.
-	GenErr                               // An error occurred other than one indicated by a more specific error code in this table.
-	NoAccess                             // Access was denied to the object for security reasons.
-	WrongType                            // The object type in a variable binding is incorrect for the object.
-	WrongLength                          // A variable binding specifies a length incorrect for the object.
-	WrongEncoding                        // A variable binding specifies an encoding incorrect for the object.
-	WrongValue                           // The value given in a variable binding is not possible for the object.
-	NoCreation                           // A specified variable does not exist and cannot be created.
-	InconsistentValue                    // A variable binding specifies a value that could be held by the variable but cannot be assigned to it at this time.
-	ResourceUnavailable                  // An attempt to set a variable required a resource that is not available.
-	CommitFailed                         // An attempt to set a particular variable failed.
-	UndoFailed                           // An attempt to set a particular variable as part of a group of variables failed, and the attempt to then undo the setting of other variables was not successful.
-	AuthorizationError                   // A problem occurred in authorization.
-	NotWritable                          // The variable cannot be written or created.
-	InconsistentName                     // The name in a variable binding specifies a variable that does not exist.
+	NoError             ErrorStatus = iota // No error occurred. This code is also used in all request PDUs, since they have no error status to report.
+	TooBig                                 // The size of the Response-PDU would be too large to transport.
+	NoSuchName                             // The name of a requested object was not found.
+	BadValue                               // A value in the request didn't match the structure that the recipient of the request had for the object. For example, an object in the request was specified with an incorrect length or type.
+	ReadOnly                               // An attempt was made to set a variable that has an Access value indicating that it is read-only.
+	GenErr                                 // An error occurred other than one indicated by a more specific error code in this table.
+	NoAccess                               // Access was denied to the object for security reasons.
+	WrongType                              // The object type in a variable binding is incorrect for the object.
+	WrongLength                            // A variable binding specifies a length incorrect for the object.
+	WrongEncoding                          // A variable binding specifies an encoding incorrect for the object.
+	WrongValue                             // The value given in a variable binding is not possible for the object.
+	NoCreation                             // A specified variable does not exist and cannot be created.
+	InconsistentValue                      // A variable binding specifies a value that could be held by the variable but cannot be assigned to it at this time.
+	ResourceUnavailable                    // An attempt to set a variable required a resource that is not available.
+	CommitFailed                           // An attempt to set a particular variable failed.
+	UndoFailed                             // An attempt to set a particular variable as part of a group of variables failed, and the attempt to then undo the setting of other variables was not successful.
+	AuthorizationError                     // A problem occurred in authorization.
+	NotWritable                            // The variable cannot be written or created.
+	InconsistentName                       // The name in a variable binding specifies a variable that does not exist.
 )
 
-// prepare readies the client for Connect, SnmpEncodePacket and
-// SnmpDecodePacket, which call it each time: it fills in the defaults (MaxOids,
+// prepare readies the client for Connect, EncodeMessage and
+// DecodeMessage, which call it each time: it fills in the defaults (MaxOids,
 // a background Context), rejects a negative MaxOids and, for SNMPv3, checks
 // the security model and parameters.
-func (x *GoSNMP) prepare() error {
+func (x *Client) prepare() error {
 	if x.MaxOids == 0 {
 		x.MaxOids = MaxOids
 	} else if x.MaxOids < 0 {
@@ -274,20 +275,20 @@ func (x *GoSNMP) prepare() error {
 	return nil
 }
 
-// SnmpEncodePacket encodes a request or trap, for another transport or for
-// tests: it prepares the client as Connect does, builds the packet with
-// MkSnmpPacket and numbers it with the next request ID and, for SNMPv3, the
+// EncodeMessage encodes a request or trap, for another transport or for
+// tests: it prepares the client as Connect does, builds the message with
+// NewMessage and numbers it with the next request ID and, for SNMPv3, the
 // next msgID, as a request's attempt does. It runs no engine discovery and
 // derives no keys: an authenticated or private SNMPv3 message needs the keys
 // in SecurityParameters (InitSecurityKeys derives them), and fails without
 // them. It carries the engine boots and time of SecurityParameters as they
 // are: after a request, the latest values the client accepted, not advanced
 // as a request advances them. On an error it returns an empty message.
-func (x *GoSNMP) SnmpEncodePacket(pdutype PDUType, pdus []SnmpPDU, nonRepeaters uint8, maxRepetitions uint32) ([]byte, error) {
+func (x *Client) EncodeMessage(pduType PDUType, varBinds []VarBind, nonRepeaters uint8, maxRepetitions uint32) ([]byte, error) {
 	if err := x.prepare(); err != nil {
 		return []byte{}, err
 	}
-	pkt := x.MkSnmpPacket(pdutype, pdus, nonRepeaters, maxRepetitions)
+	pkt := x.NewMessage(pduType, varBinds, nonRepeaters, maxRepetitions)
 	pkt.RequestID = x.nextRequestID()
 	if x.Version == Version3 {
 		pkt.MsgID = x.nextMsgID()
@@ -299,7 +300,7 @@ func (x *GoSNMP) SnmpEncodePacket(pdutype PDUType, pdus []SnmpPDU, nonRepeaters 
 	return out, nil
 }
 
-// SnmpDecodePacket decodes a message, from another transport or for tests,
+// DecodeMessage decodes a message, from another transport or for tests,
 // with a copy of the client's security parameters, after preparing the client
 // as Connect does; for an SNMPv3 message from another engine ID it derives the
 // authentication key, and the privacy key to decrypt, so parameters with a key
@@ -308,10 +309,10 @@ func (x *GoSNMP) SnmpEncodePacket(pdutype PDUType, pdus []SnmpPDU, nonRepeaters 
 // digest: the parameters must have the protocols the message asks for, and the
 // message is decrypted exactly when it asks for privacy; it checks neither the
 // user name, the digest nor the time window, nor any minimum level. It does not
-// write resp (see the package documentation for the values that alias it). On
+// write data (see the package documentation for the values that alias it). On
 // an error it returns what it decoded so far.
-func (x *GoSNMP) SnmpDecodePacket(resp []byte) (*SnmpPacket, error) {
-	result := &SnmpPacket{}
+func (x *Client) DecodeMessage(data []byte) (*Message, error) {
+	result := &Message{}
 	if err := x.prepare(); err != nil {
 		return result, err
 	}
@@ -319,7 +320,7 @@ func (x *GoSNMP) SnmpDecodePacket(resp []byte) (*SnmpPacket, error) {
 		result.SecurityParameters = sp.Copy()
 	}
 
-	cursor, w, err := unmarshalHeader(resp, result)
+	cursor, w, err := unmarshalHeader(data, result)
 	if result.Version == Version3 && result.SecurityParameters == nil {
 		result.SecurityParameters = &UsmSecurityParameters{}
 	}
@@ -333,14 +334,14 @@ func (x *GoSNMP) SnmpDecodePacket(resp []byte) (*SnmpPacket, error) {
 	}
 	if result.Version == Version3 {
 		var in inbound
-		if in, err = receiveV3(resp, w, result, result.SecurityParameters.usm()); err != nil {
+		if in, err = receiveV3(data, w, result, result.SecurityParameters.usm()); err != nil {
 			return result, fmt.Errorf("unable to decode packet header: %w", err)
 		}
-		if resp, cursor, err = in.scopedPDU(result); err != nil {
+		if data, cursor, err = in.scopedPDU(result); err != nil {
 			return result, err
 		}
 	}
-	if err = unmarshalPayload(resp, cursor, result); err != nil {
+	if err = unmarshalPayload(data, cursor, result); err != nil {
 		return result, fmt.Errorf("unable to decode packet body: %w", err)
 	}
 	return result, nil
