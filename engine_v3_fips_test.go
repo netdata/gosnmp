@@ -49,30 +49,56 @@ func TestEngineV3FIPS140Only(t *testing.T) {
 	engineGolden.check(t, "v3-fips", results)
 }
 
-// TestEngineV3FIPS140OnlyNewClient checks that the user's keys must derive
-// when NewClient makes the client, before any discovery: a refusal fails
-// NewClient with an error naming the user.
+// TestEngineV3FIPS140OnlyNewClient checks that NewClient refuses, before any
+// discovery, a configuration whose messages FIPS 140-only mode would refuse,
+// with an error naming the field: keys that do not derive (MD5, SHA-1), at
+// any level, since NewClient derives every key; and, at a level with privacy,
+// a privacy cipher the mode refuses (DES, AES-CFB: every privacy protocol). A
+// level without privacy takes any privacy protocol.
 func TestEngineV3FIPS140OnlyNewClient(t *testing.T) {
 	if !fips140.Enforced() {
 		t.Skip("run with GODEBUG=fips140=only")
 	}
-	tests := map[string]struct {
+	const (
+		md5Refused  = "Config.User: crypto/md5: use of MD5 is not allowed in FIPS 140-only mode"
+		sha1Refused = "Config.User: crypto/sha1: use of SHA-1 is not allowed in FIPS 140-only mode"
+	)
+	type test struct {
+		level   SecurityLevel
 		auth    AuthProtocol
 		priv    PrivProtocol
-		wantErr string
-	}{
-		"MD5":     {auth: MD5, priv: NoPriv, wantErr: "Config.User: crypto/md5: use of MD5 is not allowed in FIPS 140-only mode"},
-		"SHA":     {auth: SHA, priv: NoPriv, wantErr: "Config.User: crypto/sha1: use of SHA-1 is not allowed in FIPS 140-only mode"},
-		"SHA-AES": {auth: SHA, priv: AES, wantErr: "Config.User: crypto/sha1: use of SHA-1 is not allowed in FIPS 140-only mode"},
+		wantErr string // "" for a client
+	}
+	tests := map[string]test{
+		"MD5":                      {level: AuthNoPriv, auth: MD5, wantErr: md5Refused},
+		"SHA":                      {level: AuthNoPriv, auth: SHA, wantErr: sha1Refused},
+		"SHA-AES":                  {level: AuthPriv, auth: SHA, priv: AES, wantErr: sha1Refused},
+		"MD5 at noAuthNoPriv":      {level: NoAuthNoPriv, auth: MD5, wantErr: md5Refused},
+		"SHA256":                   {level: AuthNoPriv, auth: SHA256},
+		"SHA256-DES at authNoPriv": {level: AuthNoPriv, auth: SHA256, priv: DES},
+	}
+	for _, priv := range usmPrivProtocols[1:] {
+		cipher := "AES-CFB"
+		if priv == DES {
+			cipher = "DES"
+		}
+		tests["SHA256-"+priv.String()] = test{
+			level: AuthPriv, auth: SHA256, priv: priv,
+			wantErr: "Config.User.PrivProtocol " + priv.String() + ": " + cipher + " is not allowed in FIPS 140-only mode",
+		}
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			user := User{Name: "codec-user", AuthProtocol: tc.auth, AuthPassphrase: "codec-auth-pass", PrivProtocol: tc.priv}
-			level := AuthNoPriv
 			if tc.priv > NoPriv {
-				user.PrivPassphrase, level = "codec-priv-pass", AuthPriv
+				user.PrivPassphrase = "codec-priv-pass"
 			}
-			x, err := NewClient(Config{Version: Version3, SecurityLevel: level, User: user, ContextName: "codec-context"})
+			x, err := NewClient(Config{Version: Version3, SecurityLevel: tc.level, User: user, ContextName: "codec-context"})
+			if tc.wantErr == "" {
+				assert.NoError(t, err)
+				assert.NotNil(t, x)
+				return
+			}
 			assert.EqualError(t, err, tc.wantErr)
 			assert.Nil(t, x)
 		})
