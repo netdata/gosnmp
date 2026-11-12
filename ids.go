@@ -24,14 +24,14 @@ func randomID() uint32 {
 // nextRequestID advances the request ID counter, which NewClient seeds with a
 // random value, and returns it without its top bit, so request IDs wrap to 0
 // after 2147483647.
-func (x *Client) nextRequestID() uint32 {
-	x.requestID++
-	return x.requestID & math.MaxInt32
+func (c *Client) nextRequestID() uint32 {
+	c.requestID++
+	return c.requestID & math.MaxInt32
 }
 
 // nextMsgID advances the msgID counter, which NewClient seeds with a random
 // value, and returns it without its top bit.
-func (x *Client) nextMsgID() uint32 {
-	x.msgID++
-	return x.msgID & math.MaxInt32
+func (c *Client) nextMsgID() uint32 {
+	c.msgID++
+	return c.msgID & math.MaxInt32
 }

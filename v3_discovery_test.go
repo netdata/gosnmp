@@ -126,7 +126,7 @@ func (m *mockAgentUnknownUserNames) serve() {
 		// sends noAuthNoPriv requests, which take no keys.
 		pkt, cursor, err := unmarshalScopedPDU(buf[:n], cursor, req, req.SecurityLevel.privFlag(), &usmKeys{})
 		if err != nil {
-			m.sendErr(fmt.Errorf("decryptPacket: %w", err))
+			m.sendErr(fmt.Errorf("unmarshalScopedPDU: %w", err))
 			continue
 		}
 
@@ -213,7 +213,7 @@ func (m *mockAgentUnknownUserNames) marshalResponse(req *Message) ([]byte, error
 
 // newV3NoAuthClientForDiscoveryTest returns a client configured for
 // NoAuthNoPriv SNMPv3, which knows no engine yet, so that the first request
-// starts with engine-ID discovery (discoveryPacket).
+// starts with engine-ID discovery (newDiscoveryRequest).
 func newV3NoAuthClientForDiscoveryTest(port uint16) *Client {
 	config := testConfigV3(NoAuthNoPriv, User{Name: "testUser"})
 	config.Target, config.Port, config.Retries = "127.0.0.1", port, 0

@@ -6,8 +6,8 @@
 // SNMP MIB-2 host. Potential test systems could include a router, NAS box, printer,
 // or a linux box running snmpd, snmpsimd.py, etc.
 //
-// Ensure "gosnmp-test-host" is defined in your hosts file, and points to your
-// generic test system.
+// Set GOSNMP_TARGET and GOSNMP_PORT to the test system (see README.md,
+// "Running the Tests").
 
 //go:build end2end
 
@@ -352,29 +352,6 @@ func TestGenericFailureUnknownHost(t *testing.T) {
 	_, err = gs.Get(context.Background(), []string{".1.3.6.1.2.1.1.1.0"}) // SNMP MIB-2 sysDescr
 	if err == nil {
 		t.Fatalf("Expected get to fail due to missing connection")
-	}
-}
-
-func TestGenericFailureConnectionTimeout(t *testing.T) {
-	t.Skip("local testing - skipping this slow one") // TODO test tag, or something
-	envTarget := os.Getenv("GOSNMP_TARGET")
-	if envTarget == "" {
-		t.Skip("local testing - skipping this slow one")
-	}
-
-	config := testConfig()
-	config.Target = "198.51.100.1" // Black hole
-	gs := mustClient(config)
-	err := gs.Connect(context.Background())
-	if err != nil {
-		t.Fatalf("Did not expect connection error with IP address")
-	}
-	_, err = gs.Get(context.Background(), []string{".1.3.6.1.2.1.1.1.0"}) // SNMP MIB-2 sysDescr
-	if err == nil {
-		t.Fatalf("Expected Get() to fail due to invalid IP")
-	}
-	if !strings.Contains(err.Error(), "timeout") {
-		t.Fatalf("Expected timeout error. Got => %v", err)
 	}
 }
 

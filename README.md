@@ -26,25 +26,38 @@ For support and help with this fork, open an [issue](https://github.com/netdata/
 
 # Overview
 
-GoSNMP has the following SNMP functions:
+A client (`NewClient`) talks to one agent:
 
-* **NewClient** - makes a client of a `Config`, which it checks, with defaults for a zero port (161), timeout (1 s) and `MaxOids` (60).
-* **Get** - one or more OIDs, up to `MaxOids` (60 by default); an answer with an error-status fails it with a `*StatusError`.
+* **NewClient** - makes a client of a `Config`, which it checks, with defaults for a zero port (161), timeout (1 s) and
+  `MaxOids` (60).
+* **Connect** and **Close** - open and close the client's UDP socket; Close may end a running request.
+* **Get** - one or more OIDs, up to `MaxOids`; an answer with an error-status fails it with a `*StatusError`.
 * **WalkAll** - retrieve a subtree of values using GETNEXT, and how the walk ended (`WalkEnd`).
-* **BulkWalkAll** - retrieve a subtree of values using GETBULK (SNMPv2c and SNMPv3 only), with the walk's max-repetitions, and how the walk ended.
-* **Receiver** - decodes received traps and informs with its SNMPv3 users, by engine ID, and returns the answers the RFCs give: the Response to an inform, as its authoritative engine, and the Reports a sender discovers its engine ID and time by; the library does not listen for notifications or send answers.
+* **BulkWalkAll** - retrieve a subtree of values using GETBULK (SNMPv2c and SNMPv3), with the walk's max-repetitions,
+  and how the walk ended.
+* **ForgetEngine** - makes an SNMPv3 client discover the agent's engine again, after a request fails with
+  `ErrUnknownEngineID`.
 * **EncodeMessage** and **DecodeMessage** - encode and decode messages for other transports and for tests.
 
-The library writes no log or other output and never exits the process: every function reports through its results and
-errors. A call that fails returns no result with its error, but a walk, which also returns the values it collected
-before the error.
+A receiver (`NewReceiver`) decodes the notifications a manager receives:
+
+* **Receive** - decodes a received trap or inform with the receiver's SNMPv3 users, by engine ID, and returns the answer
+  the RFCs give, for the caller to send: the Response to an inform, as its authoritative engine, and the Reports a
+  sender discovers its engine ID and time by. The library does not listen for notifications or send answers.
+
+Connect and the requests take a context, which bounds that call. The library writes no log or other output and never
+exits the process: every function reports through its results and errors. A call that fails returns no result with
+its error, but a walk, which also returns the values it collected before the error. Each error of an incoming message
+matches one exported category (`errors.Is`), named after the RFC counter that counts it but for `ErrUnmatchedReply`, a
+reply that does not answer the request.
 
 Each varbind holds a `Value` of one Go type per SMI type (an Integer is an `int32`, a Counter32 a `uint32`, an IpAddress
 a `netip.Addr`, ...), read through its accessor (`Int32`, `Uint32`, `IP`, ...) and built by its constructor
 (`IntegerValue`, `Counter32Value`, ...); `String` prints it as `%v` printed the untyped value.
 
-The [package documentation](https://pkg.go.dev/github.com/netdata/gosnmp) describes request attempts and timeouts,
-SNMPv3 engine discovery and Reports, the Go type of each value type, and how messages are decoded.
+The [package documentation](https://pkg.go.dev/github.com/netdata/gosnmp) describes the client, walks, values, errors
+and the receiver, then the protocol rules: request attempts and timeouts, SNMPv3 engine discovery and Reports, keys,
+and how messages are encoded and decoded.
 
 # Installation
 
@@ -58,69 +71,55 @@ https://pkg.go.dev/github.com/netdata/gosnmp
 
 # Usage
 
-Here is the body of `examples/example/main.go`, which imports the package as `g`:
+A client of an SNMPv2c agent gets two objects (`ExampleNewClient`):
 
 ```go
-// NewClient makes the client of a configuration, which it checks: SNMPv2c
-// to port 161 with the community "public"; MaxOids takes its default (60).
-client, err := g.NewClient(g.Config{
-    Target:    "192.168.1.10",
-    Port:      161,
-    Community: "public",
-    Version:   g.Version2c,
-    Timeout:   2 * time.Second,
-    Retries:   3,
+client, err := gosnmp.NewClient(gosnmp.Config{
+	Target:    "192.0.2.1",
+	Community: "public",
+	Version:   gosnmp.Version2c,
+	Timeout:   2 * time.Second,
+	Retries:   2,
 })
 if err != nil {
-    log.Fatalf("NewClient() err: %v", err)
+	log.Fatal(err) // the error names the field NewClient rejects
 }
-// Connect and each request take a context that bounds that call only:
-// here both end within 30 seconds.
+// The context bounds each call it is given: here Connect and the Get.
 ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 defer cancel()
-err = client.Connect(ctx)
-if err != nil {
-    log.Fatalf("Connect() err: %v", err)
+if err = client.Connect(ctx); err != nil {
+	log.Fatal(err)
 }
 defer client.Close()
 
-oids := []string{"1.3.6.1.2.1.1.4.0", "1.3.6.1.2.1.1.7.0"}
-result, err2 := client.Get(ctx, oids) // Get accepts up to MaxOids OIDs (60 by default)
-if err2 != nil {
-    log.Fatalf("Get() err: %v", err2)
+result, err := client.Get(ctx, []string{"1.3.6.1.2.1.1.4.0", "1.3.6.1.2.1.1.7.0"}) // sysContact, sysServices
+if err != nil {
+	log.Fatal(err)
 }
-
-for i, variable := range result.VarBinds {
-    fmt.Printf("%d: oid: %s ", i, variable.Name)
-
-    // Each value type has its accessor (see Value): text for an
-    // OctetString, a number for the integer types (Uint64 for Counter64), ...
-    if b, ok := variable.Value.Bytes(); ok {
-        fmt.Printf("string: %s\n", string(b))
-    } else if n, ok := variable.Value.Int64(); ok {
-        fmt.Printf("number: %d\n", n)
-    } else if n, ok := variable.Value.Uint64(); ok {
-        fmt.Printf("number: %d\n", n)
-    } else {
-        fmt.Printf("type: %v\n", variable.Value.Type())
-    }
+for _, vb := range result.VarBinds {
+	fmt.Printf("%s = %v: %v\n", vb.Name, vb.Value.Type(), vb.Value)
 }
 ```
 
-Run against an agent, it prints, for example:
+A receiver decodes each datagram the caller reads; the caller checks the PDU type and the community and sends the
+answer, if any, Reports at a rate it limits (`reportAllowed`; all of it in `ExampleReceiver_Receive`):
 
-```shell
-% go run ./examples/example
-0: oid: .1.3.6.1.2.1.1.4.0 string: Administrator
-1: oid: .1.3.6.1.2.1.1.7.0 number: 104
+```go
+notification, response, err := receiver.Receive(buf[:n])
+if err != nil {
+	// A rejected SNMPv3 message may get a Report that lets its sender
+	// discover the engine or its time: the caller decides whether to
+	// send it, and how often.
+	if response != nil && reportAllowed() {
+		_, _ = conn.WriteToUDP(response, from)
+	}
+	log.Printf("rejected a datagram from %v: %v", from, err)
+	continue
+}
 ```
 
-More examples, each a program under `examples/`:
-
-* `example2` - the target from the environment, and the time a request takes
-* `example3` - SNMPv3 at authPriv
-* `walkexample` - BulkWalkAll
-* `Hex-String` - OctetString values that are not text, printed octet by octet in decimal
+`example_test.go` holds the examples, shown with the API on [pkg.go.dev](https://pkg.go.dev/github.com/netdata/gosnmp):
+a Get and the errors of a failed one, an SNMPv3 client, a walk and how it ended, values, and a receiver.
 
 # MIB Parser
 
@@ -193,9 +192,10 @@ go test -v -tags end2end ./...
 ```
 
 `go test ./...` runs all unit tests, including the public API consistency tests in
-`gosnmp_api_test.go`. The end-to-end integration tests in `generic_e2e_test.go` need a
-running SNMP agent and the environment variables above, so they only build with the
-`end2end` build tag.
+`gosnmp_api_test.go`. The end-to-end tests only build with the `end2end` build tag and run when
+`GOSNMP_TARGET` is set: those in `generic_e2e_test.go` against the SNMP agent the environment
+variables above name, those in `receiver_e2e_test.go` with net-snmp's `snmpinform` on the `PATH`,
+which the Docker image and CI install.
 
 The generic end-to-end integration test `generic_e2e_test.go` should
 work against any SNMP MIB-2 compliant host (e.g. a router, NAS box, printer).
@@ -235,7 +235,7 @@ go test -coverprofile cover.out ./...
 go tool cover -html cover.out
 ```
 
-To measure the password-to-key cache, compare the cached and uncached key derivation benchmarks:
+To measure key localization with the password-to-key cache filled:
 
 ```shell
 go test -run '^$' -bench 'BenchmarkUSMKeys'

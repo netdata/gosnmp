@@ -562,9 +562,9 @@ type Envelope struct {
 // rules a decode reads it with and with the errors of their categories: the
 // message's SEQUENCE, which must span datagram, the version and, for SNMPv1
 // and SNMPv2c, the community (not returned), or, for SNMPv3, every header
-// field up to the USM parameters. It returns no envelope with an error, also
-// when the version read. It decodes no PDU, derives no key and checks no
-// digest.
+// field up to the USM parameters. With an error it returns the zero Envelope,
+// also when the version was read. It decodes no PDU, derives no key and checks
+// no digest.
 func ReadEnvelope(datagram []byte) (Envelope, error) {
 	var m Message
 	_, w, err := unmarshalHeader(datagram, &m)

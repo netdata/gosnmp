@@ -15,24 +15,23 @@ import (
 	"time"
 )
 
-// send runs the request packetOut (request) within ctx and returns its
-// answer, a Response whose error-status is NoError, or no message with the
-// error of a request that fails: marked with ErrAnswered when an answer ended
-// it (the message request returns beside its error), requestPanicked's error
-// for one that panics, and a *StatusError for a Response with another
-// error-status. A nil ctx fails the request before it starts. The library
-// prevents panics of its own: the recover is for the caller's code the request
-// runs on its goroutine (the methods of the context it calls) and for bugs,
-// which would otherwise end the process of a caller that runs requests on a
-// goroutine without a recover. A flag, not recover's value, tells that the
-// request panicked: under GODEBUG=panicnil=1, recover returns nil for
-// panic(nil).
+// send runs the request req within ctx and returns its answer, a Response whose
+// error-status is NoError, or no message with the error of a request that
+// fails: marked with ErrAnswered when an answer ended it (the message request
+// returns beside its error), requestPanicked's error for one that panics, and a
+// *StatusError for a Response with another error-status. A nil ctx fails the
+// request before it starts. The library prevents panics of its own: the recover
+// is for the caller's code the request runs on its goroutine (the methods of
+// the context it calls) and for bugs, which would otherwise end the process of
+// a caller that runs requests on a goroutine without a recover. A flag, not
+// recover's value, tells that the request panicked: under GODEBUG=panicnil=1,
+// recover returns nil for panic(nil).
 //
-// packetOut is a request of the Read Class (RFC 3411 section 2.8.1), a Get,
+// req is a request of the Read Class (RFC 3411 section 2.8.1), a Get,
 // GetNext or GetBulk, as every request the client sends: the SNMPv3 engine
 // clock signs it whatever the clock's source (sourcedClock.timeFor, mayLend),
 // which a request that changes the agent must not take.
-func (x *Client) send(ctx context.Context, packetOut *Message) (result *Message, err error) {
+func (c *Client) send(ctx context.Context, req *Message) (result *Message, err error) {
 	if ctx == nil {
 		return nil, errNilContext
 	}
@@ -42,7 +41,7 @@ func (x *Client) send(ctx context.Context, packetOut *Message) (result *Message,
 			err = requestPanicked(recover())
 		}
 	}()
-	result, err = x.request(ctx, packetOut)
+	result, err = c.request(ctx, req)
 	completed = true
 	if err != nil {
 		if result != nil {
@@ -63,22 +62,22 @@ func (x *Client) send(ctx context.Context, packetOut *Message) (result *Message,
 // client with the agent's engine. With an error it returns
 // the answer that ended the request, a Report or the discovery's answer, and
 // no message when none did: send marks the error by it.
-func (x *Client) request(ctx context.Context, packetOut *Message) (result *Message, err error) {
-	if _, err = x.connection(); err != nil {
+func (c *Client) request(ctx context.Context, req *Message) (result *Message, err error) {
+	if _, err = c.connection(); err != nil {
 		return nil, err
 	}
 	// sec is the engine clock and the keys the attempts carry.
 	var sec attemptSecurity
-	if packetOut.Version == Version3 {
-		x.startEngine()
-		if result, err = x.negotiateInitialSecurityParameters(ctx, packetOut); err != nil {
+	if req.Version == Version3 {
+		c.startEngine()
+		if result, err = c.negotiateInitialSecurityParameters(ctx, req); err != nil {
 			return result, err
 		}
-		sec = attemptSecurity{clock: x.engine.clock, keys: x.engine.keys}
+		sec = attemptSecurity{clock: c.engine.clock, keys: c.engine.keys}
 	}
 
 	var stored bool
-	result, stored, err = x.sendOneRequest(ctx, packetOut, false, sec)
+	result, stored, err = c.sendOneRequest(ctx, req, false, sec)
 	kind := resyncKindOf(result)
 	if !kind.resync {
 		return result, err
@@ -93,13 +92,13 @@ func (x *Client) request(ctx context.Context, packetOut *Message) (result *Messa
 	// ends it with its error, and so does a resync Report answering the
 	// retransmission.
 	if stored {
-		sec.clock = x.engine.clock
-	} else if !mayLend(packetOut, result, kind) {
+		sec.clock = c.engine.clock
+	} else if !mayLend(req, result, kind) {
 		return result, kind.err
-	} else if sec, err = x.lendEngineParameters(packetOut, result, kind, sec); err != nil {
+	} else if sec, err = c.lendEngineParameters(req, result, kind, sec); err != nil {
 		return result, err
 	}
-	result, _, err = x.sendOneRequest(ctx, packetOut, false, sec)
+	result, _, err = c.sendOneRequest(ctx, req, false, sec)
 	if kind = resyncKindOf(result); kind.resync {
 		return result, kind.err
 	}
@@ -130,8 +129,8 @@ func resyncKindOf(result *Message) reportKind {
 // exchange is one request on its way through the attempts sendOneRequest
 // makes.
 type exchange struct {
-	x      *Client
-	packet *Message
+	c   *Client
+	req *Message
 	// ctx is the request's context.
 	ctx context.Context
 
@@ -208,13 +207,13 @@ func (k attemptKind) retryable() bool {
 // attemptOutcome is how an attempt ended, and with what: the reply and its
 // error, or the reason the attempt failed.
 type attemptOutcome struct {
-	packet *Message
-	err    error
-	kind   attemptKind
-	// verified reports that packet's digest checked against the request
+	reply *Message
+	err   error
+	kind  attemptKind
+	// verified reports that reply's digest checked against the request
 	// (exchange.decode).
 	verified bool
-	// committed reports that packet's engine parameters were committed into
+	// committed reports that reply's engine parameters were committed into
 	// the engine state (exchange.settle).
 	committed bool
 }
@@ -265,7 +264,7 @@ type sentIDs struct {
 	requestID, msgID uint32
 }
 
-// sendOneRequest sends packetOut, the engine discovery's request when
+// sendOneRequest sends req, the engine discovery's request when
 // discovery is set, an SNMPv3 one with the engine boots and time of sec's clock
 // and its keys, and returns the reply that answers it, and whether the reply's
 // engine parameters were committed into the engine state, retrying up to
@@ -273,8 +272,8 @@ type sentIDs struct {
 // reply ends with net.ErrClosed, whatever else ended it: an attempt's outcome
 // or the decision not to retry. An exchange that ends without an answer goes
 // through unanswered.
-func (x *Client) sendOneRequest(ctx context.Context, packetOut *Message, discovery bool, sec attemptSecurity) (*Message, bool, error) {
-	e := exchange{x: x, packet: packetOut, ctx: ctx, discovery: discovery, sec: sec}
+func (c *Client) sendOneRequest(ctx context.Context, req *Message, discovery bool, sec attemptSecurity) (*Message, bool, error) {
+	e := exchange{c: c, req: req, ctx: ctx, discovery: discovery, sec: sec}
 	// The IDs of the attempts before the current one, in a local array, not a
 	// field of exchange, so that eight of them stay on the stack: a field
 	// would always escape to the heap, and a slice made for Retries+1 of
@@ -283,19 +282,19 @@ func (x *Client) sendOneRequest(ctx context.Context, packetOut *Message, discove
 	earlier := sent[:0]
 	for n := 0; ; n++ {
 		out := e.attempt(earlier)
-		if out.kind != attemptReply && x.isClosed() {
+		if out.kind != attemptReply && c.isClosed() {
 			out = attemptOutcome{kind: attemptClosed, err: errClosed}
 		}
 		if !out.kind.retryable() {
 			if out.kind != attemptReply {
 				out.err = e.unanswered(out.err)
 			}
-			return out.packet, out.committed, out.err
+			return out.reply, out.committed, out.err
 		}
-		// A retryable attempt has stamped the packet with its IDs.
-		earlier = append(earlier, sentIDs{packetOut.RequestID, packetOut.MsgID})
+		// A retryable attempt has stamped req with its IDs.
+		earlier = append(earlier, sentIDs{req.RequestID, req.MsgID})
 		if err := e.endErr(n, out); err != nil {
-			if x.isClosed() {
+			if c.isClosed() {
 				err = errClosed
 			}
 			return nil, false, e.unanswered(err)
@@ -316,7 +315,7 @@ func (e *exchange) endErr(n int, out attemptOutcome) error {
 	if out.kind == attemptTimeout && e.contextDeadline {
 		return context.DeadlineExceeded
 	}
-	if n < e.x.config.Retries {
+	if n < e.c.config.Retries {
 		return nil
 	}
 	if out.kind == attemptTimeout {
@@ -342,7 +341,7 @@ func (e *exchange) attemptsError(text string, reason error) *attemptsError {
 // send recovers, does not get here.
 func (e *exchange) unanswered(err error) error {
 	if e.outOfWindow {
-		e.x.forgetEngineTime()
+		e.c.forgetEngineTime()
 	}
 	if _, ended := err.(*attemptsError); e.discarded != nil && !ended && errors.Is(err, context.DeadlineExceeded) {
 		return e.attemptsError(err.Error(), err)
@@ -354,25 +353,25 @@ func (e *exchange) unanswered(err error) error {
 // a reply answers it, the attempt's deadline passes or the context is done. A
 // reply to an earlier attempt, one of earlier, answers it too.
 func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
-	x := e.x
+	c := e.c
 	if err := e.ctx.Err(); err != nil {
 		return attemptOutcome{kind: attemptContextDone, err: err}
 	}
-	conn, err := x.connection()
+	conn, err := c.connection()
 	if err != nil {
 		return attemptOutcome{kind: attemptFailed, err: err}
 	}
 	var deadline time.Time
-	deadline, e.contextDeadline = attemptDeadline(e.ctx, x.config.Timeout)
+	deadline, e.contextDeadline = attemptDeadline(e.ctx, c.config.Timeout)
 	if err = conn.SetDeadline(deadline); err != nil {
 		return attemptOutcome{kind: attemptFailed, err: err}
 	}
 	// The context interrupts the attempt from here on, after its deadline: an
 	// interrupt before it would be undone by it. Close, at any time, closes
 	// the attempt's connection, on which the attempt fails.
-	defer x.interruptible(e.ctx, conn).end()
+	defer c.interruptible(e.ctx, conn).end()
 
-	e.packet.RequestID = x.nextRequestID()
+	e.req.RequestID = c.nextRequestID()
 	// An encoding failure is not retried: another attempt would fail the same
 	// way.
 	outBuf, err := e.encode()
@@ -404,13 +403,13 @@ func attemptDeadline(ctx context.Context, timeout time.Duration) (deadline time.
 // An authenticated request is signed with the exchange's key, which must fit
 // its protocol (usm.Auth.CheckKey).
 func (e *exchange) encode() ([]byte, error) {
-	x, p := e.x, e.packet
-	if p.Version == Version3 {
-		p.MsgID = x.nextMsgID()
-		h := &p.SecurityParameters
+	c, req := e.c, e.req
+	if req.Version == Version3 {
+		req.MsgID = c.nextMsgID()
+		h := &req.SecurityParameters
 		h.AuthoritativeEngineBoots, h.AuthoritativeEngineTime = e.sec.clock.timeFor(time.Now())
 	}
-	out, err := p.marshalMsg(&e.sec.keys)
+	out, err := req.marshalMsg(&e.sec.keys)
 	if err != nil {
 		return nil, fmt.Errorf("marshal: %w", err)
 	}
@@ -422,9 +421,9 @@ func (e *exchange) encode() ([]byte, error) {
 // or that the commit rejects is discarded, its reason recorded (discard), and
 // the read goes on until the attempt's deadline (RFC 3412 section 7.2).
 func (e *exchange) await(conn transport, earlier []sentIDs) attemptOutcome {
-	x := e.x
+	c := e.c
 	for {
-		resp, err := receive(conn, x.rx)
+		resp, err := receive(conn, c.rx)
 		if err != nil {
 			return ioFailure(err)
 		}
@@ -438,7 +437,7 @@ func (e *exchange) await(conn transport, earlier []sentIDs) attemptOutcome {
 			e.discard(err, e.rankOf(reply, verified, earlier))
 			continue
 		}
-		out, rejected := e.settle(attemptOutcome{kind: attemptReply, packet: reply, err: err, verified: verified})
+		out, rejected := e.settle(attemptOutcome{kind: attemptReply, reply: reply, err: err, verified: verified})
 		if rejected == nil {
 			return out
 		}
@@ -469,7 +468,7 @@ func (e *exchange) rankOf(read *Message, verified bool, earlier []sentIDs) disca
 	if read == nil {
 		return rankUnread
 	}
-	if !e.named(read, earlier) || e.packet.Version != Version3 && read.PDUType != Response {
+	if !e.named(read, earlier) || e.req.Version != Version3 && read.PDUType != Response {
 		return 0
 	}
 	if verified && !read.PDUType.confirmed() {
@@ -483,7 +482,7 @@ func (e *exchange) rankOf(read *Message, verified bool, earlier []sentIDs) disca
 // SNMPv3 request (RFC 3412 section 7.2 step 10 a), else by the request ID;
 // false when reply names none.
 func (e *exchange) attemptOf(reply *Message, earlier []sentIDs) (sentIDs, bool) {
-	if current := (sentIDs{e.packet.RequestID, e.packet.MsgID}); e.names(reply, current) {
+	if current := (sentIDs{e.req.RequestID, e.req.MsgID}); e.names(reply, current) {
 		return current, true
 	}
 	for _, ids := range earlier {
@@ -497,7 +496,7 @@ func (e *exchange) attemptOf(reply *Message, earlier []sentIDs) (sentIDs, bool) 
 // names reports whether reply names the attempt that sent the request with
 // ids: by the msgID for an SNMPv3 request, else by the request ID.
 func (e *exchange) names(reply *Message, ids sentIDs) bool {
-	if e.packet.Version == Version3 {
+	if e.req.Version == Version3 {
 		return reply.MsgID == ids.msgID
 	}
 	return reply.RequestID == ids.requestID
@@ -523,17 +522,17 @@ func (e *exchange) named(reply *Message, earlier []sentIDs) bool {
 // the request's attempts (rankOf), else nil.
 func (e *exchange) decode(resp []byte, earlier []sentIDs) (_ *Message, verified bool, _ error) {
 	reply := &Message{}
-	v3 := e.packet.Version == Version3
+	v3 := e.req.Version == Version3
 	cursor, w, err := unmarshalHeader(resp, reply)
 	switch {
 	case err != nil:
-	case reply.Version != e.packet.Version:
+	case reply.Version != e.req.Version:
 		err = errOtherVersion
 	case !v3:
 	case !e.named(reply, earlier):
 		err = errOtherMessage
 	default:
-		err = receiveReply(reply.SecurityLevel, &reply.SecurityParameters, &e.packet.SecurityParameters, &e.sec.keys)
+		err = receiveReply(reply.SecurityLevel, &reply.SecurityParameters, &e.req.SecurityParameters, &e.sec.keys)
 	}
 	// read is reply, as far as it was read, when an error ends the decode: for
 	// an SNMPv3 request when the SNMPv3 header's msgID decoded, for another
@@ -611,20 +610,19 @@ var (
 // unmatched returns the error with text, of ErrUnmatchedReply.
 func unmatched(text string) error { return inCategory(ErrUnmatchedReply, errors.New(text)) }
 
-// answers reports whether reply, a message decode read for the request,
-// answers it, with the error of a Report that does, or else the reason it does
-// not (RFC 3412 section 7.2 steps 11 and 12; net-snmp's snmpv3_verify_msg). An
-// SNMPv3 Report answers, whatever its request ID, level and context (security
+// answers reports whether reply, a message decode read for the request, answers
+// it, with the error of a Report that does, or else the reason it does not (RFC
+// 3412 section 7.2 steps 11 and 12; net-snmp's snmpv3_verify_msg). An SNMPv3
+// Report answers, whatever its request ID, level and context (security
 // processing bound its user, and with authentication its engine ID), with its
-// counter's error
-// (reportKindOf), none for a resync Report. A Response answers with the
-// request ID of the attempt it names (attemptOf: an SNMPv3 one by its msgID,
-// so with that attempt's pair of IDs) and, for SNMPv3, the request's security
-// level (the auth and priv flags), user name, engine ID, context engine ID and
-// context name (step 12 b). Nothing else answers: a request sent back
-// unchanged, SNMPv1 and SNMPv2c Reports. A message that does not answer leaves
-// the request outstanding, as net-snmp does (step 12 b discards the request
-// unless the model or level differs): a forged one cannot end it.
+// counter's error (reportKindOf), none for a resync Report. A Response answers
+// with the request ID of the attempt it names (attemptOf: an SNMPv3 one by its
+// msgID, so with that attempt's pair of IDs) and, for SNMPv3, the request's
+// security level (the auth and priv flags), user name, engine ID, context
+// engine ID and context name (step 12 b). Nothing else answers: a request sent
+// back unchanged, SNMPv1 and SNMPv2c Reports. A message that does not answer
+// leaves the request outstanding, as net-snmp does (step 12 b discards the
+// request unless the model or level differs): a forged one cannot end it.
 func (e *exchange) answers(reply *Message, earlier []sentIDs) (bool, error) {
 	if kind, ok := reportKindOf(reply); ok {
 		if kind.resync {
@@ -638,19 +636,19 @@ func (e *exchange) answers(reply *Message, earlier []sentIDs) (bool, error) {
 	if ids, ok := e.attemptOf(reply, earlier); !ok || ids.requestID != reply.RequestID {
 		return false, errOtherRequestID
 	}
-	if e.packet.Version != Version3 {
+	if e.req.Version != Version3 {
 		return true, nil
 	}
-	p := e.packet
-	got, want := &reply.SecurityParameters, &p.SecurityParameters
+	req := e.req
+	got, want := &reply.SecurityParameters, &req.SecurityParameters
 	switch {
-	case reply.SecurityLevel != p.SecurityLevel:
+	case reply.SecurityLevel != req.SecurityLevel:
 		return false, errOtherLevel
 	case got.UserName != want.UserName:
 		return false, errOtherUser
 	case !bytes.Equal(got.AuthoritativeEngineID, want.AuthoritativeEngineID):
 		return false, errOtherEngine
-	case !bytes.Equal(reply.ContextEngineID, p.ContextEngineID) || reply.ContextName != p.ContextName:
+	case !bytes.Equal(reply.ContextEngineID, req.ContextEngineID) || reply.ContextName != req.ContextName:
 		return false, errOtherContext
 	}
 	return true, nil
@@ -674,9 +672,9 @@ const (
 type reportKind struct {
 	// err is the request's error.
 	err error
-	// resync marks the Reports that say the request's engine ID or time is
-	// out of date: they answer without err. discoverEngine takes the engine
-	// parameters of one; send sends the request again with them, or returns
+	// resync marks the Reports that say the request's engine ID or time is out
+	// of date: they answer without err. discoverEngine takes the engine
+	// parameters of one; request sends the request again with them, or returns
 	// err when it may not or when a resync Report answers that too.
 	resync bool
 	// namesEngine marks the Report that names the engine ID the request
@@ -702,18 +700,18 @@ var reportKinds = map[string]reportKind{ //nolint:gochecknoglobals // a read-onl
 	reportCounter(snmpUnknownPDUHandlers):       {err: ErrUnknownPDUHandlers},
 }
 
-// reportKindOf returns the kind of p as a Report, and false when p is not an
+// reportKindOf returns the kind of m as a Report, and false when m is not an
 // SNMPv3 Report. The agent puts the counter of the error it detected in the
 // Report's varbinds; the Report's request ID is the request's, or 0 when the
 // agent could not read it. As in net-snmp's snmpv3_get_report_type, the first
 // varbind names the counter, with one instance sub-identifier of any value;
 // none, or another name, gives ErrUnknownReportPDU.
-func reportKindOf(p *Message) (reportKind, bool) {
-	if p.Version != Version3 || p.PDUType != Report {
+func reportKindOf(m *Message) (reportKind, bool) {
+	if m.Version != Version3 || m.PDUType != Report {
 		return reportKind{}, false
 	}
-	if len(p.VarBinds) > 0 {
-		if kind, ok := reportKinds[reportCounter(p.VarBinds[0].Name)]; ok {
+	if len(m.VarBinds) > 0 {
+		if kind, ok := reportKinds[reportCounter(m.VarBinds[0].Name)]; ok {
 			return kind, true
 		}
 	}

@@ -632,7 +632,7 @@ func TestUSMFIPS140OnlyDecrypt(t *testing.T) {
 				"raw": func() error { _, err := client().DecodeMessage(bytes.Clone(trap)); return err },
 				"reply": func() error {
 					req := &Message{Version: Version3, SecurityLevel: AuthPriv, SecurityParameters: header, MsgID: 7}
-					e := exchange{x: client(), packet: req, sec: attemptSecurity{keys: keys}}
+					e := exchange{c: client(), req: req, sec: attemptSecurity{keys: keys}}
 					_, _, err := e.decode(reply, nil)
 					return err
 				},
