@@ -503,7 +503,7 @@ func TestEngineWalkRootSpellings(t *testing.T) {
 							}
 							return false
 						}}
-						x := newEngineClient(t, tc.version, fakePacketTransport{newFakeTransport(nil, agent.handle)})
+						x := newEngineClient(t, tc.version, newFakeTransport(nil, agent.handle))
 						root := spelling.root(tc.root)
 						walk := x.WalkAll
 						if api == "BulkWalkAll" {
@@ -542,7 +542,7 @@ func runWalkScenario(t *testing.T, sc walkScenario) string {
 		version = Version1
 	}
 	c := newFakeTransport(tr, agent.handle)
-	x := newEngineClient(t, version, fakePacketTransport{c})
+	x := newEngineClient(t, version, c)
 	if sc.afterReply != nil {
 		c.afterRead = func(int) { sc.afterReply(x, tr) }
 	}
@@ -630,7 +630,7 @@ func TestWalkEndedByReport(t *testing.T) {
 				return agentAnswer{report: usmStatsUnknownUserNames, why: "rejects the walk's second request"}, true
 			}
 			c := newFakeTransport(nil, agent.handle)
-			x := newEngineClientFrom(t, fakePacketTransport{c}, &Client{
+			x := newEngineClientFrom(t, c, &Client{
 				Version:       Version3,
 				SecurityLevel: NoAuthNoPriv,
 				User:          agentCreds["codec-noauth"].user("codec-noauth"),

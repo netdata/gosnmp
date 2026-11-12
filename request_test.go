@@ -168,7 +168,7 @@ func TestRequestAndMsgIDs(t *testing.T) {
 	connect := func(x *Client) {
 		t.Helper()
 		require.NoError(t, x.Connect(context.Background()))
-		conn := x.Conn
+		conn := x.conn
 		t.Cleanup(func() { _ = conn.Close() })
 	}
 	next := func(id [2]uint32) [2]uint32 { return [2]uint32{(id[0] + 1) & 0x7FFFFFFF, (id[1] + 1) & 0x7FFFFFFF} }

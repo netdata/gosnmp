@@ -11,7 +11,6 @@ package gosnmp_test // force external view
 
 import (
 	"context"
-	"net"
 	"testing"
 	"time"
 
@@ -28,8 +27,6 @@ func TestAPIConfigTypes(_ *testing.T) {
 	g.Timeout = time.Duration(0)
 	g.Retries = 0
 	g.MaxOids = 0
-	var c net.Conn = g.Conn
-	_ = c
 }
 
 func TestAPIConnectMethodSignature(_ *testing.T) {

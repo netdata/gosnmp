@@ -21,11 +21,10 @@ import (
 // error), and with requestPanicked's error for one that panics. A nil ctx
 // fails the request before it starts. The library prevents panics of its
 // own: the recover is for the caller's code the request runs on its
-// goroutine (the methods of a Conn or context it calls) and for bugs,
-// which would otherwise end the process of a caller that runs requests on a
-// goroutine without a recover. A flag, not recover's value, tells that the
-// request panicked: under GODEBUG=panicnil=1, recover returns nil for
-// panic(nil).
+// goroutine (the methods of the context it calls) and for bugs, which would
+// otherwise end the process of a caller that runs requests on a goroutine
+// without a recover. A flag, not recover's value, tells that the request
+// panicked: under GODEBUG=panicnil=1, recover returns nil for panic(nil).
 //
 // packetOut is a request of the Read Class (RFC 3411 section 2.8.1), a Get,
 // GetNext or GetBulk, as every request the client sends: the SNMPv3 engine
@@ -140,8 +139,7 @@ type requestConfig struct {
 }
 
 // prepareRequest reads the request configuration, with ctx and no negative
-// retries, and allocates the receive buffer the first time: a client given a
-// Conn without Connect works too.
+// retries, and allocates the receive buffer at the client's first request.
 func (x *Client) prepareRequest(ctx context.Context) requestConfig {
 	if x.rx == nil {
 		x.rx = new(receiveBuffer)
@@ -297,9 +295,10 @@ type sentIDs struct {
 // discovery is set, an SNMPv3 one with the engine boots and time of sec's clock
 // and its keys, and returns the reply that answers it, and whether the reply's
 // engine parameters were committed into the engine state, retrying up to
-// cfg.retries times. Once Close closed the client, an attempt that ends
-// without a reply ends the request with net.ErrClosed, whatever else ended it.
-// An exchange that ends without an answer goes through unanswered.
+// cfg.retries times. Once Close closed the client, a request that ends
+// without a reply ends with net.ErrClosed, whatever else ended it: an
+// attempt's outcome or the decision not to retry. An exchange that ends
+// without an answer goes through unanswered.
 func (x *Client) sendOneRequest(cfg *requestConfig, packetOut *Message, discovery bool, sec attemptSecurity) (*Message, bool, error) {
 	e := exchange{x: x, packet: packetOut, cfg: *cfg, discovery: discovery, sec: sec}
 	// The IDs of the attempts before the current one, in a local array, not a
@@ -322,6 +321,9 @@ func (x *Client) sendOneRequest(cfg *requestConfig, packetOut *Message, discover
 		// A retryable attempt has stamped the packet with its IDs.
 		earlier = append(earlier, sentIDs{packetOut.RequestID, packetOut.MsgID})
 		if err := e.endErr(n, out); err != nil {
+			if x.isClosed() {
+				err = errClosed
+			}
 			return nil, false, e.unanswered(err)
 		}
 	}
@@ -391,10 +393,9 @@ func (e *exchange) attempt(earlier []sentIDs) attemptOutcome {
 	if err = conn.SetDeadline(deadline); err != nil {
 		return attemptOutcome{kind: attemptFailed, err: err}
 	}
-	// Close and the context interrupt the attempt from here on, after its
-	// deadline: an interrupt before it would be undone by it. A Close before
-	// that closed the attempt's connection if Conn still held it; otherwise
-	// the attempt runs until its deadline.
+	// The context interrupts the attempt from here on, after its deadline: an
+	// interrupt before it would be undone by it. Close, at any time, closes
+	// the attempt's connection, on which the attempt fails.
 	defer x.interruptible(e.cfg.ctx, conn).end()
 
 	e.packet.RequestID = x.nextRequestID()
@@ -446,7 +447,7 @@ func (e *exchange) encode() ([]byte, error) {
 // not decode or authenticate (decode), does not answer the request (answers)
 // or that the commit rejects is discarded, its reason recorded (discard), and
 // the read goes on until the attempt's deadline (RFC 3412 section 7.2).
-func (e *exchange) await(conn net.Conn, earlier []sentIDs) attemptOutcome {
+func (e *exchange) await(conn transport, earlier []sentIDs) attemptOutcome {
 	x := e.x
 	for {
 		resp, err := receive(conn, x.rx)

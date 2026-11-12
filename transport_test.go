@@ -10,7 +10,6 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
-	"io"
 	"net"
 	"os"
 	"strconv"
@@ -27,8 +26,8 @@ import (
 // connectResult is what TestConnect observes of a Connect.
 type connectResult struct {
 	err       string // "" for no error
-	connected bool   // Conn is set
-	local     string // the IP of Conn's local address
+	connected bool   // the client has a connection
+	local     string // the IP of the connection's local address
 	maxOids   int    // MaxOids after Connect: the default once it readied the client
 }
 
@@ -87,73 +86,21 @@ func TestConnect(t *testing.T) {
 				got.err = err.Error()
 			}
 			got.maxOids = x.MaxOids
-			if x.Conn != nil {
+			if x.conn != nil {
 				got.connected = true
-				host, _, err := net.SplitHostPort(x.Conn.LocalAddr().String())
+				host, _, err := net.SplitHostPort(x.conn.(*net.UDPConn).LocalAddr().String())
 				require.NoError(t, err)
 				got.local = host
-				_ = x.Conn.Close()
+				_ = x.Close()
 			}
 			assert.Equal(t, tc.want, got)
 		})
 	}
 }
 
-// packetConnWrapper wraps a UDP socket, as a caller may to instrument it: a
-// net.Conn and a net.PacketConn of another type than the socket's.
-type packetConnWrapper struct {
-	net.Conn
-	pc net.PacketConn
-}
-
-func (w packetConnWrapper) ReadFrom(b []byte) (int, net.Addr, error) { return w.pc.ReadFrom(b) }
-
-func (w packetConnWrapper) WriteTo(b []byte, addr net.Addr) (int, error) {
-	return w.pc.WriteTo(b, addr)
-}
-
 // TestUDPAgentAddress checks where a request goes after Port changed from
-// agent A's to agent B's: to A from the socket Connect dialed and from a
-// wrapper of it, whose peer the dial fixed; to its own peer from a connected
-// socket the caller set, also after Close; an unconnected socket the caller
-// set has no peer, and the request fails.
+// agent A's to agent B's: to A, the peer the socket Connect dialed.
 func TestUDPAgentAddress(t *testing.T) {
-	connectedTo := func(t *testing.T, port uint16) net.Conn {
-		conn, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: int(port)})
-		require.NoError(t, err)
-		t.Cleanup(func() { _ = conn.Close() })
-		return conn
-	}
-	tests := map[string]struct {
-		// conn gives the client its connection; portB is agent B's port.
-		conn func(t *testing.T, x *Client, portB uint16)
-		want string // the agent that answers; "" when the request fails
-	}{
-		"the socket Connect opened": {want: "A", conn: func(t *testing.T, x *Client, _ uint16) {
-			require.NoError(t, x.Connect(context.Background()))
-		}},
-		"a wrapper of the socket Connect opened": {want: "A", conn: func(t *testing.T, x *Client, _ uint16) {
-			require.NoError(t, x.Connect(context.Background()))
-			x.Conn = packetConnWrapper{Conn: x.Conn, pc: x.Conn.(net.PacketConn)}
-		}},
-		"a connected socket the caller set after Connect": {want: "B", conn: func(t *testing.T, x *Client, portB uint16) {
-			require.NoError(t, x.Connect(context.Background()))
-			replaced := x.Conn
-			t.Cleanup(func() { _ = replaced.Close() })
-			x.Conn = connectedTo(t, portB)
-		}},
-		"a connected socket the caller set after Close": {want: "B", conn: func(t *testing.T, x *Client, portB uint16) {
-			require.NoError(t, x.Connect(context.Background()))
-			require.NoError(t, x.Close())
-			x.Conn = connectedTo(t, portB)
-		}},
-		"an unconnected socket the caller set": {conn: func(t *testing.T, x *Client, _ uint16) {
-			pc, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
-			require.NoError(t, err)
-			t.Cleanup(func() { _ = pc.Close() })
-			x.Conn = pc
-		}},
-	}
 	agent := func(name string) uint16 {
 		port, _ := udpAgent(t, func(_ int, req []byte) []byte {
 			return replyTo(req, nil, VarBind{Name: engineOID, Value: OctetStringValue([]byte(name))})
@@ -161,27 +108,19 @@ func TestUDPAgentAddress(t *testing.T) {
 		return port
 	}
 	portA, portB := agent("A"), agent("B")
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			x := &Client{
-				Target: "127.0.0.1", Port: portA, Version: Version2c, Community: "public",
-				Timeout: 500 * time.Millisecond, MaxOids: MaxOids,
-			}
-			tc.conn(t, x, portB)
-			defer x.Close()
-			x.Port = portB
-
-			res, err := x.Get(context.Background(), []string{engineOID})
-			if tc.want == "" {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
-			require.Len(t, res.VarBinds, 1)
-			got, _ := res.VarBinds[0].Value.Bytes()
-			assert.Equal(t, tc.want, string(got))
-		})
+	x := &Client{
+		Target: "127.0.0.1", Port: portA, Version: Version2c, Community: "public",
+		Timeout: 500 * time.Millisecond,
 	}
+	require.NoError(t, x.Connect(context.Background()))
+	defer x.Close()
+	x.Port = portB
+
+	res, err := x.Get(context.Background(), []string{engineOID})
+	require.NoError(t, err)
+	require.Len(t, res.VarBinds, 1)
+	got, _ := res.VarBinds[0].Value.Bytes()
+	assert.Equal(t, "A", string(got))
 }
 
 // TestRequestResolvesNoName checks that a request resolves no name: after
@@ -210,32 +149,27 @@ func TestRequestResolvesNoName(t *testing.T) {
 	assert.Equal(t, int32(0), lookups.Load(), "lookups")
 }
 
-// TestRetryUsesConnReplacedDuringRequest checks that each attempt of a request
-// uses the connection Conn holds when it starts: as the first attempt writes
-// to agent A, which never answers, the Conn's code sets Conn to a socket
-// connected to agent B, which answers the retry.
-func TestRetryUsesConnReplacedDuringRequest(t *testing.T) {
-	portA, _ := udpAgent(t, func(int, []byte) []byte { return nil })
-	portB, _ := udpAgent(t, func(_ int, req []byte) []byte { return replyTo(req, nil, sysDescr) })
+// TestRetryOnConnectedSocket checks, on a loopback socket, a retry over the
+// socket Connect opened: the agent does not answer the first attempt, and the
+// retry, on the same socket, is answered.
+func TestRetryOnConnectedSocket(t *testing.T) {
+	port, reads := udpAgent(t, func(n int, req []byte) []byte {
+		if n == 1 {
+			return nil
+		}
+		return replyTo(req, nil, sysDescr)
+	})
 	x := &Client{
-		Target: "127.0.0.1", Port: portA, Version: Version2c, Community: "public",
+		Target: "127.0.0.1", Port: port, Version: Version2c, Community: "public",
 		Timeout: 200 * time.Millisecond, Retries: 1,
 	}
 	require.NoError(t, x.Connect(context.Background()))
-	first := &actingConn{UDPConn: x.Conn.(*net.UDPConn)}
-	x.Conn = first
-	defer first.Close()
 	defer x.Close()
-	first.afterWrite = func() {
-		first.afterWrite = nil
-		conn, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: int(portB)})
-		require.NoError(t, err)
-		x.Conn = conn
-	}
 
 	res, err := x.Get(context.Background(), []string{engineOID})
 	require.NoError(t, err)
 	assert.Equal(t, []VarBind{sysDescr}, res.VarBinds)
+	assert.Len(t, reads, 2, "the agent read both attempts")
 }
 
 // TestConnectIPv6Target checks a request to an agent on the IPv6 loopback
@@ -267,7 +201,8 @@ func TestConnectIPv6Target(t *testing.T) {
 	}
 	require.NoError(t, x.Connect(context.Background()))
 	defer x.Close()
-	assert.True(t, x.Conn.RemoteAddr().(*net.UDPAddr).IP.Equal(net.IPv6loopback), "remote %v", x.Conn.RemoteAddr())
+	remote := x.conn.(*net.UDPConn).RemoteAddr()
+	assert.True(t, remote.(*net.UDPAddr).IP.Equal(net.IPv6loopback), "remote %v", remote)
 
 	res, err := x.Get(context.Background(), []string{engineOID})
 	require.NoError(t, err)
@@ -423,14 +358,14 @@ func TestConnectLookupWithinBounds(t *testing.T) {
 				dns.release()
 				t.Errorf("Connect waits for the lookup; after its release: %v", <-result)
 			}
-			assert.Nil(t, x.Conn)
+			assert.Nil(t, x.conn)
 		})
 	}
 }
 
 // closeErrConn is a connection whose Close fails.
 type closeErrConn struct {
-	net.Conn
+	transport
 	closes int
 }
 
@@ -447,9 +382,9 @@ func (c *closeErrConn) Close() error {
 func TestCloseOnce(t *testing.T) {
 	assert.NoError(t, (&Client{}).Close(), "a client that never had a connection")
 	c := &closeErrConn{}
-	x := &Client{Conn: c}
+	x := &Client{conn: c}
 	assert.ErrorIs(t, x.Close(), errCloseConn)
-	assert.Nil(t, x.Conn)
+	assert.Nil(t, x.conn)
 	assert.NoError(t, x.Close())
 	assert.Equal(t, 1, c.closes)
 }
@@ -460,7 +395,7 @@ func TestCloseOnce(t *testing.T) {
 func TestConnectReplacesConnection(t *testing.T) {
 	type outcome struct {
 		err       bool
-		connFirst bool // Conn is the first connection
+		connFirst bool // the client's connection is the first
 		connNil   bool
 		firstOpen bool // the first connection is still open
 	}
@@ -481,7 +416,7 @@ func TestConnectReplacesConnection(t *testing.T) {
 				Version: Version2c, Community: "public", Timeout: time.Second,
 			}
 			require.NoError(t, x.Connect(context.Background()))
-			first := x.Conn
+			first := x.conn
 			defer first.Close()
 			defer x.Close()
 			if tc.failDial {
@@ -490,8 +425,8 @@ func TestConnectReplacesConnection(t *testing.T) {
 			err = x.Connect(context.Background())
 			assert.Equal(t, tc.want, outcome{
 				err:       err != nil,
-				connFirst: x.Conn == first,
-				connNil:   x.Conn == nil,
+				connFirst: x.conn == first,
+				connNil:   x.conn == nil,
 				firstOpen: first.SetDeadline(time.Time{}) == nil,
 			})
 		})
@@ -499,9 +434,9 @@ func TestConnectReplacesConnection(t *testing.T) {
 }
 
 // TestRequestWithoutConnection pins the result of a request on a client
-// without a connection: no packet, and net.ErrClosed after Close, until
-// Connect, "Conn is missing" otherwise; an SNMPv3 request does not discover
-// the engine first.
+// without a connection: no packet, and errNoConn before the first Connect,
+// net.ErrClosed after Close until Connect; an SNMPv3 request fails so before
+// its engine starts: before the user's checks and the discovery.
 func TestRequestWithoutConnection(t *testing.T) {
 	tests := map[string]struct {
 		v3     bool
@@ -509,6 +444,10 @@ func TestRequestWithoutConnection(t *testing.T) {
 		want   error
 	}{
 		"never connected": {want: errNoConn},
+		// Connect, which would have checked the user, never ran.
+		"SNMPv3 never connected, a user of an unknown protocol": {v3: true, want: errNoConn, before: func(_ *testing.T, x *Client) {
+			x.User.AuthProtocol = 99
+		}},
 		"after Close": {want: errClosed, before: func(t *testing.T, x *Client) {
 			require.NoError(t, x.Connect(context.Background()))
 			require.NoError(t, x.Close())
@@ -516,13 +455,6 @@ func TestRequestWithoutConnection(t *testing.T) {
 		"SNMPv3 after Close": {v3: true, want: errClosed, before: func(t *testing.T, x *Client) {
 			require.NoError(t, x.Connect(context.Background()))
 			require.NoError(t, x.Close())
-		}},
-		"Conn removed after Close and Connect": {want: errNoConn, before: func(t *testing.T, x *Client) {
-			require.NoError(t, x.Connect(context.Background()))
-			require.NoError(t, x.Close())
-			require.NoError(t, x.Connect(context.Background()))
-			require.NoError(t, x.Conn.Close())
-			x.Conn = nil
 		}},
 	}
 	for name, tc := range tests {
@@ -547,34 +479,44 @@ func TestRequestWithoutConnection(t *testing.T) {
 
 // TestCloseDuringRequest checks, on a loopback socket, Close as Netdata's SNMP
 // topology uses it: two goroutines close the client while a request waits for
-// its answer. The request ends at once with net.ErrClosed, the next one fails
-// the same way without being sent, and Connect opens the client again.
+// its answer, with a context that is never done and with one that can be
+// canceled, whose interrupt the attempt registers. The request ends at once
+// with net.ErrClosed, the next one fails the same way without being sent, and
+// Connect opens the client again.
 func TestCloseDuringRequest(t *testing.T) {
-	port, reads := udpAgent(t, func(n int, req []byte) []byte {
-		if n == 1 {
-			return nil // the agent does not answer the first request
-		}
-		return replyTo(req, nil, sysDescr)
-	})
-	x := &Client{Target: "127.0.0.1", Port: port, Community: "public", Version: Version2c, Timeout: 10 * time.Second}
-	require.NoError(t, x.Connect(context.Background()))
-	defer x.Close()
+	for name, cancelable := range map[string]bool{"context never done": false, "context that can be canceled": true} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			if cancelable {
+				ctx = t.Context()
+			}
+			port, reads := udpAgent(t, func(n int, req []byte) []byte {
+				if n == 1 {
+					return nil // the agent does not answer the first request
+				}
+				return replyTo(req, nil, sysDescr)
+			})
+			x := &Client{Target: "127.0.0.1", Port: port, Community: "public", Version: Version2c, Timeout: 10 * time.Second}
+			require.NoError(t, x.Connect(context.Background()))
+			defer x.Close()
 
-	closers := closeOnRelease(x, 2, func() { <-reads })
-	start := time.Now()
-	_, err := x.Get(context.Background(), []string{engineOID})
-	require.ErrorIs(t, err, net.ErrClosed)
-	assert.Less(t, time.Since(start), 5*time.Second, "the request ends before its timeout")
-	closers.Wait()
+			closers := closeOnRelease(x, 2, func() { <-reads })
+			start := time.Now()
+			_, err := x.Get(ctx, []string{engineOID})
+			require.ErrorIs(t, err, net.ErrClosed)
+			assert.Less(t, time.Since(start), 5*time.Second, "the request ends before its timeout")
+			closers.Wait()
 
-	_, err = x.Get(context.Background(), []string{engineOID})
-	require.ErrorIs(t, err, net.ErrClosed)
+			_, err = x.Get(ctx, []string{engineOID})
+			require.ErrorIs(t, err, net.ErrClosed)
 
-	require.NoError(t, x.Connect(context.Background()))
-	res, err := x.Get(context.Background(), []string{engineOID})
-	require.NoError(t, err)
-	assert.Equal(t, []VarBind{sysDescr}, res.VarBinds)
-	assert.Len(t, reads, 1, "the agent read the request after Connect, not the one after Close")
+			require.NoError(t, x.Connect(context.Background()))
+			res, err := x.Get(ctx, []string{engineOID})
+			require.NoError(t, err)
+			assert.Equal(t, []VarBind{sysDescr}, res.VarBinds)
+			assert.Len(t, reads, 1, "the agent read the request after Connect, not the one after Close")
+		})
+	}
 }
 
 // TestCloseDuringWalk checks, on a loopback socket, Close as Netdata's SNMP
@@ -615,93 +557,6 @@ func TestCloseDuringWalk(t *testing.T) {
 	closers.Wait()
 }
 
-// TestCloseDuringRequestConnReplaced checks, on loopback sockets, a Close from
-// another goroutine after the Conn's code removed or replaced Conn during the
-// attempt, with and without a context that can be canceled: the request ends
-// at once with net.ErrClosed. Close closes the connection Conn holds and
-// leaves the one that was replaced, the caller's again, open.
-func TestCloseDuringRequestConnReplaced(t *testing.T) {
-	type outcome struct {
-		errClosed       bool // the request failed with net.ErrClosed
-		beforeTimeout   bool // the request ended well before its timeout
-		replacedOpen    bool // the connection that was replaced is open
-		otherConnClosed bool // the connection set in its place is closed
-	}
-	tests := map[string]struct {
-		otherConn bool // the Conn's code sets another connection; it removes Conn otherwise
-		context   bool // the request has a context that can be canceled
-		want      outcome
-	}{
-		"Conn removed":                  {want: outcome{errClosed: true, beforeTimeout: true, replacedOpen: true}},
-		"Conn removed, with a context":  {context: true, want: outcome{errClosed: true, beforeTimeout: true, replacedOpen: true}},
-		"Conn replaced":                 {otherConn: true, want: outcome{true, true, true, true}},
-		"Conn replaced, with a context": {otherConn: true, context: true, want: outcome{true, true, true, true}},
-	}
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			port, _ := udpAgent(t, func(int, []byte) []byte { return nil }) // the agent never answers
-			const timeout = 2 * time.Second
-			x := &Client{Target: "127.0.0.1", Port: port, Version: Version2c, Community: "public", Timeout: timeout}
-			ctx := context.Background()
-			if tc.context {
-				ctx = t.Context()
-			}
-			require.NoError(t, x.Connect(context.Background()))
-			replaced := &actingConn{UDPConn: x.Conn.(*net.UDPConn)}
-			x.Conn = replaced
-			defer replaced.Close()
-			defer x.Close()
-			var otherConn net.Conn
-			if tc.otherConn {
-				var err error
-				otherConn, err = net.Dial("udp4", replaced.RemoteAddr().String())
-				require.NoError(t, err)
-				defer otherConn.Close()
-			}
-			ready, closed := make(chan struct{}), make(chan struct{})
-			go func() {
-				<-ready
-				_ = x.Close()
-				close(closed)
-			}()
-			replaced.afterWrite = func() {
-				replaced.afterWrite = nil
-				x.Conn = otherConn
-				close(ready)
-				<-closed // the attempt reads after Close returned
-			}
-
-			start := time.Now()
-			_, err := x.Get(ctx, []string{engineOID})
-			got := outcome{
-				errClosed:     errors.Is(err, net.ErrClosed),
-				beforeTimeout: time.Since(start) < timeout/2,
-				replacedOpen:  replaced.SetDeadline(time.Time{}) == nil,
-			}
-			if otherConn != nil {
-				got.otherConnClosed = errors.Is(otherConn.SetDeadline(time.Time{}), net.ErrClosed)
-			}
-			assert.Equal(t, tc.want, got, "error %v", err)
-		})
-	}
-}
-
-// actingConn is a UDP socket, as Connect opens it, whose Write runs
-// afterWrite once it has written: the Conn's code acting on the client during
-// a request.
-type actingConn struct {
-	*net.UDPConn
-	afterWrite func()
-}
-
-func (c *actingConn) Write(b []byte) (int, error) {
-	n, err := c.UDPConn.Write(b)
-	if err == nil && c.afterWrite != nil {
-		c.afterWrite()
-	}
-	return n, err
-}
-
 // closeOnRelease starts n goroutines that close x once release returns, and
 // returns their WaitGroup.
 func closeOnRelease(x *Client, n int, release func()) *sync.WaitGroup {
@@ -734,7 +589,7 @@ func TestCloseDuringConnect(t *testing.T) {
 		require.NoError(t, <-closed)
 
 		_, err := x.Get(context.Background(), []string{engineOID})
-		if x.Conn == nil {
+		if x.conn == nil {
 			assert.ErrorIs(t, err, net.ErrClosed)
 		} else {
 			assert.NoError(t, err)
@@ -826,32 +681,4 @@ func udpAgent(t *testing.T, handle func(n int, req []byte) []byte) (port uint16,
 		<-done
 	})
 	return uint16(pc.LocalAddr().(*net.UDPAddr).Port), read //nolint:gosec // a UDP port
-}
-
-// scriptedConn is a net.Conn whose reads hand out reads in turn: the octets of
-// each, as many at a time as the caller's buffer takes, then its error. Past
-// the last read, reads fail with io.EOF. Only Read is implemented.
-type scriptedConn struct {
-	net.Conn
-	reads []scriptedRead
-}
-
-// scriptedRead is one read of a scriptedConn.
-type scriptedRead struct {
-	data []byte
-	err  error
-}
-
-func (c *scriptedConn) Read(b []byte) (int, error) {
-	if len(c.reads) == 0 {
-		return 0, io.EOF
-	}
-	r := &c.reads[0]
-	n := copy(b, r.data)
-	if r.data = r.data[n:]; len(r.data) > 0 {
-		return n, nil
-	}
-	err := r.err
-	c.reads = c.reads[1:]
-	return n, err
 }

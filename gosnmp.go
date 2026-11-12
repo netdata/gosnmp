@@ -10,7 +10,6 @@ package gosnmp
 
 import (
 	"fmt"
-	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -34,20 +33,6 @@ const (
 // buffer and deadline, so run one request at a time, or give each goroutine
 // its own Client.
 type Client struct {
-	// Conn is the connection to the agent, the UDP socket Connect opened, or
-	// set by the caller in its place: the client then lacks Connect's defaults
-	// and checks, so the caller sets the fields it needs (MaxOids, for one); a
-	// request supplies its receive buffer and IDs. A request writes each
-	// message with Write and reads each reply, one per read, with ReadFrom when
-	// Conn is a net.PacketConn and with Read otherwise. The client owns the
-	// connection Conn holds: Close and a later Connect close it; a connection
-	// the caller replaces in Conn is the caller's again. Each attempt of a
-	// request uses the connection Conn holds when it starts: Close interrupts
-	// it once the attempt has set its deadline, whatever Conn holds then, and
-	// before that closes it only if Conn still holds it. Set Conn only while
-	// no Close runs.
-	Conn net.Conn
-
 	// Target is the agent's host name or IP address, which Connect dials.
 	Target string
 
@@ -107,14 +92,19 @@ type Client struct {
 	engine       engineState
 	forgetEngine bool
 
-	// mu guards Conn, closed and attempt against Close, which may run on any
-	// goroutine: Connect and Close change them under it, each attempt reads
-	// them and registers itself under it.
+	// mu guards conn and closed against Close, which may run on any
+	// goroutine, and attempt against the request's context, whose interrupt
+	// runs on a goroutine of its own: Connect and Close change conn and closed
+	// under it, each attempt reads them and registers itself under it.
 	mu sync.Mutex
+	// conn is the client's connection, the UDP socket Connect opened, nil
+	// before the first Connect and after Close. The client owns it: Close and
+	// a later Connect close it.
+	conn transport
 	// closed reports that Close ran since the last successful Connect.
 	closed bool
-	// attempt is the running attempt, which Close and the request's context
-	// interrupt.
+	// attempt is the running attempt, which the request's context
+	// interrupts.
 	attempt runningAttempt
 }
 

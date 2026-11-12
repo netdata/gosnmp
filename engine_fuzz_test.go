@@ -6,6 +6,8 @@ package gosnmp
 
 import (
 	"context"
+	"io"
+	"net"
 	"os"
 	"slices"
 	"testing"
@@ -58,7 +60,7 @@ func FuzzEngineReply(f *testing.F) {
 		// One read per exchange (the discovery, the request, a resend), each
 		// followed by the attempt's timeout.
 		exchange := []scriptedRead{{data: reply}, {err: os.ErrDeadlineExceeded}}
-		x.Conn = &replyConn{scriptedConn{reads: slices.Concat(exchange, exchange, exchange)}}
+		x.conn = &replyConn{reads: slices.Concat(exchange, exchange, exchange)}
 		packet, err := x.oidRequest(GetRequest, []string{engineOID}, 0)
 		if err != nil {
 			t.Fatal(err)
@@ -77,7 +79,7 @@ func TestEngineReplySeeds(t *testing.T) {
 		}
 		for i, reply := range seeds {
 			e := engineReplyExchange(t, r)
-			e.x.Conn = &replyConn{scriptedConn{reads: []scriptedRead{{data: reply}, {err: os.ErrDeadlineExceeded}}}}
+			e.x.conn = &replyConn{reads: []scriptedRead{{data: reply}, {err: os.ErrDeadlineExceeded}}}
 			if out := e.attempt(nil); out.kind != attemptReply || out.packet == nil {
 				t.Errorf("%+v seed %d: the attempt ended as %d, %v, not with an answer", r, i, out.kind, out.err)
 			}
@@ -86,7 +88,7 @@ func TestEngineReplySeeds(t *testing.T) {
 }
 
 // engineReplyClient returns a client for r whose next request ID and msgID
-// are 1001 and 2001, without a Conn.
+// are 1001 and 2001, without a connection.
 func engineReplyClient(r engineReplyRequest) *Client {
 	x := &Client{Version: Version2c, Community: "public", Timeout: time.Second, MaxOids: MaxOids}
 	if r.user != "" {
@@ -170,12 +172,30 @@ func engineReplySeeds(tb testing.TB, r engineReplyRequest) [][]byte {
 	return seeds
 }
 
-// replyConn is a Conn the caller set, read with Read, one message per read:
-// its reads are a scriptedConn's; writes and deadlines succeed.
+// replyConn is a connection whose reads hand out reads in turn: each a
+// datagram, cut to the buffer, with its error. Past the last read, reads fail
+// with io.EOF. Writes, deadlines and Close succeed.
 type replyConn struct {
-	scriptedConn
+	reads []scriptedRead
+}
+
+// scriptedRead is one read of a replyConn.
+type scriptedRead struct {
+	data []byte
+	err  error
+}
+
+func (c *replyConn) ReadFrom(b []byte) (int, net.Addr, error) {
+	if len(c.reads) == 0 {
+		return 0, nil, io.EOF
+	}
+	r := c.reads[0]
+	c.reads = c.reads[1:]
+	return copy(b, r.data), fakeAgentAddr, r.err
 }
 
 func (c *replyConn) Write(b []byte) (int, error) { return len(b), nil }
 
 func (c *replyConn) SetDeadline(time.Time) error { return nil }
+
+func (c *replyConn) Close() error { return nil }

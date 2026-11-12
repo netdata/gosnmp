@@ -161,9 +161,9 @@ func encodeMessage(x *Client, a *fakeV3Agent) {
 	a.tr.addf("EncodeMessage: %s, %s; client %s", describeAgentRequest(req), digest, describeEngineState(&x.engine))
 }
 
-// afterReadThenGet runs a Get after whose read n the Conn runs change, which
-// the transcript names as what, then a second Get 10 s later, whose result it
-// returns.
+// afterReadThenGet runs a Get after whose read n the fake connection runs
+// change, which the transcript names as what, then a second Get 10 s later,
+// whose result it returns.
 func afterReadThenGet(n int, what string, change func(x *Client)) func(x *Client, a *fakeV3Agent) (*Message, error) {
 	return func(x *Client, a *fakeV3Agent) (*Message, error) {
 		afterRead(x, a, n, what, change)
@@ -175,8 +175,8 @@ func afterReadThenGet(n int, what string, change func(x *Client)) func(x *Client
 	}
 }
 
-// afterRead makes x's Conn run change after its read n, which the transcript
-// names as what: the Conn's code changing the client during a request.
+// afterRead makes x's fake connection run change after its read n, which the
+// transcript names as what: code that changes the client during a request.
 func afterRead(x *Client, a *fakeV3Agent, n int, what string, change func(x *Client)) {
 	c := transportOf(a.tr.tb, x)
 	c.afterRead = func(k int) {
@@ -188,7 +188,7 @@ func afterRead(x *Client, a *fakeV3Agent, n int, what string, change func(x *Cli
 }
 
 // onFirstWrite runs a Get after whose first write, the engine discovery's, the
-// Conn runs change: caller code that changes the client during a request,
+// fake connection runs change: code that changes the client during a request,
 // before the discovery's answer commits the engine state.
 func onFirstWrite(what string, change func(x *Client)) func(x *Client, a *fakeV3Agent) (*Message, error) {
 	return func(x *Client, a *fakeV3Agent) (*Message, error) {
@@ -1812,7 +1812,7 @@ func runV3Polls(t *testing.T, setup func(a *fakeV3Agent)) string {
 		return replies
 	})
 	creds := agentCreds["codec-md5"]
-	x := newEngineClientFrom(t, fakePacketTransport{c}, &Client{
+	x := newEngineClientFrom(t, c, &Client{
 		Version:       Version3,
 		SecurityLevel: AuthNoPriv,
 		User:          creds.user("codec-md5"),
@@ -1888,7 +1888,7 @@ func runV3Scenario(t *testing.T, sc v3Scenario) string {
 	if sc.setup != nil {
 		sc.setup(x)
 	}
-	x = newEngineClientFrom(t, fakePacketTransport{c}, x)
+	x = newEngineClientFrom(t, c, x)
 	run := sc.run
 	if run == nil {
 		run = func(x *Client, _ *fakeV3Agent) (*Message, error) {
@@ -1946,7 +1946,7 @@ func BenchmarkGetV3(b *testing.B) {
 	agent := newFakeV3Agent(nil, agentCreds, sysDescr)
 	c := newFakeTransport(nil, agent.handle)
 	creds := agentCreds["codec-md5"]
-	x := newEngineClientFrom(b, fakePacketTransport{c}, &Client{
+	x := newEngineClientFrom(b, c, &Client{
 		Version:       Version3,
 		SecurityLevel: AuthNoPriv,
 		User:          creds.user("codec-md5"),
