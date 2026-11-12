@@ -65,11 +65,11 @@ func (c *Client) BulkWalkAll(ctx context.Context, rootOid string, maxRepetitions
 // how the walk ended. It walks SNMPv1 agents too, and otherwise starts, ends
 // and fails as BulkWalkAll does. It differs from net-snmp's snmpwalk where
 // BulkWalkAll differs from snmpbulkwalk, and for a name before rootOid, which
-// snmpwalk takes in the subtree and so fails its increasing check, where
-// WalkAll ends (or, as the first answer, gets rootOid); snmpwalk also checks
-// each name against the one before it in the same answer, where WalkAll checks
-// it against the requested one, which differs only for an answer of more than
-// the one varbind it asks for.
+// snmpwalk takes in the subtree, failing its increasing check or, with an
+// exception value, printing it and ending, where WalkAll ends (or, as the first
+// answer, gets rootOid); snmpwalk also checks each name against the one before
+// it in the same answer, where WalkAll checks it against the requested one,
+// which differs only for an answer of more than the one varbind it asks for.
 func (c *Client) WalkAll(ctx context.Context, rootOid string) (results []VarBind, end WalkEnd, err error) {
 	return c.walk(ctx, GetNextRequest, rootOid, 0)
 }

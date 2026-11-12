@@ -332,9 +332,9 @@ func requestIDRead(packet []byte, cursor int) bool {
 }
 
 // unmarshalPDU reads a PDU of pduType other than the SNMPv1 trap: the request
-// ID, an Integer32 whose two's complement RequestID holds; the fields after it
-// (readBulkFields of a GetBulkRequest, readErrorFields of any other PDU); and
-// the varbinds. Fields read before an error stay set.
+// ID (readRequestID); the fields after it (readBulkFields of a GetBulkRequest,
+// readErrorFields of any other PDU); and the varbinds. Fields read before an
+// error stay set.
 func unmarshalPDU(packet []byte, pduType PDUType, m *Message) error {
 	r, requestID, err := readRequestID(packet)
 	if err != nil {

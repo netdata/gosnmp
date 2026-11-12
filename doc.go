@@ -518,6 +518,8 @@
 //     its low 32 bits lie in it, where net-snmp cuts it to 32 bits first (a
 //     version of 2^32+1 reads as SNMPv2c there, an error status of 2^32 as
 //     noError)
+//   - an SNMPv1 generic or specific trap of 2^31..2^32-1, sent unsigned, fails
+//     the message, where net-snmp keeps it (the request ID keeps those 32 bits)
 //   - the community and context fields take OCTET STRINGs only, and an SNMPv1
 //     agent address four octets or an empty IpAddress, where net-snmp takes
 //     other string types (of up to four octets for the agent address)

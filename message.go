@@ -57,7 +57,8 @@ type Message struct {
 	// ErrorStatus and ErrorIndex are the PDU's error status and index; a
 	// GetBulkRequest has NonRepeaters and MaxRepetitions in their place.
 	// Decoded, an error status outside 0..255 fails the message, and an error
-	// index or non-repeaters above 255 reads as 255.
+	// index or non-repeaters of 256..2147483647 reads as 255, and a larger one
+	// fails the message.
 	ErrorStatus    ErrorStatus
 	ErrorIndex     uint8
 	NonRepeaters   uint8

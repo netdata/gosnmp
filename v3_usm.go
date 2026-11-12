@@ -123,8 +123,8 @@ type User struct {
 	AuthPassphrase string
 
 	// PrivProtocol is the privacy protocol and PrivPassphrase the passphrase
-	// its key derives from, with the authentication protocol's hash; zero
-	// means unset.
+	// its key derives from, with the authentication protocol's hash, MD5
+	// without one; zero means unset.
 	PrivProtocol   PrivProtocol
 	PrivPassphrase string
 }
