@@ -9,7 +9,6 @@
 package gosnmp
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"sync"
@@ -38,14 +37,14 @@ type Client struct {
 	// Conn is the connection to the agent, the UDP socket Connect opened, or
 	// set by the caller in its place: the client then lacks Connect's defaults
 	// and checks, so the caller sets the fields it needs (MaxOids, for one); a
-	// request supplies its Context default, receive buffer and IDs. A request
-	// writes each message with Write and reads each reply, one per read, with
-	// ReadFrom when Conn is a net.PacketConn and with Read otherwise. The
-	// client owns the connection Conn holds: Close and a later Connect close
-	// it; a connection the caller or a hook replaces in Conn is the caller's
-	// again. Each attempt of a request uses the connection Conn holds when it
-	// starts, which Close interrupts even after a hook replaced it. Set Conn
-	// only while no Close runs.
+	// request supplies its receive buffer and IDs. A request writes each
+	// message with Write and reads each reply, one per read, with ReadFrom when
+	// Conn is a net.PacketConn and with Read otherwise. The client owns the
+	// connection Conn holds: Close and a later Connect close it; a connection
+	// the caller or a hook replaces in Conn is the caller's again. Each attempt
+	// of a request uses the connection Conn holds when it starts, which Close
+	// interrupts even after a hook replaced it. Set Conn only while no Close
+	// runs.
 	Conn net.Conn
 
 	// Target is the agent's host name or IP address, which Connect dials.
@@ -59,13 +58,6 @@ type Client struct {
 
 	// Version is the SNMP version: Version1, Version2c or Version3.
 	Version Version
-
-	// Context, when set, bounds Connect (its lookup of Target and its dial)
-	// and every request: no attempt starts once it is done, and its
-	// cancellation or deadline ends a running attempt at once. Connect sets
-	// context.Background() when it is nil, and a request without one uses
-	// context.Background().
-	Context context.Context
 
 	// Timeout is how long each attempt of a request waits for its answer, and
 	// how long Connect may take to look up Target and dial. It has no default:
@@ -96,7 +88,7 @@ type Client struct {
 	// OnRetry is called before each retry: after an attempt that failed in a
 	// way another attempt may cure (a timeout, or another write or read error
 	// than a closed connection), when another attempt follows. It is not
-	// called after the last attempt, nor when the Context is done.
+	// called after the last attempt, nor when the request's context is done.
 	OnRetry func(*Client)
 
 	// OnFinish is called each time an exchange (a request and the answer to
@@ -154,7 +146,8 @@ type Client struct {
 	mu sync.Mutex
 	// closed reports that Close ran since the last successful Connect.
 	closed bool
-	// attempt is the running attempt, which Close and the Context interrupt.
+	// attempt is the running attempt, which Close and the request's context
+	// interrupt.
 	attempt runningAttempt
 }
 
@@ -230,9 +223,9 @@ const (
 )
 
 // prepare readies the client for Connect, EncodeMessage and
-// DecodeMessage, which call it each time: it fills in the defaults (MaxOids,
-// a background Context), rejects a negative MaxOids and, for SNMPv3, checks
-// the security level and parameters.
+// DecodeMessage, which call it each time: it fills in the default MaxOids,
+// rejects a negative MaxOids and, for SNMPv3, checks the security level and
+// parameters.
 func (x *Client) prepare() error {
 	if x.MaxOids == 0 {
 		x.MaxOids = MaxOids
@@ -244,10 +237,6 @@ func (x *Client) prepare() error {
 		if err := x.validateParametersV3(); err != nil {
 			return err
 		}
-	}
-
-	if x.Context == nil {
-		x.Context = context.Background()
 	}
 	return nil
 }

@@ -5,6 +5,7 @@
 package gosnmp
 
 import (
+	"context"
 	"net"
 	"strconv"
 	"testing"
@@ -14,15 +15,17 @@ import (
 )
 
 // TestWalkRequestChecks pins the checks a walk makes before its first
-// request, in their order, on a client without Connect (MaxOids zero): the
-// root, then GetBulk on SNMPv1, then MaxOids against the one OID a request
-// carries.
+// request, in their order, on a client without Connect (MaxOids zero unless
+// set): the root, then GetBulk on SNMPv1, then MaxOids against the one OID a
+// request carries, then a nil context.
 func TestWalkRequestChecks(t *testing.T) {
 	tests := map[string]struct {
-		version Version
-		bulk    bool
-		root    string
-		wantErr string
+		version    Version
+		bulk       bool
+		root       string
+		maxOids    int
+		nilContext bool
+		wantErr    string
 	}{
 		"root before SNMPv1": {
 			version: Version1, bulk: true, root: "1.3.6.x", wantErr: `unable to marshal OID "1.3.6.x": invalid object identifier`,
@@ -30,15 +33,26 @@ func TestWalkRequestChecks(t *testing.T) {
 		"SNMPv1 before MaxOids": {version: Version1, bulk: true, root: walkSystem, wantErr: "GETBULK not supported in SNMPv1"},
 		"MaxOids, GetNext":      {version: Version2c, root: walkSystem, wantErr: "oid count (1) is greater than MaxOids (0)"},
 		"MaxOids, GetBulk":      {version: Version2c, bulk: true, root: walkSystem, wantErr: "oid count (1) is greater than MaxOids (0)"},
+		"MaxOids before the context": {
+			version: Version2c, root: walkSystem, nilContext: true, wantErr: "oid count (1) is greater than MaxOids (0)",
+		},
+		"nil context, GetNext": {version: Version2c, root: walkSystem, maxOids: 1, nilContext: true, wantErr: "nil context"},
+		"nil context, GetBulk": {
+			version: Version2c, bulk: true, root: walkSystem, maxOids: 1, nilContext: true, wantErr: "nil context",
+		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			x := &Client{Version: tc.version}
+			x := &Client{Version: tc.version, MaxOids: tc.maxOids}
 			walk := x.WalkAll
 			if tc.bulk {
 				walk = x.BulkWalkAll
 			}
-			values, err := walk(tc.root)
+			ctx := context.Background()
+			if tc.nilContext {
+				ctx = nil
+			}
+			values, err := walk(ctx, tc.root)
 			assert.EqualError(t, err, tc.wantErr)
 			assert.Empty(t, values)
 		})
@@ -129,7 +143,7 @@ func TestRequestAndMsgIDs(t *testing.T) {
 	}
 	connect := func(x *Client) {
 		t.Helper()
-		require.NoError(t, x.Connect())
+		require.NoError(t, x.Connect(context.Background()))
 		conn := x.Conn
 		t.Cleanup(func() { _ = conn.Close() })
 	}

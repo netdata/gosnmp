@@ -252,7 +252,7 @@ func (c *fakeTransport) signal() {
 // setDeadlines sets the read deadline when read is set and the write deadline
 // when write is set, recording it as name. A deadline in the past, which the
 // engine sets to interrupt an attempt, is recorded only when it ends a
-// deadline that has not passed: when the Context's deadline is the attempt's,
+// deadline that has not passed: when the context's deadline is the attempt's,
 // the interrupt and the attempt's own deadline race, and change nothing.
 func (c *fakeTransport) setDeadlines(name string, t time.Time, read, write bool) error {
 	if c.holdInterrupt != nil && t.Before(time.Now()) {

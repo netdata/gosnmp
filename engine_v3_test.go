@@ -48,14 +48,14 @@ func getTwice(between func(a *fakeV3Agent)) func(x *Client, a *fakeV3Agent) (*Me
 // getAfter is getTwice with the pause d between the two Gets.
 func getAfter(d time.Duration, between func(a *fakeV3Agent)) func(x *Client, a *fakeV3Agent) (*Message, error) {
 	return func(x *Client, a *fakeV3Agent) (*Message, error) {
-		if _, err := x.Get([]string{engineOID}); err != nil {
+		if _, err := x.Get(context.Background(), []string{engineOID}); err != nil {
 			return nil, fmt.Errorf("first Get: %w", err)
 		}
 		time.Sleep(d)
 		if between != nil {
 			between(a)
 		}
-		return x.Get([]string{engineOID})
+		return x.Get(context.Background(), []string{engineOID})
 	}
 }
 
@@ -63,7 +63,7 @@ func getAfter(d time.Duration, between func(a *fakeV3Agent)) func(x *Client, a *
 // then runs second, whose result it returns.
 func getThen(between func(a *fakeV3Agent), second func(x *Client) (*Message, error)) func(x *Client, a *fakeV3Agent) (*Message, error) {
 	return func(x *Client, a *fakeV3Agent) (*Message, error) {
-		if _, err := x.Get([]string{engineOID}); err != nil {
+		if _, err := x.Get(context.Background(), []string{engineOID}); err != nil {
 			return nil, fmt.Errorf("first Get: %w", err)
 		}
 		time.Sleep(10 * time.Second)
@@ -72,17 +72,46 @@ func getThen(between func(a *fakeV3Agent), second func(x *Client) (*Message, err
 	}
 }
 
+// getWithin runs a Get within the context ctx gives, which bounds that Get
+// only.
+func getWithin(ctx func() (context.Context, context.CancelFunc)) func(x *Client) (*Message, error) {
+	return func(x *Client) (*Message, error) {
+		c, cancel := ctx()
+		defer cancel()
+		return x.Get(c, []string{engineOID})
+	}
+}
+
+// getWithinV3 is getWithin as a scenario's run.
+func getWithinV3(ctx func() (context.Context, context.CancelFunc)) func(x *Client, _ *fakeV3Agent) (*Message, error) {
+	get := getWithin(ctx)
+	return func(x *Client, _ *fakeV3Agent) (*Message, error) { return get(x) }
+}
+
+// rebootSilentAfterResync reboots the agent, which then answers a request
+// with the old boots with its notInTimeWindow Report and leaves the
+// resynchronized one unanswered.
+func rebootSilentAfterResync(a *fakeV3Agent) {
+	a.reboot()
+	a.script = func(_ int, req agentRequest) (agentAnswer, bool) {
+		if req.boots == a.boots {
+			return agentAnswer{drop: true, why: "silent after the resynchronization"}, true
+		}
+		return agentAnswer{}, false
+	}
+}
+
 // changeThenGet runs a Get, then change, which the transcript names as what,
 // on the client 10 s later, then a second Get, whose result it returns.
 func changeThenGet(what string, change func(x *Client)) func(x *Client, a *fakeV3Agent) (*Message, error) {
 	return func(x *Client, a *fakeV3Agent) (*Message, error) {
-		if _, err := x.Get([]string{engineOID}); err != nil {
+		if _, err := x.Get(context.Background(), []string{engineOID}); err != nil {
 			return nil, fmt.Errorf("first Get: %w", err)
 		}
 		time.Sleep(10 * time.Second)
 		a.tr.addf("caller %s", what)
 		change(x)
-		return x.Get([]string{engineOID})
+		return x.Get(context.Background(), []string{engineOID})
 	}
 }
 
@@ -91,14 +120,14 @@ func changeThenGet(what string, change func(x *Client)) func(x *Client, a *fakeV
 // Get, whose result it returns.
 func encodeThenGet(what string, change func(x *Client)) func(x *Client, a *fakeV3Agent) (*Message, error) {
 	return func(x *Client, a *fakeV3Agent) (*Message, error) {
-		if _, err := x.Get([]string{engineOID}); err != nil {
+		if _, err := x.Get(context.Background(), []string{engineOID}); err != nil {
 			return nil, fmt.Errorf("first Get: %w", err)
 		}
 		time.Sleep(10 * time.Second)
 		a.tr.addf("caller %s", what)
 		change(x)
 		encodeMessage(x, a)
-		return x.Get([]string{engineOID})
+		return x.Get(context.Background(), []string{engineOID})
 	}
 }
 
@@ -145,11 +174,11 @@ func onFinishThenGet(n int, what string, change func(x *Client)) func(x *Client,
 				change(x)
 			}
 		}
-		if _, err := x.Get([]string{engineOID}); err != nil {
+		if _, err := x.Get(context.Background(), []string{engineOID}); err != nil {
 			return nil, fmt.Errorf("first Get: %w", err)
 		}
 		time.Sleep(10 * time.Second)
-		return x.Get([]string{engineOID})
+		return x.Get(context.Background(), []string{engineOID})
 	}
 }
 
@@ -167,7 +196,7 @@ func onFirstPreSend(what string, change func(x *Client)) func(x *Client, a *fake
 				change(x)
 			}
 		}
-		return x.Get([]string{engineOID})
+		return x.Get(context.Background(), []string{engineOID})
 	}
 }
 
@@ -203,7 +232,7 @@ func sendOIDs(pduType PDUType, oids []string, maxRepetitions uint32) func(x *Cli
 		if err != nil {
 			return nil, err
 		}
-		return x.send(packetOut)
+		return x.send(context.Background(), packetOut)
 	}
 }
 
@@ -214,7 +243,7 @@ func getThrice(between func(a *fakeV3Agent)) func(x *Client, a *fakeV3Agent) (*M
 		res, err := getTwice(between)(x, a)
 		a.tr.addf("second Get: %s", describeEngineResult(res, err))
 		time.Sleep(10 * time.Second)
-		return x.Get([]string{engineOID})
+		return x.Get(context.Background(), []string{engineOID})
 	}
 }
 
@@ -231,7 +260,7 @@ func getsAt(levels ...SecurityLevel) func(x *Client, a *fakeV3Agent) (*Message, 
 				time.Sleep(10 * time.Second)
 			}
 			x.SecurityLevel = level
-			res, err = x.Get([]string{engineOID})
+			res, err = x.Get(context.Background(), []string{engineOID})
 		}
 		return res, err
 	}
@@ -438,6 +467,43 @@ func v3Scenarios() map[string]v3Scenario {
 		"discovery/no-answer": {user: "codec-md5", script: func(int, agentRequest) (agentAnswer, bool) {
 			return agentAnswer{drop: true, why: "silent agent"}, true
 		}},
+		// A request's context ends it with its error and no message, never
+		// marked answered, also after an answered discovery or resync Report.
+		"context/nil": {user: "codec-md5", run: getWithinV3(nilContext)},
+		"context/canceled-in-discovery": {
+			user: "codec-md5", run: getWithinV3(canceledAfter(300 * time.Millisecond)),
+			script: func(int, agentRequest) (agentAnswer, bool) {
+				return agentAnswer{drop: true, why: "silent agent"}, true
+			},
+		},
+		"context/canceled-after-discovery": {
+			user: "codec-md5", run: getWithinV3(canceledAfter(300 * time.Millisecond)),
+			script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				return agentAnswer{drop: true, why: "silent after discovery"}, n > 1
+			},
+		},
+		"context/deadline-after-discovery": {
+			user: "codec-md5", run: getWithinV3(withEngineTimeout(1500 * time.Millisecond)),
+			script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				return agentAnswer{drop: true, why: "silent after discovery"}, n > 1
+			},
+		},
+		"context/deadline-after-resync-report": {
+			user: "codec-md5",
+			run:  getThen(rebootSilentAfterResync, getWithin(withEngineTimeout(1500*time.Millisecond))),
+		},
+		"context/canceled-after-lent-resync": {
+			user: "codec-noauth", run: getWithinV3(canceledAfter(300 * time.Millisecond)),
+			script: func(n int, _ agentRequest) (agentAnswer, bool) {
+				switch {
+				case n == 2:
+					return agentAnswer{report: usmStatsUnknownEngineIDs, why: "unknown engine ID, from the other engine", edit: fromOtherEngine}, true
+				case n > 2:
+					return agentAnswer{drop: true, why: "silent after the Report"}, true
+				}
+				return agentAnswer{}, false
+			},
+		},
 		"discovery/other-report": {user: "codec-md5", script: onRequest(1, agentAnswer{
 			report: usmStatsUnsupportedSecLevels, why: "answers discovery with another Report",
 		})},
@@ -517,17 +583,7 @@ func v3Scenarios() map[string]v3Scenario {
 				return agentAnswer{report: usmStatsNotInTimeWindows, why: "not in time window, unauthenticated"}, true
 			}
 		})},
-		"reboot/retransmit-unanswered": {
-			user: "codec-md5", run: getTwice(func(a *fakeV3Agent) {
-				a.reboot()
-				a.script = func(_ int, req agentRequest) (agentAnswer, bool) {
-					if req.boots == a.boots {
-						return agentAnswer{drop: true, why: "silent after the resynchronization"}, true
-					}
-					return agentAnswer{}, false
-				}
-			}),
-		},
+		"reboot/retransmit-unanswered": {user: "codec-md5", run: getTwice(rebootSilentAfterResync)},
 
 		// Reports without authentication to an authenticated request: from
 		// agents that send notInTimeWindow so, and ones that must not be
@@ -662,7 +718,7 @@ func v3Scenarios() map[string]v3Scenario {
 						a.tr.addf("hook OnRecv sets the client's security level to noAuthNoPriv")
 					}
 				}
-				return x.Get([]string{engineOID})
+				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
 		"unauthenticated-report/version-changed-by-hook": {
@@ -677,7 +733,7 @@ func v3Scenarios() map[string]v3Scenario {
 						a.tr.addf("hook OnFinish sets the client's version to 2c")
 					}
 				}
-				return x.Get([]string{engineOID})
+				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
 		// A Report another agent with the same credentials sent, for another
@@ -749,7 +805,7 @@ func v3Scenarios() map[string]v3Scenario {
 			user: "codec-md5", run: func(x *Client, a *fakeV3Agent) (*Message, error) {
 				a.tr.addf("caller clears the authentication passphrase")
 				x.User.AuthPassphrase = ""
-				return x.Get([]string{engineOID})
+				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
 		"discovery/report-without-engine-id/sha256-des": {
@@ -798,7 +854,7 @@ func v3Scenarios() map[string]v3Scenario {
 						x.OnSent = func(*Client) { a.tr.addf("hook OnSent, the replacement") }
 					}
 				}
-				return x.Get([]string{engineOID})
+				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
 		// The resync exchange's OnFinish changes the client before the resend.
@@ -822,7 +878,7 @@ func v3Scenarios() map[string]v3Scenario {
 						x.OnSent = func(*Client) { a.tr.addf("hook OnSent, the replacement") }
 					}
 				}
-				return x.Get([]string{engineOID})
+				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
 		"hooks/discovery-presend-changes-context-name": {
@@ -842,7 +898,7 @@ func v3Scenarios() map[string]v3Scenario {
 						a.tr.addf("hook OnFinish sets the client's version to 2c")
 					}
 				}
-				return x.Get([]string{engineOID})
+				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
 		"hooks/onrecv-lowers-msg-flags": {
@@ -858,7 +914,7 @@ func v3Scenarios() map[string]v3Scenario {
 						a.tr.addf("hook OnRecv sets the client's msgFlags to noAuthNoPriv")
 					}
 				}
-				return x.Get([]string{engineOID})
+				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
 		"hooks/onfinish-changes-version": {
@@ -872,7 +928,7 @@ func v3Scenarios() map[string]v3Scenario {
 						a.tr.addf("hook OnFinish sets the client's version to 2c")
 					}
 				}
-				return x.Get([]string{engineOID})
+				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
 
@@ -889,10 +945,10 @@ func v3Scenarios() map[string]v3Scenario {
 						panicWithError()
 					}
 				}
-				res, err := x.Get([]string{engineOID})
+				res, err := x.Get(context.Background(), []string{engineOID})
 				a.tr.addf("first request: %s", describeEngineResult(res, err))
 				time.Sleep(10 * time.Second)
-				return x.Get([]string{engineOID})
+				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
 
@@ -909,7 +965,7 @@ func v3Scenarios() map[string]v3Scenario {
 						panic("hook failure")
 					}
 				}
-				return x.Get([]string{engineOID})
+				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
 		"resync/security-level-changed-by-hook": {
@@ -924,7 +980,7 @@ func v3Scenarios() map[string]v3Scenario {
 						a.tr.addf("hook OnFinish sets the client's security level to noAuthNoPriv")
 					}
 				}
-				return x.Get([]string{engineOID})
+				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
 		"resync/version-changed-by-hook": {
@@ -939,7 +995,7 @@ func v3Scenarios() map[string]v3Scenario {
 						a.tr.addf("hook OnFinish sets the client's version to 2c")
 					}
 				}
-				return x.Get([]string{engineOID})
+				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
 		"resync/retransmission-answered-by-report": {
@@ -1027,7 +1083,7 @@ func v3Scenarios() map[string]v3Scenario {
 				clear(res.SecurityParameters.AuthoritativeEngineID)
 				a.tr.addf("client %s", describeEngineState(&x.engine))
 				time.Sleep(10 * time.Second)
-				return x.Get([]string{engineOID})
+				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
 		"unknown-engine-report/noauth-retransmit-unanswered": {
@@ -1077,14 +1133,14 @@ func v3Scenarios() map[string]v3Scenario {
 				report: usmStatsUnknownEngineIDs, why: "forged discovery answer, from the other engine", edit: fromOtherEngine,
 			}),
 			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				res, err := x.Get([]string{engineOID})
+				res, err := x.Get(context.Background(), []string{engineOID})
 				a.tr.addf("first Get: %s", describeEngineResult(res, err))
 				if !errors.Is(err, ErrUnknownEngineID) {
 					return res, err
 				}
 				a.tr.addf("caller calls ForgetEngine")
 				x.ForgetEngine()
-				return x.Get([]string{engineOID})
+				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
 		// Another user keeps the engine ID and clock, and its keys derive for
@@ -1104,7 +1160,7 @@ func v3Scenarios() map[string]v3Scenario {
 		"caller/encode-after-get/known-engine": {
 			user: "codec-md5", setup: seedEngine(agentEngineID, 0, 0),
 			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				res, err := x.Get([]string{engineOID})
+				res, err := x.Get(context.Background(), []string{engineOID})
 				time.Sleep(10 * time.Second)
 				encodeMessage(x, a)
 				return res, err
@@ -1132,7 +1188,7 @@ func v3Scenarios() map[string]v3Scenario {
 				})(x, a)
 				a.tr.addf("first Get: %s", describeEngineResult(res, err))
 				time.Sleep(10 * time.Second)
-				return x.Get([]string{engineOID})
+				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
 		"hooks/request-onfinish-changes-user": {
@@ -1437,7 +1493,7 @@ func v3Scenarios() map[string]v3Scenario {
 					x.User.PrivProtocol = DES
 					a.tr.addf("hook OnRetry sets the client's privacy protocol to DES")
 				}
-				return x.Get([]string{engineOID})
+				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
 		"answer/other-security-model": {
@@ -1693,57 +1749,54 @@ func v3Scenarios() map[string]v3Scenario {
 				}, n > 2
 			},
 		},
-		// A Context deadline ends the second Get, whose answers come from an
+		// A context deadline ends the second Get, whose answers come from an
 		// agent that restarted without raising its boots and does not check
 		// the time window.
 		"clock/no-time-check/restart-same-boots/context-deadline": {user: "codec-md5", run: func(x *Client, a *fakeV3Agent) (*Message, error) {
 			a.noTimeCheck = true
-			if _, err := x.Get([]string{engineOID}); err != nil {
+			if _, err := x.Get(context.Background(), []string{engineOID}); err != nil {
 				return nil, fmt.Errorf("first Get: %w", err)
 			}
 			time.Sleep(10 * time.Second)
 			a.restartWithoutBoots()
 			ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 			defer cancel()
-			x.Context = ctx
-			res, err := x.Get([]string{engineOID})
+			res, err := x.Get(ctx, []string{engineOID})
 			a.tr.addf("second Get, with a Context deadline after 1.5 s: %s", describeEngineResult(res, err))
 			time.Sleep(10 * time.Second)
-			x.Context = context.Background()
-			return x.Get([]string{engineOID})
+			return x.Get(context.Background(), []string{engineOID})
 		}},
-		// The Context's deadline passes while OnRetry runs after the second
+		// The context's deadline passes while OnRetry runs after the second
 		// Get's first attempt discarded the answer of an agent that restarted
 		// without raising its boots and does not check the time window: the
 		// next attempt does not start.
 		"clock/no-time-check/restart-same-boots/context-deadline-in-retry": {user: "codec-md5", run: func(x *Client, a *fakeV3Agent) (*Message, error) {
 			a.noTimeCheck = true
-			if _, err := x.Get([]string{engineOID}); err != nil {
+			if _, err := x.Get(context.Background(), []string{engineOID}); err != nil {
 				return nil, fmt.Errorf("first Get: %w", err)
 			}
 			time.Sleep(10 * time.Second)
 			a.restartWithoutBoots()
 			ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 			defer cancel()
-			x.Context = ctx
 			onRetry := x.OnRetry
 			x.OnRetry = func(x *Client) {
 				onRetry(x)
 				a.tr.addf("hook OnRetry waits 1 s")
 				time.Sleep(time.Second)
 			}
-			res, err := x.Get([]string{engineOID})
+			res, err := x.Get(ctx, []string{engineOID})
 			a.tr.addf("second Get, with a Context deadline after 1.5 s: %s", describeEngineResult(res, err))
 			time.Sleep(10 * time.Second)
-			x.Context, x.OnRetry = context.Background(), onRetry
-			return x.Get([]string{engineOID})
+			x.OnRetry = onRetry
+			return x.Get(context.Background(), []string{engineOID})
 		}},
 		// Close ends the second Get once it has read the answer of an agent
 		// that restarted without raising its boots and does not check the
 		// time window.
 		"clock/no-time-check/restart-same-boots/closed": {user: "codec-md5", run: func(x *Client, a *fakeV3Agent) (*Message, error) {
 			a.noTimeCheck = true
-			if _, err := x.Get([]string{engineOID}); err != nil {
+			if _, err := x.Get(context.Background(), []string{engineOID}); err != nil {
 				return nil, fmt.Errorf("first Get: %w", err)
 			}
 			time.Sleep(10 * time.Second)
@@ -1754,7 +1807,7 @@ func v3Scenarios() map[string]v3Scenario {
 				a.tr.addf("hook OnRecv closes the client")
 				_ = x.Close()
 			}
-			return x.Get([]string{engineOID})
+			return x.Get(context.Background(), []string{engineOID})
 		}},
 	}
 
@@ -1843,7 +1896,7 @@ func runV3Polls(t *testing.T, setup func(a *fakeV3Agent)) string {
 		Retries:       2,
 	})
 	for range 60 {
-		if _, err := x.Get([]string{engineOID}); err != nil {
+		if _, err := x.Get(context.Background(), []string{engineOID}); err != nil {
 			tr.addf("Get: %v", err)
 		}
 		time.Sleep(10 * time.Second)
@@ -1914,7 +1967,9 @@ func runV3Scenario(t *testing.T, sc v3Scenario) string {
 	x = newEngineClientFrom(t, tr, fakePacketTransport{c}, x)
 	run := sc.run
 	if run == nil {
-		run = func(x *Client, _ *fakeV3Agent) (*Message, error) { return x.Get([]string{engineOID}) }
+		run = func(x *Client, _ *fakeV3Agent) (*Message, error) {
+			return x.Get(context.Background(), []string{engineOID})
+		}
 	}
 
 	tr.addf("client: user=%q %s timeout=%s retries=%d", sc.user, describeFlags(x.SecurityLevel), x.Timeout, x.Retries)
@@ -1974,12 +2029,12 @@ func BenchmarkGetV3(b *testing.B) {
 		Timeout:       time.Second,
 		Retries:       2,
 	})
-	if _, err := x.Get([]string{engineOID}); err != nil {
+	if _, err := x.Get(context.Background(), []string{engineOID}); err != nil {
 		b.Fatal(err)
 	}
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := x.Get([]string{engineOID}); err != nil {
+		if _, err := x.Get(context.Background(), []string{engineOID}); err != nil {
 			b.Fatal(err)
 		}
 	}

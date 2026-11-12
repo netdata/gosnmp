@@ -6,6 +6,7 @@ package gosnmp
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -33,11 +34,13 @@ import (
 // at once with the error of a failed request, and with an error for a name in
 // the subtree, rootOid included, that is not after the requested one (each
 // name of an answer is compared with the requested one); it returns the values
-// before the error with it. Known bugs: an empty answer, or one whose Error is
-// another of TooBig through InconsistentName, ends the walk without an error;
-// another Error is ignored.
-func (x *Client) BulkWalkAll(rootOid string) (results []VarBind, err error) {
-	return x.walk(GetBulkRequest, rootOid)
+// before the error with it. ctx bounds the walk, each of its requests and the
+// Get of a leaf root: a done ctx ends the walk with its error and the values
+// before it, and a nil ctx fails it before its first request is sent. Known
+// bugs: an empty answer, or one whose Error is another of TooBig through
+// InconsistentName, ends the walk without an error; another Error is ignored.
+func (x *Client) BulkWalkAll(ctx context.Context, rootOid string) (results []VarBind, err error) {
+	return x.walk(ctx, GetBulkRequest, rootOid)
 }
 
 // WalkAll walks the subtree under rootOid with GETNEXT requests, one per
@@ -46,17 +49,17 @@ func (x *Client) BulkWalkAll(rootOid string) (results []VarBind, err error) {
 // does; net-snmp's snmpwalk differs only for a name before rootOid, which fails
 // its increasing check where WalkAll ends (or, as the first answer, gets
 // rootOid).
-func (x *Client) WalkAll(rootOid string) (results []VarBind, err error) {
-	return x.walk(GetNextRequest, rootOid)
+func (x *Client) WalkAll(ctx context.Context, rootOid string) (results []VarBind, err error) {
+	return x.walk(ctx, GetNextRequest, rootOid)
 }
 
 // walk returns the values of the subtree under rootOid: it asks the agent for
 // the objects after the root, then after the last name it received, with
 // requestType (GetNext or GetBulk), and collects the objects in the subtree
 // until an answer ends the walk (visit's rule). When that answer shows the
-// root to be a leaf, the walk gets it once (getRoot). An error ends the walk
-// with the values collected before it.
-func (x *Client) walk(requestType PDUType, rootOid string) (results []VarBind, err error) {
+// root to be a leaf, the walk gets it once (getRoot). Each request runs within
+// ctx. An error ends the walk with the values collected before it.
+func (x *Client) walk(ctx context.Context, requestType PDUType, rootOid string) (results []VarBind, err error) {
 	root, err := walkRoot(rootOid)
 	if err != nil {
 		return nil, err
@@ -70,7 +73,7 @@ func (x *Client) walk(requestType PDUType, rootOid string) (results []VarBind, e
 
 	oid := w.root
 	for requests := 1; ; requests++ {
-		response, err := w.request(oid)
+		response, err := w.request(ctx, oid)
 		if err != nil {
 			return results, err
 		}
@@ -84,7 +87,7 @@ func (x *Client) walk(requestType PDUType, rootOid string) (results []VarBind, e
 			oid = response.VarBinds[len(response.VarBinds)-1].Name
 			continue
 		case walkGetRoot:
-			if results, err = w.getRoot(results); err != nil {
+			if results, err = w.getRoot(ctx, results); err != nil {
 				return results, err
 			}
 		}
@@ -134,9 +137,9 @@ func walkRoot(rootOid string) (string, error) {
 	return ber.OID(content)
 }
 
-// request asks the agent for the objects after oid, with the walk's
-// max-repetitions for a GetBulk, which SNMPv1 does not have.
-func (w *walker) request(oid string) (*Message, error) {
+// request asks the agent for the objects after oid, within ctx, with the
+// walk's max-repetitions for a GetBulk, which SNMPv1 does not have.
+func (w *walker) request(ctx context.Context, oid string) (*Message, error) {
 	var maxReps uint32
 	if w.requestType == GetBulkRequest {
 		if w.x.Version == Version1 {
@@ -148,7 +151,7 @@ func (w *walker) request(oid string) (*Message, error) {
 	if err != nil {
 		return nil, err
 	}
-	return w.x.send(packetOut)
+	return w.x.send(ctx, packetOut)
 }
 
 // visit applies the walk's end rule, net-snmp's (apps/snmpwalk.c and
@@ -201,14 +204,14 @@ func (w *walker) visit(response *Message, oid string, firstAnswer bool, results 
 	return results, walkContinue, nil
 }
 
-// getRoot gets the root, which the walk found to be a leaf, as net-snmp's
-// snmpwalk does after a walk that printed nothing, and appends the answer's
-// first value to results when it names the root and is not an exception value
-// (a Get of one name is answered by its first varbind). Statuses read as in
-// visit: an error status adds nothing (known bug: one the RFC does not name is
-// ignored).
-func (w *walker) getRoot(results []VarBind) ([]VarBind, error) {
-	response, err := w.x.Get([]string{w.root})
+// getRoot gets the root, which the walk found to be a leaf, within ctx, as
+// net-snmp's snmpwalk does after a walk that printed nothing, and appends the
+// answer's first value to results when it names the root and is not an
+// exception value (a Get of one name is answered by its first varbind).
+// Statuses read as in visit: an error status adds nothing (known bug: one the
+// RFC does not name is ignored).
+func (w *walker) getRoot(ctx context.Context, results []VarBind) ([]VarBind, error) {
+	response, err := w.x.Get(ctx, []string{w.root})
 	if err != nil {
 		return results, err
 	}

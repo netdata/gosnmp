@@ -26,6 +26,81 @@
 0s    values: [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo"]
 0s    result: no error
 
+== walk/context/canceled-before
+0s    client: 2c root=".1.3.6.1.2.1.1" bulk=false max-repetitions=0
+0s    values: []
+0s    result: error "context canceled" *errors.errorString (equals context.Canceled)
+
+== walk/context/canceled-in-leaf-get
+0s    client: 2c root=".1.3.6.1.2.1.1.5.0" bulk=false max-repetitions=0
+0s    deadline +1s
+0s    write #1: 2c "public" GetNextRequest id=1001 [.1.3.6.1.2.1.1.5.0]
+0s    agent answers #1 after 0s
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo"]
+0s    deadline +1s
+0s    write #2: 2c "public" GetRequest id=1002 [.1.3.6.1.2.1.1.5.0]
+0s    agent: drops #2
+300ms deadline in the past
+300ms read from 127.0.0.2:161: deadline
+300ms values: []
+300ms result: error "context canceled" *errors.errorString (equals context.Canceled)
+
+== walk/context/canceled-mid-walk
+0s    client: 2c root=".1.3.6.1.2.1.1" bulk=false max-repetitions=0
+0s    deadline +1s
+0s    write #1: 2c "public" GetNextRequest id=1001 [.1.3.6.1.2.1.1]
+0s    agent answers #1 after 0s
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    deadline +1s
+0s    write #2: 2c "public" GetNextRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent: drops #2
+300ms deadline in the past
+300ms read from 127.0.0.2:161: deadline
+300ms values: [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+300ms result: error "context canceled" *errors.errorString (equals context.Canceled)
+
+== walk/context/canceled-mid-walk/bulk
+0s    client: 2c root=".1.3.6.1.2.1.2.2.1.2" bulk=true max-repetitions=1
+0s    deadline +1s
+0s    write #1: 2c "public" GetBulkRequest id=1001 nonRepeaters=0 maxRepetitions=1 [.1.3.6.1.2.1.2.2.1.2]
+0s    agent answers #1 after 0s
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo"]
+0s    deadline +1s
+0s    write #2: 2c "public" GetBulkRequest id=1002 nonRepeaters=0 maxRepetitions=1 [.1.3.6.1.2.1.2.2.1.2.1]
+0s    agent: drops #2
+300ms deadline in the past
+300ms read from 127.0.0.2:161: deadline
+300ms values: [.1.3.6.1.2.1.2.2.1.2.1=OctetString:"lo"]
+300ms result: error "context canceled" *errors.errorString (equals context.Canceled)
+
+== walk/context/deadline-mid-walk
+0s    client: 2c root=".1.3.6.1.2.1.1" bulk=false max-repetitions=0
+0s    deadline +1s
+0s    write #1: 2c "public" GetNextRequest id=1001 [.1.3.6.1.2.1.1]
+0s    agent answers #1 after 0s
+0s    read from 127.0.0.2:161: 2c "public" Response id=1001 [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+0s    deadline +1s
+0s    write #2: 2c "public" GetNextRequest id=1002 [.1.3.6.1.2.1.1.1.0]
+0s    agent: drops #2
+1s    read from 127.0.0.2:161: deadline
+1s    hook OnRetry
+1s    deadline +500ms
+1s    write #3: 2c "public" GetNextRequest id=1003 [.1.3.6.1.2.1.1.1.0]
+1s    agent: drops #3
+1.5s  read from 127.0.0.2:161: deadline
+1.5s  values: [.1.3.6.1.2.1.1.1.0=OctetString:"codec agent"]
+1.5s  result: error "context deadline exceeded" context.deadlineExceededError (equals context.DeadlineExceeded; is net.Error timeout)
+
+== walk/context/nil
+0s    client: 2c root=".1.3.6.1.2.1.1" bulk=false max-repetitions=0
+0s    values: []
+0s    result: error "nil context" *errors.errorString
+
+== walk/context/nil/bulk
+0s    client: 2c root=".1.3.6.1.2.1.1" bulk=true max-repetitions=0
+0s    values: []
+0s    result: error "nil context" *errors.errorString
+
 == walk/default-root
 0s    client: 2c root="" bulk=false max-repetitions=0
 0s    deadline +1s

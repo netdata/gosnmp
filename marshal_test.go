@@ -6,6 +6,7 @@ package gosnmp
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net"
 	"net/netip"
@@ -1514,7 +1515,7 @@ func TestSendOneRequest_dups(t *testing.T) {
 		Timeout: time.Millisecond * 100,
 		Retries: 2,
 	}
-	if err = x.Connect(); err != nil {
+	if err = x.Connect(context.Background()); err != nil {
 		t.Fatalf("error connecting: %s", err)
 	}
 
@@ -1524,13 +1525,13 @@ func TestSendOneRequest_dups(t *testing.T) {
 	// This is not actually a Response, but we need something our test server can unmarshal.
 	reqPkt := x.NewMessage(Response, pdus, 0, 0)
 
-	_, _, err = x.sendOneRequest(new(x.prepareRequest()), reqPkt, false, attemptSecurity{})
+	_, _, err = x.sendOneRequest(new(x.prepareRequest(context.Background())), reqPkt, false, attemptSecurity{})
 	if err != nil {
 		t.Errorf("error: %s", err)
 		return
 	}
 
-	_, _, err = x.sendOneRequest(new(x.prepareRequest()), reqPkt, false, attemptSecurity{})
+	_, _, err = x.sendOneRequest(new(x.prepareRequest(context.Background())), reqPkt, false, attemptSecurity{})
 	if err != nil {
 		t.Errorf("error: %s", err)
 		return
