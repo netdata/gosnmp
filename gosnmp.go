@@ -117,15 +117,11 @@ type Client struct {
 	// see https://github.com/gosnmp/gosnmp/issues/100.
 	MaxRepetitions uint32
 
-	// MsgFlags is the SNMPv3 security level: NoAuthNoPriv, AuthNoPriv or
-	// AuthPriv. The encoder sets the reportable flag of each message by its PDU
-	// type (RFC 3412 section 6.4: set for requests and informs, clear for the
-	// others), whatever MsgFlags holds besides the level.
-	MsgFlags SnmpV3MsgFlags
-
-	// SecurityModel is the SNMPv3 security model; UserSecurityModel is the
-	// only one.
-	SecurityModel SnmpV3SecurityModel
+	// SecurityLevel is the SNMPv3 security level: NoAuthNoPriv, AuthNoPriv or
+	// AuthPriv; another value fails Connect. The encoder sets the reportable
+	// flag of each message by its PDU type (RFC 3412 section 6.4: set for
+	// requests and informs, clear for the others).
+	SecurityLevel SecurityLevel
 
 	// SecurityParameters are the SNMPv3 security parameters, a
 	// *UsmSecurityParameters, one value per client. The client keeps what it
@@ -255,7 +251,7 @@ const (
 // prepare readies the client for Connect, EncodeMessage and
 // DecodeMessage, which call it each time: it fills in the defaults (MaxOids,
 // a background Context), rejects a negative MaxOids and, for SNMPv3, checks
-// the security model and parameters.
+// the security level and parameters.
 func (x *Client) prepare() error {
 	if x.MaxOids == 0 {
 		x.MaxOids = MaxOids
@@ -328,7 +324,7 @@ func (x *Client) DecodeMessage(data []byte) (*Message, error) {
 		if result.Version == Version3 {
 			// The result returned with the error carries the USM fields
 			// that decoded.
-			_, _ = result.SecurityParameters.usm().receive(result.MsgFlags, &w, false)
+			_, _ = result.SecurityParameters.usm().receive(result.SecurityLevel, &w, false)
 		}
 		return result, fmt.Errorf("unable to decode packet header: %w", err)
 	}

@@ -51,7 +51,7 @@ func BenchmarkEncode(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	v3Request := func(flags SnmpV3MsgFlags, auth AuthProtocol) *Message {
+	v3Request := func(flags SecurityLevel, auth AuthProtocol) *Message {
 		sp := &UsmSecurityParameters{
 			UserName:                 "codec-user",
 			AuthenticationProtocol:   auth,
@@ -66,9 +66,9 @@ func BenchmarkEncode(b *testing.B) {
 			}
 		}
 		return &Message{
-			Version:            Version3,
-			MsgFlags:           flags,
-			SecurityModel:      UserSecurityModel,
+			Version:       Version3,
+			SecurityLevel: flags,
+
 			SecurityParameters: sp,
 			PDUType:            GetRequest,
 			MsgID:              4242,

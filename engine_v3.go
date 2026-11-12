@@ -176,7 +176,7 @@ func (e *exchange) resetsClock(boots, engineTime uint32, now time.Time) bool {
 // ID: the request would be signed for another engine with the same
 // credentials (section 1.5.2).
 func mayLend(packetOut, report *Message, kind reportKind) bool {
-	if !packetOut.MsgFlags.authFlag() {
+	if !packetOut.SecurityLevel.authFlag() {
 		return true
 	}
 	if kind.namesEngine {

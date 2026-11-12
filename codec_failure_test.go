@@ -16,8 +16,7 @@ type decodedFields struct {
 	version                      Version
 	community                    string
 	msgID, msgMaxSize            uint32
-	msgFlags                     SnmpV3MsgFlags
-	securityModel                SnmpV3SecurityModel
+	securityLevel                SecurityLevel
 	usmEngineID, usmUser         string
 	usmBoots, usmTime            uint32
 	contextEngineID, contextName string
@@ -38,8 +37,7 @@ func fieldsOf(p *Message) decodedFields {
 		community:       p.Community,
 		msgID:           p.MsgID,
 		msgMaxSize:      p.MsgMaxSize,
-		msgFlags:        p.MsgFlags,
-		securityModel:   p.SecurityModel,
+		securityLevel:   p.SecurityLevel,
 		contextEngineID: p.ContextEngineID,
 		contextName:     p.ContextName,
 		pduType:         p.PDUType,
@@ -85,10 +83,9 @@ func TestDecodeFailurePartialResults(t *testing.T) {
 	bulk := with(v2c, func(d *decodedFields) { d.pduType = GetBulkRequest; d.requestID = 7 })
 	v1Trap := with(decodedFields{version: Version1, community: "public"}, func(d *decodedFields) { d.pduType = Trap })
 	v3Header := with(decodedFields{version: Version3}, func(d *decodedFields) {
-		d.msgID, d.msgMaxSize, d.msgFlags, d.securityModel = 42, 65507, Reportable, UserSecurityModel
+		d.msgID, d.msgMaxSize = 42, 65507
 	})
 	v3USM := with(v3Header, func(d *decodedFields) {
-		d.msgFlags = NoAuthNoPriv
 		d.usmEngineID, d.usmBoots, d.usmTime, d.usmUser = "\x80\x00\x1f\x88\x04codec-engine", 7, 1234, "codec-user"
 	})
 	v3 := func(flags, model, usm []byte) []byte {
@@ -154,11 +151,11 @@ func TestDecodeFailurePartialResults(t *testing.T) {
 		"v3 message ID":     {in: craftedV3(bad, intTLV(65507), octets("\x04"), intTLV(3), craftedNoAuthUSM, nil), wantErr: header + "error parsing SNMPV3 message ID" + notInt, want: with(decodedFields{version: Version3}, func(*decodedFields) {})},
 		"v3 max size":       {in: craftedV3(intTLV(42), bad, octets("\x04"), intTLV(3), craftedNoAuthUSM, nil), wantErr: header + "error parsing SNMPV3 msgMaxSize" + notInt, want: with(decodedFields{version: Version3}, func(d *decodedFields) { d.msgID = 42 })},
 		"v3 flags":          {in: v3(bad, intTLV(3), craftedNoAuthUSM), wantErr: header + "error parsing SNMPV3 msgFlags: not an OCTET STRING of one octet", want: with(decodedFields{version: Version3}, func(d *decodedFields) { d.msgID, d.msgMaxSize = 42, 65507 })},
-		"v3 security model": {in: v3(octets("\x04"), bad, craftedNoAuthUSM), wantErr: header + "error parsing SNMPV3 msgSecModel" + notInt, want: with(v3Header, func(d *decodedFields) { d.securityModel = 0 })},
+		"v3 security model": {in: v3(octets("\x04"), bad, craftedNoAuthUSM), wantErr: header + "error parsing SNMPV3 msgSecModel" + notInt, want: v3Header},
 		"v3 nothing after the security model": {
 			in:      tlv(0x30, intTLV(3), tlv(0x30, intTLV(42), intTLV(65507), octets("\x04"), intTLV(3))),
 			wantErr: header + "error parsing SNMPV3: nothing after the security model",
-			want:    with(v3Header, func(d *decodedFields) { d.securityModel = 0 }),
+			want:    v3Header,
 		},
 		"v3 security parameters not an OCTET STRING": {
 			in:      tlv(0x30, intTLV(3), tlv(0x30, intTLV(42), intTLV(65507), octets("\x04"), intTLV(3)), intTLV(1)),
@@ -173,19 +170,19 @@ func TestDecodeFailurePartialResults(t *testing.T) {
 		"usm user name": {in: usmWith(craftedEngineID, intTLV(7), intTLV(1234), bad, octets(""), octets("")), wantErr: usm + "msgUserName" + notStr, want: with(v3Header, func(d *decodedFields) {
 			d.usmEngineID, d.usmBoots, d.usmTime = "\x80\x00\x1f\x88\x04codec-engine", 7, 1234
 		})},
-		"usm authentication parameters": {in: usmWith(craftedEngineID, intTLV(7), intTLV(1234), octets("codec-user"), bad, octets("")), wantErr: usm + "msgAuthenticationParameters" + notStr, want: with(v3USM, func(d *decodedFields) { d.msgFlags = Reportable })},
-		"usm privacy parameters":        {in: usmWith(craftedEngineID, intTLV(7), intTLV(1234), octets("codec-user"), octets(""), bad), wantErr: usm + "msgPrivacyParameters" + notStr, want: with(v3USM, func(d *decodedFields) { d.msgFlags = Reportable })},
+		"usm authentication parameters": {in: usmWith(craftedEngineID, intTLV(7), intTLV(1234), octets("codec-user"), bad, octets("")), wantErr: usm + "msgAuthenticationParameters" + notStr, want: v3USM},
+		"usm privacy parameters":        {in: usmWith(craftedEngineID, intTLV(7), intTLV(1234), octets("codec-user"), octets(""), bad), wantErr: usm + "msgPrivacyParameters" + notStr, want: v3USM},
 		// Flags asking for authentication, which the decoder has no protocol
 		// for: after a header error, and as the error (step 5).
 		"usm privacy parameters, authenticated": {
 			in:      v3(octets("\x05"), intTLV(3), craftedUSM(craftedEngineID, intTLV(7), intTLV(1234), octets("codec-user"), octets(""), bad)),
 			wantErr: usm + "msgPrivacyParameters" + notStr,
-			want:    with(v3USM, func(d *decodedFields) { d.msgFlags = Reportable | AuthNoPriv }),
+			want:    with(v3USM, func(d *decodedFields) { d.securityLevel = AuthNoPriv }),
 		},
 		"security level without a protocol": {
 			in:      v3(octets("\x05"), intTLV(3), craftedUSM(craftedEngineID, intTLV(7), intTLV(1234), octets("codec-user"), octets(""), octets(""))),
 			wantErr: header + "error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message",
-			want:    with(v3USM, func(d *decodedFields) { d.msgFlags = Reportable | AuthNoPriv }),
+			want:    with(v3USM, func(d *decodedFields) { d.securityLevel = AuthNoPriv }),
 		},
 
 		// SNMPv3 scoped PDU.
@@ -268,8 +265,8 @@ func TestUnknownPDUTypeError(t *testing.T) {
 			assert.EqualError(t, err, "unable to decode packet body: "+tc.want, "SNMPv2c")
 
 			v3 := &Client{
-				Version:            Version3,
-				SecurityModel:      UserSecurityModel,
+				Version: Version3,
+
 				SecurityParameters: &UsmSecurityParameters{UserName: "codec-user"},
 			}
 			_, err = v3.DecodeMessage(craftedV3NoAuth(tlv(0x30, craftedEngineID, octets("ctx"), pdu(tc.tag))))

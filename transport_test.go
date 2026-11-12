@@ -548,7 +548,7 @@ func TestRequestWithoutConnection(t *testing.T) {
 				Timeout: time.Second, MaxOids: MaxOids,
 			}
 			if tc.v3 {
-				x.Version, x.SecurityModel, x.MsgFlags = Version3, UserSecurityModel, NoAuthNoPriv
+				x.Version, x.SecurityLevel = Version3, NoAuthNoPriv
 				x.SecurityParameters = &UsmSecurityParameters{UserName: "codec"}
 			}
 			if tc.before != nil {

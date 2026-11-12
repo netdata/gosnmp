@@ -61,7 +61,7 @@ type agentUser struct {
 type agentRequest struct {
 	version, msgID               int64
 	maxSize, model               int64
-	flags                        SnmpV3MsgFlags
+	flags                        SecurityLevel // the msgFlags octet as sent, the reportableFlag included
 	engineID, user               string
 	boots, engineTime            uint32
 	salt                         []byte // msgPrivacyParameters
@@ -71,8 +71,8 @@ type agentRequest struct {
 
 // agentAnswer is the answer of the fake agent to one request.
 type agentAnswer struct {
-	report string         // the Report's counter OID, or "" for a Response
-	level  SnmpV3MsgFlags // the security level of the answer
+	report string        // the Report's counter OID, or "" for a Response
+	level  SecurityLevel // the security level of the answer
 	edit   func(*Message)
 	raw    func(*v3Message)       // edits the encoded answer, after edit
 	encode func(v3Message) []byte // encodes the answer after raw, instead of v3Message.bytes
@@ -195,7 +195,7 @@ func (a *fakeV3Agent) handle(n int, data []byte) []agentReply {
 		a.tr.addf("agent: #%d decrypts to context=%q/%q %v id=%d %s", n, req.contextEngineID, req.contextName,
 			req.pdu.PDUType, req.pdu.RequestID, describeVarbinds(req.pdu.VarBinds))
 	}
-	if ans.report != "" && req.pdu == nil && req.flags&Reportable == 0 {
+	if ans.report != "" && req.pdu == nil && req.flags&reportableFlag == 0 {
 		ans = agentAnswer{drop: true, why: "no Report: the request is not reportable and its PDU unknown"}
 	}
 	var replies []agentReply
@@ -232,7 +232,7 @@ func (a *fakeV3Agent) handle(n int, data []byte) []agentReply {
 // encodeAnswer encodes ans to req, the n-th request.
 func (a *fakeV3Agent) encodeAnswer(n int, req agentRequest, ans agentAnswer) []byte {
 	out := a.answer(req, ans)
-	a.tr.addf("agent: answers #%d with %s at %s (%s)", n, describeAnswerPDU(out), describeFlags(out.MsgFlags), ans.why)
+	a.tr.addf("agent: answers #%d with %s at %s (%s)", n, describeAnswerPDU(out), describeFlags(out.SecurityLevel), ans.why)
 	b, err := out.Encode()
 	if err != nil {
 		panic(fmt.Sprintf("agent cannot encode its answer: %v", err))
@@ -305,7 +305,7 @@ func (req agentRequest) discarded() string {
 		return fmt.Sprintf("msgID %d", req.msgID)
 	case req.maxSize < agentMinMaxSize || req.maxSize > agentMaxInt:
 		return fmt.Sprintf("msgMaxSize %d", req.maxSize)
-	case req.model != int64(UserSecurityModel):
+	case req.model != usmSecurityModel:
 		return fmt.Sprintf("security model %d", req.model)
 	case req.flags&AuthPriv == usmPrivacyFlag:
 		return "privacy without authentication"
@@ -365,9 +365,9 @@ func (a *fakeV3Agent) answer(req agentRequest, ans agentAnswer) *Message {
 		}
 	}
 	out := &Message{
-		Version:            Version3,
-		MsgFlags:           ans.level,
-		SecurityModel:      UserSecurityModel,
+		Version:       Version3,
+		SecurityLevel: ans.level,
+
 		SecurityParameters: sp,
 		ContextEngineID:    req.contextEngineID,
 		ContextName:        req.contextName,
@@ -436,7 +436,7 @@ func readAgentRequest(m v3Message) (agentRequest, error) {
 		return req, fmt.Errorf("engine time: %w", err)
 	}
 	req.version, req.msgID, req.maxSize, req.model = version, msgID, maxSize, model
-	req.flags = SnmpV3MsgFlags(header[2][0])
+	req.flags = SecurityLevel(header[2][0])
 	req.engineID, req.user = string(m.usm[0]), string(m.usm[3])
 	req.boots, req.engineTime = uint32(boots), uint32(engineTime) //nolint:gosec // a test message
 	req.salt = m.usm[5]
@@ -476,7 +476,7 @@ func absDiff(a, b uint32) uint32 {
 	return b - a
 }
 
-func describeFlags(f SnmpV3MsgFlags) string {
+func describeFlags(f SecurityLevel) string {
 	level := "noAuthNoPriv"
 	switch {
 	case f&AuthPriv == AuthPriv:
@@ -486,7 +486,7 @@ func describeFlags(f SnmpV3MsgFlags) string {
 	case f&AuthPriv == usmPrivacyFlag:
 		level = "privOnly"
 	}
-	if f&Reportable != 0 {
+	if f&reportableFlag != 0 {
 		level += "+reportable"
 	}
 	return level
@@ -498,7 +498,7 @@ func describeAgentRequest(req agentRequest) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "msgID=%d %s user=%q engine=%q boots=%d time=%d", req.msgID, describeFlags(req.flags), req.user,
 		req.engineID, req.boots, req.engineTime)
-	if req.model != int64(UserSecurityModel) {
+	if req.model != usmSecurityModel {
 		fmt.Fprintf(&sb, " model=%d", req.model)
 	}
 	if req.maxSize != rxBufSize {
