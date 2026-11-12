@@ -20,16 +20,16 @@
 // connection, a UDP socket connected to Target and Port, which replaces the
 // client's (a failed Connect keeps it); a client may instead be given a Conn.
 // The client owns its connection: [Client.Close] closes it, and so does a
-// Connect that replaces it; a connection the caller or a hook replaces in Conn
-// is the caller's again. Connect may be called again after Close. A request
-// reads the client's configuration when it starts and does not change it: a
-// change a hook makes applies from the next request. Exceptions: the SNMPv3
-// engine state the client learns during a request serves the rest of it (see
-// SNMPv3), and each attempt uses the connection Conn holds when it starts. A
-// request resolves no name: Connect looks up Target, and a request writes to
-// the peer of the connection it uses. The request IDs and msgIDs start at a
-// random value on first use unless [Client.SetRequestID] and [Client.SetMsgID]
-// set them, and Connect does not reset them.
+// Connect that replaces it; a connection the caller replaces in Conn is the
+// caller's again. Connect may be called again after Close. A request reads the
+// client's configuration when it starts and does not change it: a change the
+// caller makes during a request applies from the next one. Exceptions: the
+// SNMPv3 engine state the client learns during a request serves the rest of it
+// (see SNMPv3), and each attempt uses the connection Conn holds when it
+// starts. A request resolves no name: Connect looks up Target, and a request
+// writes to the peer of the connection it uses. The request IDs and msgIDs
+// start at a random value on first use unless [Client.SetRequestID] and
+// [Client.SetMsgID] set them, and Connect does not reset them.
 //
 // Connect, Get and the walks take a context first, which bounds that call
 // only: Connect's lookup of Target and its dial, not the connection; each
@@ -53,9 +53,8 @@
 // uses, as a done context does. Once Close has run, a request whose attempt
 // ends without a reply fails with an error wrapping [net.ErrClosed], whatever
 // else ended the attempt, a done context included, and so do later requests
-// until Connect opens a connection or Conn is set. The hooks run on the
-// goroutine of the request. A [Receiver] and the package's key cache are safe
-// for concurrent use.
+// until Connect opens a connection or Conn is set. A [Receiver] and the
+// package's key cache are safe for concurrent use.
 //
 // # Attempts and timeouts
 //
@@ -94,19 +93,11 @@
 // not an error of the request. Connect uses Timeout and its context too, for
 // its lookup of Target and its dial together.
 //
-// # Hooks
-//
-// In each attempt, PreSend runs after the request is encoded, OnSent after it
-// is written, and OnRecv after each reply is read, before it is decoded.
-// OnRetry runs before each retry, after the decision to make one, and
-// OnFinish when an exchange ends without an error. An SNMPv3 request can
-// make up to three exchanges, each with its own hooks: the engine discovery,
-// the request, and one resend (see below). A request calls the hooks set when
-// it starts.
+// # Panics
 //
 // A panic in the code a request runs on its own goroutine ends the request: in
-// a hook, or in a method of a Conn or context the caller gave that the request
-// calls. The request returns no message and an error whose text starts with
+// a method of a Conn or context the caller gave that the request calls. The
+// request returns no message and an error whose text starts with
 // "request panicked: " and that wraps the panic's value when it is an error, so
 // that [errors.Is] and [errors.As] reach it (a [runtime.Error] included); the
 // client stays usable. Other panics are not recovered: they reach the caller,
@@ -146,10 +137,10 @@
 // step 6 c sends zeros).
 //
 // A request takes the configuration into the engine state at its start: another
-// User, also one a hook set during the last request, keeps the engine ID and
-// clock and derives its keys for the engine ID. [Client.ForgetEngine] makes the
-// next request start over and discover the engine again; a request that is
-// running keeps the state it has.
+// User, set since the last request started, keeps the engine ID and clock and
+// derives its keys for the engine ID. [Client.ForgetEngine] makes the next
+// request start over and discover the engine again; a request that is running
+// keeps the state it has.
 //
 // A reply whose msgID names none of the request's attempts is discarded before
 // security processing. A reply then goes through the security processing of RFC
@@ -526,8 +517,8 @@
 // a request (a walk's included) that a Report or a discovery answer without an
 // engine ID ended also matches it, besides the answer's category, while the
 // library marks no error of a request that ended without an answer, a timeout
-// after discarded replies included; errors of the caller's own code (a hook's
-// panic, a Conn or context it gave) pass through unchanged. A failed request
+// after discarded replies included; errors of the caller's own code (a Conn or
+// context it gave, and a panic in one) pass through unchanged. A failed request
 // returns no message, so this is how a caller tells an agent that answered from
 // one that did not.
 //

@@ -161,19 +161,12 @@ func encodeMessage(x *Client, a *fakeV3Agent) {
 	a.tr.addf("EncodeMessage: %s, %s; client %s", describeAgentRequest(req), digest, describeEngineState(&x.engine))
 }
 
-// onFinishThenGet runs a Get whose call n of OnFinish also runs change, which
+// afterReadThenGet runs a Get after whose read n the Conn runs change, which
 // the transcript names as what, then a second Get 10 s later, whose result it
 // returns.
-func onFinishThenGet(n int, what string, change func(x *Client)) func(x *Client, a *fakeV3Agent) (*Message, error) {
+func afterReadThenGet(n int, what string, change func(x *Client)) func(x *Client, a *fakeV3Agent) (*Message, error) {
 	return func(x *Client, a *fakeV3Agent) (*Message, error) {
-		onFinish, calls := x.OnFinish, 0
-		x.OnFinish = func(x *Client) {
-			onFinish(x)
-			if calls++; calls == n {
-				a.tr.addf("hook OnFinish %s", what)
-				change(x)
-			}
-		}
+		afterRead(x, a, n, what, change)
 		if _, err := x.Get(context.Background(), []string{engineOID}); err != nil {
 			return nil, fmt.Errorf("first Get: %w", err)
 		}
@@ -182,17 +175,27 @@ func onFinishThenGet(n int, what string, change func(x *Client)) func(x *Client,
 	}
 }
 
-// onFirstPreSend runs a Get whose first PreSend hook, the engine discovery's,
-// calls change: caller code that changes the client during a request, before
-// the discovery's answer commits the engine state.
-func onFirstPreSend(what string, change func(x *Client)) func(x *Client, a *fakeV3Agent) (*Message, error) {
+// afterRead makes x's Conn run change after its read n, which the transcript
+// names as what: the Conn's code changing the client during a request.
+func afterRead(x *Client, a *fakeV3Agent, n int, what string, change func(x *Client)) {
+	c := transportOf(a.tr.tb, x)
+	c.afterRead = func(k int) {
+		if k == n {
+			a.tr.addf("the Conn's read #%d %s", k, what)
+			change(x)
+		}
+	}
+}
+
+// onFirstWrite runs a Get after whose first write, the engine discovery's, the
+// Conn runs change: caller code that changes the client during a request,
+// before the discovery's answer commits the engine state.
+func onFirstWrite(what string, change func(x *Client)) func(x *Client, a *fakeV3Agent) (*Message, error) {
 	return func(x *Client, a *fakeV3Agent) (*Message, error) {
-		preSend, done := x.PreSend, false
-		x.PreSend = func(x *Client) {
-			preSend(x)
-			if !done {
-				done = true
-				a.tr.addf("hook PreSend %s", what)
+		c := transportOf(a.tr.tb, x)
+		c.afterWrite = func(n int) {
+			if n == 1 {
+				a.tr.addf("the Conn's write #1 %s", what)
 				change(x)
 			}
 		}
@@ -706,33 +709,19 @@ func v3Scenarios() map[string]v3Scenario {
 			}
 			return agentAnswer{}, false
 		}},
-		"unauthenticated-report/security-level-changed-by-hook": {
+		"unauthenticated-report/security-level-changed-during-request": {
 			user:   "codec-md5",
 			script: onRequest(2, agentAnswer{report: usmStatsNotInTimeWindows, why: "not in time window, unauthenticated"}),
 			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				onRecv := x.OnRecv
-				x.OnRecv = func(x *Client) {
-					onRecv(x)
-					if a.counters[usmStatsNotInTimeWindows] == 1 && x.SecurityLevel == AuthNoPriv {
-						x.SecurityLevel = NoAuthNoPriv
-						a.tr.addf("hook OnRecv sets the client's security level to noAuthNoPriv")
-					}
-				}
+				afterRead(x, a, 2, "sets the client's security level to noAuthNoPriv", func(x *Client) { x.SecurityLevel = NoAuthNoPriv })
 				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
-		"unauthenticated-report/version-changed-by-hook": {
+		"unauthenticated-report/version-changed-during-request": {
 			user:   "codec-md5",
 			script: onRequest(2, agentAnswer{report: usmStatsNotInTimeWindows, why: "not in time window, unauthenticated"}),
 			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				onFinish, calls := x.OnFinish, 0
-				x.OnFinish = func(x *Client) {
-					onFinish(x)
-					if calls++; calls == 2 {
-						x.Version = Version2c
-						a.tr.addf("hook OnFinish sets the client's version to 2c")
-					}
-				}
+				afterRead(x, a, 2, "sets the client's version to 2c", func(x *Client) { x.Version = Version2c })
 				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
@@ -826,39 +815,31 @@ func v3Scenarios() map[string]v3Scenario {
 			}),
 		},
 
-		// The discovery's first PreSend, the first hook of a request, changes
-		// the client: the request keeps the values its packet took at its
-		// start.
-		"hooks/discovery-presend-changes-version": {
+		// The Conn's code changes the client in the discovery's write, the
+		// first one of a request: the request keeps the values its packet
+		// took at its start.
+		"user-code/discovery-write-changes-version": {
 			user: "codec-md5",
-			run:  onFirstPreSend("sets the client's version to 2c", func(x *Client) { x.Version = Version2c }),
+			run:  onFirstWrite("sets the client's version to 2c", func(x *Client) { x.Version = Version2c }),
 		},
-		"hooks/discovery-presend-changes-security-level": {
+		"user-code/discovery-write-changes-security-level": {
 			user: "codec-md5",
-			run:  onFirstPreSend("sets the client's security level to noAuthNoPriv", func(x *Client) { x.SecurityLevel = NoAuthNoPriv }),
+			run:  onFirstWrite("sets the client's security level to noAuthNoPriv", func(x *Client) { x.SecurityLevel = NoAuthNoPriv }),
 		},
-		// The discovery exchange's OnFinish changes the client: the request
-		// keeps its retries, timeout and hooks.
-		"hooks/discovery-changes-client": {
+		// The Conn's code changes the client as it reads the discovery's
+		// answer: the request keeps its retries and timeout.
+		"user-code/discovery-answer-changes-client": {
 			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
 				return agentAnswer{drop: true, why: "no answer"}, n == 2 || n == 3
 			},
 			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				onFinish, done := x.OnFinish, false
-				x.OnFinish = func(x *Client) {
-					onFinish(x)
-					if !done {
-						done = true
-						a.tr.addf("hook OnFinish sets Retries to 0, Timeout to 5s and replaces OnSent")
-						x.Retries, x.Timeout = 0, 5*time.Second
-						x.OnSent = func(*Client) { a.tr.addf("hook OnSent, the replacement") }
-					}
-				}
+				afterRead(x, a, 1, "sets Retries to 0 and Timeout to 5s", func(x *Client) { x.Retries, x.Timeout = 0, 5*time.Second })
 				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
-		// The resync exchange's OnFinish changes the client before the resend.
-		"hooks/resync-changes-client": {
+		// The Conn's code changes the client as it reads the resync Report,
+		// before the resend.
+		"user-code/resync-report-changes-client": {
 			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
 				switch n {
 				case 2:
@@ -869,82 +850,50 @@ func v3Scenarios() map[string]v3Scenario {
 				return agentAnswer{}, false
 			},
 			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				onFinish, calls := x.OnFinish, 0
-				x.OnFinish = func(x *Client) {
-					onFinish(x)
-					if calls++; calls == 2 {
-						a.tr.addf("hook OnFinish sets Retries to 0 and replaces OnSent")
-						x.Retries = 0
-						x.OnSent = func(*Client) { a.tr.addf("hook OnSent, the replacement") }
-					}
-				}
+				afterRead(x, a, 2, "sets Retries to 0", func(x *Client) { x.Retries = 0 })
 				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
-		"hooks/discovery-presend-changes-context-name": {
+		"user-code/discovery-write-changes-context-name": {
 			user: "codec-md5",
-			run:  onFirstPreSend("sets the client's context name", func(x *Client) { x.ContextName = "codec-other-name" }),
+			run:  onFirstWrite("sets the client's context name", func(x *Client) { x.ContextName = "codec-other-name" }),
 		},
-		// The request stays SNMPv3 when the discovery's OnFinish changes the
-		// client's version, after the negotiation and before the request.
-		"hooks/discovery-onfinish-changes-version": {
+		// The request stays SNMPv3 when the Conn's code changes the client's
+		// version as it reads the discovery's answer, before the request.
+		"user-code/discovery-answer-changes-version": {
 			user: "codec-md5",
 			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				onFinish, calls := x.OnFinish, 0
-				x.OnFinish = func(x *Client) {
-					onFinish(x)
-					if calls++; calls == 1 {
-						x.Version = Version2c
-						a.tr.addf("hook OnFinish sets the client's version to 2c")
-					}
-				}
+				afterRead(x, a, 1, "sets the client's version to 2c", func(x *Client) { x.Version = Version2c })
 				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
-		"hooks/onrecv-lowers-msg-flags": {
+		"user-code/read-lowers-security-level": {
 			user: "codec-md5", script: onRequest(2, agentAnswer{
 				report: usmStatsUnknownUserNames, level: AuthNoPriv, why: "Report signed with another key", edit: forgeReport,
 			}),
 			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				onRecv, calls := x.OnRecv, 0
-				x.OnRecv = func(x *Client) {
-					onRecv(x)
-					if calls++; calls == 2 {
-						x.SecurityLevel = NoAuthNoPriv
-						a.tr.addf("hook OnRecv sets the client's msgFlags to noAuthNoPriv")
-					}
-				}
+				afterRead(x, a, 2, "sets the client's security level to noAuthNoPriv", func(x *Client) { x.SecurityLevel = NoAuthNoPriv })
 				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
-		"hooks/onfinish-changes-version": {
+		"user-code/answer-changes-version": {
 			user: "codec-md5",
 			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				onFinish, calls := x.OnFinish, 0
-				x.OnFinish = func(x *Client) {
-					onFinish(x)
-					if calls++; calls == 2 {
-						x.Version = Version2c
-						a.tr.addf("hook OnFinish sets the client's version to 2c")
-					}
-				}
+				afterRead(x, a, 2, "sets the client's version to 2c", func(x *Client) { x.Version = Version2c })
 				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
 
-		// A panic after the discovery's commit ends the request; the next
-		// request uses the engine state the discovery committed.
-		"hooks/onfinish-panics-after-discovery": {
+		// A panic after the discovery's commit, as the request's first attempt
+		// sets its deadline, ends the request; the next request uses the
+		// engine state the discovery committed.
+		"user-code/panic-after-discovery": {
 			user: "codec-md5",
 			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				onFinish, calls := x.OnFinish, 0
-				x.OnFinish = func(x *Client) {
-					onFinish(x)
-					if calls++; calls == 1 {
-						a.tr.addf("hook OnFinish panics after the discovery")
-						panicWithError()
-					}
-				}
+				atDeadline(transportOf(a.tr.tb, x), 2, func() {
+					a.tr.addf("the Conn, setting deadline #2, panics after the discovery")
+					panicWithError()
+				})
 				res, err := x.Get(context.Background(), []string{engineOID})
 				a.tr.addf("first request: %s", describeEngineResult(res, err))
 				time.Sleep(10 * time.Second)
@@ -957,44 +906,29 @@ func v3Scenarios() map[string]v3Scenario {
 			user:   "codec-md5",
 			script: onRequest(2, agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "not in time window"}),
 			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				preSend, calls := x.PreSend, 0
-				x.PreSend = func(x *Client) {
-					preSend(x)
-					if calls++; calls == 3 {
-						a.tr.addf("hook PreSend panics in the retransmission")
-						panic("hook failure")
+				transportOf(a.tr.tb, x).failWrite = func(n int) error {
+					if n == 3 {
+						a.tr.addf("the Conn's write #3, the retransmission, panics")
+						panic("codec write failure")
 					}
+					return nil
 				}
 				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
-		"resync/security-level-changed-by-hook": {
+		"resync/security-level-changed-during-request": {
 			user:   "codec-md5",
 			script: onRequest(2, agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "not in time window"}),
 			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				onFinish, calls := x.OnFinish, 0
-				x.OnFinish = func(x *Client) {
-					onFinish(x)
-					if calls++; calls == 2 {
-						x.SecurityLevel = NoAuthNoPriv
-						a.tr.addf("hook OnFinish sets the client's security level to noAuthNoPriv")
-					}
-				}
+				afterRead(x, a, 2, "sets the client's security level to noAuthNoPriv", func(x *Client) { x.SecurityLevel = NoAuthNoPriv })
 				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
-		"resync/version-changed-by-hook": {
+		"resync/version-changed-during-request": {
 			user:   "codec-md5",
 			script: onRequest(2, agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "not in time window"}),
 			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				onFinish, calls := x.OnFinish, 0
-				x.OnFinish = func(x *Client) {
-					onFinish(x)
-					if calls++; calls == 2 {
-						x.Version = Version2c
-						a.tr.addf("hook OnFinish sets the client's version to 2c")
-					}
-				}
+				afterRead(x, a, 2, "sets the client's version to 2c", func(x *Client) { x.Version = Version2c })
 				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
@@ -1173,17 +1107,17 @@ func v3Scenarios() map[string]v3Scenario {
 		"caller/encode-after-other-user": {user: "codec-md5", run: encodeThenGet(
 			"sets another user", func(x *Client) { x.User = agentUserOf("codec-sha-aes") })},
 
-		// A hook forgets the engine or changes the user during a request: the
-		// change applies from the next request.
-		"hooks/discovery-onfinish-forgets-engine": {
-			user: "codec-md5", run: onFinishThenGet(1, "calls ForgetEngine", func(x *Client) { x.ForgetEngine() }),
+		// The Conn's code forgets the engine or changes the user during a
+		// request: the change applies from the next request.
+		"user-code/discovery-answer-forgets-engine": {
+			user: "codec-md5", run: afterReadThenGet(1, "calls ForgetEngine", func(x *Client) { x.ForgetEngine() }),
 		},
-		// A user a hook sets during the discovery serves from the next request:
-		// the discovery's commit derives the keys of the user the request
-		// started with.
-		"hooks/discovery-presend-changes-user": {
+		// A user the Conn's code sets during the discovery serves from the
+		// next request: the discovery's commit derives the keys of the user
+		// the request started with.
+		"user-code/discovery-write-changes-user": {
 			user: "codec-md5", run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				res, err := onFirstPreSend("sets another user", func(x *Client) {
+				res, err := onFirstWrite("sets another user", func(x *Client) {
 					x.User = agentUserOf("codec-sha-aes")
 				})(x, a)
 				a.tr.addf("first Get: %s", describeEngineResult(res, err))
@@ -1191,8 +1125,8 @@ func v3Scenarios() map[string]v3Scenario {
 				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
-		"hooks/request-onfinish-changes-user": {
-			user: "codec-md5", run: onFinishThenGet(2, "sets another user", func(x *Client) {
+		"user-code/request-answer-changes-user": {
+			user: "codec-md5", run: afterReadThenGet(2, "sets another user", func(x *Client) {
 				x.User = agentUserOf("codec-sha-aes")
 			}),
 		},
@@ -1483,15 +1417,15 @@ func v3Scenarios() map[string]v3Scenario {
 		"answer/other-version/sha-aes": {
 			user: "codec-sha-aes", script: onRequest(2, agentAnswer{level: AuthPriv, why: "SNMPv2c Response", edit: asV2c}),
 		},
-		"hooks/privacy-protocol-changed-on-retry": {
+		"user-code/privacy-protocol-changed-in-request-write": {
 			user: "codec-sha-aes", script: onRequest(2, agentAnswer{drop: true, why: "no answer"}),
 			setup: func(x *Client) { x.Retries = 1 },
 			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				onRetry := x.OnRetry
-				x.OnRetry = func(x *Client) {
-					onRetry(x)
-					x.User.PrivProtocol = DES
-					a.tr.addf("hook OnRetry sets the client's privacy protocol to DES")
+				transportOf(a.tr.tb, x).afterWrite = func(n int) {
+					if n == 2 {
+						a.tr.addf("the Conn's write #2 sets the client's privacy protocol to DES")
+						x.User.PrivProtocol = DES
+					}
 				}
 				return x.Get(context.Background(), []string{engineOID})
 			},
@@ -1573,8 +1507,8 @@ func v3Scenarios() map[string]v3Scenario {
 			}),
 		},
 		// Every attempt answered outside the time window: the request ends
-		// with an error that matches ErrNotInTimeWindow, without OnFinish,
-		// and the client drops its engine time.
+		// with an error that matches ErrNotInTimeWindow and the client drops
+		// its engine time.
 		"time-window/older-boots-every-attempt": {
 			user: "codec-md5", run: getTwice(nil), script: func(n int, _ agentRequest) (agentAnswer, bool) {
 				return agentAnswer{level: AuthNoPriv, why: "Response with lower engine boots", edit: olderBoots}, n > 2
@@ -1766,29 +1700,22 @@ func v3Scenarios() map[string]v3Scenario {
 			time.Sleep(10 * time.Second)
 			return x.Get(context.Background(), []string{engineOID})
 		}},
-		// The context's deadline passes while OnRetry runs after the second
-		// Get's first attempt discarded the answer of an agent that restarted
-		// without raising its boots and does not check the time window: the
-		// next attempt does not start.
-		"clock/no-time-check/restart-same-boots/context-deadline-in-retry": {user: "codec-md5", run: func(x *Client, a *fakeV3Agent) (*Message, error) {
+		// The context's deadline passes after the second Get's first attempt
+		// discarded the answer of an agent that restarted without raising its
+		// boots and does not check the time window, before the next attempt:
+		// the next attempt does not start.
+		"clock/no-time-check/restart-same-boots/context-deadline-between-attempts": {user: "codec-md5", run: func(x *Client, a *fakeV3Agent) (*Message, error) {
 			a.noTimeCheck = true
 			if _, err := x.Get(context.Background(), []string{engineOID}); err != nil {
 				return nil, fmt.Errorf("first Get: %w", err)
 			}
 			time.Sleep(10 * time.Second)
 			a.restartWithoutBoots()
-			ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+			ctx, cancel := doneAtErrCall(3, context.DeadlineExceeded)()
 			defer cancel()
-			onRetry := x.OnRetry
-			x.OnRetry = func(x *Client) {
-				onRetry(x)
-				a.tr.addf("hook OnRetry waits 1 s")
-				time.Sleep(time.Second)
-			}
 			res, err := x.Get(ctx, []string{engineOID})
-			a.tr.addf("second Get, with a Context deadline after 1.5 s: %s", describeEngineResult(res, err))
+			a.tr.addf("second Get, with a context whose deadline passes before its second attempt: %s", describeEngineResult(res, err))
 			time.Sleep(10 * time.Second)
-			x.OnRetry = onRetry
 			return x.Get(context.Background(), []string{engineOID})
 		}},
 		// Close ends the second Get once it has read the answer of an agent
@@ -1801,12 +1728,9 @@ func v3Scenarios() map[string]v3Scenario {
 			}
 			time.Sleep(10 * time.Second)
 			a.restartWithoutBoots()
-			onRecv := x.OnRecv
-			x.OnRecv = func(x *Client) {
-				onRecv(x)
-				a.tr.addf("hook OnRecv closes the client")
-				_ = x.Close()
-			}
+			c := transportOf(a.tr.tb, x)
+			first := c.reads + 1
+			afterRead(x, a, first, "closes the client", func(x *Client) { _ = x.Close() })
 			return x.Get(context.Background(), []string{engineOID})
 		}},
 	}
@@ -1888,7 +1812,7 @@ func runV3Polls(t *testing.T, setup func(a *fakeV3Agent)) string {
 		return replies
 	})
 	creds := agentCreds["codec-md5"]
-	x := newEngineClientFrom(t, nil, fakePacketTransport{c}, &Client{
+	x := newEngineClientFrom(t, fakePacketTransport{c}, &Client{
 		Version:       Version3,
 		SecurityLevel: AuthNoPriv,
 		User:          creds.user("codec-md5"),
@@ -1964,7 +1888,7 @@ func runV3Scenario(t *testing.T, sc v3Scenario) string {
 	if sc.setup != nil {
 		sc.setup(x)
 	}
-	x = newEngineClientFrom(t, tr, fakePacketTransport{c}, x)
+	x = newEngineClientFrom(t, fakePacketTransport{c}, x)
 	run := sc.run
 	if run == nil {
 		run = func(x *Client, _ *fakeV3Agent) (*Message, error) {
@@ -2022,7 +1946,7 @@ func BenchmarkGetV3(b *testing.B) {
 	agent := newFakeV3Agent(nil, agentCreds, sysDescr)
 	c := newFakeTransport(nil, agent.handle)
 	creds := agentCreds["codec-md5"]
-	x := newEngineClientFrom(b, nil, fakePacketTransport{c}, &Client{
+	x := newEngineClientFrom(b, fakePacketTransport{c}, &Client{
 		Version:       Version3,
 		SecurityLevel: AuthNoPriv,
 		User:          creds.user("codec-md5"),

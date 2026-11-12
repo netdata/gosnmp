@@ -41,10 +41,11 @@ type Client struct {
 	// message with Write and reads each reply, one per read, with ReadFrom when
 	// Conn is a net.PacketConn and with Read otherwise. The client owns the
 	// connection Conn holds: Close and a later Connect close it; a connection
-	// the caller or a hook replaces in Conn is the caller's again. Each attempt
-	// of a request uses the connection Conn holds when it starts, which Close
-	// interrupts even after a hook replaced it. Set Conn only while no Close
-	// runs.
+	// the caller replaces in Conn is the caller's again. Each attempt of a
+	// request uses the connection Conn holds when it starts: Close interrupts
+	// it once the attempt has set its deadline, whatever Conn holds then, and
+	// before that closes it only if Conn still holds it. Set Conn only while
+	// no Close runs.
 	Conn net.Conn
 
 	// Target is the agent's host name or IP address, which Connect dials.
@@ -68,35 +69,6 @@ type Client struct {
 	// Retries is the number of attempts after the first; a negative value
 	// counts as 0.
 	Retries int
-
-	// The message hooks are called at points of a request, each with the
-	// client, for example to time requests, count them or trace them. The
-	// package documentation gives their order. A request calls the hooks set
-	// when it starts; a hook that panics ends the request (see the package
-	// documentation, Hooks).
-	//
-	// PreSend is called in each attempt after the request is encoded, before
-	// it is written.
-	PreSend func(*Client)
-
-	// OnSent is called in each attempt after the request is written.
-	OnSent func(*Client)
-
-	// OnRecv is called after each reply is read, before it is decoded.
-	OnRecv func(*Client)
-
-	// OnRetry is called before each retry: after an attempt that failed in a
-	// way another attempt may cure (a timeout, or another write or read error
-	// than a closed connection), when another attempt follows. It is not
-	// called after the last attempt, nor when the request's context is done.
-	OnRetry func(*Client)
-
-	// OnFinish is called each time an exchange (a request and the answer to
-	// it, after any retries) ends without an error, including one answered by
-	// a Report the client resynchronizes from (unknownEngineID, the usual answer
-	// to SNMPv3 engine discovery, or notInTimeWindow). It is not called when an
-	// exchange fails.
-	OnFinish func(*Client)
 
 	// MaxOids is the maximum number of OIDs in a Get request, and in each
 	// request of a walk, which carries one. Connect replaces zero with the

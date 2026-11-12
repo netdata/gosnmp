@@ -331,11 +331,11 @@ func TestEngineResetsClock(t *testing.T) {
 // resetsClock only when it is a notInTimeWindow Report; an unknownEngineIDs
 // Report also lends its engine ID, as the request's engine and context engine
 // ID, with keys localized to it for the user the request started with, also
-// when a hook has set another User since.
+// when the caller has set another User since.
 func TestEngineLendClock(t *testing.T) {
 	known := engineState{user: stateUser, engineID: []byte(usmCharEngineID), keys: stateKeys(t, stateUser, usmCharEngineID)}
-	hookUser := stateUser
-	hookUser.AuthPassphrase = "codec-other-pass"
+	otherUser := stateUser
+	otherUser.AuthPassphrase = "codec-other-pass"
 	tests := map[string]struct {
 		counter    string
 		wantSource clockSource
@@ -353,7 +353,7 @@ func TestEngineLendClock(t *testing.T) {
 			x := &Client{Version: Version3, User: stateUser, engine: known}
 			packet := x.NewMessage(GetRequest, nil, 0, 0)
 			x.engine.stamp(packet)
-			x.User = hookUser
+			x.User = otherUser
 			report := &Message{
 				Version: Version3, PDUType: Report, VarBinds: []VarBind{{Name: tc.counter}},
 				SecurityParameters: SecurityParameters{

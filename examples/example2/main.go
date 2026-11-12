@@ -51,20 +51,14 @@ func main() {
 	}
 	defer params.Close()
 
-	// Function handles for collecting metrics on query latencies.
-	var sent time.Time
-	params.OnSent = func(_ *g.Client) {
-		sent = time.Now()
-	}
-	params.OnRecv = func(_ *g.Client) {
-		log.Println("Query latency in seconds:", time.Since(sent).Seconds())
-	}
-
+	// The time a request takes, its retries included.
 	oids := []string{"1.3.6.1.2.1.1.4.0", "1.3.6.1.2.1.1.7.0"}
+	start := time.Now()
 	result, err2 := params.Get(ctx, oids) // Get accepts up to MaxOids OIDs (60 by default)
 	if err2 != nil {
 		log.Fatalf("Get() err: %v", err2)
 	}
+	log.Println("Query latency in seconds:", time.Since(start).Seconds())
 
 	for i, variable := range result.VarBinds {
 		fmt.Printf("%d: oid: %s ", i, variable.Name)

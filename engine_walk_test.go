@@ -165,9 +165,9 @@ type walkScenario struct {
 	root   string // the walk's root OID
 	setup  func(x *Client)
 	script func(n int, req, out *Message) bool
-	// onFinish, when set, is the OnFinish hook, run after each of the
-	// walk's requests: user code that changes the client during the walk.
-	onFinish func(x *Client, tr *engineTranscript)
+	// afterReply, when set, runs after each reply the Conn reads: the Conn's
+	// code changing the client during the walk.
+	afterReply func(x *Client, tr *engineTranscript)
 	// context, when set, gives the walk's context; its cancel runs when the
 	// scenario ends.
 	context  func() (context.Context, context.CancelFunc)
@@ -339,36 +339,36 @@ func walkScenarios() map[string]walkScenario {
 
 		// User code changing the client during a walk: the walk keeps the
 		// max-repetitions it started with.
-		"user-code/hook-sets-max-repetitions": {
+		"user-code/sets-max-repetitions": {
 			root: walkIfDescr, bulk: true, setup: func(x *Client) { x.MaxRepetitions = 1 },
-			onFinish: func(x *Client, tr *engineTranscript) {
-				tr.addf("hook OnFinish sets MaxRepetitions to 2")
+			afterReply: func(x *Client, tr *engineTranscript) {
+				tr.addf("the Conn's read sets MaxRepetitions to 2")
 				x.MaxRepetitions = 2
 			},
 		},
 		// A change of version applies from the walk's next request: GETBULK
 		// on SNMPv1 is refused, and the walk returns the values so far.
-		"user-code/hook-sets-version-1": {
+		"user-code/sets-version-1": {
 			root: walkIfDescr, bulk: true, setup: func(x *Client) { x.MaxRepetitions = 1 },
-			onFinish: func(x *Client, tr *engineTranscript) {
-				tr.addf("hook OnFinish sets Version to 1")
+			afterReply: func(x *Client, tr *engineTranscript) {
+				tr.addf("the Conn's read sets Version to 1")
 				x.Version = Version1
 			},
 		},
 		// The walk's later GetNext requests are SNMPv1 requests.
-		"user-code/hook-sets-version-1/getnext": {
+		"user-code/sets-version-1/getnext": {
 			root: walkIfDescr,
-			onFinish: func(x *Client, tr *engineTranscript) {
-				tr.addf("hook OnFinish sets Version to 1")
+			afterReply: func(x *Client, tr *engineTranscript) {
+				tr.addf("the Conn's read sets Version to 1")
 				x.Version = Version1
 			},
 		},
 		// MaxOids applies to each of the walk's requests: zero refuses the
 		// next one, and the walk returns the values so far.
-		"user-code/hook-sets-max-oids-0": {
+		"user-code/sets-max-oids-0": {
 			root: walkIfDescr,
-			onFinish: func(x *Client, tr *engineTranscript) {
-				tr.addf("hook OnFinish sets MaxOids to 0")
+			afterReply: func(x *Client, tr *engineTranscript) {
+				tr.addf("the Conn's read sets MaxOids to 0")
 				x.MaxOids = 0
 			},
 		},
@@ -509,7 +509,7 @@ func TestEngineWalkRootSpellings(t *testing.T) {
 							}
 							return false
 						}}
-						x := newEngineClient(t, nil, tc.version, fakePacketTransport{newFakeTransport(nil, agent.handle)})
+						x := newEngineClient(t, tc.version, fakePacketTransport{newFakeTransport(nil, agent.handle)})
 						root := spelling.root(tc.root)
 						walk := x.WalkAll
 						if api == "BulkWalkAll" {
@@ -545,13 +545,13 @@ func runWalkScenario(t *testing.T, sc walkScenario) string {
 	if sc.v1 {
 		version = Version1
 	}
-	x := newEngineClient(t, tr, version, fakePacketTransport{newFakeTransport(tr, agent.handle)})
-	x.PreSend, x.OnSent, x.OnRecv, x.OnFinish = nil, nil, nil, nil
+	c := newFakeTransport(tr, agent.handle)
+	x := newEngineClient(t, version, fakePacketTransport{c})
 	if sc.setup != nil {
 		sc.setup(x)
 	}
-	if sc.onFinish != nil {
-		x.OnFinish = func(x *Client) { sc.onFinish(x, tr) }
+	if sc.afterReply != nil {
+		c.afterRead = func(int) { sc.afterReply(x, tr) }
 	}
 	ctx := context.Background()
 	if sc.context != nil {
@@ -600,7 +600,7 @@ func BenchmarkWalk(b *testing.B) {
 	} {
 		b.Run(name, func(b *testing.B) {
 			agent := &mibAgent{mib: mib}
-			x := newEngineClient(b, nil, Version2c, newFakeTransport(nil, agent.handle))
+			x := newEngineClient(b, Version2c, newFakeTransport(nil, agent.handle))
 			b.ReportAllocs()
 			for b.Loop() {
 				vbs, err := walkAll(x)
@@ -633,7 +633,7 @@ func TestWalkEndedByReport(t *testing.T) {
 				return agentAnswer{report: usmStatsUnknownUserNames, why: "rejects the walk's second request"}, true
 			}
 			c := newFakeTransport(nil, agent.handle)
-			x := newEngineClientFrom(t, nil, fakePacketTransport{c}, &Client{
+			x := newEngineClientFrom(t, fakePacketTransport{c}, &Client{
 				Version:       Version3,
 				SecurityLevel: NoAuthNoPriv,
 				User:          agentCreds["codec-noauth"].user("codec-noauth"),

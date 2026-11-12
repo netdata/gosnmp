@@ -31,7 +31,7 @@ import (
 // scenario takes no real time. The agent answers inside Write, and Read waits
 // on the bubble's clock for the next reply or the deadline, or until another
 // goroutine sets a deadline or closes the connection. A transcript records
-// every write, deadline, read and hook call with the time since the scenario
+// every write, deadline, read and close with the time since the scenario
 // started, and the agent's replies when it schedules them.
 
 // engineTranscript is the ordered record of one engine scenario, safe for
@@ -95,7 +95,8 @@ type pendingReply struct {
 // lost. A read fails with os.ErrDeadlineExceeded once the read deadline has
 // passed: a reply due at the deadline is not read, as on a real socket. A
 // write fails the same way once the write deadline has passed. Writes and
-// reads can be made to fail by number. A deadline set and a Close from another
+// reads can be made to fail by number, and can act on the client after they
+// succeed, as the Conn's own code. A deadline set and a Close from another
 // goroutine wake a waiting read; after Close, reads, writes and deadlines fail
 // with net.ErrClosed, as on a socket.
 type fakeTransport struct {
@@ -124,6 +125,10 @@ type fakeTransport struct {
 	holdWake chan struct{}
 	// beforeDeadline, when set, runs before a deadline in the future is set.
 	beforeDeadline func()
+	// afterWrite, when set, runs after write n succeeded and its replies are
+	// on their way, and afterRead after read n returned a reply: the Conn's
+	// code acting on the client during a request (no lock is held).
+	afterWrite, afterRead func(n int)
 }
 
 func newFakeTransport(tr *engineTranscript, agent engineAgent) *fakeTransport {
@@ -156,9 +161,17 @@ func (c *fakeTransport) write(b []byte, op string) (int, error) {
 			return 0, err
 		}
 	}
-	if c.agent == nil {
-		return len(b), nil
+	if c.agent != nil {
+		c.schedule(n, b)
 	}
+	if c.afterWrite != nil {
+		c.afterWrite(n)
+	}
+	return len(b), nil
+}
+
+// schedule puts the agent's replies to write n, of b, on their way.
+func (c *fakeTransport) schedule(n int, b []byte) {
 	for _, r := range c.agent(n, bytes.Clone(b)) {
 		c.tr.addf("agent answers #%d after %s", n, r.after)
 		due := time.Now().Add(r.after)
@@ -170,19 +183,27 @@ func (c *fakeTransport) write(b []byte, op string) (int, error) {
 		c.pending = slices.Insert(c.pending, i, pendingReply{due: due, data: r.data})
 		c.mu.Unlock()
 	}
-	return len(b), nil
 }
 
 func (c *fakeTransport) Read(b []byte) (int, error) {
 	return c.read(b, "read")
 }
 
-// read reads the earliest reply due into b.
+// read reads the earliest reply due into b, then runs afterRead.
 func (c *fakeTransport) read(b []byte, op string) (int, error) {
 	c.mu.Lock()
 	c.reads++
 	n := c.reads
 	c.mu.Unlock()
+	size, err := c.readReply(b, n, op)
+	if err == nil && c.afterRead != nil {
+		c.afterRead(n)
+	}
+	return size, err
+}
+
+// readReply is read n's wait for the earliest reply due.
+func (c *fakeTransport) readReply(b []byte, n int, op string) (int, error) {
 	if c.failRead != nil {
 		if err := c.failRead(n); err != nil {
 			c.tr.addf("%s: %v", op, err)
@@ -203,12 +224,12 @@ func (c *fakeTransport) read(b []byte, op string) (int, error) {
 		}
 		if len(c.pending) > 0 && !c.pending[0].due.After(now) {
 			msg := c.pending[0].data
-			n := copy(b, msg)
+			size := copy(b, msg)
 			c.pending = c.pending[1:]
 			if c.tr != nil {
-				c.tr.addf("%s: %s", op, describeMessage(msg[:n]))
+				c.tr.addf("%s: %s", op, describeMessage(msg[:size]))
 			}
-			return n, nil
+			return size, nil
 		}
 		var wake time.Time
 		if len(c.pending) > 0 {
@@ -337,11 +358,24 @@ func (c fakePacketTransport) WriteTo(b []byte, addr net.Addr) (int, error) {
 	return c.write(b, fmt.Sprintf("write to %s", addr))
 }
 
+// transportOf returns the fake transport x's Conn is.
+func transportOf(tb testing.TB, x *Client) *fakeTransport {
+	tb.Helper()
+	switch c := x.Conn.(type) {
+	case *fakeTransport:
+		return c
+	case fakePacketTransport:
+		return c.fakeTransport
+	}
+	tb.Fatalf("the client's Conn is a %T, not a fake transport", x.Conn)
+	return nil
+}
+
 // newEngineClient returns a v1/v2c client on conn with a 1 s timeout and 2
 // retries, completed by newEngineClientFrom.
-func newEngineClient(tb testing.TB, tr *engineTranscript, version Version, conn net.Conn) *Client {
+func newEngineClient(tb testing.TB, version Version, conn net.Conn) *Client {
 	tb.Helper()
-	return newEngineClientFrom(tb, tr, conn, &Client{
+	return newEngineClientFrom(tb, conn, &Client{
 		Version:   version,
 		Community: "public",
 		Timeout:   time.Second,
@@ -351,8 +385,8 @@ func newEngineClient(tb testing.TB, tr *engineTranscript, version Version, conn 
 
 // newEngineClientFrom completes x on conn as Connect would leave it, with
 // request IDs starting after 1000, message IDs after 2000 and the next salt
-// 0x101, and with hooks that record their calls in tr.
-func newEngineClientFrom(tb testing.TB, tr *engineTranscript, conn net.Conn, x *Client) *Client {
+// 0x101.
+func newEngineClientFrom(tb testing.TB, conn net.Conn, x *Client) *Client {
 	tb.Helper()
 	if err := x.prepare(); err != nil {
 		tb.Fatal(err)
@@ -362,26 +396,18 @@ func newEngineClientFrom(tb testing.TB, tr *engineTranscript, conn net.Conn, x *
 	x.rx = new(receiveBuffer)
 	x.SetRequestID(1000)
 	x.SetMsgID(2000)
-	if tr != nil {
-		x.PreSend = func(*Client) { tr.addf("hook PreSend") }
-		x.OnSent = func(*Client) { tr.addf("hook OnSent") }
-		x.OnRecv = func(*Client) { tr.addf("hook OnRecv") }
-		x.OnRetry = func(*Client) { tr.addf("hook OnRetry") }
-		x.OnFinish = func(*Client) { tr.addf("hook OnFinish") }
-	}
 	return x
 }
 
 // configOf returns the client's configuration a request must not write: its
-// exported fields, the SNMPv3 User included, but for the hooks (user code) and
-// Conn (the connection).
+// exported fields, the SNMPv3 User included, but for Conn (the connection).
 func configOf(x *Client) map[string]any {
 	v := reflect.ValueOf(x).Elem()
 	cfg := make(map[string]any)
 	for i := range v.NumField() {
 		f := v.Type().Field(i)
 		switch {
-		case !f.IsExported(), f.Type.Kind() == reflect.Func, f.Name == "Conn":
+		case !f.IsExported(), f.Name == "Conn":
 			continue
 		}
 		cfg[f.Name] = v.Field(i).Interface()
@@ -390,7 +416,7 @@ func configOf(x *Client) map[string]any {
 }
 
 // addConfigChanges records the configuration fields whose values changed
-// from before to the client's current ones: a test's hooks may change them,
+// from before to the client's current ones: a test's code may change them,
 // the library may not.
 func (tr *engineTranscript) addConfigChanges(before map[string]any, x *Client) {
 	after := configOf(x)

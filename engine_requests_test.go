@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"runtime"
 	"slices"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"testing/synctest"
@@ -138,19 +139,36 @@ func panicWithError() { panic(errCallerFailure) }
 // panicOnNilMap panics with a runtime error: an assignment to a nil map.
 func panicOnNilMap() {
 	var m map[string]int
-	m["hook"]++ //nolint:staticcheck // the runtime error is the point
+	m["key"]++ //nolint:staticcheck // the runtime error is the point
 }
 
-// panicOnce makes the hook *h, which the transcript names name, panic through
-// fail the first time it runs, after doing what it did before.
-func panicOnce(c *fakeTransport, name string, h *func(*Client), fail func()) {
-	next, armed := *h, true
-	*h = func(x *Client) {
-		next(x)
+// panicsOnce returns a transport function that panics through fail the first
+// time it runs, which the transcript names as what with its number n.
+func panicsOnce(c *fakeTransport, what string, fail func()) func(n int) error {
+	armed := true
+	return func(n int) error {
 		if armed {
 			armed = false
-			c.tr.addf("hook %s panics", name)
+			c.tr.addf("%s #%d panics", what, n)
 			fail()
+		}
+		return nil
+	}
+}
+
+// asAction drops the error of a transport function that never fails.
+func asAction(f func(n int) error) func(n int) {
+	return func(n int) { _ = f(n) }
+}
+
+// atDeadline makes the Conn run act as it sets deadline k in the future
+// (counted from 1), the deadline of the k-th attempt it sees, before setting
+// it.
+func atDeadline(c *fakeTransport, k int, act func()) {
+	n := 0
+	c.beforeDeadline = func() {
+		if n++; n == k {
+			act()
 		}
 	}
 }
@@ -290,6 +308,39 @@ func withUnreportedDeadline(d time.Duration) func() (context.Context, context.Ca
 	}
 }
 
+// doneAtErrCall gives a context that is done with err as its Err method is
+// called the n-th time, as if canceled, or its deadline passed, just then: a
+// request checks its context before each attempt and after each failed one,
+// so n picks a point between two attempts. It reports no deadline.
+func doneAtErrCall(n int, err error) func() (context.Context, context.CancelFunc) {
+	return func() (context.Context, context.CancelFunc) {
+		return &doneAtErr{Context: context.Background(), n: int64(n), err: err, done: make(chan struct{})}, func() {}
+	}
+}
+
+// doneAtErr is the context of doneAtErrCall; context.AfterFunc reads it on a
+// goroutine of its own.
+type doneAtErr struct {
+	context.Context
+	n     int64
+	calls atomic.Int64
+	err   error
+	done  chan struct{}
+}
+
+func (c *doneAtErr) Done() <-chan struct{} { return c.done }
+
+func (c *doneAtErr) Err() error {
+	switch n := c.calls.Add(1); {
+	case n == c.n:
+		close(c.done)
+		fallthrough
+	case n > c.n:
+		return c.err
+	}
+	return nil
+}
+
 func getOIDs(oids ...string) func(ctx context.Context, x *Client) (*Message, error) {
 	return func(ctx context.Context, x *Client) (*Message, error) { return x.Get(ctx, oids) }
 }
@@ -333,25 +384,14 @@ func engineScenarios() map[string]engineScenario {
 		"timeout/no-retries":       {setup: func(x *Client, _ *fakeTransport) { x.Retries = 0 }},
 		"timeout/negative-retries": {setup: func(x *Client, _ *fakeTransport) { x.Retries = -3 }},
 
-		// A hook that changes the client during a request.
-		"hooks/retry-sets-retries": {setup: func(x *Client, c *fakeTransport) {
-			onRetry := x.OnRetry
-			x.OnRetry = func(x *Client) {
-				onRetry(x)
-				c.tr.addf("hook OnRetry sets Retries to 0")
-				x.Retries = 0
-			}
-		}},
-		"hooks/retry-replaces-hooks": {agent: answerFrom(3, sysDescr), setup: func(x *Client, c *fakeTransport) {
-			onRetry := x.OnRetry
-			x.OnRetry = func(x *Client) {
-				onRetry(x)
-				c.tr.addf("hook OnRetry replaces the hooks")
-				replacement := func(name string) func(*Client) {
-					return func(*Client) { c.tr.addf("hook %s, the replacement", name) }
+		// The Conn's code changes the client during a request: the request
+		// keeps the configuration it started with.
+		"user-code/sets-retries": {setup: func(x *Client, c *fakeTransport) {
+			c.afterWrite = func(n int) {
+				if n == 1 {
+					c.tr.addf("the Conn's write #1 sets Retries to 0")
+					x.Retries = 0
 				}
-				x.PreSend, x.OnSent, x.OnRecv = replacement("PreSend"), replacement("OnSent"), replacement("OnRecv")
-				x.OnRetry, x.OnFinish = replacement("OnRetry"), replacement("OnFinish")
 			}
 		}},
 		"timeout/zero":          {agent: answer(sysDescr), setup: func(x *Client, _ *fakeTransport) { x.Timeout = 0 }},
@@ -573,15 +613,9 @@ func engineScenarios() map[string]engineScenario {
 		"context/deadline-in-first-attempt":   {context: withEngineTimeout(700 * time.Millisecond)},
 		"context/deadline-in-third-attempt":   {context: withEngineTimeout(2500 * time.Millisecond)},
 		"context/deadline-after-all-attempts": {context: withEngineTimeout(time.Hour)},
-		"context/deadline-during-hook": {
-			context: withEngineTimeout(1500 * time.Millisecond),
-			setup: func(x *Client, c *fakeTransport) {
-				x.OnRetry = func(*Client) {
-					c.tr.addf("hook OnRetry, which takes 1s")
-					time.Sleep(time.Second)
-				}
-			},
-		},
+		// A context canceled after the decision to retry, before the next
+		// attempt starts: the attempt does not start.
+		"context/canceled-between-attempts": {context: doneAtErrCall(3, context.Canceled)},
 		// The deadline rule does not wait for the context to report its
 		// deadline, also when the deadlines are equal.
 		"context/deadline-unreported-in-first-attempt": {context: withUnreportedDeadline(700 * time.Millisecond)},
@@ -590,12 +624,12 @@ func engineScenarios() map[string]engineScenario {
 			setup:   func(x *Client, _ *fakeTransport) { x.Retries = 0 },
 		},
 		// A context whose deadline passed ends the request after an attempt
-		// that failed otherwise, before OnRetry.
-		"context/deadline-passed-in-hook": {
+		// that failed otherwise, before the decision to retry.
+		"context/deadline-passed-in-conn-write": {
 			context: withEngineTimeout(700 * time.Millisecond),
-			setup: func(x *Client, c *fakeTransport) {
-				x.OnSent = func(*Client) {
-					c.tr.addf("hook OnSent, which takes 1s")
+			setup: func(_ *Client, c *fakeTransport) {
+				c.afterWrite = func(n int) {
+					c.tr.addf("the Conn's write #%d takes 1s", n)
 					time.Sleep(time.Second)
 				}
 				c.failRead = func(int) error { return refused }
@@ -665,38 +699,40 @@ func engineScenarios() map[string]engineScenario {
 		"close/during-attempt": {
 			agent: answerFromSecond(sysDescr),
 			setup: func(x *Client, c *fakeTransport) {
-				x.OnSent = func(x *Client) {
-					c.tr.addf("hook OnSent closes the client")
+				c.afterWrite = func(n int) {
+					c.tr.addf("the Conn's write #%d closes the client", n)
 					_ = x.Close()
 				}
 			},
 		},
+		// A Close before the second attempt sets its deadline: the attempt
+		// ends without a write.
 		"close/between-attempts": {
 			agent: answerFromSecond(sysDescr),
 			setup: func(x *Client, c *fakeTransport) {
-				x.OnRetry = func(x *Client) {
-					c.tr.addf("hook OnRetry closes the client")
+				atDeadline(c, 2, func() {
+					c.tr.addf("the Conn, setting deadline #2, closes the client")
 					_ = x.Close()
-				}
+				})
 			},
 		},
 		// A Close after the reply was read: the reply answers the request.
 		"close/after-the-reply": {agent: answer(sysDescr), setup: func(x *Client, c *fakeTransport) {
-			x.OnRecv = func(x *Client) {
-				c.tr.addf("hook OnRecv closes the client")
+			c.afterRead = func(n int) {
+				c.tr.addf("the Conn's read #%d closes the client", n)
 				_ = x.Close()
 			}
 		}},
-		// A Close after a request in which a hook replaced Conn closes the
-		// hook's connection and leaves the one the ended attempt used, the
-		// caller's again, alone.
-		"close/after-a-request-conn-replaced-by-hook": {
+		// A Close after a request in which the Conn's code replaced Conn
+		// closes the new connection and leaves the one the ended attempt used,
+		// the caller's again, alone.
+		"close/after-a-request-conn-replaced": {
 			agent: answer(sysDescr),
 			setup: func(x *Client, c *fakeTransport) {
-				hookConn := fakePacketTransport{newFakeTransport(c.tr, nil)}
-				x.OnSent = func(x *Client) {
-					c.tr.addf("hook OnSent replaces Conn")
-					x.Conn = hookConn
+				otherConn := fakePacketTransport{newFakeTransport(c.tr, nil)}
+				c.afterWrite = func(n int) {
+					c.tr.addf("the Conn's write #%d replaces Conn", n)
+					x.Conn = otherConn
 				}
 			},
 			run: func(ctx context.Context, x *Client) (*Message, error) {
@@ -705,11 +741,11 @@ func engineScenarios() map[string]engineScenario {
 				return res, err
 			},
 		},
-		// A hook removes Conn: the request fails for want of a connection, not
-		// as closed.
-		"close/conn-removed-by-hook": {setup: func(x *Client, c *fakeTransport) {
-			x.OnRetry = func(x *Client) {
-				c.tr.addf("hook OnRetry removes Conn")
+		// The Conn's code removes Conn: the next attempt fails for want of a
+		// connection, not as closed.
+		"close/conn-removed-during-request": {setup: func(x *Client, c *fakeTransport) {
+			c.afterWrite = func(n int) {
+				c.tr.addf("the Conn's write #%d removes Conn", n)
 				x.Conn = nil
 			}
 		}},
@@ -742,29 +778,33 @@ func engineScenarios() map[string]engineScenario {
 		}},
 		"request-id/set": {agent: answer(sysDescr), setup: func(x *Client, _ *fakeTransport) { x.SetRequestID(5) }},
 
-		// Hooks.
-		"hook-panics": {agent: answer(sysDescr), setup: func(x *Client, _ *fakeTransport) {
-			x.PreSend = func(*Client) { panic("codec hook failure") }
+		// The Conn's code panics in a request, which ends.
+		"panics/write": {agent: answer(sysDescr), setup: func(_ *Client, c *fakeTransport) {
+			c.failWrite = func(n int) error {
+				c.tr.addf("the Conn's write #%d panics", n)
+				panic("codec write failure")
+			}
 		}},
 
 		// The caller's code panics in a request, which ends; the next request
 		// on the client is answered.
-		"hook-panics/presend-error": {agent: answer(sysDescr), run: getAfterPanic, setup: func(x *Client, c *fakeTransport) {
-			panicOnce(c, "PreSend", &x.PreSend, panicWithError)
+		"panics/write-error": {agent: answer(sysDescr), run: getAfterPanic, setup: func(_ *Client, c *fakeTransport) {
+			c.failWrite = panicsOnce(c, "the Conn's write", panicWithError)
 		}},
-		"hook-panics/onsent-runtime-error": {agent: answer(sysDescr), run: getAfterPanic, setup: func(x *Client, c *fakeTransport) {
-			panicOnce(c, "OnSent", &x.OnSent, panicOnNilMap)
+		"panics/after-write-runtime-error": {agent: answer(sysDescr), run: getAfterPanic, setup: func(_ *Client, c *fakeTransport) {
+			c.afterWrite = asAction(panicsOnce(c, "the Conn, after its write", panicOnNilMap))
 		}},
-		"hook-panics/onrecv": {agent: answer(sysDescr), run: getAfterPanic, setup: func(x *Client, c *fakeTransport) {
-			panicOnce(c, "OnRecv", &x.OnRecv, panicWithError)
+		"panics/after-read": {agent: answer(sysDescr), run: getAfterPanic, setup: func(_ *Client, c *fakeTransport) {
+			c.afterRead = asAction(panicsOnce(c, "the Conn, after its read", panicWithError))
 		}},
-		"hook-panics/onretry": {agent: answerFromSecond(sysDescr), run: getAfterPanic, setup: func(x *Client, c *fakeTransport) {
-			panicOnce(c, "OnRetry", &x.OnRetry, panicWithError)
+		// A panic between two attempts, outside either.
+		"panics/before-retry-deadline": {agent: answerFromSecond(sysDescr), run: getAfterPanic, setup: func(_ *Client, c *fakeTransport) {
+			atDeadline(c, 2, func() {
+				c.tr.addf("the Conn, setting deadline #2, panics")
+				panicWithError()
+			})
 		}},
-		"hook-panics/onfinish": {agent: answer(sysDescr), run: getAfterPanic, setup: func(x *Client, c *fakeTransport) {
-			panicOnce(c, "OnFinish", &x.OnFinish, panicWithError)
-		}},
-		"hook-panics/conn-read": {agent: answer(sysDescr), run: getAfterPanic, setup: func(_ *Client, c *fakeTransport) {
+		"panics/read": {agent: answer(sysDescr), run: getAfterPanic, setup: func(_ *Client, c *fakeTransport) {
 			c.failRead = func(n int) error {
 				if n == 1 {
 					c.tr.addf("the Conn's read #1 panics")
@@ -780,7 +820,7 @@ func engineScenarios() map[string]engineScenario {
 
 // TestEngineRequestCharacterization pins what the request engine does for
 // v1/v2c requests: the messages it writes, the deadline of each attempt,
-// which replies it accepts, the hooks it calls and what it returns.
+// which replies it accepts and what it returns.
 // testdata/engine/requests.golden holds the transcripts.
 func TestEngineRequestCharacterization(t *testing.T) {
 	scenarios := engineScenarios()
@@ -812,7 +852,7 @@ func runEngineScenario(t *testing.T, sc engineScenario) string {
 	if sc.v1 {
 		version = Version1
 	}
-	x := newEngineClient(t, tr, version, conn)
+	x := newEngineClient(t, version, conn)
 	ctx := context.Background()
 	if sc.context != nil {
 		var cancel context.CancelFunc
@@ -852,7 +892,7 @@ func runEngineScenario(t *testing.T, sc engineScenario) string {
 func TestEngineCancelWhileSettingDeadline(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		c := newFakeTransport(nil, nil) // the agent never answers
-		x := newEngineClient(t, nil, Version2c, fakePacketTransport{c})
+		x := newEngineClient(t, Version2c, fakePacketTransport{c})
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		c.beforeDeadline = func() {
@@ -892,7 +932,7 @@ func (c *countingContext) AfterFunc(func()) func() bool {
 func TestEngineContextInterruptUnregistered(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		c := newFakeTransport(nil, answerFromSecond(sysDescr))
-		x := newEngineClient(t, nil, Version2c, fakePacketTransport{c})
+		x := newEngineClient(t, Version2c, fakePacketTransport{c})
 		ctx := &countingContext{Context: context.Background(), done: make(chan struct{})}
 		_, err := x.Get(ctx, []string{engineOID})
 		require.NoError(t, err)
@@ -908,7 +948,7 @@ func TestEngineLateContextInterrupt(t *testing.T) {
 	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(1))
 	synctest.Test(t, func(t *testing.T) {
 		c := newFakeTransport(nil, nil)
-		x := newEngineClient(t, nil, Version2c, fakePacketTransport{c})
+		x := newEngineClient(t, Version2c, fakePacketTransport{c})
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		ended := x.interruptible(ctx, x.Conn)
@@ -968,7 +1008,7 @@ func TestEngineUncomparableConn(t *testing.T) {
 	}
 }
 
-// TestRequestPanicNil checks that a hook's panic(nil) ends the request with no
+// TestRequestPanicNil checks that a Conn's panic(nil) ends the request with no
 // packet and an error, by default (a *runtime.PanicNilError) and under
 // GODEBUG=panicnil=1, where recover returns nil: for that setting the test
 // runs itself again in a child process.
@@ -981,8 +1021,9 @@ func TestRequestPanicNil(t *testing.T) {
 		require.NoError(t, err, "%s", out)
 		require.Contains(t, string(out), "--- PASS: TestRequestPanicNil", "the child ran the test")
 	}
-	x := newEngineClient(t, nil, Version2c, fakePacketTransport{newFakeTransport(nil, answer(sysDescr))})
-	x.PreSend = func(*Client) { panic(nil) } //nolint:govet // the nil panic is the point
+	c := newFakeTransport(nil, answer(sysDescr))
+	x := newEngineClient(t, Version2c, fakePacketTransport{c})
+	c.failWrite = func(int) error { panic(nil) } //nolint:govet // the nil panic is the point
 	res, err := x.Get(context.Background(), []string{engineOID})
 	assert.Nil(t, res)
 	want := "request panicked: runtime error: panic called with nil argument"
@@ -1032,7 +1073,7 @@ func TestRequestContextPanicCleanup(t *testing.T) {
 			for _, interrupt := range []string{"cancel", "close-replaced-conn"} {
 				t.Run(stage+"/"+value.name+"/"+interrupt, func(t *testing.T) {
 					synctest.Test(t, func(t *testing.T) {
-						x := newEngineClient(t, nil, Version2c, newFakeTransport(nil, nil))
+						x := newEngineClient(t, Version2c, newFakeTransport(nil, nil))
 						x.Timeout, x.Retries = time.Hour, 0
 						panicking := &panicInterruptContext{
 							Context: context.Background(), done: make(chan struct{}),
@@ -1057,10 +1098,10 @@ func TestRequestContextPanicCleanup(t *testing.T) {
 						ctx, cancel := context.WithCancel(context.Background())
 						defer cancel()
 						wantErr := context.Canceled
-						x.OnSent = func(*Client) { cancel() }
+						conn.afterWrite = func(int) { cancel() }
 						if interrupt == "close-replaced-conn" {
 							wantErr = net.ErrClosed
-							x.OnSent = func(x *Client) {
+							conn.afterWrite = func(int) {
 								x.Conn = newFakeTransport(nil, nil)
 								require.NoError(t, x.Close()) // must interrupt conn too
 							}
@@ -1112,27 +1153,35 @@ func TestEngineReadCountOutsideBuffer(t *testing.T) {
 			x := &Client{
 				Target: "127.0.0.1", Port: port, Community: "public", Version: Version2c,
 				Timeout: 300 * time.Millisecond, Retries: 1,
-				OnRetry: func(*Client) { got.retries++ },
 			}
 			require.NoError(t, x.Connect(context.Background()))
 			defer x.Close()
-			x.Conn = &badCountConn{Conn: x.Conn, count: tc.count, err: tc.err}
+			bad := &badCountConn{Conn: x.Conn, count: tc.count, err: tc.err}
+			x.Conn = bad
 			for range 2 {
 				_, err := x.Get(context.Background(), []string{engineOID})
 				got.failed = append(got.failed, err != nil)
 			}
+			got.retries = bad.writes - len(got.failed) // a write per attempt
 			assert.Equal(t, tc.want, got)
 		})
 	}
 }
 
 // badCountConn is a Conn whose first Read returns count's count and err
-// without reading, breaking the io.Reader contract; its other calls go to Conn.
+// without reading, breaking the io.Reader contract; its other calls go to
+// Conn, and it counts its writes, one per attempt.
 type badCountConn struct {
 	net.Conn
-	count func(p []byte) int
-	err   error
-	done  bool
+	count  func(p []byte) int
+	err    error
+	done   bool
+	writes int
+}
+
+func (c *badCountConn) Write(p []byte) (int, error) {
+	c.writes++
+	return c.Conn.Write(p)
 }
 
 func (c *badCountConn) Read(p []byte) (int, error) {
@@ -1183,7 +1232,7 @@ func BenchmarkSendOneRequest(b *testing.B) {
 	c := newFakeTransport(nil, func(_ int, req []byte) []agentReply {
 		return []agentReply{{data: replyTo(req, nil, VarBind{Name: oid, Value: Counter64Value(3825929753)})}}
 	})
-	x := newEngineClient(b, nil, Version2c, fakePacketTransport{c})
+	x := newEngineClient(b, Version2c, fakePacketTransport{c})
 	pkt := x.NewMessage(GetRequest, []VarBind{{Name: oid, Value: NullValue()}}, 0, 0)
 	cfg := x.prepareRequest(context.Background())
 
@@ -1518,7 +1567,7 @@ func TestExchangeEndErrors(t *testing.T) {
 // transport.
 func BenchmarkGet(b *testing.B) {
 	c := newFakeTransport(nil, answer(sysDescr))
-	x := newEngineClient(b, nil, Version2c, c)
+	x := newEngineClient(b, Version2c, c)
 	b.ReportAllocs()
 	for b.Loop() {
 		if _, err := x.Get(context.Background(), []string{engineOID}); err != nil {
