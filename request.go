@@ -33,9 +33,10 @@ func (x *Client) NewMessage(pduType PDUType, varBinds []VarBind, nonRepeaters ui
 }
 
 // Get sends a GET request for oids, at most MaxOids of them, within ctx, and
-// returns the answer, a Response whatever its error-status; on an error it
+// returns the answer, a Response whose error-status is NoError; on an error it
 // returns no message, also when the agent's answer ended the request (an
-// SNMPv3 Report), whose error then matches ErrAnswered (see the package
+// SNMPv3 Report, or a Response with another error-status, whose error is a
+// *StatusError), whose error then matches ErrAnswered (see the package
 // documentation, Errors). A done ctx ends the request with its error (see
 // the package documentation, Attempts and timeouts); a nil ctx fails it
 // before it is sent.

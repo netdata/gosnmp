@@ -423,6 +423,16 @@ func engineScenarios() map[string]engineScenario {
 		},
 		"answer/empty-with-error-status-wrong-id": {agent: answerWith(func(p *Message) { p.RequestID += 100; p.ErrorStatus = GenErr })},
 		"answer/error-status":                     {agent: answerWith(func(p *Message) { p.ErrorStatus, p.ErrorIndex = NoSuchName, 1 }, VarBind{Name: engineOID, Value: NullValue()})},
+		// Error statuses as agents send them: the request's varbinds echoed
+		// (RFC 3416 section 4.2.1), none for tooBig, an index past them, and a
+		// status RFC 3416 does not name.
+		"answer/error-status/gen-err":    {agent: answerWith(func(p *Message) { p.ErrorStatus, p.ErrorIndex = GenErr, 1 }, VarBind{Name: engineOID, Value: NullValue()})},
+		"answer/error-status/too-big":    {agent: answerWith(func(p *Message) { p.ErrorStatus = TooBig })},
+		"answer/error-status/index-past": {agent: answerWith(func(p *Message) { p.ErrorStatus, p.ErrorIndex = NoAccess, 5 }, VarBind{Name: engineOID, Value: NullValue()})},
+		"answer/error-status/unknown":    {agent: answerWith(func(p *Message) { p.ErrorStatus, p.ErrorIndex = InconsistentName+1, 1 }, sysDescr)},
+		"answer/error-status/v1-no-such-name": {
+			v1: true, agent: answerWith(func(p *Message) { p.ErrorStatus, p.ErrorIndex = NoSuchName, 1 }, VarBind{Name: engineOID, Value: NullValue()}),
+		},
 		"answer/not-a-response": {
 			agent: answerWith(func(p *Message) { p.PDUType = GetRequest }, sysDescr),
 		},

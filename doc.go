@@ -87,9 +87,9 @@
 // SNMPv2c Response with one of its request IDs, else the last one whose ID
 // could not be read, as one of another SNMP version; messages to other
 // requests do not count), and its text ends with ": last discarded reply: "
-// and that reason's text. An answer's error status ([Message].ErrorStatus) is
-// not an error of the request. Connect uses Timeout and its context too, for
-// its lookup of Target and its dial together.
+// and that reason's text. A Response whose error-status is not NoError ends
+// the request with a [*StatusError] (see Errors). Connect uses Timeout and its
+// context too, for its lookup of Target and its dial together.
 //
 // # Panics
 //
@@ -215,7 +215,12 @@
 // # Walks
 //
 // [Client.WalkAll] and [Client.BulkWalkAll] return the values of a subtree, in
-// order. BulkWalkAll takes the max-repetitions of its GETBULK requests as an
+// order, and how the walk ended ([WalkEnd]): the reason, and the varbind that
+// ended it, such as the first name outside the subtree, an EndOfMibView, or
+// the answer to the Get of a root that is a leaf, whose NoSuchObject or
+// NoSuchInstance tells an object the agent does not have from an instance it
+// does not have. A walk that fails returns the values before its error.
+// BulkWalkAll takes the max-repetitions of its GETBULK requests as an
 // argument. Their docs say how a walk starts and ends.
 //
 // # Values
@@ -508,14 +513,21 @@
 // matches none of them, nor does a transport error or a timeout without a
 // discarded reply.
 //
+// A request answered by a Response whose error-status is not NoError fails
+// with a [*StatusError], whose fields give the status and the error-index
+// ([errors.As]); it matches no category, since the answer is a valid message.
+// So does a walk, but for the statuses its end rule takes for an end (see
+// [Client.BulkWalkAll]).
+//
 // [ErrAnswered] says whether the agent's answer ended a request: the error of
-// a request (a walk's included) that a Report or a discovery answer without an
-// engine ID ended also matches it, besides the answer's category, while the
-// library marks no error of a request that ended without an answer, a timeout
-// after discarded replies included; errors of the caller's own code (a context
-// it gave, and a panic in one) pass through unchanged. A failed request returns
-// no message, so this is how a caller tells an agent that answered from one
-// that did not.
+// a request (a walk's included) that a Report, a discovery answer without an
+// engine ID or a Response with an error-status (a [*StatusError]) ended also
+// matches it, besides the answer's category when it has one, while the library
+// marks no error of a request that ended without an answer, a timeout after
+// discarded replies included; errors of the caller's own code (a context it
+// gave, and a panic in one) pass through unchanged. A failed request returns no
+// message, so this is how a caller tells an agent that answered from one that
+// did not.
 //
 // The categories are variables only so that errors.Is can match them; do not
 // assign to them. The library makes some of its errors with their values when

@@ -168,8 +168,7 @@ type walkScenario struct {
 	script         func(n int, req, out *Message) bool
 	// context, when set, gives the walk's context; its cancel runs when the
 	// scenario ends.
-	context  func() (context.Context, context.CancelFunc)
-	knownBug string
+	context func() (context.Context, context.CancelFunc)
 }
 
 // onWalkRequest changes the answer to request n only.
@@ -260,13 +259,13 @@ func walkScenarios() map[string]walkScenario {
 			root:   ".1.3.6.1.2.1.1.5.0",
 			script: onWalkRequest(2, errorStatus(GenErr)),
 		},
-		// The leaf's Get answered with a status no RFC names.
+		// The leaf's Get answered with a status no RFC names and the root's
+		// value: an error-status, so no value.
 		"leaf/get-unknown-status": {
 			root: ".1.3.6.1.2.1.1.5.0",
 			script: onWalkRequest(2, func(_, out *Message) {
 				out.ErrorStatus = InconsistentName + 1
 			}),
-			knownBug: "an error status the walk does not name is ignored and the root's value passed on",
 		},
 		// The leaf's Get answered with another name before the root's value.
 		"leaf/get-other-name-first": {
@@ -279,15 +278,10 @@ func walkScenarios() map[string]walkScenario {
 			script: onWalkRequest(2, varbinds()),
 		},
 
-		// Answers a walk does not expect.
-		"empty-response": {
-			root: walkSystem, script: onWalkRequest(2, varbinds()),
-			knownBug: "an empty response ends the walk with a nil error",
-		},
-		"empty-response/bulk": {
-			root: walkSystem, bulk: true, script: onWalkRequest(1, varbinds()),
-			knownBug: "an empty response ends the walk with a nil error",
-		},
+		// Answers a walk does not expect. An empty answer ends the walk
+		// without an error, also as the first answer.
+		"empty-response":            {root: walkSystem, script: onWalkRequest(2, varbinds())},
+		"empty-response/bulk":       {root: walkSystem, bulk: true, script: onWalkRequest(1, varbinds())},
 		"not-increasing/equal":      {root: walkSystem, script: onWalkRequest(2, varbinds(walkMIB[0]))},
 		"not-increasing/decreasing": {root: walkIfDescr, script: onWalkRequest(3, varbinds(ifDescr(0)))},
 		// Each name is compared with the request's, as in net-snmp's
@@ -362,29 +356,40 @@ func walkScenarios() map[string]walkScenario {
 		},
 	}
 
-	// Every error status the walk names, and one it does not. NoSuchName
-	// ends a walk without an error in net-snmp's snmpwalk too.
+	// Every error status RFC 3416 names, and two it does not: each but
+	// NoSuchName, which ends a walk without an error as in net-snmp's
+	// snmpwalk, fails the walk with the values before it.
 	for status := TooBig; status <= InconsistentName; status++ {
 		sc := walkScenario{root: walkSystem, script: onWalkRequest(2, errorStatus(status))}
-		if status != NoSuchName {
-			sc.knownBug = "an error status ends the walk with a nil error and the values so far"
-		}
 		scenarios[fmt.Sprintf("error-status/%d-%v", status, status)] = sc
 	}
 	scenarios["error-status/19-unknown"] = walkScenario{
 		root: walkSystem, script: onWalkRequest(2, errorStatus(InconsistentName+1)),
-		knownBug: "an error status the walk does not name is ignored and the varbinds walked",
 	}
 	scenarios["error-status/19-unknown-empty"] = walkScenario{
 		root: walkSystem,
 		script: onWalkRequest(2, func(_, out *Message) {
 			out.ErrorStatus, out.ErrorIndex, out.VarBinds = InconsistentName+1, 0, nil
 		}),
-		knownBug: "an empty response ends the walk with a nil error",
 	}
 	scenarios["error-status/bulk-too-big"] = walkScenario{
 		root: walkSystem, bulk: true, script: onWalkRequest(1, errorStatus(TooBig)),
-		knownBug: "an error status ends the walk with a nil error and the values so far",
+	}
+	// Another error status as a walk's first answer: nothing collected, no
+	// Get of the root.
+	scenarios["error-status/first-answer-gen-err"] = walkScenario{
+		root: walkSystem, script: onWalkRequest(1, errorStatus(GenErr)),
+	}
+	// tooBig answering a later GetBulk, after values.
+	scenarios["error-status/bulk-too-big-later"] = walkScenario{
+		root: walkIfDescr, bulk: true, maxRepetitions: 1, script: onWalkRequest(2, errorStatus(TooBig)),
+	}
+	// The leaf's Get answered with tooBig and with noSuchName in SNMPv2c.
+	scenarios["leaf/get-too-big"] = walkScenario{
+		root: ".1.3.6.1.2.1.1.5.0", script: onWalkRequest(2, errorStatus(TooBig)),
+	}
+	scenarios["leaf/get-no-such-name"] = walkScenario{
+		root: ".1.3.6.1.2.1.1.5.0", script: onWalkRequest(2, errorStatus(NoSuchName)),
 	}
 	// NoSuchName as an SNMPv2c walk's first answer, with and without the
 	// request's varbinds: the status is read first, and the walk gets the root.
@@ -401,8 +406,8 @@ func walkScenarios() map[string]walkScenario {
 }
 
 // TestEngineWalkCharacterization pins what WalkAll and BulkWalkAll request
-// and return, known bugs included: the subtree walked, the leaf fallback to a
-// Get, the end of the MIB, error statuses, exception values and the
+// and return, and how each walk ended: the subtree walked, the leaf fallback
+// to a Get, the end of the MIB, error statuses, exception values and the
 // increasing check.
 // testdata/engine/walk.golden holds the transcripts.
 func TestEngineWalkCharacterization(t *testing.T) {
@@ -476,11 +481,11 @@ func TestEngineWalkRootSpellings(t *testing.T) {
 						root := spelling.root(tc.root)
 						walk := x.WalkAll
 						if api == "BulkWalkAll" {
-							walk = func(ctx context.Context, rootOid string) ([]VarBind, error) {
+							walk = func(ctx context.Context, rootOid string) ([]VarBind, WalkEnd, error) {
 								return x.BulkWalkAll(ctx, rootOid, 0)
 							}
 						}
-						got, err := walk(context.Background(), root)
+						got, _, err := walk(context.Background(), root)
 						if tc.equal {
 							if err == nil || !strings.Contains(err.Error(), "OID not increasing") {
 								t.Errorf("error = %v, want OID not increasing", err)
@@ -522,15 +527,17 @@ func runWalkScenario(t *testing.T, sc walkScenario) string {
 	tr.addf("client: %v root=%q bulk=%t max-repetitions=%d", x.config.Version, sc.root, sc.bulk, sc.maxRepetitions)
 	walk := x.WalkAll
 	if sc.bulk {
-		walk = func(ctx context.Context, rootOid string) ([]VarBind, error) {
+		walk = func(ctx context.Context, rootOid string) ([]VarBind, WalkEnd, error) {
 			return x.BulkWalkAll(ctx, rootOid, sc.maxRepetitions)
 		}
 	}
 	var err error
 	run := func() {
 		var vbs []VarBind
-		vbs, err = walk(ctx, sc.root)
+		var end WalkEnd
+		vbs, end, err = walk(ctx, sc.root)
 		tr.addf("values: %s", describeVarbinds(vbs))
+		tr.addf("end: %s", describeWalkEnd(end))
 	}
 	if v, _ := recoverPanic(run); v != nil {
 		tr.addf("panic: %v", v)
@@ -539,10 +546,22 @@ func runWalkScenario(t *testing.T, sc walkScenario) string {
 	} else {
 		tr.addf("result: no error")
 	}
-	if sc.knownBug != "" {
-		tr.addf("known bug: %s", sc.knownBug)
-	}
 	return tr.text()
+}
+
+// describeWalkEnd describes how a walk ended: none for the zero WalkEnd, else
+// its reason and its varbind, when it has one.
+func describeWalkEnd(end WalkEnd) string {
+	if end.Reason == 0 {
+		if end.VarBind.Name != "" || end.VarBind.Value.Type() != UnknownType {
+			return fmt.Sprintf("none with a varbind %s", describeVarbinds([]VarBind{end.VarBind}))
+		}
+		return "none"
+	}
+	if end.VarBind.Name == "" && end.VarBind.Value.Type() == UnknownType {
+		return end.Reason.String()
+	}
+	return fmt.Sprintf("%v %s", end.Reason, describeVarbinds([]VarBind{end.VarBind}))
 }
 
 // BenchmarkWalk runs WalkAll and BulkWalkAll, as the Netdata Agent's SNMP
@@ -555,18 +574,18 @@ func BenchmarkWalk(b *testing.B) {
 	}
 	mib = append(mib, VarBind{Name: ".1.3.6.1.4.1.99999.1.1.1.1.2.3.5.1", Value: IntegerValue(1)})
 
-	for name, walkAll := range map[string]func(x *Client) ([]VarBind, error){
-		"WalkAll":     func(x *Client) ([]VarBind, error) { return x.WalkAll(context.Background(), root) },
-		"BulkWalkAll": func(x *Client) ([]VarBind, error) { return x.BulkWalkAll(context.Background(), root, 0) },
+	for name, walkAll := range map[string]func(x *Client) ([]VarBind, WalkEnd, error){
+		"WalkAll":     func(x *Client) ([]VarBind, WalkEnd, error) { return x.WalkAll(context.Background(), root) },
+		"BulkWalkAll": func(x *Client) ([]VarBind, WalkEnd, error) { return x.BulkWalkAll(context.Background(), root, 0) },
 	} {
 		b.Run(name, func(b *testing.B) {
 			agent := &mibAgent{mib: mib}
 			x := newEngineClient(b, Version2c, newFakeTransport(nil, agent.handle))
 			b.ReportAllocs()
 			for b.Loop() {
-				vbs, err := walkAll(x)
-				if err != nil || len(vbs) != 100 {
-					b.Fatalf("%d values, error %v", len(vbs), err)
+				vbs, end, err := walkAll(x)
+				if err != nil || len(vbs) != 100 || end.Reason != WalkOutside {
+					b.Fatalf("%d values, end %v, error %v", len(vbs), end.Reason, err)
 				}
 			}
 		})
@@ -575,38 +594,48 @@ func BenchmarkWalk(b *testing.B) {
 
 // TestWalkEndedByReport pins that a walk an SNMPv3 Report ends returns the
 // values before it with an error that matches ErrAnswered and the Report's
-// category: the agent answers the discovery and the walk's first request, then
-// rejects the next with a usmStatsUnknownUserNames Report.
+// category, and no end: the agent answers the discovery and the walk's first
+// request, then rejects the next with a usmStatsUnknownUserNames Report, the
+// walk's second request or the Get of a leaf root.
 func TestWalkEndedByReport(t *testing.T) {
-	const root = ".1.3.6.1.2.1.2"
-	first := VarBind{Name: root + ".1.0", Value: IntegerValue(1)}
-	walks := map[string]func(*Client, context.Context, string) ([]VarBind, error){
+	first := VarBind{Name: ".1.3.6.1.2.1.2.1.0", Value: IntegerValue(1)}
+	cases := map[string]struct {
+		root string
+		want []VarBind
+	}{
+		"second-request": {root: ".1.3.6.1.2.1.2", want: []VarBind{first}},
+		"leaf-get":       {root: ".1.3.6.1.2.1.1.5.0"}, // the first answer, first, is outside it
+	}
+	walks := map[string]func(*Client, context.Context, string) ([]VarBind, WalkEnd, error){
 		"WalkAll": (*Client).WalkAll,
-		"BulkWalkAll": func(x *Client, ctx context.Context, rootOid string) ([]VarBind, error) {
+		"BulkWalkAll": func(x *Client, ctx context.Context, rootOid string) ([]VarBind, WalkEnd, error) {
 			return x.BulkWalkAll(ctx, rootOid, 0)
 		},
 	}
-	for name, walk := range walks {
-		t.Run(name, func(t *testing.T) {
-			agent := newFakeV3Agent(nil, agentCreds, first)
-			agent.script = func(n int, _ agentRequest) (agentAnswer, bool) {
-				if n < 3 {
-					return agentAnswer{}, false
+	for name, tc := range cases {
+		for api, walk := range walks {
+			t.Run(name+"/"+api, func(t *testing.T) {
+				agent := newFakeV3Agent(nil, agentCreds, first)
+				agent.script = func(n int, _ agentRequest) (agentAnswer, bool) {
+					if n < 3 {
+						return agentAnswer{}, false
+					}
+					return agentAnswer{report: usmStatsUnknownUserNames, why: "rejects the walk's second request"}, true
 				}
-				return agentAnswer{report: usmStatsUnknownUserNames, why: "rejects the walk's second request"}, true
-			}
-			c := newFakeTransport(nil, agent.handle)
-			x := newEngineClientFrom(t, c, Config{
-				Version:       Version3,
-				SecurityLevel: NoAuthNoPriv,
-				User:          agentCreds["codec-noauth"].user("codec-noauth"),
-				Timeout:       time.Second,
-				Retries:       2,
+				c := newFakeTransport(nil, agent.handle)
+				x := newEngineClientFrom(t, c, Config{
+					Version:       Version3,
+					SecurityLevel: NoAuthNoPriv,
+					User:          agentCreds["codec-noauth"].user("codec-noauth"),
+					Timeout:       time.Second,
+					Retries:       2,
+				})
+				values, end, err := walk(x, context.Background(), tc.root)
+				require.ErrorIs(t, err, ErrAnswered)
+				require.ErrorIs(t, err, ErrUnknownUsername)
+				require.Equal(t, tc.want, values)
+				require.Equal(t, WalkEnd{}, end)
 			})
-			values, err := walk(x, context.Background(), root)
-			require.ErrorIs(t, err, ErrAnswered)
-			require.ErrorIs(t, err, ErrUnknownUsername)
-			require.Equal(t, []VarBind{first}, values)
-		})
+		}
 	}
 }

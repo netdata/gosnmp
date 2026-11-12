@@ -29,9 +29,9 @@ For support and help with this fork, open an [issue](https://github.com/netdata/
 GoSNMP has the following SNMP functions:
 
 * **NewClient** - makes a client of a `Config`, which it checks, with defaults for a zero port (161), timeout (1 s) and `MaxOids` (60).
-* **Get** - one or more OIDs, up to `MaxOids` (60 by default).
-* **WalkAll** - retrieve a subtree of values using GETNEXT.
-* **BulkWalkAll** - retrieve a subtree of values using GETBULK (SNMPv2c and SNMPv3 only), with the walk's max-repetitions.
+* **Get** - one or more OIDs, up to `MaxOids` (60 by default); an answer with an error-status fails it with a `*StatusError`.
+* **WalkAll** - retrieve a subtree of values using GETNEXT, and how the walk ended (`WalkEnd`).
+* **BulkWalkAll** - retrieve a subtree of values using GETBULK (SNMPv2c and SNMPv3 only), with the walk's max-repetitions, and how the walk ended.
 * **Receiver** - decodes received traps and informs with its SNMPv3 users, by engine ID, and returns the answers the RFCs give: the Response to an inform, as its authoritative engine, and the Reports a sender discovers its engine ID and time by; the library does not listen for notifications or send answers.
 * **EncodeMessage** and **DecodeMessage** - encode and decode messages for other transports and for tests.
 

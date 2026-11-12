@@ -165,12 +165,15 @@ func TestGenericWalk(t *testing.T) {
 	gs := connectToTarget(t, testConfig())
 	defer gs.Close()
 
-	result, err := gs.WalkAll(context.Background(), "")
+	result, end, err := gs.WalkAll(context.Background(), "")
 	if err != nil {
 		t.Fatalf("WalkAll() Failed with error => %v", err)
 	}
 	if len(result) <= 1 {
 		t.Fatalf("Expected multiple values, got %d", len(result))
+	}
+	if end.Reason != WalkException || end.VarBind.Value.Type() != EndOfMibView {
+		t.Fatalf("Expected the walk to end at EndOfMibView, got %v %v", end.Reason, end.VarBind)
 	}
 }
 
@@ -178,12 +181,15 @@ func TestGenericBulkWalk(t *testing.T) {
 	gs := connectToTarget(t, testConfig())
 	defer gs.Close()
 
-	result, err := gs.BulkWalkAll(context.Background(), "", 0)
+	result, end, err := gs.BulkWalkAll(context.Background(), "", 0)
 	if err != nil {
 		t.Fatalf("BulkWalkAll() Failed with error => %v", err)
 	}
 	if len(result) <= 1 {
 		t.Fatalf("Expected multiple values, got %d", len(result))
+	}
+	if end.Reason != WalkException || end.VarBind.Value.Type() != EndOfMibView {
+		t.Fatalf("Expected the walk to end at EndOfMibView, got %v %v", end.Reason, end.VarBind)
 	}
 }
 
@@ -196,7 +202,7 @@ func TestGenericBulkWalkMaxRepetitions(t *testing.T) {
 
 	walkNames := func(t *testing.T, maxRepetitions uint32) []string {
 		t.Helper()
-		values, err := gs.BulkWalkAll(context.Background(), ".1.3.6.1.2.1.1", maxRepetitions) // SNMP MIB-2 system
+		values, _, err := gs.BulkWalkAll(context.Background(), ".1.3.6.1.2.1.1", maxRepetitions) // SNMP MIB-2 system
 		if err != nil {
 			t.Fatalf("BulkWalkAll() failed with error => %v", err)
 		}
@@ -226,9 +232,82 @@ func TestV1BulkWalkError(t *testing.T) {
 
 	g.Close()
 
-	_, err := g.BulkWalkAll(context.Background(), "", 0)
+	_, _, err := g.BulkWalkAll(context.Background(), "", 0)
 	if err == nil {
 		t.Fatalf("BulkWalkAll() should fail in SNMPv1 but returned nil")
+	}
+}
+
+// TestGenericWalkEnd walks roots that end a walk in each way an agent ends
+// one, with GETNEXT and GETBULK, and checks how each walk ended: the system
+// group past its last object, a leaf scalar got with one Get, an instance the
+// agent does not have (NoSuchInstance) and an object it does not have
+// (NoSuchObject); and over SNMPv1, the noSuchName that ends the agent's MIB,
+// and a root past it.
+func TestGenericWalkEnd(t *testing.T) {
+	const (
+		system  = ".1.3.6.1.2.1.1"
+		sysName = ".1.3.6.1.2.1.1.5.0"
+	)
+	type want struct {
+		reason  WalkReason
+		name    string    // the end's varbind name, "" for any
+		typ     ValueType // the end's varbind type
+		values  int       // -1 for more than one
+		outside bool      // the end's varbind is outside the root
+	}
+	cases := map[string]struct {
+		version Version
+		root    string
+		want    want
+	}{
+		"subtree":          {version: Version2c, root: system, want: want{reason: WalkOutside, values: -1, outside: true}},
+		"leaf":             {version: Version2c, root: sysName, want: want{reason: WalkLeaf, name: sysName, typ: OctetString, values: 1}},
+		"no-such-instance": {version: Version2c, root: ".1.3.6.1.2.1.1.5.1", want: want{reason: WalkLeaf, name: ".1.3.6.1.2.1.1.5.1", typ: NoSuchInstance}},
+		"no-such-object":   {version: Version2c, root: ".1.3.6.1.2.1.1.10", want: want{reason: WalkLeaf, name: ".1.3.6.1.2.1.1.10", typ: NoSuchObject}},
+		"v1/subtree":       {version: Version1, root: system, want: want{reason: WalkOutside, values: -1, outside: true}},
+		"v1/whole-mib":     {version: Version1, root: "", want: want{reason: WalkNoSuchName, values: -1}},
+		// A root past the agent's last object: the walk gets it, which the
+		// agent answers with noSuchName.
+		"v1/past-the-mib": {version: Version1, root: ".1.3.6.1.6.3.99", want: want{reason: WalkLeaf}},
+	}
+	for name, tc := range cases {
+		config := testConfig()
+		config.Version = tc.version
+		gs := connectToTarget(t, config)
+		walks := map[string]func() ([]VarBind, WalkEnd, error){
+			"WalkAll": func() ([]VarBind, WalkEnd, error) { return gs.WalkAll(context.Background(), tc.root) },
+		}
+		if tc.version != Version1 {
+			walks["BulkWalkAll"] = func() ([]VarBind, WalkEnd, error) { return gs.BulkWalkAll(context.Background(), tc.root, 0) }
+		}
+		for api, walk := range walks {
+			t.Run(name+"/"+api, func(t *testing.T) {
+				values, end, err := walk()
+				if err != nil {
+					t.Fatalf("walk: %v", err)
+				}
+				switch {
+				case tc.want.values < 0 && len(values) <= 1:
+					t.Errorf("values = %d, want more than one", len(values))
+				case tc.want.values >= 0 && len(values) != tc.want.values:
+					t.Errorf("values = %v, want %d", values, tc.want.values)
+				}
+				if end.Reason != tc.want.reason {
+					t.Errorf("end = %v, want %v", end.Reason, tc.want.reason)
+				}
+				if tc.want.name != "" && end.VarBind.Name != tc.want.name {
+					t.Errorf("end varbind = %q, want %q", end.VarBind.Name, tc.want.name)
+				}
+				if tc.want.typ != UnknownType && end.VarBind.Value.Type() != tc.want.typ {
+					t.Errorf("end varbind type = %v, want %v", end.VarBind.Value.Type(), tc.want.typ)
+				}
+				if tc.want.outside && (end.VarBind.Name == "" || strings.HasPrefix(end.VarBind.Name, tc.root+".")) {
+					t.Errorf("end varbind %q is not outside %s", end.VarBind.Name, tc.root)
+				}
+			})
+		}
+		gs.Close()
 	}
 }
 
@@ -337,7 +416,7 @@ func TestSnmpV3Users(t *testing.T) {
 				t.Fatalf("Got a zero length sysDescr")
 			}
 
-			values, err := gs.BulkWalkAll(context.Background(), ".1.3.6.1.2.1.1", 0) // SNMP MIB-2 system
+			values, _, err := gs.BulkWalkAll(context.Background(), ".1.3.6.1.2.1.1", 0) // SNMP MIB-2 system
 			if err != nil {
 				t.Fatalf("BulkWalkAll() failed with error => %v", err)
 			}

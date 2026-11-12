@@ -529,7 +529,7 @@ func TestCloseDuringWalk(t *testing.T) {
 		}
 	})
 	start := time.Now()
-	_, err := x.BulkWalkAll(context.Background(), root, 0)
+	_, _, err := x.BulkWalkAll(context.Background(), root, 0)
 	require.ErrorIs(t, err, net.ErrClosed)
 	assert.Less(t, time.Since(start), 5*time.Second, "the walk ends before its request's timeout")
 	closers.Wait()

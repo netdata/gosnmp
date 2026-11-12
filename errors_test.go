@@ -5,8 +5,10 @@
 package gosnmp
 
 import (
+	"context"
 	"errors"
 	"testing"
+	"testing/synctest"
 
 	"github.com/netdata/gosnmp/internal/ber"
 )
@@ -138,4 +140,68 @@ func TestUnmatchedReplyReasons(t *testing.T) {
 			t.Errorf("%q: categories %v, want [ErrUnmatchedReply]", reason, got)
 		}
 	}
+}
+
+// TestStatusError pins the error of a Response with an error-status as a
+// caller reads it: Get returns no message and a *StatusError whose fields are
+// the answer's status and index, which matches ErrAnswered and no category; a
+// walk returns the values before it with it and no end.
+func TestStatusError(t *testing.T) {
+	gets := map[string]struct {
+		version Version
+		status  ErrorStatus
+		index   uint8
+	}{
+		"v1 noSuchName":     {version: Version1, status: NoSuchName, index: 2},
+		"v2c genErr":        {version: Version2c, status: GenErr, index: 1},
+		"v2c tooBig":        {version: Version2c, status: TooBig},
+		"v2c unnamed":       {version: Version2c, status: InconsistentName + 1, index: 3},
+		"v2c index past it": {version: Version2c, status: NoAccess, index: 255},
+	}
+	for name, tc := range gets {
+		t.Run("Get/"+name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				agent := answerWith(func(p *Message) { p.ErrorStatus, p.ErrorIndex = tc.status, tc.index })
+				x := newEngineClient(t, tc.version, newFakeTransport(nil, agent))
+				result, err := x.Get(context.Background(), []string{engineOID, ".1.3.6.1.2.1.1.5.0"})
+				var got *StatusError
+				if !errors.As(err, &got) {
+					t.Fatalf("error = %v, want a *StatusError", err)
+				}
+				if *got != (StatusError{Status: tc.status, Index: tc.index}) {
+					t.Errorf("StatusError = %+v, want status %v index %d", *got, tc.status, tc.index)
+				}
+				if result != nil {
+					t.Errorf("result = %v, want none", result)
+				}
+				if !errors.Is(err, ErrAnswered) {
+					t.Error("error does not match ErrAnswered")
+				}
+				for _, c := range errorCategories {
+					if errors.Is(err, c.err) {
+						t.Errorf("error matches the category %s", c.name)
+					}
+				}
+			})
+		})
+	}
+	t.Run("BulkWalkAll", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			agent := &mibAgent{mib: walkMIB, script: onWalkRequest(2, func(_, out *Message) {
+				out.ErrorStatus, out.ErrorIndex, out.VarBinds = TooBig, 0, nil
+			})}
+			x := newEngineClient(t, Version2c, newFakeTransport(nil, agent.handle))
+			values, end, err := x.BulkWalkAll(context.Background(), walkIfDescr, 1)
+			var got *StatusError
+			if !errors.As(err, &got) || *got != (StatusError{Status: TooBig}) {
+				t.Fatalf("error = %v, want the *StatusError of tooBig", err)
+			}
+			if len(values) != 1 || values[0].Name != walkMIB[3].Name {
+				t.Errorf("values = %v, want the first answer's", values)
+			}
+			if end.Reason != 0 {
+				t.Errorf("end = %v, want none", end.Reason)
+			}
+		})
+	})
 }
