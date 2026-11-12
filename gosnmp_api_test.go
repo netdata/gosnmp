@@ -28,7 +28,6 @@ func TestAPIConfigTypes(_ *testing.T) {
 	g.Timeout = time.Duration(0)
 	g.Retries = 0
 	g.MaxOids = 0
-	g.MaxRepetitions = 0
 	var c net.Conn = g.Conn
 	_ = c
 }
@@ -44,7 +43,7 @@ func TestAPIGetMethodSignature(_ *testing.T) {
 }
 
 func TestAPIBulkWalkAllMethodSignature(_ *testing.T) {
-	var f func(context.Context, string) ([]gosnmp.VarBind, error) = (&gosnmp.Client{}).BulkWalkAll
+	var f func(context.Context, string, uint32) ([]gosnmp.VarBind, error) = (&gosnmp.Client{}).BulkWalkAll
 	_ = f
 }
 

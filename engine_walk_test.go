@@ -160,11 +160,12 @@ func (a *mibAgent) next(name string) VarBind {
 
 // walkScenario is one walk run against a mibAgent.
 type walkScenario struct {
-	v1     bool
-	bulk   bool   // BulkWalkAll instead of WalkAll
-	root   string // the walk's root OID
-	setup  func(x *Client)
-	script func(n int, req, out *Message) bool
+	v1   bool
+	bulk bool   // BulkWalkAll instead of WalkAll
+	root string // the walk's root OID
+	// maxRepetitions is BulkWalkAll's argument.
+	maxRepetitions uint32
+	script         func(n int, req, out *Message) bool
 	// afterReply, when set, runs after each reply the Conn reads: the Conn's
 	// code changing the client during the walk.
 	afterReply func(x *Client, tr *engineTranscript)
@@ -216,12 +217,13 @@ func walkScenarios() map[string]walkScenario {
 		"root-past-mib/v1":      {root: ".1.3.6.1.4.1.99.2", v1: true},
 		"empty-subtree":         {root: ".1.3.6.1.2.1.1.4"},
 		"empty-subtree/bulk":    {root: ".1.3.6.1.2.1.1.4", bulk: true},
-		"max-repetitions/two":   {root: walkIfDescr, bulk: true, setup: func(x *Client) { x.MaxRepetitions = 2 }},
-		"max-repetitions/one":   {root: walkSystem, bulk: true, setup: func(x *Client) { x.MaxRepetitions = 1 }},
-		// The request carries max-repetitions with its top bit cleared; the
-		// default replaces only a zero field, so the top bit alone sends 0.
-		"max-repetitions/max-uint32": {root: walkIfDescr, bulk: true, setup: func(x *Client) { x.MaxRepetitions = math.MaxUint32 }},
-		"max-repetitions/top-bit":    {root: walkIfDescr, bulk: true, setup: func(x *Client) { x.MaxRepetitions = 1 << 31 }},
+		"max-repetitions/two":   {root: walkIfDescr, bulk: true, maxRepetitions: 2},
+		"max-repetitions/one":   {root: walkSystem, bulk: true, maxRepetitions: 1},
+		// The largest value RFC 3416 allows is sent as given; a larger one
+		// fails the walk before any request.
+		"max-repetitions/max-int32":  {root: walkIfDescr, bulk: true, maxRepetitions: math.MaxInt32},
+		"max-repetitions/max-uint32": {root: walkIfDescr, bulk: true, maxRepetitions: math.MaxUint32},
+		"max-repetitions/top-bit":    {root: walkIfDescr, bulk: true, maxRepetitions: 1 << 31},
 		"v1-bulk":                    {root: walkSystem, bulk: true, v1: true},
 		// A root the codec cannot encode fails the walk before any request,
 		// naming the root as given.
@@ -328,7 +330,7 @@ func walkScenarios() map[string]walkScenario {
 			script: func(n int, _, _ *Message) bool { return n > 2 },
 		},
 		"request-error/bulk": {
-			root: walkIfDescr, bulk: true, setup: func(x *Client) { x.MaxRepetitions = 1 },
+			root: walkIfDescr, bulk: true, maxRepetitions: 1,
 			script: func(n int, _, _ *Message) bool { return n > 2 },
 		},
 		// A name that extends the root's last arc lies outside the subtree.
@@ -337,19 +339,11 @@ func walkScenarios() map[string]walkScenario {
 			script: onWalkRequest(4, varbinds(VarBind{Name: walkIfDescr + "0.1", Value: OctetStringValue([]byte("sibling"))})),
 		},
 
-		// User code changing the client during a walk: the walk keeps the
-		// max-repetitions it started with.
-		"user-code/sets-max-repetitions": {
-			root: walkIfDescr, bulk: true, setup: func(x *Client) { x.MaxRepetitions = 1 },
-			afterReply: func(x *Client, tr *engineTranscript) {
-				tr.addf("the Conn's read sets MaxRepetitions to 2")
-				x.MaxRepetitions = 2
-			},
-		},
-		// A change of version applies from the walk's next request: GETBULK
-		// on SNMPv1 is refused, and the walk returns the values so far.
+		// User code changing the client during a walk. A change of version
+		// applies from the walk's next request: GETBULK on SNMPv1 is refused,
+		// and the walk returns the values so far.
 		"user-code/sets-version-1": {
-			root: walkIfDescr, bulk: true, setup: func(x *Client) { x.MaxRepetitions = 1 },
+			root: walkIfDescr, bulk: true, maxRepetitions: 1,
 			afterReply: func(x *Client, tr *engineTranscript) {
 				tr.addf("the Conn's read sets Version to 1")
 				x.Version = Version1
@@ -385,7 +379,7 @@ func walkScenarios() map[string]walkScenario {
 			script: func(n int, _, _ *Message) bool { return n >= 2 },
 		},
 		"context/canceled-mid-walk/bulk": {
-			root: walkIfDescr, bulk: true, setup: func(x *Client) { x.MaxRepetitions = 1 },
+			root: walkIfDescr, bulk: true, maxRepetitions: 1,
 			context: canceledAfter(300 * time.Millisecond),
 			script:  func(n int, _, _ *Message) bool { return n >= 2 },
 		},
@@ -513,7 +507,9 @@ func TestEngineWalkRootSpellings(t *testing.T) {
 						root := spelling.root(tc.root)
 						walk := x.WalkAll
 						if api == "BulkWalkAll" {
-							walk = x.BulkWalkAll
+							walk = func(ctx context.Context, rootOid string) ([]VarBind, error) {
+								return x.BulkWalkAll(ctx, rootOid, 0)
+							}
 						}
 						got, err := walk(context.Background(), root)
 						if tc.equal {
@@ -547,9 +543,6 @@ func runWalkScenario(t *testing.T, sc walkScenario) string {
 	}
 	c := newFakeTransport(tr, agent.handle)
 	x := newEngineClient(t, version, fakePacketTransport{c})
-	if sc.setup != nil {
-		sc.setup(x)
-	}
 	if sc.afterReply != nil {
 		c.afterRead = func(int) { sc.afterReply(x, tr) }
 	}
@@ -560,10 +553,12 @@ func runWalkScenario(t *testing.T, sc walkScenario) string {
 		defer cancel()
 	}
 
-	tr.addf("client: %v root=%q bulk=%t max-repetitions=%d", x.Version, sc.root, sc.bulk, x.MaxRepetitions)
+	tr.addf("client: %v root=%q bulk=%t max-repetitions=%d", x.Version, sc.root, sc.bulk, sc.maxRepetitions)
 	walk := x.WalkAll
 	if sc.bulk {
-		walk = x.BulkWalkAll
+		walk = func(ctx context.Context, rootOid string) ([]VarBind, error) {
+			return x.BulkWalkAll(ctx, rootOid, sc.maxRepetitions)
+		}
 	}
 	var err error
 	run := func() {
@@ -596,7 +591,7 @@ func BenchmarkWalk(b *testing.B) {
 
 	for name, walkAll := range map[string]func(x *Client) ([]VarBind, error){
 		"WalkAll":     func(x *Client) ([]VarBind, error) { return x.WalkAll(context.Background(), root) },
-		"BulkWalkAll": func(x *Client) ([]VarBind, error) { return x.BulkWalkAll(context.Background(), root) },
+		"BulkWalkAll": func(x *Client) ([]VarBind, error) { return x.BulkWalkAll(context.Background(), root, 0) },
 	} {
 		b.Run(name, func(b *testing.B) {
 			agent := &mibAgent{mib: mib}
@@ -620,8 +615,10 @@ func TestWalkEndedByReport(t *testing.T) {
 	const root = ".1.3.6.1.2.1.2"
 	first := VarBind{Name: root + ".1.0", Value: IntegerValue(1)}
 	walks := map[string]func(*Client, context.Context, string) ([]VarBind, error){
-		"WalkAll":     (*Client).WalkAll,
-		"BulkWalkAll": (*Client).BulkWalkAll,
+		"WalkAll": (*Client).WalkAll,
+		"BulkWalkAll": func(x *Client, ctx context.Context, rootOid string) ([]VarBind, error) {
+			return x.BulkWalkAll(ctx, rootOid, 0)
+		},
 	}
 	for name, walk := range walks {
 		t.Run(name, func(t *testing.T) {
