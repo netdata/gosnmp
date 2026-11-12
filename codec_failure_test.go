@@ -186,7 +186,7 @@ func TestDecodeUSMFields(t *testing.T) {
 }
 
 // TestUnknownPDUTypeError checks the error for a PDU type the package does not
-// know, from DecodeMessage (SNMPv2c and SNMPv3) and UnmarshalTrap.
+// know, from DecodeMessage (SNMPv2c and SNMPv3) and Receiver.Receive.
 func TestUnknownPDUTypeError(t *testing.T) {
 	nullVB := craftedVB(tlv(byte(Null)))
 	pdu := func(tag byte) []byte { return tlv(tag, intTLV(1), intTLV(0), intTLV(0), craftedVBL(nullVB)) }
@@ -207,8 +207,9 @@ func TestUnknownPDUTypeError(t *testing.T) {
 			_, err = v3.DecodeMessage(craftedV3NoAuth(tlv(0x30, craftedEngineID, octets("ctx"), pdu(tc.tag))))
 			assert.EqualError(t, err, "unable to decode packet body: "+tc.want, "SNMPv3")
 
-			_, err = (&Client{Version: Version2c}).UnmarshalTrap(craftedMsg(1, pdu(tc.tag)), false)
-			assert.EqualError(t, err, tc.want, "UnmarshalTrap")
+			r, _ := newTestReceiver(t, ReceiverConfig{})
+			_, err = r.Receive(craftedMsg(1, pdu(tc.tag)))
+			assert.EqualError(t, err, tc.want, "Receive")
 		})
 	}
 }

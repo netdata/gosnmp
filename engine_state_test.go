@@ -264,7 +264,7 @@ func TestEngineClockStep7(t *testing.T) {
 			assert.Equal(t, tc.wantInWindow, got.inWindow(tc.boots, tc.engineTime, now), "in the time window")
 		})
 	}
-	t.Run("an equal time is no update on the trap path", func(t *testing.T) {
+	t.Run("an equal time is no update for a receiver", func(t *testing.T) {
 		got, updated := known.update(7, 1000, received.Add(time.Second), false)
 		assert.Equal(t, known, got)
 		assert.False(t, updated)

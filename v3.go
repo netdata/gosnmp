@@ -82,13 +82,14 @@ var errNotAuthentic = errors.New("incoming packet is not authentic, discarding")
 // order of its steps; the minimum level a trap receiver requires comes after
 // them.
 var (
-	errNoEngineID   = inCategory(ErrUnknownEngineID, errors.New("incoming packet names no authoritative engine ID, discarding"))
-	errUnknownUser  = inCategory(ErrUnknownUsername, errNotAuthentic)
-	errNoAuthForMsg = inCategory(ErrUnknownSecurityLevel, errors.New("error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message"))
-	errNoPrivForMsg = inCategory(ErrUnknownSecurityLevel, errors.New("error parsing SNMPv3 User Security Model: privacy parameters are not configured to parse incoming encrypted message"))
-	errWrongDigest  = inCategory(ErrWrongDigest, errNotAuthentic)
-	errNotInTime    = inCategory(ErrNotInTimeWindow, errors.New("incoming packet is not in the time window, discarding"))
-	errBelowMinimum = inCategory(ErrUnknownSecurityLevel, errors.New("incoming packet has a lower security level than its user requires, discarding"))
+	errNoEngineID    = inCategory(ErrUnknownEngineID, errors.New("incoming packet names no authoritative engine ID, discarding"))
+	errUnknownEngine = inCategory(ErrUnknownEngineID, errors.New("incoming packet names an engine ID the receiver has no user for, discarding"))
+	errUnknownUser   = inCategory(ErrUnknownUsername, errNotAuthentic)
+	errNoAuthForMsg  = inCategory(ErrUnknownSecurityLevel, errors.New("error parsing SNMPv3 User Security Model: authentication parameters are not configured to parse incoming authenticated message"))
+	errNoPrivForMsg  = inCategory(ErrUnknownSecurityLevel, errors.New("error parsing SNMPv3 User Security Model: privacy parameters are not configured to parse incoming encrypted message"))
+	errWrongDigest   = inCategory(ErrWrongDigest, errNotAuthentic)
+	errNotInTime     = inCategory(ErrNotInTimeWindow, errors.New("incoming packet is not in the time window, discarding"))
+	errBelowMinimum  = inCategory(ErrUnknownSecurityLevel, errors.New("incoming packet has a lower security level than its user requires, discarding"))
 )
 
 // errScopedPDUType is the error of a scoped PDU whose type does not match the
@@ -215,6 +216,8 @@ type v3Wire struct {
 	authOff, authLen int
 	// scoped is the offset of msgData.
 	scoped int
+	// reportable is the reportableFlag of msgFlags.
+	reportable bool
 }
 
 // errNotUSM is the error of an SNMPv3 message of another security model than
@@ -223,7 +226,7 @@ type v3Wire struct {
 var errNotUSM = errors.New("error parsing SNMPV3: the security model is not USM")
 
 // errInvalidLevel is the error of a client's security level that is not one
-// of the three (validate, and UnmarshalTrap's single path).
+// of the three (validate).
 var errInvalidLevel = errors.New("validate: SecurityLevel must be populated with an appropriate security level")
 
 // errMsgFlags is the error of an SNMPv3 msgFlags that is not an OCTET STRING
@@ -306,6 +309,7 @@ func parseV3(packet []byte, cursor int, response *Message) (v3Wire, error) {
 	}
 	// The level: the reportableFlag and the reserved bits stay on the wire.
 	response.SecurityLevel = SecurityLevel(flags[0]) & AuthPriv
+	w.reportable = flags[0]&reportableFlag != 0
 	model, err := readInt32(&r)
 	if err == nil && model < 1 {
 		err = fmt.Errorf("%d is outside 1..2147483647", model)

@@ -286,10 +286,9 @@ func classFlags(level SecurityLevel, pdu PDUType) SecurityLevel {
 }
 
 // TestInvalidSecurityLevel checks that a security level other than the three
-// fails: the encoder's check (Message.Encode), the client's (validate, as
-// Connect, EncodeMessage and DecodeMessage run it) and UnmarshalTrap's single
-// path, which requires the client's level unless told to use the message's;
-// privacy without authentication has its own error in the encoder.
+// fails: the encoder's check (Message.Encode) and the client's (validate, as
+// Connect, EncodeMessage and DecodeMessage run it); privacy without
+// authentication has its own error in the encoder.
 func TestInvalidSecurityLevel(t *testing.T) {
 	const invalid = "validate: SecurityLevel must be populated with an appropriate security level"
 	tests := map[string]struct {
@@ -301,20 +300,10 @@ func TestInvalidSecurityLevel(t *testing.T) {
 		"authNoPriv and another bit":     {level: AuthNoPriv | reportableFlag, encodeErr: "unable to marshal SNMPv3 security level 5: not NoAuthNoPriv, AuthNoPriv or AuthPriv", valid: invalid},
 		"authPriv and another bit":       {level: AuthPriv | 0x80, encodeErr: "unable to marshal SNMPv3 security level 131: not NoAuthNoPriv, AuthNoPriv or AuthPriv", valid: invalid},
 	}
-	trap, err := (&Message{
-		Version: Version3, SecurityLevel: NoAuthNoPriv, SecurityParameters: codecHeader(),
-		PDUType: SNMPv2Trap, MsgID: 1, RequestID: 1,
-	}).Encode(nil)
-	require.NoError(t, err)
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			receiver := &Client{Version: Version3, SecurityLevel: tc.level, User: codecUser(NoAuth, NoPriv)}
-			_, err := receiver.UnmarshalTrap(bytes.Clone(trap), false)
-			require.EqualError(t, err, tc.valid, "UnmarshalTrap")
-			_, err = receiver.UnmarshalTrap(bytes.Clone(trap), true)
-			require.NoError(t, err, "UnmarshalTrap with the message's level")
 			user := codecUser(SHA, AES)
-			_, err = (&Message{
+			_, err := (&Message{
 				Version: Version3, SecurityLevel: tc.level, SecurityParameters: codecHeader(),
 				PDUType: GetRequest, MsgID: 1, RequestID: 1,
 			}).Encode(&user)
@@ -724,7 +713,6 @@ func encodeCases(t *testing.T) []encodeCase {
 		{"v2c/get-response/error-index-255", marshal(edit(v2c(Response, nullVar), func(p *Message) { p.ErrorStatus, p.ErrorIndex = TooBig, 255 }))},
 		{"v2c/snmpv2-trap", marshal(v2c(SNMPv2Trap, mixedVars[:3]))},
 		{"v2c/inform-request", marshal(v2c(InformRequest, nullVar))},
-		{"v2c/inform-request/is-inform-flag", marshal(edit(v2c(SNMPv2Trap, nullVar), func(p *Message) { p.IsInform = true }))},
 		{"v2c/report", marshal(v2c(Report, nullVar))},
 		{"v2c/unknown-pdu-type", marshal(v2c(PDUType(0xa9), nullVar))},
 		{"v2c/request-id-0", marshal(edit(v2c(GetRequest, nullVar), func(p *Message) { p.RequestID = 0 }))},
