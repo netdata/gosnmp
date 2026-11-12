@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/netdata/gosnmp/internal/ber"
 	"github.com/netdata/gosnmp/internal/usm"
@@ -273,30 +274,23 @@ func parseV3(packet []byte, cursor int, m *Message) (v3Wire, error) {
 }
 
 // readGlobalData reads msgGlobalData from r into m and w (RFC 3412 section 6)
-// by net-snmp's field rules, each range applying once the INTEGER is cut to
-// 32 bits: msgID an INTEGER of 0..2147483647, msgMaxSize one of
-// 484..2147483647, msgFlags an OCTET STRING of one octet, the security model
-// an INTEGER of 1..2147483647, the User-based Security Model's 3 (another
-// value is another model), and then the flags may not ask for privacy without
-// authentication.
+// by its ranges, each INTEGER read whole (readInteger): msgID an INTEGER of
+// 0..2147483647, msgMaxSize one of 484..2147483647, msgFlags an OCTET STRING
+// of one octet, the security model an INTEGER of 1..2147483647, the User-based
+// Security Model's 3 (another value is another model), and then the flags may
+// not ask for privacy without authentication.
 func readGlobalData(r *ber.Reader, m *Message, w *v3Wire) error {
-	msgID, err := readInt32(r)
-	if err == nil && msgID < 0 {
-		err = fmt.Errorf("%d is outside 0..%d", msgID, maxMsgID)
-	}
+	msgID, err := readInteger(r, 0, maxMsgID)
 	if err != nil {
 		return fmt.Errorf("error parsing SNMPV3 message ID: %w", err)
 	}
-	m.MsgID = uint32(msgID) //nolint:gosec // not negative
+	m.MsgID = uint32(msgID) //nolint:gosec // 0..maxMsgID
 	w.msgIDRead = true
-	maxSize, err := readInt32(r)
-	if err == nil && maxSize < minMsgMaxSize {
-		err = fmt.Errorf("%d is outside %d..%d", maxSize, minMsgMaxSize, maxMsgMaxSize)
-	}
+	maxSize, err := readInteger(r, minMsgMaxSize, maxMsgMaxSize)
 	if err != nil {
 		return fmt.Errorf("error parsing SNMPV3 msgMaxSize: %w", err)
 	}
-	m.MsgMaxSize = uint32(maxSize) //nolint:gosec // at least minMsgMaxSize
+	m.MsgMaxSize = uint32(maxSize) //nolint:gosec // minMsgMaxSize..maxMsgMaxSize
 	flags, err := readOctets(r)
 	switch {
 	case errors.Is(err, errNotOctets):
@@ -309,10 +303,7 @@ func readGlobalData(r *ber.Reader, m *Message, w *v3Wire) error {
 	// The level: the reportableFlag and the reserved bits stay on the wire.
 	m.SecurityLevel = SecurityLevel(flags[0]) & AuthPriv
 	w.reportable = flags[0]&reportableFlag != 0
-	model, err := readInt32(r)
-	if err == nil && model < 1 {
-		err = fmt.Errorf("%d is outside 1..2147483647", model)
-	}
+	model, err := readInteger(r, 1, math.MaxInt32)
 	if err != nil {
 		return fmt.Errorf("error parsing SNMPV3 msgSecModel: %w", err)
 	}
@@ -330,9 +321,8 @@ func readGlobalData(r *ber.Reader, m *Message, w *v3Wire) error {
 // section 2.4), into m's SecurityParameters (copies) and w: the USM fields
 // bounded by their SEQUENCE and the SEQUENCE by the OCTET STRING, each of its
 // type, the engine ID at most 64 octets (net-snmp's), the engine boots and time
-// within 0..2147483647 (RFC 3414 section 3.2 step 1) once cut to 32 bits, and
-// the user name at most 32 octets; msgData starts right after
-// msgPrivacyParameters.
+// within 0..2147483647 (RFC 3414 section 3.2 step 1), and the user name at
+// most 32 octets; msgData starts right after msgPrivacyParameters.
 func readSecurityParameters(packet []byte, off int, m *Message, w *v3Wire) error {
 	if PDUType(packet[off]) != PDUType(OctetString) {
 		return errors.New("invalid SNMPV3 Security Parameters")
@@ -404,17 +394,14 @@ func usmOctets(r *ber.Reader, name string) ([]byte, error) {
 }
 
 // usmEngineValue reads msgAuthoritativeEngineBoots or
-// msgAuthoritativeEngineTime: an INTEGER of at most maxEngineValue (RFC 3414
-// section 2.4) once cut to 32 bits, as net-snmp v5.9.4 cuts it.
+// msgAuthoritativeEngineTime: an INTEGER of 0..maxEngineValue (RFC 3414
+// section 2.4), read whole (readInteger).
 func usmEngineValue(r *ber.Reader, name string) (uint32, error) {
-	v, err := readInt32(r)
-	if err == nil && v < 0 {
-		err = fmt.Errorf("%d is outside 0..%d", v, maxEngineValue)
-	}
+	v, err := readInteger(r, 0, maxEngineValue)
 	if err != nil {
 		return 0, fmt.Errorf("error parsing %s%s: %w", usmField, name, err)
 	}
-	return uint32(v), nil //nolint:gosec // not negative
+	return uint32(v), nil //nolint:gosec // 0..maxEngineValue
 }
 
 // tlvAt returns the extent of the content of the TLV at packet[off:end],

@@ -468,20 +468,22 @@
 // set for requests and informs, clear for responses, reports and traps.
 //
 // The decoder applies one rule per value type and header field, with the same
-// results on every platform. An INTEGER, value or header field, has one to
-// eight octets and is cut to 32 bits by two's complement (an Integer32, RFC
-// 2578 section 7.1.1); Uinteger32, Counter32, Gauge32 and TimeTicks values are
-// unsigned, of one to eight octets or nine with a leading zero, and keep their
-// low 32 bits; an OBJECT IDENTIFIER has at most 128 arcs. A header field must
-// be of its type and, once cut, within its range, or it fails the message, as a
-// missing one does: the version SNMPv1, SNMPv2c or SNMPv3; the community,
-// contextEngineID and contextName OCTET STRINGs; the error status 0..255; the
-// error index and non-repeaters not negative, read as 255 above it (the most
-// their fields hold); max-repetitions not negative; an SNMPv1 trap's enterprise
-// an OBJECT IDENTIFIER, its agent address four octets, an IpAddress or an OCTET
-// STRING, and its timestamp TimeTicks or another unsigned type, as net-snmp
-// v5.9.4 takes it. The SNMPv3 header takes net-snmp's field rules (RFC 3412
-// section 6, RFC 3414 section 2.4): msgID 0..2147483647, msgMaxSize
+// results on every platform. An INTEGER has one to eight octets: an Integer
+// value is cut to 32 bits by two's complement (an Integer32, RFC 2578 section
+// 7.1.1), an INTEGER header field is read whole; Uinteger32, Counter32, Gauge32
+// and TimeTicks values are unsigned, of one to eight octets or nine with a
+// leading zero, and keep their low 32 bits; an OBJECT IDENTIFIER has at most
+// 128 arcs. A header field must be of its type and within its range, or it
+// fails the message, as a missing one does: the version SNMPv1, SNMPv2c or
+// SNMPv3; the community, contextEngineID and contextName OCTET STRINGs; the
+// request ID an Integer32, or its 32 bits sent unsigned; the error status
+// 0..255; the error index and non-repeaters 0..2147483647, read as 255 above
+// it (the most their fields hold); max-repetitions 0..2147483647; an SNMPv1
+// trap's enterprise an OBJECT IDENTIFIER, its agent address four octets, an
+// IpAddress or an OCTET STRING, its generic and specific trap Integer32s, and
+// its timestamp TimeTicks or another unsigned type, as net-snmp v5.9.4 takes
+// it, read as such a value. The SNMPv3 header takes net-snmp's field rules
+// (RFC 3412 section 6, RFC 3414 section 2.4): msgID 0..2147483647, msgMaxSize
 // 484..2147483647, msgFlags an OCTET STRING of one octet, the User-based
 // Security Model's number, flags that do not ask for privacy without
 // authentication, the USM fields of their types, an engine ID of at most 64
@@ -505,9 +507,13 @@
 // from net-snmp v5.9.4:
 //
 //   - an empty OBJECT IDENTIFIER reads as .0.0, not .0
-//   - an INTEGER outside the int32 range keeps its low 32 bits as an int32
-//     (3000000000 reads -1294967296), where net-snmp keeps them unsigned above
-//     it and negates them below it
+//   - an Integer value outside the int32 range keeps its low 32 bits as an
+//     int32 (3000000000 reads -1294967296), where net-snmp keeps them unsigned
+//     above it and negates them below it
+//   - an INTEGER header field outside its range fails the message also when
+//     its low 32 bits lie in it, where net-snmp cuts it to 32 bits first (a
+//     version of 2^32+1 reads as SNMPv2c there, an error status of 2^32 as
+//     noError)
 //   - the community and context fields take OCTET STRINGs only, and an SNMPv1
 //     agent address four octets or an empty IpAddress, where net-snmp takes
 //     other string types (of up to four octets for the agent address)
