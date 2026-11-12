@@ -45,12 +45,12 @@ func (c *Client) Connect(ctx context.Context) error {
 	return nil
 }
 
-// Close closes the client's connection, which ends the running attempt at
-// once. Any goroutine may call it, also while a request runs, which it ends:
-// once Close has run, a request whose attempt ends without a reply fails with
-// an error wrapping net.ErrClosed, as do later requests until Connect opens a
-// connection (see the package documentation). Only the first call closes the
-// connection; later calls, and calls on a client never connected, return nil.
+// Close closes the client's connection, which ends the running attempt at once.
+// Any goroutine may call it, also while a request runs, which it ends: once
+// Close has run, a request that ends without a reply fails with an error
+// wrapping net.ErrClosed, as do later requests until Connect opens a connection
+// (see the package documentation). Only the first call closes the connection;
+// later calls, and calls on a client never connected, return nil.
 func (c *Client) Close() error {
 	conn := c.markClosed()
 	if conn == nil {

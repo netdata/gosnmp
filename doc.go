@@ -58,8 +58,9 @@
 // request: it closes the connection, which ends the running attempt at once, as
 // a done context does. Once Close has run, a request that ends without a reply
 // fails with an error wrapping [net.ErrClosed], whatever else ended it, a done
-// context included, and so do later requests until Connect opens a connection.
-// A [Receiver] and the package's key cache are safe for concurrent use.
+// context included, and so do later requests until Connect opens a connection
+// (a call's own checks of its arguments, its context's included, come first). A
+// [Receiver] and the package's key cache are safe for concurrent use.
 //
 // # Walks
 //
