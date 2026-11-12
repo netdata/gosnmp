@@ -23,8 +23,8 @@ const (
 	// works; set Client.MaxOids to change it.
 	MaxOids = 60
 
-	// defaultMaxRepetitions is the walks' GetBulk max-repetitions unless
-	// Client.MaxRepetitions is set; Java SNMP uses 50, net-snmp 10.
+	// defaultMaxRepetitions is the max-repetitions BulkWalkAll sends for a
+	// zero argument; Java SNMP uses 50, net-snmp 10.
 	defaultMaxRepetitions = 50
 )
 
@@ -74,11 +74,6 @@ type Client struct {
 	// request of a walk, which carries one. Connect replaces zero with the
 	// MaxOids constant.
 	MaxOids int
-
-	// MaxRepetitions is the GETBULK max-repetitions of BulkWalkAll, sent with
-	// its top bit cleared; zero means 50. Some devices fail with large values;
-	// see https://github.com/gosnmp/gosnmp/issues/100.
-	MaxRepetitions uint32
 
 	// SecurityLevel is the SNMPv3 security level: NoAuthNoPriv, AuthNoPriv or
 	// AuthPriv; another value fails Connect. The encoder sets the reportable

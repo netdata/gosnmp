@@ -222,7 +222,8 @@
 // # Walks
 //
 // [Client.WalkAll] and [Client.BulkWalkAll] return the values of a subtree, in
-// order. Their docs say how a walk starts and ends.
+// order. BulkWalkAll takes the max-repetitions of its GETBULK requests as an
+// argument. Their docs say how a walk starts and ends.
 //
 // # Values
 //
