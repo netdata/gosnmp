@@ -1388,18 +1388,19 @@ func (c *errOnCall) Err() error {
 	return c.Context.Err()
 }
 
-// TestCloseWinsOverAttemptOutcome pins, for every way an attempt can end
+// TestCloseWinsOverAttemptOutcome pins, for every way a request can end
 // without a reply, that once Close has run the request fails with the
-// client's closed error, which wraps net.ErrClosed: Close runs as the attempt
-// ends otherwise, through the connection's or the context's code.
+// client's closed error, which wraps net.ErrClosed: Close runs as an attempt
+// ends otherwise, or as the request decides whether to retry, through the
+// connection's or the context's code.
 func TestCloseWinsOverAttemptOutcome(t *testing.T) {
 	tests := map[string]struct {
 		retries int
 		// set makes the attempt end so, closing x as it does; cancel ends ctx.
 		set func(x *Client, c *fakeTransport, cancel context.CancelFunc)
 		// errCall, when set, is the call of the context's Err that cancels it
-		// and closes x.
-		errCall int
+		// and closes x, its last call, after writes writes.
+		errCall, writes int
 	}{
 		"read timeout": {set: func(x *Client, c *fakeTransport, _ context.CancelFunc) {
 			c.failRead = func(int) error { _ = x.Close(); return os.ErrDeadlineExceeded }
@@ -1425,15 +1426,18 @@ func TestCloseWinsOverAttemptOutcome(t *testing.T) {
 		"context interrupt": {set: func(x *Client, c *fakeTransport, cancel context.CancelFunc) {
 			c.failRead = func(int) error { cancel(); _ = x.Close(); return os.ErrDeadlineExceeded }
 		}},
-		// The first attempt times out; the context's third Err, at the second
-		// attempt's start (after the first attempt's and the retry's), finds
-		// it canceled and the client closed.
+		// Every attempt times out. The context's Err runs at each attempt's
+		// start and at each decision to retry: its third call is the second
+		// attempt's start, its second and fourth the decisions after the first
+		// and the last attempt.
 		"context done at an attempt's start": {
-			retries: 1,
-			set: func(_ *Client, c *fakeTransport, _ context.CancelFunc) {
-				c.failRead = func(int) error { return os.ErrDeadlineExceeded }
-			},
-			errCall: 3,
+			retries: 1, set: timeoutEveryRead, errCall: 3, writes: 1,
+		},
+		"context done at the retry decision": {
+			retries: 1, set: timeoutEveryRead, errCall: 2, writes: 1,
+		},
+		"context done after the last attempt": {
+			retries: 1, set: timeoutEveryRead, errCall: 4, writes: 2,
 		},
 	}
 	for name, tc := range tests {
@@ -1453,6 +1457,15 @@ func TestCloseWinsOverAttemptOutcome(t *testing.T) {
 			assert.Nil(t, res)
 			require.ErrorIs(t, err, errClosed)
 			require.ErrorIs(t, err, net.ErrClosed)
+			if c, ok := ctx.(*errOnCall); ok {
+				assert.Equal(t, [2]int{tc.errCall, tc.writes}, [2]int{c.calls, conn.writes},
+					"the context's Err calls and the writes: Close ran where the case says")
+			}
 		})
 	}
+}
+
+// timeoutEveryRead makes every read of c time out.
+func timeoutEveryRead(_ *Client, c *fakeTransport, _ context.CancelFunc) {
+	c.failRead = func(int) error { return os.ErrDeadlineExceeded }
 }

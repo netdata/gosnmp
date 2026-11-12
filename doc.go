@@ -49,12 +49,11 @@
 // and its deadline, the receive buffer and the SNMPv3 engine state, so run one
 // request at a time, or give each goroutine its own client. Close is the
 // exception: any goroutine may call it at any time, also to end a running
-// request: it closes the connection, which ends the running attempt at once,
-// as a done context does. Once Close has run, a request whose attempt ends
-// without a reply fails with an error wrapping [net.ErrClosed], whatever else
-// ended the attempt, a done context included, and so do later requests until
-// Connect opens a connection. A [Receiver] and the package's key cache are safe
-// for concurrent use.
+// request: it closes the connection, which ends the running attempt at once, as
+// a done context does. Once Close has run, a request that ends without a reply
+// fails with an error wrapping [net.ErrClosed], whatever else ended it, a done
+// context included, and so do later requests until Connect opens a connection.
+// A [Receiver] and the package's key cache are safe for concurrent use.
 //
 // # Attempts and timeouts
 //
