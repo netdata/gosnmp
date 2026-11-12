@@ -13,8 +13,9 @@
 //
 // # Lifecycle
 //
-// A client is a [Client] whose exported fields configure it: a literal, or
-// [NewHandler] for code that takes the [Handler] interface. [Client.Connect]
+// A client is a [Client] whose exported fields configure it. The package
+// declares no interface of the client for tests to mock: code that mocks it
+// declares one of its own with the methods it calls. [Client.Connect]
 // fills in defaults ([MaxOids], a background Context), checks the SNMPv3
 // configuration and opens the connection, a UDP socket connected to Target and
 // Port, which replaces the client's (a failed Connect keeps it); a client may
