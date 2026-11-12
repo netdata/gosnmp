@@ -185,7 +185,7 @@ const (
 	// attemptTransportError: the write or the read failed otherwise.
 	attemptTransportError
 	// attemptClosed: the write or the read failed on a closed connection
-	// (net.ErrClosed), or Close closed the client.
+	// (net.ErrClosed).
 	attemptClosed
 	// attemptContextDone: the context was done when the attempt would start.
 	attemptContextDone
@@ -268,10 +268,10 @@ type sentIDs struct {
 // discovery is set, an SNMPv3 one with the engine boots and time of sec's clock
 // and its keys, and returns the reply that answers it, and whether the reply's
 // engine parameters were committed into the engine state, retrying up to
-// Retries times. Once Close closed the client, a request that ends without a
-// reply ends with net.ErrClosed, whatever else ended it: an attempt's outcome
-// or the decision not to retry. An exchange that ends without an answer goes
-// through unanswered.
+// Retries times. A request that ends without a reply goes through its one
+// exit: once Close closed the client, it ends with net.ErrClosed, whatever
+// ended it (an attempt's outcome or the decision not to retry), and an
+// exchange that ends without an answer goes through unanswered.
 func (c *Client) sendOneRequest(ctx context.Context, req *Message, discovery bool, sec attemptSecurity) (*Message, bool, error) {
 	e := exchange{c: c, req: req, ctx: ctx, discovery: discovery, sec: sec}
 	// The IDs of the attempts before the current one, in a local array, not a
@@ -282,23 +282,21 @@ func (c *Client) sendOneRequest(ctx context.Context, req *Message, discovery boo
 	earlier := sent[:0]
 	for n := 0; ; n++ {
 		out := e.attempt(earlier)
-		if out.kind != attemptReply && c.isClosed() {
-			out = attemptOutcome{kind: attemptClosed, err: errClosed}
-		}
-		if !out.kind.retryable() {
-			if out.kind != attemptReply {
-				out.err = e.unanswered(out.err)
-			}
+		if out.kind == attemptReply {
 			return out.reply, out.committed, out.err
 		}
-		// A retryable attempt has stamped req with its IDs.
-		earlier = append(earlier, sentIDs{req.RequestID, req.MsgID})
-		if err := e.endErr(n, out); err != nil {
-			if c.isClosed() {
-				err = errClosed
+		err := out.err
+		if out.kind.retryable() {
+			// A retryable attempt has stamped req with its IDs.
+			earlier = append(earlier, sentIDs{req.RequestID, req.MsgID})
+			if err = e.endErr(n, out); err == nil {
+				continue
 			}
-			return nil, false, e.unanswered(err)
 		}
+		if c.isClosed() {
+			err = errClosed
+		}
+		return nil, false, e.unanswered(err)
 	}
 }
 
