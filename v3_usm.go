@@ -385,14 +385,6 @@ func (h *SecurityParameters) marshal(dst []byte, level SecurityLevel, auth AuthP
 	return ber.EndMoving(dst, start, off)
 }
 
-// tableUser is a user a receiver decodes messages for, with its keys localized
-// to the engine ID it is registered for, the only one whose messages it
-// decodes (Receiver).
-type tableUser struct {
-	user User
-	keys usmKeys
-}
-
 // inbound is an SNMPv3 message in security processing for one user (RFC 3414
 // section 3.2): the message, which is never written, where its authentication
 // parameters and msgData are, the user and its keys for the message's engine

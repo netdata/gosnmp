@@ -39,6 +39,14 @@ type Receiver struct {
 	local *localEngine
 }
 
+// tableUser is a user a receiver decodes messages for, with its keys localized
+// to the engine ID it is registered for, the only one whose messages it
+// decodes (Receiver).
+type tableUser struct {
+	user User
+	keys usmKeys
+}
+
 // ReceiverConfig configures a Receiver.
 type ReceiverConfig struct {
 	// Users are the SNMPv3 users of each engine: an SNMPv3 message is
