@@ -15,21 +15,25 @@ import (
 )
 
 // v3FIPSScenarios are the scenarios of TestEngineV3FIPS140Only. A user whose
-// keys FIPS 140-only mode refuses to derive fails NewClient
-// (TestEngineV3FIPS140OnlyNewClient).
+// keys FIPS 140-only mode refuses to derive, or an authPriv user, whose cipher
+// it refuses, fails NewClient (TestEngineV3FIPS140OnlyNewClient); the encoder's
+// own refusal is TestUSMFIPS140OnlyEncrypt's.
 func v3FIPSScenarios() map[string]v3Scenario {
 	return map[string]v3Scenario{
-		"discovery/noauth":         {user: "codec-noauth"},
-		"discovery/sha256-des":     {user: "codec-sha256-des"},
-		"discovery/sha256-aes":     {user: "codec-sha256-aes"},
-		"discovery/sha512-aes256c": {user: "codec-sha512-aes256c"},
+		"discovery/noauth": {user: "codec-noauth"},
+		// The user's privacy protocol is one the mode refuses; a level
+		// without privacy does not use it.
+		"discovery/sha256-des-authnopriv": {
+			user: "codec-sha256-des", config: func(c *Config) { c.SecurityLevel = AuthNoPriv },
+		},
 	}
 }
 
 // TestEngineV3FIPS140Only pins, when run with GODEBUG=fips140=only, what the
-// request engine does when FIPS 140-only mode refuses an algorithm: MD5 and
-// SHA-1 for the key derivation and digests, DES and AES-CFB for privacy.
-// The agent runs without enforcement. testdata/engine/v3-fips.golden holds
+// request engine does in FIPS 140-only mode with the configurations NewClient
+// takes there: discovery and requests without authentication, and an
+// authNoPriv user whose privacy protocol the mode refuses. The agent runs
+// without enforcement. testdata/engine/v3-fips.golden holds
 // the transcripts; regenerate it with
 // GODEBUG=fips140=only go test -run TestEngineV3FIPS140Only -update .
 func TestEngineV3FIPS140Only(t *testing.T) {

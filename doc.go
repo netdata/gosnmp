@@ -330,7 +330,9 @@
 // context engine ID: see below). An answer without an engine ID ends the
 // request with an error that matches [ErrUnknownEngineID]: the client learns
 // nothing, and the next request discovers again. Keys that do not derive (FIPS
-// 140-only mode refuses MD5 and SHA-1) fail NewClient.
+// 140-only mode refuses MD5 and SHA-1) fail NewClient, and so does, at
+// AuthPriv, a privacy cipher the mode refuses (DES and AES-CFB, so every
+// privacy protocol).
 //
 // The engine boots and time are a clock: the latest values received and when,
 // advancing with the local clock (RFC 3414 section 2.3); each attempt of a
@@ -427,11 +429,12 @@
 // protocol's hash (RFC 3414, RFC 7860), a privacy key the cipher's key (AES's,
 // or DES's 16 octets of key and pre-IV); the salt of an encrypted message is 8
 // octets. Signing, verifying, encrypting and decrypting refuse anything else,
-// and AES-CFB in FIPS 140-only mode, with an error. A [User] holds passphrases,
-// not keys: the keys derive from non-empty passphrases of any length (RFC 3414
-// section 11.2 asks for at least 8 octets), localized to the engine ID at hand
-// (RFC 3414 section 2.6). A client derives them once when it is made, for no
-// engine ID, to check that they derive, and when its engine state takes an
+// and DES and AES-CFB in FIPS 140-only mode, with an error. A [User] holds
+// passphrases, not keys: the keys derive from non-empty passphrases of any
+// length (RFC 3414 section 11.2 asks for at least 8 octets), localized to the
+// engine ID at hand (RFC 3414 section 2.6). A client derives them once when it
+// is made, for no engine ID, to check that they derive (and, at AuthPriv, that
+// the process may use the privacy cipher), and when its engine state takes an
 // engine ID (discovery, an answer it takes, a Report lent to a resend);
 // decoding a reply derives none. [Client.DecodeMessage] derives them for the
 // engine ID a message names, the authentication key when the message asks for
