@@ -10,7 +10,6 @@ import (
 	"crypto/fips140"
 	"crypto/hmac"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -25,12 +24,12 @@ import (
  * This tests use hex dumps from real network traffic produced using net-snmp's snmpget with demo.snmplabs.com as SNMP agent.
  */
 
-func authorativeEngineID(t *testing.T) string {
+func authorativeEngineID(t *testing.T) []byte {
 	// engine ID of demo.snmplabs.com
 	engineID, err := hex.DecodeString("80004fb805636c6f75644dab22cc")
 	require.NoError(t, err, "EngineId decoding failed.")
 
-	return string(engineID)
+	return engineID
 }
 
 func correctKeySHA224(t *testing.T) []byte {
@@ -54,110 +53,46 @@ func packetSHA224Authenticated(t *testing.T) []byte {
 	return packet
 }
 
-func packetSHA224AuthenticationParams(t *testing.T) string {
-	params, err := hex.DecodeString("66cd2d9b04cd48b02a9df0c77dc3415d")
-
-	require.NoError(t, err, "Authentication parameters SHA224 decoding failed.")
-	return string(params)
-}
-
 // TestTrapOtherUser pins that a single trap user does not take a message
 // naming another user (RFC 3414 section 3.2 step 4), before its digest.
 func TestTrapOtherUser(t *testing.T) {
-	var err error
-
-	sp := UsmSecurityParameters{
-		AuthoritativeEngineBoots: 43,
-		AuthoritativeEngineID:    authorativeEngineID(t),
-		AuthoritativeEngineTime:  2113189,
-		UserName:                 "usr-sha224-none",
-		AuthenticationParameters: packetSHA224AuthenticationParams(t),
-		PrivacyParameters:        nil,
-		AuthenticationProtocol:   SHA224,
-		PrivacyProtocol:          0,
-		AuthenticationPassphrase: "authkey1",
-		PrivacyPassphrase:        "",
-		SecretKey:                nil,
-		PrivacyKey:               nil,
-	}
-
-	sp.SecretKey, err = passwordCache.LocalizedKey(sp.AuthenticationProtocol.HashType(),
-		sp.AuthenticationPassphrase,
-		sp.AuthoritativeEngineID)
-
+	user := User{Name: "usr-sha224-none", AuthProtocol: SHA224, AuthPassphrase: "authkey1"}
+	key, err := user.authKey(authorativeEngineID(t))
 	require.NoError(t, err, "Generation of key failed")
-	require.Equal(t, correctKeySHA224(t), sp.SecretKey, "Wrong key generated")
+	require.Equal(t, correctKeySHA224(t), key, "Wrong key generated")
 
-	verifier := sp.Copy().usm()
-	verifier.UserName = "foo"
+	verifier := user
+	verifier.Name = "foo"
 
 	msg := packetSHA224Authenticated(t)
 	res := new(Message)
 	_, w, err := unmarshalHeader(msg, res)
 	require.NoError(t, err)
-	step, err := decodeTrapV3(msg, w, res, verifier, trapRule{singleUser: true})
+	step, err := decodeTrapV3(msg, w, res, &verifier, nil, trapRule{singleUser: true})
 	require.ErrorIs(t, err, ErrUnknownUsername)
 	assert.Equal(t, stepUser, step)
 }
 
 func TestAuthenticationSHA224(t *testing.T) {
-	var err error
-
-	sp := UsmSecurityParameters{
-		AuthoritativeEngineBoots: 43,
-		AuthoritativeEngineID:    authorativeEngineID(t),
-		AuthoritativeEngineTime:  2113189,
-		UserName:                 "usr-sha224-none",
-		AuthenticationParameters: "",
-		PrivacyParameters:        nil,
-		AuthenticationProtocol:   SHA224,
-		PrivacyProtocol:          0,
-		AuthenticationPassphrase: "authkey1",
-		PrivacyPassphrase:        "",
-		SecretKey:                nil,
-		PrivacyKey:               nil,
-	}
-
-	sp.SecretKey, err = passwordCache.LocalizedKey(sp.AuthenticationProtocol.HashType(),
-		sp.AuthenticationPassphrase,
-		sp.AuthoritativeEngineID)
-
+	user := User{Name: "usr-sha224-none", AuthProtocol: SHA224, AuthPassphrase: "authkey1"}
+	keys, err := user.localize(authorativeEngineID(t))
 	require.NoError(t, err, "Generation of key failed")
-	require.Equal(t, correctKeySHA224(t), sp.SecretKey, "Wrong key generated")
+	require.Equal(t, correctKeySHA224(t), keys.auth, "Wrong key generated")
 
 	srcPacket := packetSHA224NoAuthentication(t)
-	err = sp.sign(srcPacket, authParamsOffset(t, srcPacket))
+	err = keys.sign(srcPacket, authParamsOffset(t, srcPacket))
 	require.NoError(t, err, "Authentication of packet failed")
 
 	require.Equal(t, packetSHA224Authenticated(t), srcPacket, "Wrong message authentication parameters.")
 }
 
 func TestIsAuthenticSHA224(t *testing.T) {
-	var err error
-
-	sp := UsmSecurityParameters{
-		AuthoritativeEngineBoots: 43,
-		AuthoritativeEngineID:    authorativeEngineID(t),
-		AuthoritativeEngineTime:  2113189,
-		UserName:                 "usr-sha224-none",
-		AuthenticationParameters: packetSHA224AuthenticationParams(t),
-		PrivacyParameters:        nil,
-		AuthenticationProtocol:   SHA224,
-		PrivacyProtocol:          0,
-		AuthenticationPassphrase: "authkey1",
-		PrivacyPassphrase:        "",
-		SecretKey:                nil,
-		PrivacyKey:               nil,
-	}
-
-	sp.SecretKey, err = passwordCache.LocalizedKey(sp.AuthenticationProtocol.HashType(),
-		sp.AuthenticationPassphrase,
-		sp.AuthoritativeEngineID)
-
+	user := User{Name: "usr-sha224-none", AuthProtocol: SHA224, AuthPassphrase: "authkey1"}
+	key, err := user.authKey(authorativeEngineID(t))
 	require.NoError(t, err, "Generation of key failed")
-	require.Equal(t, correctKeySHA224(t), sp.SecretKey, "Wrong key generated")
+	require.Equal(t, correctKeySHA224(t), key, "Wrong key generated")
 
-	require.NoError(t, testInbound(t, packetSHA224Authenticated(t), sp.Copy().usm()).verify(), "Packet was not considered to be authentic")
+	require.NoError(t, testInbound(t, packetSHA224Authenticated(t), &user).verify(), "Packet was not considered to be authentic")
 }
 
 func correctKeySHA512(t *testing.T) []byte {
@@ -181,71 +116,26 @@ func packetSHA512Authenticated(t *testing.T) []byte {
 	return packet
 }
 
-func packetSHA512AuthenticationParams(t *testing.T) string {
-	params, err := hex.DecodeString("26f8087ced336a394642b8698eba9810929a9bfa44afbf43975a7ad6c4cc55bd279b549a77ec56d791467612747d6f57")
-
-	require.NoError(t, err, "Authentication parameters SHA512 decoding failed.")
-	return string(params)
-}
-
 func TestAuthenticationSHA512(t *testing.T) {
-	var err error
-
-	sp := UsmSecurityParameters{
-		AuthoritativeEngineBoots: 43,
-		AuthoritativeEngineID:    authorativeEngineID(t),
-		AuthoritativeEngineTime:  2113258,
-		UserName:                 "usr-sha512-none",
-		AuthenticationParameters: "",
-		PrivacyParameters:        nil,
-		AuthenticationProtocol:   SHA512,
-		PrivacyProtocol:          0,
-		AuthenticationPassphrase: "authkey1",
-		PrivacyPassphrase:        "",
-		SecretKey:                nil,
-		PrivacyKey:               nil,
-	}
-
-	sp.SecretKey, err = passwordCache.LocalizedKey(sp.AuthenticationProtocol.HashType(),
-		sp.AuthenticationPassphrase,
-		sp.AuthoritativeEngineID)
-
+	user := User{Name: "usr-sha512-none", AuthProtocol: SHA512, AuthPassphrase: "authkey1"}
+	keys, err := user.localize(authorativeEngineID(t))
 	require.NoError(t, err, "Generation of key failed")
-	require.Equal(t, correctKeySHA512(t), sp.SecretKey, "Wrong key generated")
+	require.Equal(t, correctKeySHA512(t), keys.auth, "Wrong key generated")
 
 	srcPacket := packetSHA512NoAuthentication(t)
-	err = sp.sign(srcPacket, authParamsOffset(t, srcPacket))
-	require.NoError(t, err, "Generation of key failed")
+	err = keys.sign(srcPacket, authParamsOffset(t, srcPacket))
+	require.NoError(t, err, "Authentication of packet failed")
 
 	require.Equal(t, packetSHA512Authenticated(t), srcPacket, "Wrong message authentication parameters.")
 }
 
 func TestIsAuthenticSHA512(t *testing.T) {
-	var err error
-
-	sp := UsmSecurityParameters{
-		AuthoritativeEngineBoots: 43,
-		AuthoritativeEngineID:    authorativeEngineID(t),
-		AuthoritativeEngineTime:  2113189,
-		UserName:                 "usr-sha512-none",
-		AuthenticationParameters: packetSHA512AuthenticationParams(t),
-		PrivacyParameters:        nil,
-		AuthenticationProtocol:   SHA512,
-		PrivacyProtocol:          0,
-		AuthenticationPassphrase: "authkey1",
-		PrivacyPassphrase:        "",
-		SecretKey:                nil,
-		PrivacyKey:               nil,
-	}
-
-	sp.SecretKey, err = passwordCache.LocalizedKey(sp.AuthenticationProtocol.HashType(),
-		sp.AuthenticationPassphrase,
-		sp.AuthoritativeEngineID)
-
+	user := User{Name: "usr-sha512-none", AuthProtocol: SHA512, AuthPassphrase: "authkey1"}
+	key, err := user.authKey(authorativeEngineID(t))
 	require.NoError(t, err, "Generation of key failed")
-	require.Equal(t, correctKeySHA512(t), sp.SecretKey, "Wrong key generated")
+	require.Equal(t, correctKeySHA512(t), key, "Wrong key generated")
 
-	require.NoError(t, testInbound(t, packetSHA512Authenticated(t), sp.Copy().usm()).verify(), "Packet was not considered to be authentic")
+	require.NoError(t, testInbound(t, packetSHA512Authenticated(t), &user).verify(), "Packet was not considered to be authentic")
 }
 
 // TestParseTruncatedUSMSequence verifies that the header parse returns an
@@ -269,37 +159,30 @@ func TestParseTruncatedUSMSequence(t *testing.T) {
 	}
 }
 
-// testInbound returns the SNMPv3 message msg in security processing with sp
-// (receiveV3).
-func testInbound(t *testing.T, msg []byte, sp *UsmSecurityParameters) *inbound {
+// testInbound returns the SNMPv3 message msg in security processing with
+// user, whose keys derive for the message's engine ID (receiveV3).
+func testInbound(t *testing.T, msg []byte, user *User) *inbound {
 	t.Helper()
 	res := new(Message)
 	_, w, err := unmarshalHeader(msg, res)
 	require.NoError(t, err)
-	in, err := receiveV3(msg, w, res, sp)
+	in, err := receiveV3(msg, w, res, user, nil)
 	require.NoError(t, err)
 	return &in
 }
 
 // TestUSMUnsupportedProtocols checks that protocol values outside the defined
-// sets fail with an error on every path: validation, key derivation,
-// encoding without validation, and decoding with table parameters changed
-// after Add.
+// sets fail with an error on every path: validation, key derivation, a
+// table's Add, encoding without validation, and decoding with a table entry
+// whose protocol changed after Add.
 func TestUSMUnsupportedProtocols(t *testing.T) {
 	useEngineTimes(t)
 	const (
-		authErr = "securityParameters.AuthenticationProtocol AuthProtocol(8) is not supported"
-		privErr = "securityParameters.PrivacyProtocol PrivProtocol(8) is not supported"
+		authErr = "User.AuthProtocol AuthProtocol(8) is not supported"
+		privErr = "User.PrivProtocol PrivProtocol(8) is not supported"
 	)
-	params := func(auth AuthProtocol, priv PrivProtocol) *UsmSecurityParameters {
-		return &UsmSecurityParameters{
-			UserName:                 "codec-user",
-			AuthoritativeEngineID:    usmCharEngineID,
-			AuthenticationProtocol:   auth,
-			AuthenticationPassphrase: "codec-auth-pass",
-			PrivacyProtocol:          priv,
-			PrivacyPassphrase:        "codec-priv-pass",
-		}
+	user := func(auth AuthProtocol, priv PrivProtocol) User {
+		return usmUser(auth, "codec-auth-pass", priv, "codec-priv-pass")
 	}
 
 	tests := map[string]struct {
@@ -314,44 +197,41 @@ func TestUSMUnsupportedProtocols(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Run("validate", func(t *testing.T) {
-				x := &Client{
-					Version:       Version3,
-					SecurityLevel: tc.flags,
-
-					SecurityParameters: params(tc.auth, tc.priv),
-				}
+				x := &Client{Version: Version3, SecurityLevel: tc.flags, User: user(tc.auth, tc.priv)}
 				// Validation runs before decoding, so an empty message reaches it.
 				_, err := x.DecodeMessage(nil)
 				assert.EqualError(t, err, tc.wantErr)
 			})
 			t.Run("keys", func(t *testing.T) {
-				assert.EqualError(t, params(tc.auth, tc.priv).InitSecurityKeys(), tc.wantErr)
+				u := user(tc.auth, tc.priv)
+				_, err := u.localize([]byte(usmCharEngineID))
+				assert.EqualError(t, err, tc.wantErr)
 			})
 			t.Run("table", func(t *testing.T) {
 				table := NewSnmpV3SecurityParametersTable()
-				assert.EqualError(t, table.Add("codec-user", params(tc.auth, tc.priv)), tc.wantErr)
+				assert.EqualError(t, table.Add(user(tc.auth, tc.priv), []byte(usmCharEngineID)), tc.wantErr)
 			})
 			t.Run("encode", func(t *testing.T) {
 				pkt := &Message{
-					Version:       Version3,
-					SecurityLevel: tc.flags,
-
-					SecurityParameters: params(tc.auth, tc.priv),
+					Version:            Version3,
+					SecurityLevel:      tc.flags,
+					SecurityParameters: SecurityParameters{AuthoritativeEngineID: []byte(usmCharEngineID), UserName: "codec-user"},
 					PDUType:            SNMPv2Trap,
 					VarBinds:           usmCharVarbinds,
 				}
+				u := user(tc.auth, tc.priv)
 				var err error
-				require.NotPanics(t, func() { _, err = pkt.Encode() })
+				require.NotPanics(t, func() { _, err = pkt.Encode(&u) })
 				assert.EqualError(t, err, tc.wantErr)
 			})
 			t.Run("decode", func(t *testing.T) {
 				data := usmCharTrap(t, AES, usmCharVarbinds)
-				sp := params(SHA, AES)
 				table := NewSnmpV3SecurityParametersTable()
-				require.NoError(t, table.Add("codec-user", sp))
-				sp.AuthenticationProtocol, sp.PrivacyProtocol = tc.auth, tc.priv
+				require.NoError(t, table.Add(user(SHA, AES), []byte(usmCharEngineID)))
+				entries, err := table.get("codec-user")
+				require.NoError(t, err)
+				entries[0].user.AuthProtocol, entries[0].user.PrivProtocol = tc.auth, tc.priv
 				x := &Client{Version: Version3, TrapSecurityParametersTable: table}
-				var err error
 				require.NotPanics(t, func() { _, err = x.UnmarshalTrap(data, true) })
 				assert.EqualError(t, err, "no credentials successfully unmarshaled trap: "+tc.wantErr)
 			})
@@ -364,8 +244,8 @@ func TestUSMUnsupportedProtocols(t *testing.T) {
 // of sending a message without the MAC or the encryption its flags claim.
 func TestUSMEncodeSecurityLevel(t *testing.T) {
 	const (
-		authErr = "securityParameters.AuthenticationProtocol is required"
-		privErr = "securityParameters.PrivacyProtocol is required"
+		authErr = "User.AuthProtocol is required"
+		privErr = "User.PrivProtocol is required"
 	)
 
 	tests := map[string]struct {
@@ -385,26 +265,17 @@ func TestUSMEncodeSecurityLevel(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			sp := &UsmSecurityParameters{
-				UserName:                 "codec-user",
-				AuthoritativeEngineID:    usmCharEngineID,
-				AuthenticationProtocol:   tc.auth,
-				AuthenticationPassphrase: "codec-auth-pass",
-				PrivacyProtocol:          tc.priv,
-				PrivacyPassphrase:        "codec-priv-pass",
-			}
-			require.NoError(t, sp.InitSecurityKeys())
+			user := usmUser(tc.auth, "codec-auth-pass", tc.priv, "codec-priv-pass")
 			pkt := &Message{
-				Version:       Version3,
-				SecurityLevel: tc.flags,
-
-				SecurityParameters: sp,
+				Version:            Version3,
+				SecurityLevel:      tc.flags,
+				SecurityParameters: SecurityParameters{AuthoritativeEngineID: []byte(usmCharEngineID), UserName: "codec-user"},
 				PDUType:            SNMPv2Trap,
 				VarBinds:           usmCharVarbinds,
 			}
 			var msg []byte
 			var err error
-			panicked, wroteStdout := observe(func() { msg, err = pkt.Encode() })
+			panicked, wroteStdout := observe(func() { msg, err = pkt.Encode(&user) })
 			require.False(t, panicked)
 			assert.False(t, wroteStdout)
 			if tc.wantErr == "" {
@@ -454,48 +325,40 @@ func TestUSMDecodeSecurityLevel(t *testing.T) {
 	}
 }
 
-// TestUSMTrapTableAttempts checks how the trap table path tries the
-// parameter sets of a user, in the order they were added, on the one trap (no
-// attempt writes it): the first that decodes wins, and when none does the
-// error carries the one of the set that got furthest, whatever the order, the
-// first on ties: a wrong digest after a local failure that comes before it, a
-// level the set lacks protocols for after another engine ID.
+// TestUSMTrapTableAttempts checks how the trap table path tries the users of
+// a name, in the order they were added, on the one trap (no attempt writes
+// it): the first that decodes wins, and when none does the error carries the
+// one of the user that got furthest, whatever the order, the first on ties: a
+// wrong digest after a local failure that comes before it, a level the user
+// lacks protocols for after a local failure.
 func TestUSMTrapTableAttempts(t *testing.T) {
 	useEngineTimes(t)
 	data := usmCharTrap(t, AES, usmCharVarbinds)
-	params := func(authPass string) *UsmSecurityParameters {
-		return &UsmSecurityParameters{
-			UserName:                 "codec-user",
-			AuthoritativeEngineID:    usmCharEngineID,
-			AuthenticationProtocol:   SHA,
-			AuthenticationPassphrase: authPass,
-			PrivacyProtocol:          AES,
-			PrivacyPassphrase:        "codec-priv-pass",
+	user := func(authPass string) User { return usmUser(SHA, authPass, AES, "codec-priv-pass") }
+	good := user("codec-auth-pass")
+	wrongPass := user("wrong-auth-pass")
+	noPriv := good
+	noPriv.PrivProtocol = NoPriv
+	add := func(u User) func(*SnmpV3SecurityParametersTable) {
+		return func(tb *SnmpV3SecurityParametersTable) { require.NoError(t, tb.Add(u, []byte(usmCharEngineID))) }
+	}
+	// unsupported fails before decoding anything: the entry's protocol is
+	// set after Add, which rejects it; edit sets it.
+	unsupported := func(edit func(u *User)) func(*SnmpV3SecurityParametersTable) {
+		return func(tb *SnmpV3SecurityParametersTable) {
+			add(good)(tb)
+			entries, err := tb.get("codec-user")
+			require.NoError(t, err)
+			edit(&entries[len(entries)-1].user)
 		}
 	}
-	good := func() *UsmSecurityParameters { return params("codec-auth-pass") }
-	wrongPass := func() *UsmSecurityParameters { return params("wrong-auth-pass") }
-	// unsupported fails before decoding anything; its protocol is set after
-	// Add, which rejects it.
-	unsupported := func(tb *SnmpV3SecurityParametersTable) {
-		sp := good()
-		require.NoError(t, tb.Add("codec-user", sp))
-		sp.AuthenticationProtocol = AuthProtocol(8)
-	}
-	// keysOnly holds keys for another engine ID, without passphrases: it
-	// refuses the trap's engine ID (step 4); noPriv has no privacy protocol
-	// for the authPriv trap (step 5).
-	keysOnly := usmKeysOnly(good(), usmOtherEngineID)
-	noPriv := good()
-	noPriv.PrivacyProtocol = NoPriv
-	add := func(sp *UsmSecurityParameters) func(*SnmpV3SecurityParametersTable) {
-		return func(tb *SnmpV3SecurityParametersTable) { require.NoError(t, tb.Add("codec-user", sp)) }
-	}
+	unsupportedAuth := unsupported(func(u *User) { u.AuthProtocol = AuthProtocol(8) })
+	unsupportedPriv := unsupported(func(u *User) { u.PrivProtocol = PrivProtocol(8) })
 	const (
 		prefix         = "no credentials successfully unmarshaled trap: "
 		notAuthentic   = "incoming packet is not authentic, discarding"
-		notSupportedV8 = "securityParameters.AuthenticationProtocol AuthProtocol(8) is not supported"
-		otherEngine    = "usm: without a passphrase, the authentication key cannot be localized to another engine ID"
+		notSupportedV8 = "User.AuthProtocol AuthProtocol(8) is not supported"
+		privNotSupport = "User.PrivProtocol PrivProtocol(8) is not supported"
 		noPrivProtocol = "error parsing SNMPv3 User Security Model: privacy parameters are not configured to parse incoming encrypted message"
 	)
 
@@ -503,14 +366,15 @@ func TestUSMTrapTableAttempts(t *testing.T) {
 		sets    []func(*SnmpV3SecurityParametersTable)
 		wantErr string
 	}{
-		"wrong passphrase, then right":    {sets: []func(*SnmpV3SecurityParametersTable){add(wrongPass()), add(good())}},
-		"right passphrase first":          {sets: []func(*SnmpV3SecurityParametersTable){add(good()), add(wrongPass())}},
-		"unsupported, then not authentic": {sets: []func(*SnmpV3SecurityParametersTable){unsupported, add(wrongPass())}, wantErr: prefix + notAuthentic},
-		"not authentic, then unsupported": {sets: []func(*SnmpV3SecurityParametersTable){add(wrongPass()), unsupported}, wantErr: prefix + notAuthentic},
-		"unsupported twice":               {sets: []func(*SnmpV3SecurityParametersTable){unsupported, unsupported}, wantErr: prefix + notSupportedV8},
-		"unsupported, then keys only":     {sets: []func(*SnmpV3SecurityParametersTable){unsupported, add(keysOnly)}, wantErr: prefix + notSupportedV8},
-		"keys only, then unsupported":     {sets: []func(*SnmpV3SecurityParametersTable){add(keysOnly), unsupported}, wantErr: prefix + otherEngine},
-		"keys only, then no privacy":      {sets: []func(*SnmpV3SecurityParametersTable){add(keysOnly), add(noPriv)}, wantErr: prefix + noPrivProtocol},
+		"wrong passphrase, then right":          {sets: []func(*SnmpV3SecurityParametersTable){add(wrongPass), add(good)}},
+		"right passphrase first":                {sets: []func(*SnmpV3SecurityParametersTable){add(good), add(wrongPass)}},
+		"unsupported, then not authentic":       {sets: []func(*SnmpV3SecurityParametersTable){unsupportedAuth, add(wrongPass)}, wantErr: prefix + notAuthentic},
+		"not authentic, then unsupported":       {sets: []func(*SnmpV3SecurityParametersTable){add(wrongPass), unsupportedAuth}, wantErr: prefix + notAuthentic},
+		"unsupported twice":                     {sets: []func(*SnmpV3SecurityParametersTable){unsupportedAuth, unsupportedAuth}, wantErr: prefix + notSupportedV8},
+		"unsupported, then unsupported privacy": {sets: []func(*SnmpV3SecurityParametersTable){unsupportedAuth, unsupportedPriv}, wantErr: prefix + notSupportedV8},
+		"unsupported privacy, then unsupported": {sets: []func(*SnmpV3SecurityParametersTable){unsupportedPriv, unsupportedAuth}, wantErr: prefix + privNotSupport},
+		"unsupported privacy, then no privacy":  {sets: []func(*SnmpV3SecurityParametersTable){unsupportedPriv, add(noPriv)}, wantErr: prefix + noPrivProtocol},
+		"no privacy, then unsupported privacy":  {sets: []func(*SnmpV3SecurityParametersTable){add(noPriv), unsupportedPriv}, wantErr: prefix + noPrivProtocol},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -532,45 +396,23 @@ func TestUSMTrapTableAttempts(t *testing.T) {
 	}
 }
 
-// TestUSMReceiveEngineBinding pins the categories of the engine ID rule when a
-// receiver takes a message from another engine ID: a key given without its
-// passphrase is bound to its engine, so the user is unknown there
-// (ErrUnknownUsername, RFC 3414 section 3.2 step 4), for either key; a
-// protocol with neither key nor passphrase is the receiver's configuration
-// error, of no RFC category.
-func TestUSMReceiveEngineBinding(t *testing.T) {
-	w := v3Wire{engineID: usmCharEngineID, has: hasEngineID}
-	keysOnly := func(edit func(sp *UsmSecurityParameters)) *UsmSecurityParameters {
-		sp := usmKeysOnly(usmDecoder(SHA, "codec-auth-pass", AES, "codec-priv-pass")().SecurityParameters.usm(), usmOtherEngineID)
-		edit(sp)
-		return sp
+// TestUSMReceivePassphrases pins the category of a receiver's user that has a
+// protocol without a passphrase when the keys derive for a message's engine
+// ID: its configuration error, of no RFC category, not an unknown user.
+func TestUSMReceivePassphrases(t *testing.T) {
+	data := usmCharTrap(t, AES, usmCharVarbinds)
+	tests := map[string]User{
+		"authentication protocol without passphrase": usmUser(SHA, "", AES, "codec-priv-pass"),
+		"privacy protocol without passphrase":        usmUser(SHA, "codec-auth-pass", AES, ""),
 	}
-	tests := map[string]struct {
-		sp      *UsmSecurityParameters
-		wantErr error
-		unknown bool // unwraps to ErrUnknownUsername
-	}{
-		"authentication key only": {
-			sp: keysOnly(func(*UsmSecurityParameters) {}), wantErr: errAuthKeyBoundToEngine, unknown: true,
-		},
-		"privacy key only": {
-			sp:      keysOnly(func(sp *UsmSecurityParameters) { sp.AuthenticationPassphrase = "codec-auth-pass" }),
-			wantErr: errPrivKeyBoundToEngine, unknown: true,
-		},
-		"privacy protocol without key or passphrase": {
-			sp: keysOnly(func(sp *UsmSecurityParameters) {
-				sp.AuthenticationPassphrase, sp.PrivacyKey = "codec-auth-pass", nil
-			}),
-		},
-	}
-	for name, tc := range tests {
+	for name, user := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := tc.sp.receive(AuthPriv, &w, true)
+			res := new(Message)
+			_, w, err := unmarshalHeader(data, res)
+			require.NoError(t, err)
+			_, err = receiveV3(data, w, res, &user, nil)
 			require.Error(t, err)
-			if tc.wantErr != nil {
-				require.ErrorIs(t, err, tc.wantErr)
-			}
-			assert.Equal(t, tc.unknown, errors.Is(err, ErrUnknownUsername))
+			assert.NotErrorIs(t, err, ErrUnknownUsername)
 		})
 	}
 }
@@ -588,11 +430,11 @@ func TestUSMTrapMistypedFields(t *testing.T) {
 	}
 	receivers := map[string]func() *Client{
 		"single": func() *Client {
-			return &Client{Version: Version3, SecurityParameters: &UsmSecurityParameters{UserName: "secret-user"}}
+			return &Client{Version: Version3, User: User{Name: "secret-user"}}
 		},
 		"table": func() *Client {
 			tb := NewSnmpV3SecurityParametersTable()
-			require.NoError(t, tb.Add("secret-user", &UsmSecurityParameters{UserName: "secret-user"}))
+			require.NoError(t, tb.Add(User{Name: "secret-user"}, nil))
 			return &Client{Version: Version3, TrapSecurityParametersTable: tb}
 		},
 	}
@@ -635,7 +477,7 @@ func TestUSMTrapTableSkipsV1V2c(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			tb := NewSnmpV3SecurityParametersTable()
-			require.NoError(t, tb.Add("codec-user", &UsmSecurityParameters{UserName: "codec-user"}))
+			require.NoError(t, tb.Add(User{Name: "codec-user"}, nil))
 			x := &Client{Version: Version3, TrapSecurityParametersTable: tb}
 			var res *Message
 			var err error
@@ -656,49 +498,39 @@ func TestUSMTrapTableSkipsV1V2c(t *testing.T) {
 func TestUSMReceiverAuthenticationWithoutProtocol(t *testing.T) {
 	useEngineTimes(t)
 	sender := &Message{
-		Version:       Version3,
-		SecurityLevel: NoAuthNoPriv,
-
-		SecurityParameters: &UsmSecurityParameters{UserName: "codec-user", AuthoritativeEngineID: usmCharEngineID},
+		Version:            Version3,
+		SecurityLevel:      NoAuthNoPriv,
+		SecurityParameters: SecurityParameters{UserName: "codec-user", AuthoritativeEngineID: []byte(usmCharEngineID)},
 		PDUType:            SNMPv2Trap,
 		VarBinds:           usmCharVarbinds,
 	}
-	data, err := sender.Encode()
+	data, err := sender.Encode(nil)
 	require.NoError(t, err)
 
 	tests := map[string]struct {
-		receiver *UsmSecurityParameters
+		receiver User
 		wantErr  string
 	}{
 		"unset protocol": {
-			receiver: &UsmSecurityParameters{UserName: "codec-user"},
+			receiver: User{Name: "codec-user"},
 			wantErr:  "incoming packet has a lower security level than its user requires, discarding",
 		},
 		"NoAuth": {
-			receiver: &UsmSecurityParameters{UserName: "codec-user", AuthenticationProtocol: NoAuth},
+			receiver: User{Name: "codec-user", AuthProtocol: NoAuth},
 			wantErr:  "incoming packet has a lower security level than its user requires, discarding",
 		},
 		"authentication protocol": {
-			receiver: &UsmSecurityParameters{
-				UserName:                 "codec-user",
-				AuthenticationProtocol:   SHA,
-				AuthenticationPassphrase: "codec-auth-pass",
-			},
-			wantErr: "incoming packet has a lower security level than its user requires, discarding",
+			receiver: User{Name: "codec-user", AuthProtocol: SHA, AuthPassphrase: "codec-auth-pass"},
+			wantErr:  "incoming packet has a lower security level than its user requires, discarding",
 		},
 		"other user": {
-			receiver: &UsmSecurityParameters{UserName: "other-user"},
+			receiver: User{Name: "other-user"},
 			wantErr:  "incoming packet is not authentic, discarding",
 		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			x := &Client{
-				Version:       Version3,
-				SecurityLevel: AuthNoPriv,
-
-				SecurityParameters: tc.receiver,
-			}
+			x := &Client{Version: Version3, SecurityLevel: AuthNoPriv, User: tc.receiver}
 			var err error
 			require.NotPanics(t, func() { _, err = x.UnmarshalTrap(bytes.Clone(data), false) })
 			assert.EqualError(t, err, tc.wantErr)
@@ -708,8 +540,8 @@ func TestUSMReceiverAuthenticationWithoutProtocol(t *testing.T) {
 
 // TestUSMFIPS140OnlyDigest checks, when run with GODEBUG=fips140=only, that
 // HMAC-MD5-96 and HMAC-SHA-96 fail with the hash's error instead of
-// panicking, when encoding and when decoding a message made with enforcement
-// off.
+// panicking, when signing and when checking the digest of a message made with
+// enforcement off.
 func TestUSMFIPS140OnlyDigest(t *testing.T) {
 	useEngineTimes(t)
 	if !fips140.Enforced() {
@@ -717,40 +549,58 @@ func TestUSMFIPS140OnlyDigest(t *testing.T) {
 	}
 	for _, auth := range []AuthProtocol{MD5, SHA} {
 		t.Run(auth.String(), func(t *testing.T) {
-			sp := &UsmSecurityParameters{
-				UserName:                 "codec-user",
-				AuthoritativeEngineID:    usmCharEngineID,
-				AuthenticationProtocol:   auth,
-				AuthenticationPassphrase: "codec-auth-pass",
-			}
+			user := User{Name: "codec-user", AuthProtocol: auth, AuthPassphrase: "codec-auth-pass"}
 			trap := func() *Message {
 				return &Message{
-					Version:       Version3,
-					SecurityLevel: AuthNoPriv,
-
-					SecurityParameters: sp.Copy(),
+					Version:            Version3,
+					SecurityLevel:      AuthNoPriv,
+					SecurityParameters: SecurityParameters{AuthoritativeEngineID: []byte(usmCharEngineID), UserName: "codec-user"},
 					PDUType:            SNMPv2Trap,
 					VarBinds:           usmCharVarbinds,
 				}
 			}
 			var data []byte
+			var keys usmKeys
+			tb := NewSnmpV3SecurityParametersTable()
 			fips140.WithoutEnforcement(func() {
-				require.NoError(t, sp.InitSecurityKeys())
 				var err error
-				data, err = trap().Encode()
+				keys, err = user.localize([]byte(usmCharEngineID))
 				require.NoError(t, err)
+				data, err = trap().Encode(&user)
+				require.NoError(t, err)
+				require.NoError(t, tb.Add(user, []byte(usmCharEngineID)))
 			})
 
 			var err error
-			panicked, wroteStdout := observe(func() { _, err = trap().Encode() })
+			panicked, wroteStdout := observe(func() { _, err = trap().marshalMsg(&keys) })
 			assert.False(t, panicked, "encode panicked")
 			assert.False(t, wroteStdout, "encode wrote to stdout")
 			assert.ErrorContains(t, err, "not allowed in FIPS 140-only mode")
 
-			// The receiver has the keys, so decoding derives none.
-			x := &Client{Version: Version3, SecurityLevel: AuthNoPriv, SecurityParameters: sp.Copy()}
+			// The table holds the keys for the trap's engine ID, so decoding
+			// derives none.
+			x := &Client{Version: Version3, TrapSecurityParametersTable: tb}
 			require.NotPanics(t, func() { _, err = x.UnmarshalTrap(bytes.Clone(data), false) })
 			assert.ErrorContains(t, err, "not allowed in FIPS 140-only mode")
+		})
+	}
+}
+
+// TestUSMFIPS140OnlyEncodeNoAuth pins that Message.Encode derives no key a
+// message's level does not use: in FIPS 140-only mode, which refuses MD5 and
+// SHA-1 keys, a user of those protocols encodes a noAuthNoPriv message.
+func TestUSMFIPS140OnlyEncodeNoAuth(t *testing.T) {
+	if !fips140.Enforced() {
+		t.Skip("run with GODEBUG=fips140=only")
+	}
+	for _, auth := range []AuthProtocol{MD5, SHA} {
+		t.Run(auth.String(), func(t *testing.T) {
+			user := User{Name: "codec-user", AuthProtocol: auth, AuthPassphrase: "codec-auth-pass"}
+			_, err := (&Message{
+				Version: Version3, SecurityLevel: NoAuthNoPriv, PDUType: SNMPv2Trap,
+				SecurityParameters: SecurityParameters{AuthoritativeEngineID: []byte(usmCharEngineID), UserName: "codec-user"},
+			}).Encode(&user)
+			require.NoError(t, err)
 		})
 	}
 }
@@ -768,41 +618,44 @@ func TestUSMFIPS140OnlyDecrypt(t *testing.T) {
 	}
 	for _, priv := range usmPrivProtocols[1:] {
 		t.Run(priv.String(), func(t *testing.T) {
-			sp := &UsmSecurityParameters{
-				UserName: "codec-user", AuthoritativeEngineID: usmCharEngineID,
-				AuthenticationProtocol: SHA256, AuthenticationPassphrase: "codec-auth-pass",
-				PrivacyProtocol: priv, PrivacyPassphrase: "codec-priv-pass",
+			user := User{
+				Name: "codec-user", AuthProtocol: SHA256, AuthPassphrase: "codec-auth-pass",
+				PrivProtocol: priv, PrivPassphrase: "codec-priv-pass",
 			}
+			header := SecurityParameters{AuthoritativeEngineID: []byte(usmCharEngineID), UserName: "codec-user"}
 			var trap, reply []byte
+			var keys usmKeys
 			fips140.WithoutEnforcement(func() {
-				require.NoError(t, sp.InitSecurityKeys())
 				var err error
+				keys, err = user.localize(header.AuthoritativeEngineID)
+				require.NoError(t, err)
 				trap, err = (&Message{
-					Version: Version3, SecurityLevel: AuthPriv, SecurityParameters: sp.Copy(),
+					Version: Version3, SecurityLevel: AuthPriv, SecurityParameters: header,
 					PDUType: SNMPv2Trap, VarBinds: usmCharVarbinds,
-				}).Encode()
+				}).Encode(&user)
 				require.NoError(t, err)
 				reply, err = (&Message{
-					Version: Version3, SecurityLevel: AuthPriv, SecurityParameters: sp.Copy(),
+					Version: Version3, SecurityLevel: AuthPriv, SecurityParameters: header,
 					MsgID: 7, PDUType: Response, RequestID: 1, VarBinds: usmCharVarbinds,
-				}).Encode()
+				}).Encode(&user)
 				require.NoError(t, err)
 			})
 			client := func() *Client {
-				return &Client{Version: Version3, SecurityLevel: AuthPriv, SecurityParameters: sp.Copy()}
+				return &Client{Version: Version3, SecurityLevel: AuthPriv, User: user}
 			}
 			paths := map[string]func() error{
 				"single": func() error { _, err := client().UnmarshalTrap(bytes.Clone(trap), false); return err },
 				"table": func() error {
 					tb := NewSnmpV3SecurityParametersTable()
-					require.NoError(t, tb.Add("codec-user", sp.Copy()))
+					require.NoError(t, tb.Add(user, header.AuthoritativeEngineID))
 					_, err := (&Client{Version: Version3, TrapSecurityParametersTable: tb}).UnmarshalTrap(bytes.Clone(trap), false)
 					return err
 				},
 				"raw": func() error { _, err := client().DecodeMessage(bytes.Clone(trap)); return err },
 				"reply": func() error {
-					req := &Message{Version: Version3, SecurityLevel: AuthPriv, SecurityParameters: sp.Copy(), MsgID: 7}
-					_, _, err := (&exchange{x: client(), packet: req}).decode(reply, nil)
+					req := &Message{Version: Version3, SecurityLevel: AuthPriv, SecurityParameters: header, MsgID: 7}
+					e := exchange{x: client(), packet: req, sec: attemptSecurity{keys: keys}}
+					_, _, err := e.decode(reply, nil)
 					return err
 				},
 			}
@@ -839,21 +692,16 @@ func TestUSMFIPS140OnlyShortSHA2Key(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			pkt := &Message{
-				Version:       Version3,
-				SecurityLevel: AuthNoPriv,
-
-				SecurityParameters: &UsmSecurityParameters{
-					UserName:               "codec-user",
-					AuthoritativeEngineID:  usmCharEngineID,
-					AuthenticationProtocol: SHA256,
-					SecretKey:              bytes.Repeat([]byte{'k'}, tc.keyLen),
-				},
-				PDUType:  SNMPv2Trap,
-				VarBinds: usmCharVarbinds,
+				Version:            Version3,
+				SecurityLevel:      AuthNoPriv,
+				SecurityParameters: SecurityParameters{AuthoritativeEngineID: []byte(usmCharEngineID), UserName: "codec-user"},
+				PDUType:            SNMPv2Trap,
+				VarBinds:           usmCharVarbinds,
 			}
+			keys := usmKeys{authProtocol: SHA256, auth: bytes.Repeat([]byte{'k'}, tc.keyLen)}
 			var msg []byte
 			var err error
-			panicked, wroteStdout := observe(func() { msg, err = pkt.Encode() })
+			panicked, wroteStdout := observe(func() { msg, err = pkt.marshalMsg(&keys) })
 			assert.False(t, panicked, "encode panicked")
 			assert.False(t, wroteStdout, "wrote to stdout")
 			if tc.wantErr != "" {
@@ -868,9 +716,9 @@ func TestUSMFIPS140OnlyShortSHA2Key(t *testing.T) {
 }
 
 // TestUSMEmptyPassphraseKeys checks that an empty passphrase derives no key:
-// InitSecurityKeys fails with the rule's error for the protocol left without
-// one, so no authentication key, DES key or Blumenthal key extended from
-// nothing is computed from it.
+// localizing fails with the rule's error for the protocol left without one,
+// so no authentication key, DES key or Blumenthal key extended from nothing
+// is computed from it.
 func TestUSMEmptyPassphraseKeys(t *testing.T) {
 	tests := map[string]struct {
 		auth     AuthProtocol
@@ -884,88 +732,40 @@ func TestUSMEmptyPassphraseKeys(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			sp := &UsmSecurityParameters{
-				AuthoritativeEngineID:    usmCharEngineID,
-				AuthenticationProtocol:   tc.auth,
-				AuthenticationPassphrase: tc.authPass,
-				PrivacyProtocol:          tc.priv,
-			}
-			require.EqualError(t, sp.InitSecurityKeys(), tc.wantErr)
-			if tc.authPass == "" {
-				assert.Nil(t, sp.SecretKey)
-			}
-			assert.Nil(t, sp.PrivacyKey)
+			user := User{AuthProtocol: tc.auth, AuthPassphrase: tc.authPass, PrivProtocol: tc.priv}
+			keys, err := user.localize([]byte(usmCharEngineID))
+			require.EqualError(t, err, tc.wantErr)
+			assert.Nil(t, keys.auth)
+			assert.Nil(t, keys.priv)
+			privKey, err := user.privKey([]byte(usmCharEngineID))
+			require.NoError(t, err)
+			assert.Nil(t, privKey)
 		})
 	}
 }
 
-// TestUSMKeyLengths checks the key lengths InitSecurityKeys leaves and takes:
-// an HMAC-SHA user's derived DES key is the localized key's first 16 octets,
-// and keys given with another length than the protocol's fail, at
-// InitSecurityKeys and at a table's Add.
+// TestUSMKeyLengths checks the length of a derived DES key: an HMAC-SHA
+// user's is the localized key's first 16 octets.
 func TestUSMKeyLengths(t *testing.T) {
-	derived := &UsmSecurityParameters{
-		AuthoritativeEngineID:    usmCharEngineID,
-		AuthenticationProtocol:   SHA,
-		AuthenticationPassphrase: "codec-auth-pass",
-		PrivacyProtocol:          DES,
-		PrivacyPassphrase:        "codec-priv-pass",
-	}
-	require.NoError(t, derived.InitSecurityKeys())
-	localized, err := passwordCache.LocalizedKey(crypto.SHA1, "codec-priv-pass", usmCharEngineID)
+	user := usmUser(SHA, "codec-auth-pass", DES, "codec-priv-pass")
+	keys, err := user.localize([]byte(usmCharEngineID))
 	require.NoError(t, err)
-	assert.Equal(t, localized[:16], derived.PrivacyKey, "derived DES key")
-
-	tests := map[string]struct {
-		auth         AuthProtocol
-		priv         PrivProtocol
-		key, privKey []byte
-		want         string // the error of InitSecurityKeys and of Add, "" for none
-	}{
-		"SHA key of 16 octets":     {auth: SHA, key: make([]byte, 16), want: "usm: authentication key of 16 octets, want 20"},
-		"SHA-256 key of 20 octets": {auth: SHA256, key: make([]byte, 20), want: "usm: authentication key of 20 octets, want 32"},
-		"AES key of 32 octets":     {auth: SHA, key: make([]byte, 20), priv: AES, privKey: make([]byte, 32), want: "usm: privacy key of 32 octets, want 16"},
-		"DES key of 8 octets":      {auth: SHA, key: make([]byte, 20), priv: DES, privKey: make([]byte, 8), want: "usm: privacy key of 8 octets, want 16"},
-	}
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			sp := func() *UsmSecurityParameters {
-				return &UsmSecurityParameters{
-					UserName:               "codec-user",
-					AuthoritativeEngineID:  usmCharEngineID,
-					AuthenticationProtocol: tc.auth,
-					PrivacyProtocol:        tc.priv,
-					SecretKey:              tc.key,
-					PrivacyKey:             tc.privKey,
-				}
-			}
-			initErr := sp().InitSecurityKeys()
-			addErr := NewSnmpV3SecurityParametersTable().Add("codec-user", sp())
-			got := [2]string{}
-			for i, err := range []error{initErr, addErr} {
-				if err != nil {
-					got[i] = err.Error()
-				}
-			}
-			assert.Equal(t, [2]string{tc.want, tc.want}, got)
-		})
-	}
+	localized, err := passwordCache.LocalizedKey(crypto.SHA1, "codec-priv-pass", []byte(usmCharEngineID))
+	require.NoError(t, err)
+	assert.Equal(t, localized[:16], keys.priv, "derived DES key")
 }
 
 // TestUSMFIPS140OnlyKeyDerivation checks, when run with GODEBUG=fips140=only,
-// that InitSecurityKeys returns the error of deriving a key with a hash the
-// mode refuses, not the missing key it leaves.
+// that localizing returns the error of deriving a key with a hash the mode
+// refuses, not the missing key it leaves.
 func TestUSMFIPS140OnlyKeyDerivation(t *testing.T) {
 	if !fips140.Enforced() {
 		t.Skip("run with GODEBUG=fips140=only")
 	}
-	sp := &UsmSecurityParameters{
-		AuthoritativeEngineID:    usmCharEngineID,
-		AuthenticationProtocol:   MD5,
-		AuthenticationPassphrase: "codec-auth-pass",
-	}
-	require.EqualError(t, sp.InitSecurityKeys(), "crypto/md5: use of MD5 is not allowed in FIPS 140-only mode")
-	assert.Nil(t, sp.SecretKey)
+	user := User{AuthProtocol: MD5, AuthPassphrase: "codec-auth-pass"}
+	keys, err := user.localize([]byte(usmCharEngineID))
+	require.EqualError(t, err, "crypto/md5: use of MD5 is not allowed in FIPS 140-only mode")
+	assert.Nil(t, keys.auth)
 }
 
 // TestSignDigestOffset pins where an outgoing message's digest goes: into its
@@ -1020,6 +820,12 @@ func TestSignDigestOffset(t *testing.T) {
 		"USM SEQUENCE over 255 octets": {
 			engineID: func(*testing.T, AuthProtocol, PrivProtocol) string { return longEngineID(250) },
 		},
+		// The longest fields the decoder takes: a USM SEQUENCE over 127
+		// octets but for MD5 without privacy.
+		"longest engine ID and user name": {
+			user:     func(AuthProtocol) string { return strings.Repeat("u", maxUserNameLen) },
+			engineID: func(*testing.T, AuthProtocol, PrivProtocol) string { return longEngineID(maxDecodedEngineIDLen) },
+		},
 		"security parameters of 127 octets": {
 			engineID: func(t *testing.T, auth AuthProtocol, priv PrivProtocol) string {
 				return engineIDForUSMLen(t, auth, priv, 127)
@@ -1063,21 +869,26 @@ func TestSignDigestOffset(t *testing.T) {
 					m.usm[4] = make([]byte, len(digest))
 					unsigned := m.bytes()
 
+					u := signedTestUser(auth, priv, user)
+					key, err := u.authKey([]byte(engineID))
+					require.NoError(t, err)
+					mac := hmac.New(auth.hash().New, key)
+					mac.Write(unsigned)
+					assert.Equal(t, mac.Sum(nil)[:auth.spec().MACLen], digest, "the field holds the digest")
+
+					x := &Client{Version: Version3, SecurityLevel: signedTestFlags(priv), User: u}
+					res, err := x.UnmarshalTrap(bytes.Clone(data), false)
+					if len(engineID) > maxDecodedEngineIDLen {
+						require.ErrorIs(t, err, ErrInvalidMsgs, "an engine ID longer than the decoder takes")
+						return
+					}
+					require.NoError(t, err)
 					_, w, err := unmarshalHeader(data, new(Message))
 					require.NoError(t, err)
 					assert.Equal(t, [2]int{authParamsOffset(t, data), auth.spec().MACLen}, [2]int{w.authOff, w.authLen},
 						"the parse finds the field where the encoder put it")
-
-					sp := signedTestUSM(t, auth, priv, engineID, user)
-					mac := hmac.New(auth.HashType().New, sp.SecretKey)
-					mac.Write(unsigned)
-					assert.Equal(t, mac.Sum(nil)[:auth.spec().MACLen], digest, "the field holds the digest")
-
-					x := &Client{Version: Version3, SecurityLevel: signedTestFlags(priv), SecurityParameters: sp}
-					res, err := x.UnmarshalTrap(bytes.Clone(data), false)
-					require.NoError(t, err)
-					usp := res.SecurityParameters.usm()
-					assert.Equal(t, []string{engineID, user}, []string{usp.AuthoritativeEngineID, usp.UserName})
+					h := &res.SecurityParameters
+					assert.Equal(t, []string{engineID, user}, []string{string(h.AuthoritativeEngineID), h.UserName})
 					if tc.variables != nil {
 						require.Len(t, res.VarBinds, 1)
 						assert.Equal(t, tc.variables[0].Value, res.VarBinds[0].Value)
@@ -1113,16 +924,22 @@ func authParamsOffset(t *testing.T, data []byte) int {
 	return len(data) - r.Len()
 }
 
-// signedTestUSM returns parameters for user with keys localized to engineID.
-func signedTestUSM(t *testing.T, auth AuthProtocol, priv PrivProtocol, engineID, user string) *UsmSecurityParameters {
-	t.Helper()
-	sp := &UsmSecurityParameters{
-		UserName: user, AuthenticationProtocol: auth, AuthenticationPassphrase: "codec-auth-pass",
-		PrivacyProtocol: priv, PrivacyPassphrase: "codec-priv-pass",
-		AuthoritativeEngineID: engineID, AuthoritativeEngineBoots: 3, AuthoritativeEngineTime: 77,
+// signedTestUser returns user with the protocols auth and priv and the codec
+// passphrases.
+func signedTestUser(auth AuthProtocol, priv PrivProtocol, user string) User {
+	return User{
+		Name: user, AuthProtocol: auth, AuthPassphrase: "codec-auth-pass",
+		PrivProtocol: priv, PrivPassphrase: "codec-priv-pass",
 	}
-	require.NoError(t, sp.InitSecurityKeys())
-	return sp
+}
+
+// signedTestHeader returns the USM header of a message from user at
+// engineID, with engine boots 3 and time 77.
+func signedTestHeader(engineID, user string) SecurityParameters {
+	return SecurityParameters{
+		AuthoritativeEngineID: []byte(engineID), AuthoritativeEngineBoots: 3, AuthoritativeEngineTime: 77,
+		UserName: user,
+	}
 }
 
 // signedTestFlags is authPriv with a privacy protocol, authNoPriv without.
@@ -1141,10 +958,11 @@ func signedTestTrap(t *testing.T, auth AuthProtocol, priv PrivProtocol, engineID
 	if variables == nil {
 		variables = usmPlainVars
 	}
+	u := signedTestUser(auth, priv, user)
 	data, err := (&Message{
 		Version: Version3, SecurityLevel: signedTestFlags(priv),
-		SecurityParameters: signedTestUSM(t, auth, priv, engineID, user), PDUType: SNMPv2Trap, VarBinds: variables,
-	}).Encode()
+		SecurityParameters: signedTestHeader(engineID, user), PDUType: SNMPv2Trap, VarBinds: variables,
+	}).Encode(&u)
 	require.NoError(t, err)
 	return data
 }

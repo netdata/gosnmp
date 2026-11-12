@@ -13,9 +13,9 @@ import (
 )
 
 // TestReencodeDrawsNewSalt checks that a packet built from a decoded message,
-// as an inform response is (Netdata's trap receiver copies the inform's
-// security parameters), is encrypted with a salt of its own: each encoding
-// draws a new one, neither the received salt nor the previous encoding's.
+// as an inform response is (Netdata's trap receiver copies the inform's USM
+// header), is encrypted with a salt of its own: each encoding draws a new one,
+// neither the received salt nor the previous encoding's.
 func TestReencodeDrawsNewSalt(t *testing.T) {
 	for _, priv := range []PrivProtocol{DES, AES, AES256C} {
 		t.Run(priv.String(), func(t *testing.T) {
@@ -25,14 +25,13 @@ func TestReencodeDrawsNewSalt(t *testing.T) {
 			decoder := usmDecoder(SHA, "codec-auth-pass", priv, "codec-priv-pass")()
 			in, err := decoder.DecodeMessage(bytes.Clone(data))
 			require.NoError(t, err)
-			require.Equal(t, inSalt, in.SecurityParameters.usm().PrivacyParameters)
+			require.Equal(t, inSalt, in.SecurityParameters.PrivacyParameters)
 
 			respond := func() []byte {
 				t.Helper()
 				resp := *in
 				resp.PDUType = Response
-				resp.SecurityParameters = in.SecurityParameters.Copy()
-				out, marshalErr := resp.Encode()
+				out, marshalErr := resp.Encode(&decoder.User)
 				require.NoError(t, marshalErr)
 				return out
 			}
@@ -47,8 +46,9 @@ func TestReencodeDrawsNewSalt(t *testing.T) {
 			got, err := decoder.DecodeMessage(first)
 			require.NoError(t, err)
 			type scoped struct {
-				contextEngineID, contextName string
-				variables                    []VarBind
+				contextEngineID []byte
+				contextName     string
+				variables       []VarBind
 			}
 			assert.Equal(t, scoped{in.ContextEngineID, in.ContextName, usmCharVarbinds},
 				scoped{got.ContextEngineID, got.ContextName, got.VarBinds})

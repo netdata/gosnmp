@@ -32,17 +32,16 @@ func TestEngineV3MaximumBoots(t *testing.T) {
 					tr := newEngineTranscript(t)
 					a := newFakeV3Agent(tr, agentCreds, sysDescr)
 					c := newFakeTransport(tr, a.handle)
-					sp := userParameters("codec-md5")
-					sp.AuthoritativeEngineID = agentEngineID
 					x := newEngineClientFrom(t, tr, fakePacketTransport{c}, &Client{
 						Version: Version3, SecurityLevel: AuthNoPriv,
-						SecurityParameters: sp, Timeout: time.Second, Retries: 1,
+						User: agentUserOf("codec-md5"), Timeout: time.Second, Retries: 1,
 					})
+					seedEngine(agentEngineID, 0, 0)(x)
 					_, err := x.Get([]string{engineOID})
 					require.NoError(t, err)
-					before := sp.Copy().usm()
-					before.SecretKey = bytes.Clone(sp.SecretKey)
-					beforeContext := x.ContextEngineID
+					beforeEngineID := bytes.Clone(x.engine.engineID)
+					beforeKey := bytes.Clone(x.engine.keys.auth)
+					beforeContext := bytes.Clone(x.engine.contextEngineID())
 
 					a.boots = boots.value
 					switch path {
@@ -69,7 +68,7 @@ func TestEngineV3MaximumBoots(t *testing.T) {
 					finished := 0
 					x.OnFinish = func(x *Client) {
 						finished++
-						assert.NotEqual(t, uint32(maxEngineValue), x.SecurityParameters.usm().AuthoritativeEngineBoots,
+						assert.NotEqual(t, uint32(maxEngineValue), x.engine.clock.boots,
 							"an exhausted clock must never be committed")
 					}
 					result, err := x.Get([]string{engineOID})
@@ -82,14 +81,14 @@ func TestEngineV3MaximumBoots(t *testing.T) {
 							wantFinished = 1 // the unauthenticated Report, before the rejected resend
 						}
 						assert.Equal(t, wantFinished, finished)
-						assert.Zero(t, sp.AuthoritativeEngineBoots)
-						assert.Zero(t, sp.AuthoritativeEngineTime)
+						assert.Zero(t, x.engine.clock.boots)
+						assert.Zero(t, x.engine.clock.latest)
 						assert.False(t, x.engine.clock.known())
 					} else {
 						require.NoError(t, err)
 						require.NotNil(t, result)
 						assert.Equal(t, Response, result.PDUType)
-						assert.Equal(t, boots.value, sp.AuthoritativeEngineBoots)
+						assert.Equal(t, boots.value, x.engine.clock.boots)
 						assert.Equal(t, fromAuthenticated, x.engine.clock.source)
 						wantFinished := 1
 						if path != "response" {
@@ -97,9 +96,9 @@ func TestEngineV3MaximumBoots(t *testing.T) {
 						}
 						assert.Equal(t, wantFinished, finished)
 					}
-					assert.Equal(t, before.AuthoritativeEngineID, sp.AuthoritativeEngineID)
-					assert.Equal(t, before.SecretKey, sp.SecretKey)
-					assert.Equal(t, beforeContext, x.ContextEngineID)
+					assert.Equal(t, beforeEngineID, x.engine.engineID)
+					assert.Equal(t, beforeKey, x.engine.keys.auth)
+					assert.Equal(t, beforeContext, x.engine.contextEngineID())
 				})
 			})
 		}

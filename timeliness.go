@@ -44,10 +44,10 @@ type engineTimes struct {
 }
 
 // engineTimeKey identifies the records of one engine for one credential: the
-// SHA-256 of the authentication protocol, the engine ID and the
-// authentication key localized to it. Parameter sets sharing a passphrase
-// share a record; another credential, which may authenticate any engine ID,
-// cannot change it.
+// SHA-256 of the authentication protocol, the engine ID and the authentication
+// key localized to it. Users sharing a protocol and a passphrase share a
+// record; another credential, which may authenticate any engine ID, cannot
+// change it.
 type engineTimeKey [sha256.Size]byte
 
 // engineTimeRecord is the receiver's notion of the time of an engine, for one
@@ -117,13 +117,14 @@ func newEngineTimes(limit int, now func() time.Time) *engineTimes {
 	return &engineTimes{limit: limit, now: now, records: make(map[engineTimeKey]*list.Element)}
 }
 
-// keyOf returns the key of the records of sp's engine and credential.
-func keyOf(sp *UsmSecurityParameters) engineTimeKey {
+// keyOf returns the key of the records of an engine and a credential: the
+// engine ID and the authentication protocol and key localized to it.
+func keyOf(engineID []byte, keys *usmKeys) engineTimeKey {
 	var buf [128]byte
-	b := append(buf[:0], byte(sp.AuthenticationProtocol))
-	b = binary.BigEndian.AppendUint32(b, uint32(len(sp.AuthoritativeEngineID))) //nolint:gosec // a message is shorter
-	b = append(b, sp.AuthoritativeEngineID...)
-	b = append(b, sp.SecretKey...)
+	b := append(buf[:0], byte(keys.authProtocol))
+	b = binary.BigEndian.AppendUint32(b, uint32(len(engineID))) //nolint:gosec // a message is shorter
+	b = append(b, engineID...)
+	b = append(b, keys.auth...)
 	return sha256.Sum256(b)
 }
 

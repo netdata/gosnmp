@@ -86,11 +86,11 @@ func bareV3Answer(req []byte, msgID uint32, pduType PDUType, vbs ...VarBind) []b
 	}
 	out := &Message{
 		Version: Version3, SecurityLevel: NoAuthNoPriv,
-		SecurityParameters: &UsmSecurityParameters{UserName: "public"},
+		SecurityParameters: SecurityParameters{UserName: "public"},
 		PDUType:            pduType, RequestID: in.RequestID, MsgID: msgID,
 		VarBinds: vbs,
 	}
-	b, err := out.marshalMsg()
+	b, err := out.Encode(nil)
 	if err != nil {
 		panic(fmt.Sprintf("agent cannot encode the reply: %v", err))
 	}
@@ -420,7 +420,7 @@ func engineScenarios() map[string]engineScenario {
 					Version: Version1, Community: "public", PDUType: Trap, VarBinds: []VarBind{sysDescr},
 					Enterprise: ".1.3.6.1.4.1.8072", AgentAddress: "127.0.0.2", GenericTrap: 6, SpecificTrap: 1,
 				}
-				b, err := trap.marshalMsg()
+				b, err := trap.Encode(nil)
 				if err != nil {
 					panic(err)
 				}
@@ -464,7 +464,7 @@ func engineScenarios() map[string]engineScenario {
 		"answer/other-version-v3": {
 			agent: answerWith(func(p *Message) {
 				p.Version, p.SecurityLevel = Version3, NoAuthNoPriv
-				p.SecurityParameters = &UsmSecurityParameters{UserName: "public"}
+				p.SecurityParameters = SecurityParameters{UserName: "public"}
 			}, sysDescr),
 		},
 		"answer/other-version-v3-report": {
@@ -1198,7 +1198,7 @@ func BenchmarkSendOneRequest(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, _, err := x.sendOneRequest(&cfg, pkt, false, sourcedClock{}); err != nil {
+		if _, _, err := x.sendOneRequest(&cfg, pkt, false, attemptSecurity{}); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -1321,8 +1321,8 @@ func TestExchangeAnswers(t *testing.T) {
 	request := func(version Version) *Message {
 		p := &Message{Version: version, PDUType: GetRequest, RequestID: 2, Community: "public"}
 		if version == Version3 {
-			p.MsgID, p.SecurityLevel, p.ContextEngineID, p.ContextName = 7, AuthNoPriv, "ctx-engine", "ctx"
-			p.SecurityParameters = &UsmSecurityParameters{UserName: "user", AuthoritativeEngineID: "engine"}
+			p.MsgID, p.SecurityLevel, p.ContextEngineID, p.ContextName = 7, AuthNoPriv, []byte("ctx-engine"), "ctx"
+			p.SecurityParameters = SecurityParameters{UserName: "user", AuthoritativeEngineID: []byte("engine")}
 		}
 		return p
 	}
@@ -1330,16 +1330,13 @@ func TestExchangeAnswers(t *testing.T) {
 	reply := func(req *Message) *Message {
 		p := *req
 		p.PDUType, p.SecurityLevel, p.VarBinds = Response, req.SecurityLevel&AuthPriv, []VarBind{sysDescr}
-		if req.SecurityParameters != nil {
-			p.SecurityParameters = req.SecurityParameters.Copy()
-		}
 		return &p
 	}
-	usm := func(p *Message) *UsmSecurityParameters { return p.SecurityParameters.usm() }
+	usm := func(p *Message) *SecurityParameters { return &p.SecurityParameters }
 	report := func(counter string) func(p *Message) {
 		return func(p *Message) {
 			p.PDUType, p.RequestID, p.SecurityLevel, p.VarBinds = Report, 0, NoAuthNoPriv, []VarBind{{Name: counter, Type: Counter32, Value: uint32(1)}}
-			p.ContextEngineID, p.ContextName = "engine", ""
+			p.ContextEngineID, p.ContextName = []byte("engine"), ""
 		}
 	}
 	tests := map[string]struct {
@@ -1364,11 +1361,11 @@ func TestExchangeAnswers(t *testing.T) {
 		"v3/another user":         {version: Version3, reply: func(p *Message) { usm(p).UserName = "other" }, err: errOtherUser},
 		"v3/the empty user":       {version: Version3, reply: func(p *Message) { usm(p).UserName = "" }, err: errOtherUser},
 		"v3/to the empty user":    {version: Version3, request: func(p *Message) { usm(p).UserName = "" }, err: errOtherUser},
-		"v3/another engine ID":    {version: Version3, reply: func(p *Message) { usm(p).AuthoritativeEngineID = "other" }, err: errOtherEngine},
-		"v3/no engine ID":         {version: Version3, reply: func(p *Message) { usm(p).AuthoritativeEngineID = "" }, err: errOtherEngine},
-		"v3/to no engine ID":      {version: Version3, request: func(p *Message) { usm(p).AuthoritativeEngineID = "" }, err: errOtherEngine},
-		"v3/another context ID":   {version: Version3, reply: func(p *Message) { p.ContextEngineID = "engine" }, err: errOtherContext},
-		"v3/to no context ID":     {version: Version3, request: func(p *Message) { p.ContextEngineID = "" }, err: errOtherContext},
+		"v3/another engine ID":    {version: Version3, reply: func(p *Message) { usm(p).AuthoritativeEngineID = []byte("other") }, err: errOtherEngine},
+		"v3/no engine ID":         {version: Version3, reply: func(p *Message) { usm(p).AuthoritativeEngineID = nil }, err: errOtherEngine},
+		"v3/to no engine ID":      {version: Version3, request: func(p *Message) { usm(p).AuthoritativeEngineID = nil }, err: errOtherEngine},
+		"v3/another context ID":   {version: Version3, reply: func(p *Message) { p.ContextEngineID = []byte("engine") }, err: errOtherContext},
+		"v3/to no context ID":     {version: Version3, request: func(p *Message) { p.ContextEngineID = nil }, err: errOtherContext},
 		"v3/another context name": {version: Version3, reply: func(p *Message) { p.ContextName = "" }, err: errOtherContext},
 		"v3/to another context":   {version: Version3, request: func(p *Message) { p.ContextName = "other" }, err: errOtherContext},
 		"v3/a GetRequest":         {version: Version3, reply: func(p *Message) { p.PDUType = GetRequest }, err: errNotAnswer},

@@ -9,12 +9,10 @@
 package gosnmp
 
 import (
+	"bytes"
 	"crypto"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"strings"
-	"sync"
 
 	"github.com/netdata/gosnmp/internal/ber"
 	"github.com/netdata/gosnmp/internal/usm"
@@ -38,9 +36,9 @@ const (
 
 //go:generate go tool -modfile=tools/go.mod stringer -type=AuthProtocol
 
-// HashType returns the hash of the protocol's HMAC and key derivation: MD5
-// for NoAuth, unset and unknown values.
-func (authProtocol AuthProtocol) HashType() crypto.Hash {
+// hash returns the hash of the protocol's HMAC and key derivation: MD5 for
+// NoAuth, unset and unknown values.
+func (authProtocol AuthProtocol) hash() crypto.Hash {
 	if h := authProtocol.spec().Hash; h != 0 {
 		return h
 	}
@@ -111,343 +109,224 @@ func (privProtocol PrivProtocol) spec() usm.Priv {
 	return usm.Priv{}
 }
 
-// UsmSecurityParameters are the parameters of the User-based Security Model
-// (RFC 3414): the user's credentials, and the agent's engine parameters the
-// client learns. A client keeps them in Client.SecurityParameters, and each
-// message carries a copy.
-type UsmSecurityParameters struct {
-	// mu serializes key initialization, the client's writes of its engine
-	// state, and Copy.
-	mu sync.Mutex
+// User is an SNMPv3 user of the User-based Security Model (RFC 3414): its
+// name and the protocols and passphrases its keys derive from. It holds
+// credentials only: the client, the decoders and Message.Encode localize the
+// keys to the engine ID at hand (RFC 3414 section 2.6), through the package's
+// cache of password-to-key results (see the package documentation, Keys).
+type User struct {
+	// Name is the user name (msgUserName), 1..32 octets.
+	Name string
 
+	// AuthProtocol is the authentication protocol and AuthPassphrase the
+	// passphrase its key derives from; zero means unset.
+	AuthProtocol   AuthProtocol
+	AuthPassphrase string
+
+	// PrivProtocol is the privacy protocol and PrivPassphrase the passphrase
+	// its key derives from, with the authentication protocol's hash; zero
+	// means unset.
+	PrivProtocol   PrivProtocol
+	PrivPassphrase string
+}
+
+// SecurityParameters are the User-based Security Model parameters of an
+// SNMPv3 message (RFC 3414 section 2.4, UsmSecurityParameters). A decoded
+// message holds what it carried, copied from its input, the fields read before
+// a decoding error included; to encode one, the encoder takes the engine ID,
+// boots, time and user name. They hold no secret.
+type SecurityParameters struct {
 	// The authoritative engine's ID, boots and time (RFC 3414 section 2.2).
-	// A client's parameters show the engine state it learns, the boots and
-	// time as the latest values it accepted (latestReceivedEngineTime, not
-	// advanced), zero while it has none: before an answer, for another engine
-	// ID, after a request answered outside the time window. An
-	// AuthoritativeEngineID set by the caller skips the discovery, and boots
-	// and time set by the caller are a clock that signs requests until an
-	// answer replaces it (see the package documentation, SNMPv3).
-	AuthoritativeEngineID    string
+	AuthoritativeEngineID    []byte
 	AuthoritativeEngineBoots uint32
 	AuthoritativeEngineTime  uint32
 
 	// UserName is the user (msgUserName).
 	UserName string
 
-	// AuthenticationParameters and PrivacyParameters are the digest and salt
-	// decoded from a message. The encoder uses neither: it signs each
+	// AuthenticationParameters and PrivacyParameters are the digest and the
+	// salt of a decoded message. The encoder uses neither: it signs each
 	// authenticated message and draws a new salt for each encrypted one.
-	AuthenticationParameters string
+	AuthenticationParameters []byte
 	PrivacyParameters        []byte
-
-	// The protocols; zero means unset.
-	AuthenticationProtocol AuthProtocol
-	PrivacyProtocol        PrivProtocol
-
-	// The passphrases the keys derive from.
-	AuthenticationPassphrase string
-	PrivacyPassphrase        string
-
-	// SecretKey and PrivacyKey are the authentication and privacy keys,
-	// localized to AuthoritativeEngineID: an authentication key of the size of
-	// its protocol's hash, a privacy key of its cipher's key length (DES: 16
-	// octets). InitSecurityKeys derives the missing ones from the passphrases,
-	// and a client its own, which its parameters then show. A new engine ID
-	// replaces both with keys derived for it from the passphrases, so
-	// parameters with a protocol whose passphrase is empty, a key given
-	// without one among them, cannot take another engine ID: as a trap
-	// receiver's or DecodeMessage's they decode no message naming another
-	// one, and a client cannot take one.
-	SecretKey  []byte
-	PrivacyKey []byte
 }
 
-func (sp *UsmSecurityParameters) usm() *UsmSecurityParameters {
-	return sp
+// usmKeys are a user's keys localized to one engine ID (RFC 3414 section
+// 2.6) and the protocols they serve: an authentication key of the size of its
+// protocol's hash, a privacy key of its cipher's key length (DES: 16 octets),
+// none for a protocol that is unset, NoAuth or NoPriv. The engine state,
+// messages being encoded and the decoders share their slices and never write
+// them.
+type usmKeys struct {
+	authProtocol AuthProtocol
+	privProtocol PrivProtocol
+	auth, priv   []byte
 }
 
-// Description returns the user name, the engine ID in hex, the protocols and
-// both passphrases.
-func (sp *UsmSecurityParameters) Description() string {
-	var sb strings.Builder
-	sb.WriteString("user=")
-	sb.WriteString(sp.UserName)
-
-	sb.WriteString(",engine=(")
-	sb.WriteString(hex.EncodeToString([]byte(sp.AuthoritativeEngineID)))
-	sb.WriteString(")")
-
-	if auth := sp.AuthenticationProtocol; auth >= NoAuth && auth <= SHA512 {
-		sb.WriteString(",auth=")
-		sb.WriteString(strings.ToLower(auth.String()))
+// localize returns u's keys localized to engineID, derived from the
+// passphrases (the privacy key with the authentication protocol's hash), after
+// checking the protocols; each protocol needs a key that fits it, so a protocol
+// without a passphrase is the error of its missing key.
+func (u *User) localize(engineID []byte) (usmKeys, error) {
+	keys, err := u.keysAt(AuthPriv, engineID)
+	if err != nil {
+		return usmKeys{}, err
 	}
-	sb.WriteString(",authPass=")
-	sb.WriteString(sp.AuthenticationPassphrase)
-
-	if priv := sp.PrivacyProtocol; priv >= NoPriv && priv <= AES256C {
-		sb.WriteString(",priv=")
-		sb.WriteString(priv.String())
-	}
-	sb.WriteString(",privPass=")
-	sb.WriteString(sp.PrivacyPassphrase)
-
-	return sb.String()
-}
-
-// Copy returns a copy of the parameters. The key and salt slices are shared
-// with the original, not copied.
-func (sp *UsmSecurityParameters) Copy() SnmpV3SecurityParameters {
-	sp.mu.Lock()
-	defer sp.mu.Unlock()
-	return &UsmSecurityParameters{
-		AuthoritativeEngineID:    sp.AuthoritativeEngineID,
-		AuthoritativeEngineBoots: sp.AuthoritativeEngineBoots,
-		AuthoritativeEngineTime:  sp.AuthoritativeEngineTime,
-		UserName:                 sp.UserName,
-		AuthenticationParameters: sp.AuthenticationParameters,
-		PrivacyParameters:        sp.PrivacyParameters,
-		AuthenticationProtocol:   sp.AuthenticationProtocol,
-		PrivacyProtocol:          sp.PrivacyProtocol,
-		AuthenticationPassphrase: sp.AuthenticationPassphrase,
-		PrivacyPassphrase:        sp.PrivacyPassphrase,
-		SecretKey:                sp.SecretKey,
-		PrivacyKey:               sp.PrivacyKey,
-	}
-}
-
-// InitSecurityKeys derives the keys the protocols need and the parameters
-// lack, from the passphrases and AuthoritativeEngineID, and checks that each
-// protocol has a key that fits it (see SecretKey and PrivacyKey). An empty
-// passphrase derives no key: a protocol needs a key or a passphrase.
-func (sp *UsmSecurityParameters) InitSecurityKeys() error {
-	sp.mu.Lock()
-	defer sp.mu.Unlock()
-
-	if err := sp.checkProtocols(); err != nil {
-		return err
-	}
-	if err := sp.deriveKeys(); err != nil {
-		return err
-	}
-	if sp.AuthenticationProtocol > NoAuth {
-		if err := sp.AuthenticationProtocol.spec().CheckKey(sp.SecretKey); err != nil {
-			return fmt.Errorf("usm: %w", err)
+	if u.AuthProtocol > NoAuth {
+		if err := u.AuthProtocol.spec().CheckKey(keys.auth); err != nil {
+			return usmKeys{}, fmt.Errorf("usm: %w", err)
 		}
 	}
-	if sp.PrivacyProtocol > NoPriv {
-		if err := sp.PrivacyProtocol.spec().CheckKey(sp.PrivacyKey); err != nil {
-			return fmt.Errorf("usm: %w", err)
+	if u.PrivProtocol > NoPriv {
+		if err := u.PrivProtocol.spec().CheckKey(keys.priv); err != nil {
+			return usmKeys{}, fmt.Errorf("usm: %w", err)
 		}
 	}
-	return nil
+	return keys, nil
 }
 
-// deriveKeys derives the keys the protocols need and the parameters lack from
-// their passphrases, localized to AuthoritativeEngineID; a protocol whose
-// passphrase is empty keeps its key, or stays without one. The caller holds
-// sp.mu or owns sp (a private copy).
-func (sp *UsmSecurityParameters) deriveKeys() error {
-	if err := sp.deriveAuthKey(); err != nil {
-		return err
+// keysAt returns the keys of u localized to engineID that a message at level
+// uses, after checking the protocols: the authentication key when the level
+// asks for authentication, the privacy key when it asks for privacy, none
+// without a passphrase. It does not check that a key fits its protocol: the
+// signer and the cipher do.
+func (u *User) keysAt(level SecurityLevel, engineID []byte) (usmKeys, error) {
+	if err := u.checkProtocols(); err != nil {
+		return usmKeys{}, err
 	}
-	return sp.derivePrivKey()
+	keys := usmKeys{authProtocol: u.AuthProtocol, privProtocol: u.PrivProtocol}
+	var err error
+	if level.authFlag() {
+		if keys.auth, err = u.authKey(engineID); err != nil {
+			return usmKeys{}, err
+		}
+	}
+	if level.privFlag() {
+		if keys.priv, err = u.privKey(engineID); err != nil {
+			return usmKeys{}, err
+		}
+	}
+	return keys, nil
 }
 
-// deriveAuthKey is deriveKeys for the authentication key.
-func (sp *UsmSecurityParameters) deriveAuthKey() error {
-	if sp.AuthenticationProtocol <= NoAuth || len(sp.SecretKey) != 0 || sp.AuthenticationPassphrase == "" {
-		return nil
+// authKey returns u's authentication key localized to engineID; none without
+// an authentication protocol or passphrase.
+func (u *User) authKey(engineID []byte) ([]byte, error) {
+	if u.AuthProtocol <= NoAuth || u.AuthPassphrase == "" {
+		return nil, nil
 	}
-	key, err := passwordCache.LocalizedKey(sp.AuthenticationProtocol.HashType(),
-		sp.AuthenticationPassphrase, sp.AuthoritativeEngineID)
-	if err != nil {
-		return err
-	}
-	sp.SecretKey = key
-	return nil
+	return passwordCache.LocalizedKey(u.AuthProtocol.hash(), u.AuthPassphrase, engineID)
 }
 
-// derivePrivKey is deriveKeys for the privacy key, which derives with the
-// authentication protocol's hash.
-func (sp *UsmSecurityParameters) derivePrivKey() error {
-	if sp.PrivacyProtocol <= NoPriv || len(sp.PrivacyKey) != 0 || sp.PrivacyPassphrase == "" {
-		return nil
+// privKey returns u's privacy key localized to engineID, which derives with
+// the authentication protocol's hash; none without a privacy protocol or
+// passphrase.
+func (u *User) privKey(engineID []byte) ([]byte, error) {
+	if u.PrivProtocol <= NoPriv || u.PrivPassphrase == "" {
+		return nil, nil
 	}
-	key, err := passwordCache.PrivacyKey(sp.PrivacyProtocol.spec(),
-		sp.AuthenticationProtocol.HashType(), sp.PrivacyPassphrase, sp.AuthoritativeEngineID)
-	if err != nil {
-		return err
-	}
-	sp.PrivacyKey = key
-	return nil
+	return passwordCache.PrivacyKey(u.PrivProtocol.spec(), u.AuthProtocol.hash(), u.PrivPassphrase, engineID)
 }
-
-// keysFor returns the keys of sp's protocols localized to engineID, without
-// changing sp: its own keys for its engine ID, else keys derived for engineID
-// from the passphrases and checked against the protocols. A key localizes to
-// one engine ID (RFC 3414 section 2.6), so parameters with a protocol whose
-// passphrase is empty, as when a key was given without one, have no keys for
-// another engine ID: that protocol's error. The caller holds sp.mu or owns sp
-// (a private copy).
-func (sp *UsmSecurityParameters) keysFor(engineID string) (authKey, privKey []byte, err error) {
-	if sp.AuthoritativeEngineID == engineID {
-		return sp.SecretKey, sp.PrivacyKey, nil
-	}
-	if err := sp.checkRelocalizable(); err != nil {
-		return nil, nil, err
-	}
-	other := UsmSecurityParameters{
-		AuthoritativeEngineID:    engineID,
-		AuthenticationProtocol:   sp.AuthenticationProtocol,
-		PrivacyProtocol:          sp.PrivacyProtocol,
-		AuthenticationPassphrase: sp.AuthenticationPassphrase,
-		PrivacyPassphrase:        sp.PrivacyPassphrase,
-	}
-	if err := other.InitSecurityKeys(); err != nil {
-		return nil, nil, err
-	}
-	return other.SecretKey, other.PrivacyKey, nil
-}
-
-// checkRelocalizable returns the error of localizing the keys to another
-// engine ID when a protocol's passphrase is empty, so that its key, given
-// without one, serves only the engine ID it was localized to.
-func (sp *UsmSecurityParameters) checkRelocalizable() error {
-	if sp.AuthenticationProtocol > NoAuth && sp.AuthenticationPassphrase == "" {
-		return errAuthKeyBoundToEngine
-	}
-	if sp.PrivacyProtocol > NoPriv && sp.PrivacyPassphrase == "" {
-		return errPrivKeyBoundToEngine
-	}
-	return nil
-}
-
-// errAuthKeyBoundToEngine and errPrivKeyBoundToEngine are the errors of
-// adopting another engine ID without the passphrase a protocol's key derives
-// from; receiving a message, the user is then unknown for its engine ID (RFC
-// 3414 section 3.2 step 4): errAuthKeyOtherEngine and errPrivKeyOtherEngine.
-var (
-	errAuthKeyBoundToEngine = errors.New("usm: without a passphrase, the authentication key cannot be localized to another engine ID")
-	errPrivKeyBoundToEngine = errors.New("usm: without a passphrase, the privacy key cannot be localized to another engine ID")
-	errAuthKeyOtherEngine   = inCategory(ErrUnknownUsername, errAuthKeyBoundToEngine)
-	errPrivKeyOtherEngine   = inCategory(ErrUnknownUsername, errPrivKeyBoundToEngine)
-)
 
 var (
-	errAuthProtocolRequired = errors.New("securityParameters.AuthenticationProtocol is required")
-	errPrivProtocolRequired = errors.New("securityParameters.PrivacyProtocol is required")
+	errAuthProtocolRequired = errors.New("User.AuthProtocol is required")
+	errPrivProtocolRequired = errors.New("User.PrivProtocol is required")
 )
 
 // checkProtocols rejects authentication and privacy protocol values outside
 // the defined sets.
-func (sp *UsmSecurityParameters) checkProtocols() error {
-	if sp.AuthenticationProtocol > SHA512 {
-		return fmt.Errorf("securityParameters.AuthenticationProtocol %v is not supported", sp.AuthenticationProtocol)
+func (u *User) checkProtocols() error {
+	if u.AuthProtocol > SHA512 {
+		return fmt.Errorf("User.AuthProtocol %v is not supported", u.AuthProtocol)
 	}
-	if sp.PrivacyProtocol > AES256C {
-		return fmt.Errorf("securityParameters.PrivacyProtocol %v is not supported", sp.PrivacyProtocol)
+	if u.PrivProtocol > AES256C {
+		return fmt.Errorf("User.PrivProtocol %v is not supported", u.PrivProtocol)
 	}
 	return nil
 }
 
-// missingProtocol reports which protocol the security level of flags needs
-// and sp lacks: an authentication protocol for the authFlag, a privacy
-// protocol for the privFlag. It is the one rule of what a level needs, for
-// outgoing messages (checkLevel, validate) and incoming ones (receive).
-func (sp *UsmSecurityParameters) missingProtocol(flags SecurityLevel) (auth, priv bool) {
-	return flags.authFlag() && sp.AuthenticationProtocol <= NoAuth, flags.privFlag() && sp.PrivacyProtocol <= NoPriv
+// missingProtocol reports which protocol the security level needs and the
+// protocols auth and priv lack: an authentication protocol for the authFlag, a
+// privacy protocol for the privFlag. It is the one rule of what a level needs,
+// for outgoing messages (checkLevel, validate) and incoming ones (receiveV3,
+// receiveReply).
+func missingProtocol(auth AuthProtocol, priv PrivProtocol, level SecurityLevel) (needAuth, needPriv bool) {
+	return level.authFlag() && auth <= NoAuth, level.privFlag() && priv <= NoPriv
 }
 
-// levelFloor is the security level a trap receiver requires of a message for
-// sp at the least: authentication when sp has an authentication protocol,
-// privacy optional.
-func (sp *UsmSecurityParameters) levelFloor() SecurityLevel {
-	if sp.AuthenticationProtocol > NoAuth {
-		return AuthNoPriv
-	}
-	return NoAuthNoPriv
-}
-
-// checkLevel rejects message flags that ask for authentication or privacy
-// without a protocol for it, authentication first.
-func (sp *UsmSecurityParameters) checkLevel(flags SecurityLevel) error {
-	switch auth, priv := sp.missingProtocol(flags); {
-	case auth:
+// checkLevel rejects a security level that asks for authentication or privacy
+// without a protocol for it among auth and priv, authentication first.
+func checkLevel(auth AuthProtocol, priv PrivProtocol, level SecurityLevel) error {
+	switch needAuth, needPriv := missingProtocol(auth, priv, level); {
+	case needAuth:
 		return errAuthProtocolRequired
-	case priv:
+	case needPriv:
 		return errPrivProtocolRequired
 	}
 	return nil
 }
 
-// validate checks the parameters for the security level of flags: valid
-// protocols, the ones the level needs, a user name, and a passphrase for each
-// protocol without a key.
-func (sp *UsmSecurityParameters) validate(flags SecurityLevel) error {
-	if err := sp.checkProtocols(); err != nil {
+// levelFloor is the security level a trap receiver requires of a message for
+// u at the least: authentication when u has an authentication protocol,
+// privacy optional.
+func (u *User) levelFloor() SecurityLevel {
+	if u.AuthProtocol > NoAuth {
+		return AuthNoPriv
+	}
+	return NoAuthNoPriv
+}
+
+// validate checks u for the security level: valid protocols, one of the three
+// levels, the protocols the level needs, a name of 1..32 octets, and a
+// passphrase for each protocol.
+func (u *User) validate(level SecurityLevel) error {
+	if err := u.checkProtocols(); err != nil {
 		return err
 	}
-
-	if !flags.valid() {
+	if !level.valid() {
 		return errInvalidLevel
 	}
-	if err := sp.checkLevel(flags); err != nil {
+	if err := checkLevel(u.AuthProtocol, u.PrivProtocol, level); err != nil {
 		return err
 	}
-	if sp.UserName == "" {
-		return fmt.Errorf("securityParameters.UserName is required")
+	if u.Name == "" {
+		return fmt.Errorf("User.Name is required")
 	}
-	if len(sp.UserName) > maxUserNameLen {
-		return fmt.Errorf("securityParameters.UserName is %d octets, more than %d", len(sp.UserName), maxUserNameLen)
+	if len(u.Name) > maxUserNameLen {
+		return fmt.Errorf("User.Name is %d octets, more than %d", len(u.Name), maxUserNameLen)
 	}
-	return sp.checkKeySources()
+	return u.checkPassphrases()
 }
 
-// checkWireFields checks the fields of sp an outgoing message carries against
+// checkPassphrases rejects a protocol without a passphrase to derive its key
+// from.
+func (u *User) checkPassphrases() error {
+	if u.PrivProtocol > NoPriv && u.PrivPassphrase == "" {
+		return fmt.Errorf("User.PrivPassphrase is required when a privacy protocol is specified")
+	}
+	if u.AuthProtocol > NoAuth && u.AuthPassphrase == "" {
+		return fmt.Errorf("User.AuthPassphrase is required when an authentication protocol is specified")
+	}
+	return nil
+}
+
+// checkWireFields checks the fields of h an outgoing message carries against
 // their ranges (RFC 3414 section 2.4): engine boots and time of at most
 // 2147483647 and a user name of at most 32 octets.
-func (sp *UsmSecurityParameters) checkWireFields() error {
+func (h *SecurityParameters) checkWireFields() error {
 	switch {
-	case sp.AuthoritativeEngineBoots > maxEngineValue:
-		return fmt.Errorf("unable to marshal msgAuthoritativeEngineBoots %d: more than %d", sp.AuthoritativeEngineBoots, maxEngineValue)
-	case sp.AuthoritativeEngineTime > maxEngineValue:
-		return fmt.Errorf("unable to marshal msgAuthoritativeEngineTime %d: more than %d", sp.AuthoritativeEngineTime, maxEngineValue)
-	case len(sp.UserName) > maxUserNameLen:
-		return fmt.Errorf("unable to marshal msgUserName of %d octets: more than %d", len(sp.UserName), maxUserNameLen)
+	case h.AuthoritativeEngineBoots > maxEngineValue:
+		return fmt.Errorf("unable to marshal msgAuthoritativeEngineBoots %d: more than %d", h.AuthoritativeEngineBoots, maxEngineValue)
+	case h.AuthoritativeEngineTime > maxEngineValue:
+		return fmt.Errorf("unable to marshal msgAuthoritativeEngineTime %d: more than %d", h.AuthoritativeEngineTime, maxEngineValue)
+	case len(h.UserName) > maxUserNameLen:
+		return fmt.Errorf("unable to marshal msgUserName of %d octets: more than %d", len(h.UserName), maxUserNameLen)
 	}
 	return nil
 }
 
-// checkKeySources rejects a protocol with neither a key nor a passphrase to
-// derive one from.
-func (sp *UsmSecurityParameters) checkKeySources() error {
-	if sp.PrivacyProtocol > NoPriv && len(sp.PrivacyKey) == 0 && sp.PrivacyPassphrase == "" {
-		return fmt.Errorf("securityParameters.PrivacyPassphrase is required when a privacy protocol is specified")
-	}
-	if sp.AuthenticationProtocol > NoAuth && len(sp.SecretKey) == 0 && sp.AuthenticationPassphrase == "" {
-		return fmt.Errorf("securityParameters.AuthenticationPassphrase is required when an authentication protocol is specified")
-	}
-	return nil
-}
-
-// passwordCache derives the keys of every UsmSecurityParameters.
-var passwordCache = usm.NewCache() //nolint:gochecknoglobals // PasswordCaching turns it on and off
-
-// PasswordCaching turns the package's cache of password-to-key results on,
-// as it is by default, or off; turning it off empties it. See the package
-// documentation.
-func PasswordCaching(enable bool) {
-	passwordCache.SetEnabled(enable)
-}
-
-// InitPacket does nothing and returns nil: the encoder draws a new salt for
-// every encrypted message.
-//
-// Deprecated: there is nothing to initialize before encoding.
-func (sp *UsmSecurityParameters) InitPacket(*Message) error {
-	return nil
-}
+// passwordCache derives the keys of every user.
+var passwordCache = usm.NewCache() //nolint:gochecknoglobals // one cache for every client and receiver
 
 // newDiscoveryPacket returns the request that discovers the authoritative
 // engine's ID, boots and time (RFC 3414 section 4): an unauthenticated Get
@@ -455,18 +334,17 @@ func (sp *UsmSecurityParameters) InitPacket(*Message) error {
 // encoder sends reportable as every request.
 func newDiscoveryPacket() *Message {
 	return &Message{
-		Version:            Version3,
-		SecurityLevel:      NoAuthNoPriv,
-		SecurityParameters: &UsmSecurityParameters{},
-		PDUType:            GetRequest,
+		Version:       Version3,
+		SecurityLevel: NoAuthNoPriv,
+		PDUType:       GetRequest,
 	}
 }
 
 // sign writes the digest of packet, an outgoing message whose
 // msgAuthenticationParameters content at offset auth still holds the zeros of
 // appendMACPlaceholder, into that content.
-func (sp *UsmSecurityParameters) sign(packet []byte, auth int) error {
-	msgDigest, err := sp.AuthenticationProtocol.spec().Digest(sp.SecretKey, packet)
+func (k *usmKeys) sign(packet []byte, auth int) error {
+	msgDigest, err := k.authProtocol.spec().Digest(k.auth, packet)
 	if err != nil {
 		return err
 	}
@@ -474,134 +352,107 @@ func (sp *UsmSecurityParameters) sign(packet []byte, auth int) error {
 	return nil
 }
 
-// encryptPacket returns the ciphertext of the scoped PDU.
-func (sp *UsmSecurityParameters) encryptPacket(scopedPdu, salt []byte) ([]byte, error) {
-	return sp.PrivacyProtocol.spec().Encrypt(sp.PrivacyKey, salt,
-		sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime, scopedPdu)
+// encrypt returns the ciphertext of the scoped PDU of a message whose USM
+// parameters are h.
+func (k *usmKeys) encrypt(h *SecurityParameters, scopedPdu, salt []byte) ([]byte, error) {
+	return k.privProtocol.spec().Encrypt(k.priv, salt, h.AuthoritativeEngineBoots, h.AuthoritativeEngineTime, scopedPdu)
 }
 
-// decryptPacket returns the plaintext of ciphertext, in a new buffer.
-func (sp *UsmSecurityParameters) decryptPacket(ciphertext []byte) ([]byte, error) {
-	return sp.PrivacyProtocol.spec().Decrypt(sp.PrivacyKey, sp.PrivacyParameters,
-		sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime, ciphertext)
+// decrypt returns the plaintext of ciphertext, the scoped PDU of a message
+// whose USM parameters are h, in a new buffer.
+func (k *usmKeys) decrypt(h *SecurityParameters, ciphertext []byte) ([]byte, error) {
+	return k.privProtocol.spec().Decrypt(k.priv, h.PrivacyParameters, h.AuthoritativeEngineBoots,
+		h.AuthoritativeEngineTime, ciphertext)
 }
 
 // marshal appends the User Security Model parameters: a SEQUENCE of the
 // authoritative engine ID, boots and time, the user name, the authentication
-// parameters (the zero placeholder sign fills in, or empty) and the
-// privacy parameters (the salt, or empty). It also returns the offset of the
-// authentication parameters' content in dst.
-func (sp *UsmSecurityParameters) marshal(dst []byte, flags SecurityLevel, salt []byte) ([]byte, int) {
+// parameters (the zero placeholder sign fills in, of the size of the
+// authentication protocol's digest when level asks for authentication, or
+// empty) and the privacy parameters (the salt, or empty). It also returns the
+// offset of the authentication parameters' content in dst.
+func (h *SecurityParameters) marshal(dst []byte, level SecurityLevel, auth AuthProtocol, salt []byte) ([]byte, int) {
 	dst, start := ber.Begin(dst, ber.Sequence)
-	dst = appendOctets(dst, OctetString, sp.AuthoritativeEngineID)
-	dst = appendUint(dst, Integer, uint64(sp.AuthoritativeEngineBoots))
-	dst = appendUint(dst, Integer, uint64(sp.AuthoritativeEngineTime))
-	dst = appendOctets(dst, OctetString, sp.UserName)
+	dst = appendOctets(dst, OctetString, h.AuthoritativeEngineID)
+	dst = appendUint(dst, Integer, uint64(h.AuthoritativeEngineBoots))
+	dst = appendUint(dst, Integer, uint64(h.AuthoritativeEngineTime))
+	dst = appendOctets(dst, OctetString, h.UserName)
 	macLen := 0
-	if flags.authFlag() {
-		macLen = sp.AuthenticationProtocol.spec().MACLen
+	if level.authFlag() {
+		macLen = auth.spec().MACLen
 	}
 	dst = appendMACPlaceholder(dst, macLen)
-	auth := len(dst) - macLen
+	off := len(dst) - macLen
 	dst = appendOctets(dst, OctetString, salt)
-	return ber.EndMoving(dst, start, auth)
+	return ber.EndMoving(dst, start, off)
 }
 
-// receive makes sp, a private copy of a receiver's parameters, the security
-// parameters of a message with flags whose USM fields are w: it takes the
-// fields that decoded, after the checks of RFC 3414 section 3.2 made before
-// the digest: valid protocols, and with bind a key or a passphrase for each
-// (local failures); with bind, the engine ID rule of keysFor, keys given
-// without a passphrase take no other engine ID (step 4: the user is looked up
-// by name and engine ID, ErrUnknownUsername); the protocols the flags ask for
-// (step 5, ErrUnknownSecurityLevel), after taking the fields, so that a
-// rejected message's parameters show them. Another engine ID drops the keys:
-// with bind, derive reports that they derive for it from the passphrases when
-// needed, the authentication key here when the flags ask for authentication
-// (to check the message, or to answer it with the parameters DecodeMessage
-// returns), the privacy key only to decrypt (inbound.scopedPDU), which a
-// Reeder-extended protocol caches per engine ID; without bind both stay
-// missing, as the answer to a request has no keys for another engine.
-func (sp *UsmSecurityParameters) receive(flags SecurityLevel, w *v3Wire, bind bool) (derive bool, err error) {
-	if err := sp.checkProtocols(); err != nil {
-		return false, err
-	}
-	newEngine := w.has&hasEngineID != 0 && w.engineID != sp.AuthoritativeEngineID
-	if bind && newEngine {
-		if err := sp.checkKeySources(); err != nil {
-			return false, err
-		}
-		switch sp.checkRelocalizable() {
-		case errAuthKeyBoundToEngine:
-			return false, errAuthKeyOtherEngine
-		case errPrivKeyBoundToEngine:
-			return false, errPrivKeyOtherEngine
-		}
-	}
-	if newEngine {
-		sp.AuthoritativeEngineID = w.engineID
-		sp.SecretKey, sp.PrivacyKey = nil, nil
-	}
-	if w.has&hasBoots != 0 {
-		sp.AuthoritativeEngineBoots = w.boots
-	}
-	if w.has&hasEngineTime != 0 {
-		sp.AuthoritativeEngineTime = w.engineTime
-	}
-	if w.has&hasUserName != 0 {
-		sp.UserName = w.userName
-	}
-	if w.has&hasAuthParams != 0 {
-		sp.AuthenticationParameters = w.authParams
-	}
-	if w.has&hasPrivParams != 0 {
-		sp.PrivacyParameters = w.privParams
-	}
-	switch auth, priv := sp.missingProtocol(flags); {
-	case auth:
-		return false, errNoAuthForMsg
-	case priv:
-		return false, errNoPrivForMsg
-	}
-	if bind && newEngine && flags.authFlag() {
-		if err := sp.deriveAuthKey(); err != nil {
-			return false, err
-		}
-	}
-	return bind && newEngine, nil
+// tableUser is a user a receiver decodes messages for, with its keys localized
+// to the engine ID it was registered for (SnmpV3SecurityParametersTable).
+type tableUser struct {
+	user     User
+	engineID []byte
+	keys     usmKeys
 }
 
-// inbound is an SNMPv3 message in security processing for one receiver (RFC
-// 3414 section 3.2): the message, which is never written, its USM fields as
-// sent, and the receiver's parameters for it, sp, a private copy that has
-// taken them (receive).
+// inbound is an SNMPv3 message in security processing for one user (RFC 3414
+// section 3.2): the message, which is never written, where its authentication
+// parameters and msgData are, the user and its keys for the message's engine
+// ID.
 type inbound struct {
 	msg  []byte
 	wire v3Wire
-	sp   *UsmSecurityParameters
-	// derive is set when sp took another engine ID: its keys derive from the
-	// passphrases when needed (receive).
+	user *User
+	keys usmKeys
+	// derive is set when the keys derive for the message's engine ID: the
+	// authentication key in receiveV3, the privacy key to decrypt (scopedPDU).
 	derive bool
 }
 
-// receiveV3 returns the SNMPv3 message msg, whose header is in result and w,
-// in security processing with sp, which becomes result's security
-// parameters (receive, with the engine ID rule).
-func receiveV3(msg []byte, w v3Wire, result *Message, sp *UsmSecurityParameters) (inbound, error) {
-	derive, err := sp.receive(result.SecurityLevel, &w, true)
-	if err != nil {
+// receiveV3 starts the security processing of the SNMPv3 message msg, whose
+// header is in result and w, for user, with the keys of own for its engine ID
+// (nil: none, the keys derive for the message's engine ID): the checks of RFC
+// 3414 section 3.2 made before the digest, valid protocols, and for the keys
+// to derive a passphrase for each protocol (local failures); the protocols the
+// message's level asks for (step 5, ErrUnknownSecurityLevel); then, to derive,
+// the authentication key when the level asks for authentication (to check the
+// digest).
+func receiveV3(msg []byte, w v3Wire, result *Message, user *User, own *tableUser) (inbound, error) {
+	in := inbound{msg: msg, wire: w, user: user}
+	if err := user.checkProtocols(); err != nil {
 		return inbound{}, err
 	}
-	result.SecurityParameters = sp
-	return inbound{msg: msg, wire: w, sp: sp, derive: derive}, nil
+	h := &result.SecurityParameters
+	in.derive = own == nil || !bytes.Equal(h.AuthoritativeEngineID, own.engineID)
+	if in.derive {
+		if err := user.checkPassphrases(); err != nil {
+			return inbound{}, err
+		}
+	} else {
+		in.keys = own.keys
+	}
+	switch needAuth, needPriv := missingProtocol(user.AuthProtocol, user.PrivProtocol, result.SecurityLevel); {
+	case needAuth:
+		return inbound{}, errNoAuthForMsg
+	case needPriv:
+		return inbound{}, errNoPrivForMsg
+	}
+	in.keys.authProtocol, in.keys.privProtocol = user.AuthProtocol, user.PrivProtocol
+	if in.derive && result.SecurityLevel.authFlag() {
+		key, err := user.authKey(h.AuthoritativeEngineID)
+		if err != nil {
+			return inbound{}, err
+		}
+		in.keys.auth = key
+	}
+	return in, nil
 }
 
-// verify checks the digest of a message that asks for authentication with
-// sp's key (RFC 3414 section 3.2 step 6), which receive derived for a new
-// engine ID: errWrongDigest when it does not check, a key that does not fit
-// the protocol a local error.
+// verify checks the digest of a message that asks for authentication with the
+// keys (RFC 3414 section 3.2 step 6): errWrongDigest when it does not check, a
+// key that does not fit the protocol a local error.
 func (in *inbound) verify() error {
-	ok, err := in.sp.AuthenticationProtocol.spec().VerifyField(in.sp.SecretKey, in.msg, in.wire.authOff, in.wire.authLen)
+	ok, err := in.keys.authProtocol.spec().VerifyField(in.keys.auth, in.msg, in.wire.authOff, in.wire.authLen)
 	if err != nil {
 		return err
 	}
@@ -612,16 +463,18 @@ func (in *inbound) verify() error {
 }
 
 // scopedPDU reads the scoped PDU into result (unmarshalScopedPDU), decrypted
-// exactly when the message's privFlag is set, deriving the privacy key for a
-// new engine ID first.
+// exactly when the message's privFlag is set, deriving the privacy key for the
+// message's engine ID first when the keys derive.
 func (in *inbound) scopedPDU(result *Message) ([]byte, int, error) {
 	encrypted := result.SecurityLevel.privFlag()
 	if encrypted && in.derive && in.wire.scoped < len(in.msg) && PDUType(in.msg[in.wire.scoped]) == PDUType(OctetString) {
-		if err := in.sp.derivePrivKey(); err != nil {
+		key, err := in.user.privKey(result.SecurityParameters.AuthoritativeEngineID)
+		if err != nil {
 			return nil, 0, err
 		}
+		in.keys.priv = key
 	}
-	return unmarshalScopedPDU(in.msg, in.wire.scoped, result, encrypted)
+	return unmarshalScopedPDU(in.msg, in.wire.scoped, result, encrypted, &in.keys)
 }
 
 // usmField prefixes the names of the USM fields in decode errors.

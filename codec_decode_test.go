@@ -80,7 +80,7 @@ func dumpDecode(t *testing.T, c decodeCase) string {
 		d.line("input: modified " + dumpBytes(in))
 	}
 	dumpPacket(&d, p)
-	dumpReencode(&d, p, c.in)
+	dumpReencode(&d, p, &x.User, c.in)
 	dumpUnmarshalTrap(&d, c)
 	return d.String()
 }
@@ -94,15 +94,11 @@ func dumpUnmarshalTrap(d *dumpWriter, c decodeCase) {
 		return
 	}
 	x := c.decoder()
-	sp, ok := x.SecurityParameters.(*UsmSecurityParameters)
-	if !ok {
-		return
-	}
 	x.Version = Version3
 	switch {
-	case sp.PrivacyProtocol > NoPriv:
+	case x.User.PrivProtocol > NoPriv:
 		x.SecurityLevel = AuthPriv
-	case sp.AuthenticationProtocol > NoAuth:
+	case x.User.AuthProtocol > NoAuth:
 		x.SecurityLevel = AuthNoPriv
 	}
 
@@ -140,18 +136,15 @@ func dumpPacket(d *dumpWriter, p *Message) {
 	d.linef("version: %d (%s)", p.Version, p.Version)
 	d.linef("community: %q", p.Community)
 	if p.Version == Version3 || p.MsgID != 0 || p.MsgMaxSize != 0 || p.SecurityLevel != 0 ||
-		p.ContextEngineID != "" || p.ContextName != "" {
+		len(p.ContextEngineID) != 0 || p.ContextName != "" {
 		d.linef("v3: msg-id=%d max-size=%d flags=0x%02x context-engine-id=%x context-name=%q",
 			p.MsgID, p.MsgMaxSize, uint8(p.SecurityLevel), p.ContextEngineID, p.ContextName)
 	}
-	switch sp := p.SecurityParameters.(type) {
-	case nil:
-	case *UsmSecurityParameters:
+	if p.Version == Version3 {
+		h := &p.SecurityParameters
 		d.linef("usm: engine-id=%x boots=%d time=%d user=%q auth-params=%x priv-params=%x",
-			sp.AuthoritativeEngineID, sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime, sp.UserName,
-			sp.AuthenticationParameters, sp.PrivacyParameters)
-	default:
-		d.linef("security-parameters: %T", sp)
+			h.AuthoritativeEngineID, h.AuthoritativeEngineBoots, h.AuthoritativeEngineTime, h.UserName,
+			h.AuthenticationParameters, h.PrivacyParameters)
 	}
 	d.linef("pdu: 0x%02x (%s) request-id=%d error=%d (%s) error-index=%d non-repeaters=%d max-repetitions=%d",
 		byte(p.PDUType), p.PDUType, p.RequestID, uint8(p.ErrorStatus), p.ErrorStatus, p.ErrorIndex, p.NonRepeaters, p.MaxRepetitions)
@@ -193,18 +186,18 @@ func dumpValue(v any) string {
 	}
 }
 
-// dumpReencode pins what Message.Encode makes of a decoded packet. The encoder
-// draws the salt of an encrypted message: it gets the received salt when that
-// is eight octets, so that "identical" shows the codec round trip, and a fixed
-// one otherwise.
-func dumpReencode(d *dumpWriter, p *Message, original []byte) {
+// dumpReencode pins what Message.Encode makes of a decoded packet with the
+// decoder's user (an SNMPv3 message's). The encoder draws the salt of an
+// encrypted message: it gets the received salt when that is eight octets, so
+// that "identical" shows the codec round trip, and a fixed one otherwise.
+func dumpReencode(d *dumpWriter, p *Message, user *User, original []byte) {
 	usm.Salts.Set(0x0000000700000001)
-	if sp := usmOf(p.SecurityParameters); sp != nil && len(sp.PrivacyParameters) == 8 {
-		usm.Salts.Set(binary.BigEndian.Uint64(sp.PrivacyParameters))
+	if salt := p.SecurityParameters.PrivacyParameters; len(salt) == 8 {
+		usm.Salts.Set(binary.BigEndian.Uint64(salt))
 	}
 	var out []byte
 	var err error
-	panicked, wroteStdout := observe(func() { out, err = p.Encode() })
+	panicked, wroteStdout := observe(func() { out, err = p.Encode(user) })
 	switch {
 	case panicked:
 		d.line("reencode: panic")
@@ -420,40 +413,16 @@ func craftedV3NoAuth(scoped []byte) []byte {
 	return craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), craftedNoAuthUSM, scoped)
 }
 
+// usmUser returns the synthetic codec-user with the given protocols and
+// passphrases.
+func usmUser(auth AuthProtocol, authPass string, priv PrivProtocol, privPass string) User {
+	return User{Name: "codec-user", AuthProtocol: auth, AuthPassphrase: authPass, PrivProtocol: priv, PrivPassphrase: privPass}
+}
+
 // usmDecoder returns a decoder configured for the synthetic codec-user credentials.
 func usmDecoder(auth AuthProtocol, authPass string, priv PrivProtocol, privPass string) func() *Client {
 	return func() *Client {
-		return &Client{SecurityParameters: &UsmSecurityParameters{
-			UserName:                 "codec-user",
-			AuthenticationProtocol:   auth,
-			AuthenticationPassphrase: authPass,
-			PrivacyProtocol:          priv,
-			PrivacyPassphrase:        privPass,
-		}}
-	}
-}
-
-// usmDecoderLocalized returns a decoder whose credentials are already
-// localized to the fixtures' engine ID, as they are after discovery.
-func usmDecoderLocalized(auth AuthProtocol, priv PrivProtocol) func() *Client {
-	return func() *Client {
-		x := usmDecoder(auth, "codec-auth-pass", priv, "codec-priv-pass")()
-		sp := x.SecurityParameters.(*UsmSecurityParameters)
-		sp.AuthoritativeEngineID = "\x80\x00\x1f\x88\x04codec-engine"
-		if err := sp.InitSecurityKeys(); err != nil {
-			panic(err)
-		}
-		return x
-	}
-}
-
-// usmDecoderEngineIDWithoutKeys returns a decoder that knows the fixtures'
-// engine ID but has no localized keys.
-func usmDecoderEngineIDWithoutKeys(auth AuthProtocol, priv PrivProtocol) func() *Client {
-	return func() *Client {
-		x := usmDecoder(auth, "codec-auth-pass", priv, "codec-priv-pass")()
-		x.SecurityParameters.(*UsmSecurityParameters).AuthoritativeEngineID = "\x80\x00\x1f\x88\x04codec-engine"
-		return x
+		return &Client{User: usmUser(auth, authPass, priv, privPass)}
 	}
 }
 
@@ -702,6 +671,8 @@ func decodeCraftedCases() []decodeCase {
 		{name: "crafted/v3/usm-empty", in: craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), nil, craftedScopedResp)},
 		{name: "crafted/v3/usm-boots-octet-string", in: craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), craftedUSM(craftedEngineID, octets("\x07"), intTLV(1234), octets("codec-user"), octets(""), octets("")), craftedScopedResp)},
 		{name: "crafted/v3/usm-engine-id-200", in: craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), craftedUSM(octets(long200), intTLV(7), intTLV(1234), octets("codec-user"), octets(""), octets("")), craftedScopedResp)},
+		{name: "crafted/v3/usm-engine-id-64", in: craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), craftedUSM(octets(long200[:64]), intTLV(7), intTLV(1234), octets("codec-user"), octets(""), octets("")), craftedScopedResp)},
+		{name: "crafted/v3/usm-engine-id-65", in: craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), craftedUSM(octets(long200[:65]), intTLV(7), intTLV(1234), octets("codec-user"), octets(""), octets("")), craftedScopedResp)},
 		{name: "crafted/v3/usm-user-name-200", in: craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), craftedUSM(craftedEngineID, intTLV(7), intTLV(1234), octets(long200), octets(""), octets("")), craftedScopedResp)},
 		{name: "crafted/v3/usm-user-name-32", in: craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), craftedUSM(craftedEngineID, intTLV(7), intTLV(1234), octets(long200[:32]), octets(""), octets("")), craftedScopedResp)},
 		{name: "crafted/v3/usm-user-name-33", in: craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3), craftedUSM(craftedEngineID, intTLV(7), intTLV(1234), octets(long200[:33]), octets(""), octets("")), craftedScopedResp)},
@@ -749,29 +720,19 @@ func decodeCraftedCases() []decodeCase {
 			decoder: usmDecoder(SHA, "codec-auth-pass", NoPriv, ""),
 		},
 		{
-			name:    "crafted/v3/auth-priv-sha-aes/localized-decoder",
+			name:    "crafted/v3/auth-priv-sha-aes/user-decoder",
 			in:      v3AuthPrivSHAAESResponse(),
-			decoder: usmDecoderLocalized(SHA, AES),
+			decoder: usmDecoder(SHA, "codec-auth-pass", AES, "codec-priv-pass"),
 		},
 		{
-			name:    "crafted/v3/auth-priv-sha-aes/engine-id-without-keys",
-			in:      v3AuthPrivSHAAESResponse(),
-			decoder: usmDecoderEngineIDWithoutKeys(SHA, AES),
-		},
-		{
-			name:    "crafted/v3/auth-priv-md5-des/localized-decoder",
+			name:    "crafted/v3/auth-priv-md5-des/user-decoder",
 			in:      v3AuthPrivMD5DESResponse(),
-			decoder: usmDecoderLocalized(MD5, DES),
+			decoder: usmDecoder(MD5, "codec-auth-pass", DES, "codec-priv-pass"),
 		},
 		{
-			name:    "crafted/v3/auth-priv-md5-des/engine-id-without-keys",
-			in:      v3AuthPrivMD5DESResponse(),
-			decoder: usmDecoderEngineIDWithoutKeys(MD5, DES),
-		},
-		{
-			name:    "crafted/v3/auth-no-priv-sha/localized-decoder",
+			name:    "crafted/v3/auth-no-priv-sha/user-decoder",
 			in:      v3AuthNoPrivSHAResponse(),
-			decoder: usmDecoderLocalized(SHA, NoPriv),
+			decoder: usmDecoder(SHA, "codec-auth-pass", NoPriv, ""),
 		},
 		{
 			name:    "crafted/v3/auth-priv-md5-des/wrong-priv-pass",

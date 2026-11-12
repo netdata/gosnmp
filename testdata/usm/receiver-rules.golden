@@ -37,16 +37,28 @@ ok
 ok
 
 == authNoPriv/unknown authentication protocol/table
-error: add: securityParameters.AuthenticationProtocol AuthProtocol(99) is not supported
+error: add: User.AuthProtocol AuthProtocol(99) is not supported
 
 == authNoPriv/unknown authentication protocol/single
-error: securityParameters.AuthenticationProtocol AuthProtocol(99) is not supported
+error: User.AuthProtocol AuthProtocol(99) is not supported
 
 == authNoPriv/unknown authentication protocol/single, message flags
-error: securityParameters.AuthenticationProtocol AuthProtocol(99) is not supported
+error: User.AuthProtocol AuthProtocol(99) is not supported
 
 == authNoPriv/unknown authentication protocol/DecodeMessage
-error: unable to decode packet header: securityParameters.AuthenticationProtocol AuthProtocol(99) is not supported
+error: unable to decode packet header: User.AuthProtocol AuthProtocol(99) is not supported
+
+== authNoPriv/SHA without a passphrase/table
+error: add: usm: no authentication key, want 20 octets
+
+== authNoPriv/SHA without a passphrase/single
+error: User.AuthPassphrase is required when an authentication protocol is specified
+
+== authNoPriv/SHA without a passphrase/single, message flags
+error: User.AuthPassphrase is required when an authentication protocol is specified
+
+== authNoPriv/SHA without a passphrase/DecodeMessage
+error: unable to decode packet header: User.AuthPassphrase is required when an authentication protocol is specified
 
 == authNoPriv/no parameters/single
 error (ErrUnknownUsername): incoming packet is not authentic, discarding
@@ -91,16 +103,28 @@ ok
 ok
 
 == authPriv/unknown authentication protocol/table
-error: add: securityParameters.AuthenticationProtocol AuthProtocol(99) is not supported
+error: add: User.AuthProtocol AuthProtocol(99) is not supported
 
 == authPriv/unknown authentication protocol/single
-error: securityParameters.AuthenticationProtocol AuthProtocol(99) is not supported
+error: User.AuthProtocol AuthProtocol(99) is not supported
 
 == authPriv/unknown authentication protocol/single, message flags
-error: securityParameters.AuthenticationProtocol AuthProtocol(99) is not supported
+error: User.AuthProtocol AuthProtocol(99) is not supported
 
 == authPriv/unknown authentication protocol/DecodeMessage
-error: unable to decode packet header: securityParameters.AuthenticationProtocol AuthProtocol(99) is not supported
+error: unable to decode packet header: User.AuthProtocol AuthProtocol(99) is not supported
+
+== authPriv/SHA without a passphrase/table
+error: add: usm: no authentication key, want 20 octets
+
+== authPriv/SHA without a passphrase/single
+error: User.AuthPassphrase is required when an authentication protocol is specified
+
+== authPriv/SHA without a passphrase/single, message flags
+error: User.AuthPassphrase is required when an authentication protocol is specified
+
+== authPriv/SHA without a passphrase/DecodeMessage
+error: unable to decode packet header: User.AuthPassphrase is required when an authentication protocol is specified
 
 == authPriv/no parameters/single
 error (ErrUnknownUsername): incoming packet is not authentic, discarding
@@ -145,16 +169,28 @@ error (ErrUnknownSecurityLevel): incoming packet has a lower security level than
 ok
 
 == noAuthNoPriv/unknown authentication protocol/table
-error: add: securityParameters.AuthenticationProtocol AuthProtocol(99) is not supported
+error: add: User.AuthProtocol AuthProtocol(99) is not supported
 
 == noAuthNoPriv/unknown authentication protocol/single
-error: securityParameters.AuthenticationProtocol AuthProtocol(99) is not supported
+error: User.AuthProtocol AuthProtocol(99) is not supported
 
 == noAuthNoPriv/unknown authentication protocol/single, message flags
-error: securityParameters.AuthenticationProtocol AuthProtocol(99) is not supported
+error: User.AuthProtocol AuthProtocol(99) is not supported
 
 == noAuthNoPriv/unknown authentication protocol/DecodeMessage
-error: unable to decode packet header: securityParameters.AuthenticationProtocol AuthProtocol(99) is not supported
+error: unable to decode packet header: User.AuthProtocol AuthProtocol(99) is not supported
+
+== noAuthNoPriv/SHA without a passphrase/table
+error: add: usm: no authentication key, want 20 octets
+
+== noAuthNoPriv/SHA without a passphrase/single
+error: User.AuthPassphrase is required when an authentication protocol is specified
+
+== noAuthNoPriv/SHA without a passphrase/single, message flags
+error: User.AuthPassphrase is required when an authentication protocol is specified
+
+== noAuthNoPriv/SHA without a passphrase/DecodeMessage
+error: unable to decode packet header: User.AuthPassphrase is required when an authentication protocol is specified
 
 == noAuthNoPriv/no parameters/single
 error (ErrUnknownUsername): incoming packet is not authentic, discarding
@@ -199,16 +235,28 @@ error (ErrUnknownEngineID): incoming packet names no authoritative engine ID, di
 ok
 
 == authNoPriv, empty user name and engine ID/unknown authentication protocol/table
-error: add: securityParameters.AuthenticationProtocol AuthProtocol(99) is not supported
+error: add: User.AuthProtocol AuthProtocol(99) is not supported
 
 == authNoPriv, empty user name and engine ID/unknown authentication protocol/single
-error: securityParameters.AuthenticationProtocol AuthProtocol(99) is not supported
+error (ErrUnknownEngineID): incoming packet names no authoritative engine ID, discarding
 
 == authNoPriv, empty user name and engine ID/unknown authentication protocol/single, message flags
-error: securityParameters.AuthenticationProtocol AuthProtocol(99) is not supported
+error (ErrUnknownEngineID): incoming packet names no authoritative engine ID, discarding
 
 == authNoPriv, empty user name and engine ID/unknown authentication protocol/DecodeMessage
-error: unable to decode packet header: securityParameters.AuthenticationProtocol AuthProtocol(99) is not supported
+error: unable to decode packet header: User.AuthProtocol AuthProtocol(99) is not supported
+
+== authNoPriv, empty user name and engine ID/SHA without a passphrase/table
+error: add: usm: no authentication key, want 20 octets
+
+== authNoPriv, empty user name and engine ID/SHA without a passphrase/single
+error (ErrUnknownEngineID): incoming packet names no authoritative engine ID, discarding
+
+== authNoPriv, empty user name and engine ID/SHA without a passphrase/single, message flags
+error (ErrUnknownEngineID): incoming packet names no authoritative engine ID, discarding
+
+== authNoPriv, empty user name and engine ID/SHA without a passphrase/DecodeMessage
+error: unable to decode packet header: User.AuthPassphrase is required when an authentication protocol is specified
 
 == authNoPriv, empty user name and engine ID/no parameters/single
 error (ErrUnknownEngineID): incoming packet names no authoritative engine ID, discarding
@@ -253,15 +301,27 @@ error (ErrInvalidMsgs): error parsing SNMPV3 User Security Model msgPrivacyParam
 error (ErrInvalidMsgs): unable to decode packet header: error parsing SNMPV3 User Security Model msgPrivacyParameters: not an OCTET STRING
 
 == authPriv, INTEGER privacy parameters/unknown authentication protocol/table
-error: add: securityParameters.AuthenticationProtocol AuthProtocol(99) is not supported
+error: add: User.AuthProtocol AuthProtocol(99) is not supported
 
 == authPriv, INTEGER privacy parameters/unknown authentication protocol/single
-error: securityParameters.AuthenticationProtocol AuthProtocol(99) is not supported
+error (ErrInvalidMsgs): error parsing SNMPV3 User Security Model msgPrivacyParameters: not an OCTET STRING
 
 == authPriv, INTEGER privacy parameters/unknown authentication protocol/single, message flags
-error: securityParameters.AuthenticationProtocol AuthProtocol(99) is not supported
+error (ErrInvalidMsgs): error parsing SNMPV3 User Security Model msgPrivacyParameters: not an OCTET STRING
 
 == authPriv, INTEGER privacy parameters/unknown authentication protocol/DecodeMessage
+error (ErrInvalidMsgs): unable to decode packet header: error parsing SNMPV3 User Security Model msgPrivacyParameters: not an OCTET STRING
+
+== authPriv, INTEGER privacy parameters/SHA without a passphrase/table
+error: add: usm: no authentication key, want 20 octets
+
+== authPriv, INTEGER privacy parameters/SHA without a passphrase/single
+error (ErrInvalidMsgs): error parsing SNMPV3 User Security Model msgPrivacyParameters: not an OCTET STRING
+
+== authPriv, INTEGER privacy parameters/SHA without a passphrase/single, message flags
+error (ErrInvalidMsgs): error parsing SNMPV3 User Security Model msgPrivacyParameters: not an OCTET STRING
+
+== authPriv, INTEGER privacy parameters/SHA without a passphrase/DecodeMessage
 error (ErrInvalidMsgs): unable to decode packet header: error parsing SNMPV3 User Security Model msgPrivacyParameters: not an OCTET STRING
 
 == authPriv, INTEGER privacy parameters/no parameters/single
@@ -307,16 +367,28 @@ ok
 ok
 
 == authNoPriv, long-form digest field length/unknown authentication protocol/table
-error: add: securityParameters.AuthenticationProtocol AuthProtocol(99) is not supported
+error: add: User.AuthProtocol AuthProtocol(99) is not supported
 
 == authNoPriv, long-form digest field length/unknown authentication protocol/single
-error: securityParameters.AuthenticationProtocol AuthProtocol(99) is not supported
+error: User.AuthProtocol AuthProtocol(99) is not supported
 
 == authNoPriv, long-form digest field length/unknown authentication protocol/single, message flags
-error: securityParameters.AuthenticationProtocol AuthProtocol(99) is not supported
+error: User.AuthProtocol AuthProtocol(99) is not supported
 
 == authNoPriv, long-form digest field length/unknown authentication protocol/DecodeMessage
-error: unable to decode packet header: securityParameters.AuthenticationProtocol AuthProtocol(99) is not supported
+error: unable to decode packet header: User.AuthProtocol AuthProtocol(99) is not supported
+
+== authNoPriv, long-form digest field length/SHA without a passphrase/table
+error: add: usm: no authentication key, want 20 octets
+
+== authNoPriv, long-form digest field length/SHA without a passphrase/single
+error: User.AuthPassphrase is required when an authentication protocol is specified
+
+== authNoPriv, long-form digest field length/SHA without a passphrase/single, message flags
+error: User.AuthPassphrase is required when an authentication protocol is specified
+
+== authNoPriv, long-form digest field length/SHA without a passphrase/DecodeMessage
+error: unable to decode packet header: User.AuthPassphrase is required when an authentication protocol is specified
 
 == authNoPriv, long-form digest field length/no parameters/single
 error (ErrUnknownUsername): incoming packet is not authentic, discarding
@@ -361,16 +433,28 @@ error (ErrUnknownUsername): incoming packet is not authentic, discarding
 ok
 
 == authNoPriv, another user/unknown authentication protocol/table
-error: add: securityParameters.AuthenticationProtocol AuthProtocol(99) is not supported
+error: add: User.AuthProtocol AuthProtocol(99) is not supported
 
 == authNoPriv, another user/unknown authentication protocol/single
-error: securityParameters.AuthenticationProtocol AuthProtocol(99) is not supported
+error (ErrUnknownUsername): incoming packet is not authentic, discarding
 
 == authNoPriv, another user/unknown authentication protocol/single, message flags
-error: securityParameters.AuthenticationProtocol AuthProtocol(99) is not supported
+error (ErrUnknownUsername): incoming packet is not authentic, discarding
 
 == authNoPriv, another user/unknown authentication protocol/DecodeMessage
-error: unable to decode packet header: securityParameters.AuthenticationProtocol AuthProtocol(99) is not supported
+error: unable to decode packet header: User.AuthProtocol AuthProtocol(99) is not supported
+
+== authNoPriv, another user/SHA without a passphrase/table
+error: add: usm: no authentication key, want 20 octets
+
+== authNoPriv, another user/SHA without a passphrase/single
+error (ErrUnknownUsername): incoming packet is not authentic, discarding
+
+== authNoPriv, another user/SHA without a passphrase/single, message flags
+error (ErrUnknownUsername): incoming packet is not authentic, discarding
+
+== authNoPriv, another user/SHA without a passphrase/DecodeMessage
+error: unable to decode packet header: User.AuthPassphrase is required when an authentication protocol is specified
 
 == authNoPriv, another user/no parameters/single
 error (ErrUnknownUsername): incoming packet is not authentic, discarding
@@ -378,20 +462,68 @@ error (ErrUnknownUsername): incoming packet is not authentic, discarding
 == authNoPriv, another user/SHA-AES/single, version unset
 error: UnmarshalTrap: an SNMPv3 message needs a client whose Version is Version3
 
-== mixed sets/keys only, then passphrases/from codec-engine
+== SNMPv2c/no protocols/table
 ok
 
-== mixed sets/keys only, then passphrases/from other-engine
+== SNMPv2c/no protocols/single
 ok
 
-== mixed sets/keys only, then passphrases/from codec-engine, wrong digest
-error (ErrWrongDigest): no credentials successfully unmarshaled trap: incoming packet is not authentic, discarding
-
-== mixed sets/passphrases, then keys only/from codec-engine
+== SNMPv2c/no protocols/single, message flags
 ok
 
-== mixed sets/passphrases, then keys only/from other-engine
+== SNMPv2c/no protocols/DecodeMessage
 ok
 
-== mixed sets/passphrases, then keys only/from codec-engine, wrong digest
-error (ErrWrongDigest): no credentials successfully unmarshaled trap: incoming packet is not authentic, discarding
+== SNMPv2c/SHA/table
+ok
+
+== SNMPv2c/SHA/single
+ok
+
+== SNMPv2c/SHA/single, message flags
+ok
+
+== SNMPv2c/SHA/DecodeMessage
+ok
+
+== SNMPv2c/SHA-AES/table
+ok
+
+== SNMPv2c/SHA-AES/single
+ok
+
+== SNMPv2c/SHA-AES/single, message flags
+ok
+
+== SNMPv2c/SHA-AES/DecodeMessage
+ok
+
+== SNMPv2c/unknown authentication protocol/table
+error: add: User.AuthProtocol AuthProtocol(99) is not supported
+
+== SNMPv2c/unknown authentication protocol/single
+ok
+
+== SNMPv2c/unknown authentication protocol/single, message flags
+ok
+
+== SNMPv2c/unknown authentication protocol/DecodeMessage
+ok
+
+== SNMPv2c/SHA without a passphrase/table
+error: add: usm: no authentication key, want 20 octets
+
+== SNMPv2c/SHA without a passphrase/single
+ok
+
+== SNMPv2c/SHA without a passphrase/single, message flags
+ok
+
+== SNMPv2c/SHA without a passphrase/DecodeMessage
+ok
+
+== SNMPv2c/no parameters/single
+ok
+
+== SNMPv2c/SHA-AES/single, version unset
+ok

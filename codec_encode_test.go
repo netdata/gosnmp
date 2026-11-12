@@ -49,6 +49,7 @@ func TestMarshalLongOctetStringFields(t *testing.T) {
 		"community 128 bytes": {community: long(128)},
 		"community 256 bytes": {community: long(256)},
 		"community 300 bytes": {community: long(300)},
+		"engine ID 64 bytes":  {engineID: long(64), userName: "user"},
 		"engine ID 128 bytes": {engineID: long(128), userName: "user"},
 		"engine ID 300 bytes": {engineID: long(300), userName: "user"},
 		"user name 32 bytes":  {engineID: "\x80\x00\x1f\x88\x04engine", userName: long(32)},
@@ -67,20 +68,32 @@ func TestMarshalLongOctetStringFields(t *testing.T) {
 				packet.Version = Version3
 				packet.SecurityLevel = NoAuthNoPriv
 				packet.MsgID = 1
-				packet.SecurityParameters = &UsmSecurityParameters{AuthoritativeEngineID: want.engineID, UserName: want.userName}
+				packet.SecurityParameters = SecurityParameters{AuthoritativeEngineID: []byte(want.engineID), UserName: want.userName}
 			}
-			msg, err := packet.Encode()
+			msg, err := packet.Encode(nil)
 			if err != nil {
 				t.Fatalf("Encode: %v", err)
+			}
+			if len(want.engineID) > maxDecodedEngineIDLen {
+				// Longer than the decoder takes: the fields as the encoder
+				// laid them out.
+				_, err = (&Client{}).DecodeMessage(msg)
+				require.ErrorIs(t, err, ErrInvalidMsgs)
+				m := splitV3Message(t, msg)
+				if got := (fields{engineID: string(m.usm[0]), userName: string(m.usm[3])}); got != want {
+					t.Errorf("encoded %+v, want %+v", got, want)
+				}
+				return
 			}
 
 			decoded, err := (&Client{}).DecodeMessage(msg)
 			if err != nil {
 				t.Fatalf("decoding the encoded message: %v\nmessage: %x", err, msg)
 			}
-			got := fields{community: decoded.Community}
-			if usm, ok := decoded.SecurityParameters.(*UsmSecurityParameters); ok {
-				got.engineID, got.userName = usm.AuthoritativeEngineID, usm.UserName
+			got := fields{
+				community: decoded.Community,
+				engineID:  string(decoded.SecurityParameters.AuthoritativeEngineID),
+				userName:  decoded.SecurityParameters.UserName,
 			}
 			if got != want {
 				t.Errorf("decoded %+v, want %+v", got, want)
@@ -124,7 +137,7 @@ func TestMarshalUnencodableValues(t *testing.T) {
 	for name, packet := range tests {
 		t.Run(name, func(t *testing.T) {
 			var err error
-			panicked, _ := observe(func() { _, err = packet.Encode() })
+			panicked, _ := observe(func() { _, err = packet.Encode(nil) })
 			if panicked || err == nil {
 				t.Errorf("Encode panicked: %v, error: %v; want an error", panicked, err)
 			}
@@ -205,11 +218,11 @@ func TestEncodeReportableFlag(t *testing.T) {
 	for _, pdu := range pduTypes {
 		for _, level := range []SecurityLevel{NoAuthNoPriv, AuthNoPriv} {
 			t.Run(fmt.Sprintf("Encode/%v/%v", pdu, level), func(t *testing.T) {
+				user := codecUser(levelAuth(level), NoPriv)
 				msg, err := (&Message{
-					Version: Version3, SecurityLevel: level,
-					SecurityParameters: codecUSM(t, levelAuth(level), NoPriv),
-					PDUType:            pdu, MsgID: 1, RequestID: 1, TrapV1Header: trap, VarBinds: vars,
-				}).Encode()
+					Version: Version3, SecurityLevel: level, SecurityParameters: codecHeader(),
+					PDUType: pdu, MsgID: 1, RequestID: 1, TrapV1Header: trap, VarBinds: vars,
+				}).Encode(&user)
 				if err != nil {
 					t.Fatalf("Encode: %v", err)
 				}
@@ -221,10 +234,8 @@ func TestEncodeReportableFlag(t *testing.T) {
 				continue // EncodeMessage has no SNMPv1 trap fields
 			}
 			t.Run(fmt.Sprintf("EncodeMessage/%v/%v", pdu, level), func(t *testing.T) {
-				x := &Client{
-					Version: Version3, SecurityLevel: level,
-					SecurityParameters: codecUSM(t, levelAuth(level), NoPriv),
-				}
+				x := &Client{Version: Version3, SecurityLevel: level, User: codecUser(levelAuth(level), NoPriv)}
+				seedEngine(codecEngineID, 7, 1234)(x) // EncodeMessage signs with the engine state's keys
 				msg, err := x.EncodeMessage(pdu, vars, 0, 0)
 				if err != nil {
 					t.Fatalf("EncodeMessage: %v", err)
@@ -263,28 +274,64 @@ func TestInvalidSecurityLevel(t *testing.T) {
 		"authPriv and another bit":       {level: AuthPriv | 0x80, encodeErr: "unable to marshal SNMPv3 security level 131: not NoAuthNoPriv, AuthNoPriv or AuthPriv", valid: invalid},
 	}
 	trap, err := (&Message{
-		Version: Version3, SecurityLevel: NoAuthNoPriv, SecurityParameters: codecUSM(t, NoAuth, NoPriv),
+		Version: Version3, SecurityLevel: NoAuthNoPriv, SecurityParameters: codecHeader(),
 		PDUType: SNMPv2Trap, MsgID: 1, RequestID: 1,
-	}).Encode()
+	}).Encode(nil)
 	require.NoError(t, err)
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			receiver := &Client{Version: Version3, SecurityLevel: tc.level, SecurityParameters: codecUSM(t, NoAuth, NoPriv)}
+			receiver := &Client{Version: Version3, SecurityLevel: tc.level, User: codecUser(NoAuth, NoPriv)}
 			_, err := receiver.UnmarshalTrap(bytes.Clone(trap), false)
 			require.EqualError(t, err, tc.valid, "UnmarshalTrap")
 			_, err = receiver.UnmarshalTrap(bytes.Clone(trap), true)
 			require.NoError(t, err, "UnmarshalTrap with the message's level")
+			user := codecUser(SHA, AES)
 			_, err = (&Message{
-				Version: Version3, SecurityLevel: tc.level,
-				SecurityParameters: codecUSM(t, SHA, AES), PDUType: GetRequest, MsgID: 1, RequestID: 1,
-			}).Encode()
+				Version: Version3, SecurityLevel: tc.level, SecurityParameters: codecHeader(),
+				PDUType: GetRequest, MsgID: 1, RequestID: 1,
+			}).Encode(&user)
 			require.EqualError(t, err, tc.encodeErr)
-			x := &Client{
-				Version: Version3, SecurityLevel: tc.level,
-				SecurityParameters: codecUSM(t, SHA, AES),
-			}
+			x := &Client{Version: Version3, SecurityLevel: tc.level, User: user}
 			_, err = x.EncodeMessage(GetRequest, nil, 0, 0)
 			require.EqualError(t, err, tc.valid)
+		})
+	}
+}
+
+// TestEncodeDerivesLevelKeys pins that Message.Encode derives only the keys
+// the message's security level uses, after checking the user's protocols: a
+// key the level needs that does not derive fails the signer or the cipher, one
+// it does not need is not derived.
+func TestEncodeDerivesLevelKeys(t *testing.T) {
+	sha := usmUser(SHA, "codec-auth-pass", NoPriv, "")
+	shaAES := usmUser(SHA, "codec-auth-pass", AES, "")
+	tests := map[string]struct {
+		level   SecurityLevel
+		user    User
+		wantErr string
+	}{
+		"noAuthNoPriv, an authentication protocol without a passphrase": {level: NoAuthNoPriv, user: User{Name: "codec-user", AuthProtocol: SHA}},
+		"noAuthNoPriv, an unsupported protocol": {
+			level: NoAuthNoPriv, user: User{Name: "codec-user", AuthProtocol: 99}, wantErr: "User.AuthProtocol AuthProtocol(99) is not supported",
+		},
+		"authNoPriv": {level: AuthNoPriv, user: sha},
+		"authNoPriv, a privacy protocol without a passphrase": {level: AuthNoPriv, user: shaAES},
+		"authNoPriv, no authentication passphrase": {
+			level: AuthNoPriv, user: User{Name: "codec-user", AuthProtocol: SHA}, wantErr: "usm: no authentication key, want 20 octets",
+		},
+		"authPriv, no privacy passphrase": {level: AuthPriv, user: shaAES, wantErr: "usm: encrypting: no privacy key, want 16 octets"},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := (&Message{
+				Version: Version3, SecurityLevel: tc.level, SecurityParameters: codecHeader(),
+				PDUType: SNMPv2Trap, MsgID: 1, RequestID: 1,
+			}).Encode(&tc.user)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.EqualError(t, err, tc.wantErr)
+			}
 		})
 	}
 }
@@ -339,7 +386,7 @@ func TestValueKinds(t *testing.T) {
 	}
 }
 
-// levelAuth is the authentication protocol codecUSM needs for level.
+// levelAuth is the authentication protocol codecUser needs for level.
 func levelAuth(level SecurityLevel) AuthProtocol {
 	if level.authFlag() {
 		return SHA
@@ -401,7 +448,7 @@ func dumpEncode(encode func() ([]byte, error)) string {
 func dumpVarbindValue(pkt *Message) string {
 	var out []byte
 	var err error
-	panicked, wroteStdout := observe(func() { out, err = pkt.Encode() })
+	panicked, wroteStdout := observe(func() { out, err = pkt.Encode(nil) })
 
 	var result string
 	switch {
@@ -500,25 +547,24 @@ func berHeaderLen(b []byte) int {
 	}
 }
 
-// codecUSM returns USM parameters for the synthetic codec-user with localized keys.
-func codecUSM(t *testing.T, auth AuthProtocol, priv PrivProtocol) *UsmSecurityParameters {
-	t.Helper()
-	sp := &UsmSecurityParameters{
-		UserName:                 "codec-user",
-		AuthenticationProtocol:   auth,
-		AuthenticationPassphrase: "codec-auth-pass",
-		PrivacyProtocol:          priv,
-		PrivacyPassphrase:        "codec-priv-pass",
-		AuthoritativeEngineID:    "\x80\x00\x1f\x88\x04codec-engine",
+// codecEngineID is the authoritative engine ID of the synthetic codec messages.
+const codecEngineID = "\x80\x00\x1f\x88\x04codec-engine"
+
+// codecUser returns the synthetic codec-user with the protocols auth and priv
+// and the codec passphrases.
+func codecUser(auth AuthProtocol, priv PrivProtocol) User {
+	return usmUser(auth, "codec-auth-pass", priv, "codec-priv-pass")
+}
+
+// codecHeader returns the USM header of the synthetic codec messages: the
+// codec engine ID, boots 7, time 1234 and codec-user.
+func codecHeader() SecurityParameters {
+	return SecurityParameters{
+		AuthoritativeEngineID:    []byte(codecEngineID),
 		AuthoritativeEngineBoots: 7,
 		AuthoritativeEngineTime:  1234,
+		UserName:                 "codec-user",
 	}
-	if auth != NoAuth {
-		if err := sp.InitSecurityKeys(); err != nil {
-			t.Fatal(err)
-		}
-	}
-	return sp
 }
 
 // encodeCases returns the encode characterization cases and the names of those
@@ -572,13 +618,13 @@ func encodeCases(t *testing.T) ([]encodeCase, map[string]bool) {
 		edit(&tr)
 		return &Message{Version: Version1, Community: "public", PDUType: Trap, TrapV1Header: tr, VarBinds: nullVar}
 	}
-	v3 := func(flags SecurityLevel, pduType PDUType, sp *UsmSecurityParameters) *Message {
+	v3 := func(flags SecurityLevel, pduType PDUType) *Message {
 		return &Message{
 			Version:       Version3,
 			SecurityLevel: flags,
 
-			SecurityParameters: sp,
-			ContextEngineID:    "\x80\x00\x1f\x88\x04codec-engine",
+			SecurityParameters: codecHeader(),
+			ContextEngineID:    []byte(codecEngineID),
 			ContextName:        "codec-context",
 			PDUType:            pduType,
 			MsgID:              4242,
@@ -599,9 +645,9 @@ func encodeCases(t *testing.T) ([]encodeCase, map[string]bool) {
 	oidName := func(name string) *Message { return v2c(GetRequest, []VarBind{{Name: name, Type: Null}}) }
 	// withPacketSalt gives the packet a salt of its own, unlike the drawn one:
 	// the encoder must neither send nor encrypt with it.
-	withPacketSalt := func(sp *UsmSecurityParameters) *UsmSecurityParameters {
-		sp.PrivacyParameters = []byte{0xee, 0xee, 0xee, 0xee, 0xee, 0xee, 0xee, 0xee}
-		return sp
+	withPacketSalt := func(p *Message) *Message {
+		p.SecurityParameters.PrivacyParameters = []byte{0xee, 0xee, 0xee, 0xee, 0xee, 0xee, 0xee, 0xee}
+		return p
 	}
 	// fixedIDs starts the client's ID counters at 0, so that its request ID
 	// and msgID are 1 (a client draws random ones otherwise).
@@ -610,7 +656,17 @@ func encodeCases(t *testing.T) ([]encodeCase, map[string]bool) {
 		x.SetMsgID(0)
 		return x
 	}
-	marshal := func(p *Message) func() ([]byte, error) { return p.Encode }
+	marshal := func(p *Message) func() ([]byte, error) { return func() ([]byte, error) { return p.Encode(nil) } }
+	// marshalAs encodes the SNMPv3 message p with the codec-user of the
+	// protocols auth and priv.
+	marshalAs := func(auth AuthProtocol, priv PrivProtocol, p *Message) func() ([]byte, error) {
+		user := codecUser(auth, priv)
+		return func() ([]byte, error) { return p.Encode(&user) }
+	}
+	// marshalWithKeys encodes the SNMPv3 message p with keys no user derives.
+	marshalWithKeys := func(keys usmKeys, p *Message) func() ([]byte, error) {
+		return func() ([]byte, error) { return p.marshalMsg(&keys) }
+	}
 	edit := func(p *Message, f func(*Message)) *Message { f(p); return p }
 
 	return []encodeCase{
@@ -693,86 +749,79 @@ func encodeCases(t *testing.T) ([]encodeCase, map[string]bool) {
 		{"v1-trap/in-v2c-message", marshal(edit(v1Trap(func(*TrapV1Header) {}), func(p *Message) { p.Version = Version2c }))},
 
 		// SNMPv3.
-		{"v3/no-auth-no-priv/discovery", marshal(edit(v3(NoAuthNoPriv, GetRequest, &UsmSecurityParameters{}), func(p *Message) {
-			p.ContextEngineID, p.ContextName, p.VarBinds = "", "", nil
+		{"v3/no-auth-no-priv/discovery", marshal(edit(v3(NoAuthNoPriv, GetRequest), func(p *Message) {
+			p.SecurityParameters, p.ContextEngineID, p.ContextName, p.VarBinds = SecurityParameters{}, nil, "", nil
 		}))},
-		{"v3/no-auth-no-priv/get-request", marshal(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)))},
-		{"v3/no-auth-no-priv/msg-id-2^31", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *Message) { p.MsgID = 1 << 31 }))},
-		{"v3/no-auth-no-priv/engine-id-200", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *Message) {
-			p.SecurityParameters.(*UsmSecurityParameters).AuthoritativeEngineID = strings.Repeat("e", 200)
+		{"v3/no-auth-no-priv/get-request", marshalAs(NoAuth, NoPriv, v3(NoAuthNoPriv, GetRequest))},
+		{"v3/no-auth-no-priv/msg-id-2^31", marshalAs(NoAuth, NoPriv, edit(v3(NoAuthNoPriv, GetRequest), func(p *Message) { p.MsgID = 1 << 31 }))},
+		{"v3/no-auth-no-priv/engine-id-200", marshalAs(NoAuth, NoPriv, edit(v3(NoAuthNoPriv, GetRequest), func(p *Message) {
+			p.SecurityParameters.AuthoritativeEngineID = bytes.Repeat([]byte("e"), 200)
 		}))},
-		{"v3/no-auth-no-priv/user-name-200", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *Message) {
-			p.SecurityParameters.(*UsmSecurityParameters).UserName = strings.Repeat("u", 200)
+		{"v3/no-auth-no-priv/user-name-200", marshalAs(NoAuth, NoPriv, edit(v3(NoAuthNoPriv, GetRequest), func(p *Message) {
+			p.SecurityParameters.UserName = strings.Repeat("u", 200)
 		}))},
-		{"v3/no-auth-no-priv/user-name-32", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *Message) {
-			p.SecurityParameters.(*UsmSecurityParameters).UserName = strings.Repeat("u", 32)
+		{"v3/no-auth-no-priv/user-name-32", marshalAs(NoAuth, NoPriv, edit(v3(NoAuthNoPriv, GetRequest), func(p *Message) {
+			p.SecurityParameters.UserName = strings.Repeat("u", 32)
 		}))},
-		{"v3/no-auth-no-priv/user-name-33", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *Message) {
-			p.SecurityParameters.(*UsmSecurityParameters).UserName = strings.Repeat("u", 33)
+		{"v3/no-auth-no-priv/user-name-33", marshalAs(NoAuth, NoPriv, edit(v3(NoAuthNoPriv, GetRequest), func(p *Message) {
+			p.SecurityParameters.UserName = strings.Repeat("u", 33)
 		}))},
-		{"v3/no-auth-no-priv/max-size-483", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *Message) { p.MsgMaxSize = 483 }))},
-		{"v3/no-auth-no-priv/max-size-484", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *Message) { p.MsgMaxSize = 484 }))},
-		{"v3/no-auth-no-priv/msg-id-max-int32", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *Message) { p.MsgID = math.MaxInt32 }))},
-		{"v3/no-auth-no-priv/reserved-flags", marshal(v3(NoAuthNoPriv|0xf8, GetRequest, codecUSM(t, NoAuth, NoPriv)))},
-		{"v3/no-auth-no-priv/v1-trap-pdu", marshal(edit(v3(NoAuthNoPriv, Trap, codecUSM(t, NoAuth, NoPriv)), func(p *Message) { p.TrapV1Header = trap }))},
-		{"v3/no-auth-no-priv/engine-boots-2^31", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *Message) {
-			p.SecurityParameters.(*UsmSecurityParameters).AuthoritativeEngineBoots = 1 << 31
+		{"v3/no-auth-no-priv/max-size-483", marshalAs(NoAuth, NoPriv, edit(v3(NoAuthNoPriv, GetRequest), func(p *Message) { p.MsgMaxSize = 483 }))},
+		{"v3/no-auth-no-priv/max-size-484", marshalAs(NoAuth, NoPriv, edit(v3(NoAuthNoPriv, GetRequest), func(p *Message) { p.MsgMaxSize = 484 }))},
+		{"v3/no-auth-no-priv/msg-id-max-int32", marshalAs(NoAuth, NoPriv, edit(v3(NoAuthNoPriv, GetRequest), func(p *Message) { p.MsgID = math.MaxInt32 }))},
+		{"v3/no-auth-no-priv/reserved-flags", marshalAs(NoAuth, NoPriv, v3(NoAuthNoPriv|0xf8, GetRequest))},
+		{"v3/no-auth-no-priv/v1-trap-pdu", marshalAs(NoAuth, NoPriv, edit(v3(NoAuthNoPriv, Trap), func(p *Message) { p.TrapV1Header = trap }))},
+		{"v3/no-auth-no-priv/engine-boots-2^31", marshalAs(NoAuth, NoPriv, edit(v3(NoAuthNoPriv, GetRequest), func(p *Message) {
+			p.SecurityParameters.AuthoritativeEngineBoots = 1 << 31
 		}))},
-		{"v3/no-auth-no-priv/engine-time-2^31", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *Message) {
-			p.SecurityParameters.(*UsmSecurityParameters).AuthoritativeEngineTime = 1 << 31
+		{"v3/no-auth-no-priv/engine-time-2^31", marshalAs(NoAuth, NoPriv, edit(v3(NoAuthNoPriv, GetRequest), func(p *Message) {
+			p.SecurityParameters.AuthoritativeEngineTime = 1 << 31
 		}))},
-		{"v3/no-auth-no-priv/engine-boots-and-time-max-int32", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *Message) {
-			sp := p.SecurityParameters.(*UsmSecurityParameters)
-			sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = math.MaxInt32, math.MaxInt32
+		{"v3/no-auth-no-priv/engine-boots-and-time-max-int32", marshalAs(NoAuth, NoPriv, edit(v3(NoAuthNoPriv, GetRequest), func(p *Message) {
+			h := &p.SecurityParameters
+			h.AuthoritativeEngineBoots, h.AuthoritativeEngineTime = math.MaxInt32, math.MaxInt32
 		}))},
-		{"v3/no-auth-no-priv/max-size-1500", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *Message) { p.MsgMaxSize = 1500 }))},
-		{"v3/no-auth-no-priv/max-size-max-int32", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *Message) { p.MsgMaxSize = math.MaxInt32 }))},
-		{"v3/no-auth-no-priv/max-size-2^31", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *Message) { p.MsgMaxSize = 1 << 31 }))},
-		{"v3/no-auth-no-priv/engine-boots-and-time-2^31", marshal(edit(v3(NoAuthNoPriv, GetRequest, codecUSM(t, NoAuth, NoPriv)), func(p *Message) {
-			sp := p.SecurityParameters.(*UsmSecurityParameters)
-			sp.AuthoritativeEngineBoots, sp.AuthoritativeEngineTime = 1<<31, 1<<31+1
+		{"v3/no-auth-no-priv/max-size-1500", marshalAs(NoAuth, NoPriv, edit(v3(NoAuthNoPriv, GetRequest), func(p *Message) { p.MsgMaxSize = 1500 }))},
+		{"v3/no-auth-no-priv/max-size-max-int32", marshalAs(NoAuth, NoPriv, edit(v3(NoAuthNoPriv, GetRequest), func(p *Message) { p.MsgMaxSize = math.MaxInt32 }))},
+		{"v3/no-auth-no-priv/max-size-2^31", marshalAs(NoAuth, NoPriv, edit(v3(NoAuthNoPriv, GetRequest), func(p *Message) { p.MsgMaxSize = 1 << 31 }))},
+		{"v3/no-auth-no-priv/engine-boots-and-time-2^31", marshalAs(NoAuth, NoPriv, edit(v3(NoAuthNoPriv, GetRequest), func(p *Message) {
+			h := &p.SecurityParameters
+			h.AuthoritativeEngineBoots, h.AuthoritativeEngineTime = 1<<31, 1<<31+1
 		}))},
-		{"v3/no-auth-no-priv/report", marshal(v3(NoAuthNoPriv, Report, codecUSM(t, NoAuth, NoPriv)))},
-		{"v3/no-auth-no-priv/nil-security-parameters", marshal(v3(NoAuthNoPriv, GetRequest, nil))},
-		{"v3/auth-no-priv/md5", marshal(v3(AuthNoPriv, GetRequest, codecUSM(t, MD5, NoPriv)))},
-		{"v3/auth-no-priv/sha", marshal(v3(AuthNoPriv, GetRequest, codecUSM(t, SHA, NoPriv)))},
-		{"v3/auth-no-priv/sha224", marshal(v3(AuthNoPriv, GetRequest, codecUSM(t, SHA224, NoPriv)))},
-		{"v3/auth-no-priv/sha256", marshal(v3(AuthNoPriv, GetRequest, codecUSM(t, SHA256, NoPriv)))},
-		{"v3/auth-no-priv/sha384", marshal(v3(AuthNoPriv, GetRequest, codecUSM(t, SHA384, NoPriv)))},
-		{"v3/auth-no-priv/sha512", marshal(v3(AuthNoPriv, GetRequest, codecUSM(t, SHA512, NoPriv)))},
+		{"v3/no-auth-no-priv/report", marshalAs(NoAuth, NoPriv, v3(NoAuthNoPriv, Report))},
+		{"v3/auth-no-priv/md5", marshalAs(MD5, NoPriv, v3(AuthNoPriv, GetRequest))},
+		{"v3/auth-no-priv/sha", marshalAs(SHA, NoPriv, v3(AuthNoPriv, GetRequest))},
+		{"v3/auth-no-priv/sha224", marshalAs(SHA224, NoPriv, v3(AuthNoPriv, GetRequest))},
+		{"v3/auth-no-priv/sha256", marshalAs(SHA256, NoPriv, v3(AuthNoPriv, GetRequest))},
+		{"v3/auth-no-priv/sha384", marshalAs(SHA384, NoPriv, v3(AuthNoPriv, GetRequest))},
+		{"v3/auth-no-priv/sha512", marshalAs(SHA512, NoPriv, v3(AuthNoPriv, GetRequest))},
 		// Authentication keys of 80 octets, longer than the hash and the 64-octet
 		// HMAC block: refused, as any key of another size than the hash's.
-		{"v3/auth-no-priv/md5/key-80", marshal(edit(v3(AuthNoPriv, GetRequest, codecUSM(t, MD5, NoPriv)), func(p *Message) {
-			p.SecurityParameters.(*UsmSecurityParameters).SecretKey = []byte(strings.Repeat("k", 80))
-		}))},
-		{"v3/auth-no-priv/sha/key-80", marshal(edit(v3(AuthNoPriv, GetRequest, codecUSM(t, SHA, NoPriv)), func(p *Message) {
-			p.SecurityParameters.(*UsmSecurityParameters).SecretKey = []byte(strings.Repeat("k", 80))
-		}))},
-		{"v3/auth-no-priv/sha256/key-80", marshal(edit(v3(AuthNoPriv, GetRequest, codecUSM(t, SHA256, NoPriv)), func(p *Message) {
-			p.SecurityParameters.(*UsmSecurityParameters).SecretKey = []byte(strings.Repeat("k", 80))
-		}))},
+		{"v3/auth-no-priv/md5/key-80", marshalWithKeys(usmKeys{authProtocol: MD5, auth: []byte(strings.Repeat("k", 80))}, v3(AuthNoPriv, GetRequest))},
+		{"v3/auth-no-priv/sha/key-80", marshalWithKeys(usmKeys{authProtocol: SHA, auth: []byte(strings.Repeat("k", 80))}, v3(AuthNoPriv, GetRequest))},
+		{"v3/auth-no-priv/sha256/key-80", marshalWithKeys(usmKeys{authProtocol: SHA256, auth: []byte(strings.Repeat("k", 80))}, v3(AuthNoPriv, GetRequest))},
 		// A user name or engine ID that holds the octets of the zero
 		// placeholder keeps them: the digest goes into the field.
-		{"v3/auth-no-priv/md5/placeholder-in-user-name", marshal(edit(v3(AuthNoPriv, GetRequest, codecUSM(t, MD5, NoPriv)), func(p *Message) {
-			p.SecurityParameters.(*UsmSecurityParameters).UserName = "\x04\x0c" + strings.Repeat("\x00", 12)
+		{"v3/auth-no-priv/md5/placeholder-in-user-name", marshalAs(MD5, NoPriv, edit(v3(AuthNoPriv, GetRequest), func(p *Message) {
+			p.SecurityParameters.UserName = "\x04\x0c" + strings.Repeat("\x00", 12)
 		}))},
-		{"v3/auth-no-priv/md5/placeholder-in-engine-id", marshal(edit(v3(AuthNoPriv, GetRequest, codecUSM(t, MD5, NoPriv)), func(p *Message) {
-			p.SecurityParameters.(*UsmSecurityParameters).AuthoritativeEngineID = "\x80\x00\x1f\x88\x04\x04\x0c" + strings.Repeat("\x00", 12)
+		{"v3/auth-no-priv/md5/placeholder-in-engine-id", marshalAs(MD5, NoPriv, edit(v3(AuthNoPriv, GetRequest), func(p *Message) {
+			p.SecurityParameters.AuthoritativeEngineID = []byte("\x80\x00\x1f\x88\x04\x04\x0c" + strings.Repeat("\x00", 12))
 		}))},
-		{"v3/auth-no-priv/flags-without-keys", marshal(v3(AuthNoPriv, GetRequest, &UsmSecurityParameters{UserName: "codec-user"}))},
-		{"v3/auth-priv/sha-aes", marshal(v3(AuthPriv, GetRequest, withPacketSalt(codecUSM(t, SHA, AES))))},
-		{"v3/auth-priv/sha-aes192", marshal(v3(AuthPriv, GetRequest, withPacketSalt(codecUSM(t, SHA, AES192))))},
-		{"v3/auth-priv/sha-aes256c", marshal(v3(AuthPriv, GetRequest, withPacketSalt(codecUSM(t, SHA, AES256C))))},
-		{"v3/auth-priv/md5-des", marshal(v3(AuthPriv, GetRequest, withPacketSalt(codecUSM(t, MD5, DES))))},
-		{"v3/priv-without-auth/sha-aes", marshal(v3(AuthPriv&^AuthNoPriv, GetRequest, withPacketSalt(codecUSM(t, SHA, AES))))},
-		{"v3/auth-priv/sha-aes/without-salt", marshal(v3(AuthPriv, GetRequest, codecUSM(t, SHA, AES)))},
-		{"v3/no-auth-no-priv/20-varbinds", marshal(withVars(v3(NoAuthNoPriv, Response, codecUSM(t, NoAuth, NoPriv)), hostVars(20)))},
-		{"v3/auth-no-priv/sha/20-varbinds", marshal(withVars(v3(AuthNoPriv, Response, codecUSM(t, SHA, NoPriv)), hostVars(20)))},
-		{"v3/auth-priv/sha-aes/4-varbinds", marshal(withVars(v3(AuthPriv, Response, withPacketSalt(codecUSM(t, SHA, AES))), hostVars(4)))},
-		{"v3/auth-priv/sha-aes/20-varbinds", marshal(withVars(v3(AuthPriv, Response, withPacketSalt(codecUSM(t, SHA, AES))), hostVars(20)))},
-		{"v3/auth-priv/md5-des/4-varbinds", marshal(withVars(v3(AuthPriv, Response, withPacketSalt(codecUSM(t, MD5, DES))), hostVars(4)))},
-		{"v3/auth-priv/md5-des/20-varbinds", marshal(withVars(v3(AuthPriv, Response, withPacketSalt(codecUSM(t, MD5, DES))), hostVars(20)))},
-		{"v3/auth-priv/md5-des/without-salt", marshal(v3(AuthPriv, GetRequest, codecUSM(t, MD5, DES)))},
+		{"v3/auth-no-priv/flags-without-keys", marshal(v3(AuthNoPriv, GetRequest))},
+		{"v3/auth-priv/sha-aes", marshalAs(SHA, AES, withPacketSalt(v3(AuthPriv, GetRequest)))},
+		{"v3/auth-priv/sha-aes192", marshalAs(SHA, AES192, withPacketSalt(v3(AuthPriv, GetRequest)))},
+		{"v3/auth-priv/sha-aes256c", marshalAs(SHA, AES256C, withPacketSalt(v3(AuthPriv, GetRequest)))},
+		{"v3/auth-priv/md5-des", marshalAs(MD5, DES, withPacketSalt(v3(AuthPriv, GetRequest)))},
+		{"v3/priv-without-auth/sha-aes", marshalAs(SHA, AES, withPacketSalt(v3(AuthPriv&^AuthNoPriv, GetRequest)))},
+		{"v3/auth-priv/sha-aes/without-salt", marshalAs(SHA, AES, v3(AuthPriv, GetRequest))},
+		{"v3/no-auth-no-priv/20-varbinds", marshalAs(NoAuth, NoPriv, withVars(v3(NoAuthNoPriv, Response), hostVars(20)))},
+		{"v3/auth-no-priv/sha/20-varbinds", marshalAs(SHA, NoPriv, withVars(v3(AuthNoPriv, Response), hostVars(20)))},
+		{"v3/auth-priv/sha-aes/4-varbinds", marshalAs(SHA, AES, withVars(withPacketSalt(v3(AuthPriv, Response)), hostVars(4)))},
+		{"v3/auth-priv/sha-aes/20-varbinds", marshalAs(SHA, AES, withVars(withPacketSalt(v3(AuthPriv, Response)), hostVars(20)))},
+		{"v3/auth-priv/md5-des/4-varbinds", marshalAs(MD5, DES, withVars(withPacketSalt(v3(AuthPriv, Response)), hostVars(4)))},
+		{"v3/auth-priv/md5-des/20-varbinds", marshalAs(MD5, DES, withVars(withPacketSalt(v3(AuthPriv, Response)), hostVars(20)))},
+		{"v3/auth-priv/md5-des/without-salt", marshalAs(MD5, DES, v3(AuthPriv, GetRequest))},
 
 		// EncodeMessage builds the message from the client's configuration.
 		{"encode-packet/v1/get-request", func() ([]byte, error) {
@@ -787,24 +836,26 @@ func encodeCases(t *testing.T) ([]encodeCase, map[string]bool) {
 			x := fixedIDs(&Client{Version: Version2c, Community: "public"})
 			return x.EncodeMessage(GetBulkRequest, nullVar, 0, math.MaxUint32)
 		}},
+		// An SNMPv3 one takes the engine state a request learned: the codec
+		// engine with boots 7 and time 1234.
 		{"encode-packet/v3/auth-no-priv/sha", func() ([]byte, error) {
 			x := fixedIDs(&Client{
 				Version:       Version3,
 				SecurityLevel: AuthNoPriv,
-
-				SecurityParameters: codecUSM(t, SHA, NoPriv),
-				ContextName:        "codec-context",
+				User:          codecUser(SHA, NoPriv),
+				ContextName:   "codec-context",
 			})
+			seedEngine(codecEngineID, 7, 1234)(x)
 			return x.EncodeMessage(GetRequest, nullVar, 0, 0)
 		}},
 		{"encode-packet/v3/auth-priv/sha-aes", func() ([]byte, error) {
 			x := fixedIDs(&Client{
 				Version:       Version3,
 				SecurityLevel: AuthPriv,
-
-				SecurityParameters: codecUSM(t, SHA, AES),
-				ContextName:        "codec-context",
+				User:          codecUser(SHA, AES),
+				ContextName:   "codec-context",
 			})
+			seedEngine(codecEngineID, 7, 1234)(x)
 			return x.EncodeMessage(GetRequest, nullVar, 0, 0)
 		}},
 	}, wide

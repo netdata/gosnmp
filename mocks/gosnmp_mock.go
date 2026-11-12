@@ -98,20 +98,6 @@ func (mr *MockHandlerMockRecorder) Connect() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Connect", reflect.TypeOf((*MockHandler)(nil).Connect))
 }
 
-// ContextEngineID mocks base method.
-func (m *MockHandler) ContextEngineID() string {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ContextEngineID")
-	ret0, _ := ret[0].(string)
-	return ret0
-}
-
-// ContextEngineID indicates an expected call of ContextEngineID.
-func (mr *MockHandlerMockRecorder) ContextEngineID() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ContextEngineID", reflect.TypeOf((*MockHandler)(nil).ContextEngineID))
-}
-
 // ContextName mocks base method.
 func (m *MockHandler) ContextName() string {
 	m.ctrl.T.Helper()
@@ -124,6 +110,18 @@ func (m *MockHandler) ContextName() string {
 func (mr *MockHandlerMockRecorder) ContextName() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ContextName", reflect.TypeOf((*MockHandler)(nil).ContextName))
+}
+
+// ForgetEngine mocks base method.
+func (m *MockHandler) ForgetEngine() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "ForgetEngine")
+}
+
+// ForgetEngine indicates an expected call of ForgetEngine.
+func (mr *MockHandlerMockRecorder) ForgetEngine() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ForgetEngine", reflect.TypeOf((*MockHandler)(nil).ForgetEngine))
 }
 
 // Get mocks base method.
@@ -211,20 +209,6 @@ func (mr *MockHandlerMockRecorder) SecurityLevel() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SecurityLevel", reflect.TypeOf((*MockHandler)(nil).SecurityLevel))
 }
 
-// SecurityParameters mocks base method.
-func (m *MockHandler) SecurityParameters() gosnmp.SnmpV3SecurityParameters {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SecurityParameters")
-	ret0, _ := ret[0].(gosnmp.SnmpV3SecurityParameters)
-	return ret0
-}
-
-// SecurityParameters indicates an expected call of SecurityParameters.
-func (mr *MockHandlerMockRecorder) SecurityParameters() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SecurityParameters", reflect.TypeOf((*MockHandler)(nil).SecurityParameters))
-}
-
 // SetCommunity mocks base method.
 func (m *MockHandler) SetCommunity(community string) {
 	m.ctrl.T.Helper()
@@ -235,18 +219,6 @@ func (m *MockHandler) SetCommunity(community string) {
 func (mr *MockHandlerMockRecorder) SetCommunity(community any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetCommunity", reflect.TypeOf((*MockHandler)(nil).SetCommunity), community)
-}
-
-// SetContextEngineID mocks base method.
-func (m *MockHandler) SetContextEngineID(contextEngineID string) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetContextEngineID", contextEngineID)
-}
-
-// SetContextEngineID indicates an expected call of SetContextEngineID.
-func (mr *MockHandlerMockRecorder) SetContextEngineID(contextEngineID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetContextEngineID", reflect.TypeOf((*MockHandler)(nil).SetContextEngineID), contextEngineID)
 }
 
 // SetContextName mocks base method.
@@ -321,18 +293,6 @@ func (mr *MockHandlerMockRecorder) SetSecurityLevel(securityLevel any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSecurityLevel", reflect.TypeOf((*MockHandler)(nil).SetSecurityLevel), securityLevel)
 }
 
-// SetSecurityParameters mocks base method.
-func (m *MockHandler) SetSecurityParameters(securityParameters gosnmp.SnmpV3SecurityParameters) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetSecurityParameters", securityParameters)
-}
-
-// SetSecurityParameters indicates an expected call of SetSecurityParameters.
-func (mr *MockHandlerMockRecorder) SetSecurityParameters(securityParameters any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSecurityParameters", reflect.TypeOf((*MockHandler)(nil).SetSecurityParameters), securityParameters)
-}
-
 // SetTarget mocks base method.
 func (m *MockHandler) SetTarget(target string) {
 	m.ctrl.T.Helper()
@@ -355,6 +315,18 @@ func (m *MockHandler) SetTimeout(timeout time.Duration) {
 func (mr *MockHandlerMockRecorder) SetTimeout(timeout any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetTimeout", reflect.TypeOf((*MockHandler)(nil).SetTimeout), timeout)
+}
+
+// SetUser mocks base method.
+func (m *MockHandler) SetUser(user gosnmp.User) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetUser", user)
+}
+
+// SetUser indicates an expected call of SetUser.
+func (mr *MockHandlerMockRecorder) SetUser(user any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUser", reflect.TypeOf((*MockHandler)(nil).SetUser), user)
 }
 
 // SetVersion mocks base method.
@@ -410,6 +382,20 @@ func (m *MockHandler) UnmarshalTrap(trap []byte, useResponseSecurityParameters b
 func (mr *MockHandlerMockRecorder) UnmarshalTrap(trap, useResponseSecurityParameters any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UnmarshalTrap", reflect.TypeOf((*MockHandler)(nil).UnmarshalTrap), trap, useResponseSecurityParameters)
+}
+
+// User mocks base method.
+func (m *MockHandler) User() gosnmp.User {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "User")
+	ret0, _ := ret[0].(gosnmp.User)
+	return ret0
+}
+
+// User indicates an expected call of User.
+func (mr *MockHandlerMockRecorder) User() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "User", reflect.TypeOf((*MockHandler)(nil).User))
 }
 
 // Version mocks base method.

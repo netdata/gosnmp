@@ -122,7 +122,7 @@ func TestPDU(t *testing.T) {
 				}
 			}
 
-			got, err := pkt.Encode()
+			got, err := pkt.Encode(nil)
 			if err != nil {
 				t.Fatal(err)
 			}
