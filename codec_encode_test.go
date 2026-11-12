@@ -74,7 +74,7 @@ func TestMarshalLongOctetStringFields(t *testing.T) {
 			if len(want.engineID) > maxDecodedEngineIDLen {
 				// Longer than the decoder takes: the fields as the encoder
 				// laid them out.
-				_, err = (&Client{}).DecodeMessage(msg)
+				_, err = mustClient(Config{}).DecodeMessage(msg)
 				require.ErrorIs(t, err, ErrASNParse)
 				m := splitV3Message(t, msg)
 				if got := (fields{engineID: string(m.usm[0]), userName: string(m.usm[3])}); got != want {
@@ -83,7 +83,7 @@ func TestMarshalLongOctetStringFields(t *testing.T) {
 				return
 			}
 
-			decoded, err := (&Client{}).DecodeMessage(msg)
+			decoded, err := mustClient(Config{}).DecodeMessage(msg)
 			if err != nil {
 				t.Fatalf("decoding the encoded message: %v\nmessage: %x", err, msg)
 			}
@@ -262,7 +262,7 @@ func TestEncodeReportableFlag(t *testing.T) {
 				continue // EncodeMessage has no SNMPv1 trap fields
 			}
 			t.Run(fmt.Sprintf("EncodeMessage/%v/%v", pdu, level), func(t *testing.T) {
-				x := &Client{Version: Version3, SecurityLevel: level, User: codecUser(levelAuth(level), NoPriv)}
+				x := mustClient(Config{Version: Version3, SecurityLevel: level, User: codecUser(levelAuth(level), NoPriv)})
 				seedEngine(codecEngineID, 7, 1234)(x) // EncodeMessage signs with the engine state's keys
 				msg, err := x.EncodeMessage(pdu, vars, 0, 0)
 				if err != nil {
@@ -286,19 +286,18 @@ func classFlags(level SecurityLevel, pdu PDUType) SecurityLevel {
 }
 
 // TestInvalidSecurityLevel checks that a security level other than the three
-// fails: the encoder's check (Message.Encode) and the client's (validate, as
-// Connect, EncodeMessage and DecodeMessage run it); privacy without
-// authentication has its own error in the encoder.
+// fails: the encoder's check (Message.Encode) and the client's (NewClient);
+// privacy without authentication has its own error in the encoder.
 func TestInvalidSecurityLevel(t *testing.T) {
-	const invalid = "validate: SecurityLevel must be populated with an appropriate security level"
+	const invalid = " is not NoAuthNoPriv, AuthNoPriv or AuthPriv"
 	tests := map[string]struct {
 		level            SecurityLevel
 		encodeErr, valid string
 	}{
-		"privacy without authentication": {level: AuthPriv &^ AuthNoPriv, encodeErr: "unable to marshal SNMPv3 msgFlags: privacy without authentication", valid: invalid},
-		"the reportableFlag's bit":       {level: reportableFlag, encodeErr: "unable to marshal SNMPv3 security level 4: not NoAuthNoPriv, AuthNoPriv or AuthPriv", valid: invalid},
-		"authNoPriv and another bit":     {level: AuthNoPriv | reportableFlag, encodeErr: "unable to marshal SNMPv3 security level 5: not NoAuthNoPriv, AuthNoPriv or AuthPriv", valid: invalid},
-		"authPriv and another bit":       {level: AuthPriv | 0x80, encodeErr: "unable to marshal SNMPv3 security level 131: not NoAuthNoPriv, AuthNoPriv or AuthPriv", valid: invalid},
+		"privacy without authentication": {level: AuthPriv &^ AuthNoPriv, encodeErr: "unable to marshal SNMPv3 msgFlags: privacy without authentication", valid: "Config.SecurityLevel SecurityLevel(2)" + invalid},
+		"the reportableFlag's bit":       {level: reportableFlag, encodeErr: "unable to marshal SNMPv3 security level 4: not NoAuthNoPriv, AuthNoPriv or AuthPriv", valid: "Config.SecurityLevel SecurityLevel(4)" + invalid},
+		"authNoPriv and another bit":     {level: AuthNoPriv | reportableFlag, encodeErr: "unable to marshal SNMPv3 security level 5: not NoAuthNoPriv, AuthNoPriv or AuthPriv", valid: "Config.SecurityLevel SecurityLevel(5)" + invalid},
+		"authPriv and another bit":       {level: AuthPriv | 0x80, encodeErr: "unable to marshal SNMPv3 security level 131: not NoAuthNoPriv, AuthNoPriv or AuthPriv", valid: "Config.SecurityLevel SecurityLevel(131)" + invalid},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -308,9 +307,9 @@ func TestInvalidSecurityLevel(t *testing.T) {
 				PDUType: GetRequest, MsgID: 1, RequestID: 1,
 			}).Encode(&user)
 			require.EqualError(t, err, tc.encodeErr)
-			x := &Client{Version: Version3, SecurityLevel: tc.level, User: user}
-			_, err = x.EncodeMessage(GetRequest, nil, 0, 0)
+			x, err := NewClient(Config{Version: Version3, SecurityLevel: tc.level, User: user})
 			require.EqualError(t, err, tc.valid)
+			require.Nil(t, x)
 		})
 	}
 }
@@ -680,8 +679,7 @@ func encodeCases(t *testing.T) []encodeCase {
 	// fixedIDs starts the client's ID counters at 0, so that its request ID
 	// and msgID are 1 (a client draws random ones otherwise).
 	fixedIDs := func(x *Client) *Client {
-		x.SetRequestID(0)
-		x.SetMsgID(0)
+		x.requestID, x.msgID = 0, 0
 		return x
 	}
 	marshal := func(p *Message) func() ([]byte, error) { return func() ([]byte, error) { return p.Encode(nil) } }
@@ -844,36 +842,36 @@ func encodeCases(t *testing.T) []encodeCase {
 
 		// EncodeMessage builds the message from the client's configuration.
 		{"encode-packet/v1/get-request", func() ([]byte, error) {
-			x := fixedIDs(&Client{Version: Version1, Community: "public"})
+			x := fixedIDs(mustClient(Config{Version: Version1, Community: "public"}))
 			return x.EncodeMessage(GetRequest, nullVar, 0, 0)
 		}},
 		{"encode-packet/v2c/getbulk-request", func() ([]byte, error) {
-			x := fixedIDs(&Client{Version: Version2c, Community: "public"})
+			x := fixedIDs(mustClient(Config{Version: Version2c, Community: "public"}))
 			return x.EncodeMessage(GetBulkRequest, nullVar, 1, 10)
 		}},
 		{"encode-packet/v2c/getbulk-request/max-repetitions-max-uint32", func() ([]byte, error) {
-			x := fixedIDs(&Client{Version: Version2c, Community: "public"})
+			x := fixedIDs(mustClient(Config{Version: Version2c, Community: "public"}))
 			return x.EncodeMessage(GetBulkRequest, nullVar, 0, math.MaxUint32)
 		}},
 		// An SNMPv3 one takes the engine state a request learned: the codec
 		// engine with boots 7 and time 1234.
 		{"encode-packet/v3/auth-no-priv/sha", func() ([]byte, error) {
-			x := fixedIDs(&Client{
+			x := fixedIDs(mustClient(Config{
 				Version:       Version3,
 				SecurityLevel: AuthNoPriv,
 				User:          codecUser(SHA, NoPriv),
 				ContextName:   "codec-context",
-			})
+			}))
 			seedEngine(codecEngineID, 7, 1234)(x)
 			return x.EncodeMessage(GetRequest, nullVar, 0, 0)
 		}},
 		{"encode-packet/v3/auth-priv/sha-aes", func() ([]byte, error) {
-			x := fixedIDs(&Client{
+			x := fixedIDs(mustClient(Config{
 				Version:       Version3,
 				SecurityLevel: AuthPriv,
 				User:          codecUser(SHA, AES),
 				ContextName:   "codec-context",
-			})
+			}))
 			seedEngine(codecEngineID, 7, 1234)(x)
 			return x.EncodeMessage(GetRequest, nullVar, 0, 0)
 		}},

@@ -8,24 +8,30 @@ import (
 	"time"
 )
 
-// newTestClient returns an unconnected SNMPv2c client.
-func newTestClient() *Client {
-	return &Client{
-		Port:      161,
+// testConfig returns the configuration of an SNMPv2c client.
+func testConfig() Config {
+	return Config{
 		Community: "public",
 		Version:   Version2c,
 		Timeout:   2 * time.Second,
 		Retries:   3,
-		MaxOids:   MaxOids,
 	}
 }
 
-// newTestClientV3 returns an unconnected SNMPv3 client of the User-based
-// Security Model with msgFlags and user.
-func newTestClientV3(msgFlags SecurityLevel, user User) *Client {
-	gs := newTestClient()
-	gs.Version = Version3
-	gs.SecurityLevel = msgFlags
-	gs.User = user
-	return gs
+// testConfigV3 returns the configuration of an SNMPv3 client with level and
+// user.
+func testConfigV3(level SecurityLevel, user User) Config {
+	c := testConfig()
+	c.Version, c.SecurityLevel, c.User = Version3, level, user
+	return c
+}
+
+// mustClient returns the client NewClient makes of config; it panics on an
+// error, a bug of the test.
+func mustClient(config Config) *Client {
+	x, err := NewClient(config)
+	if err != nil {
+		panic(err)
+	}
+	return x
 }

@@ -274,15 +274,17 @@ func (u *User) levelFloor() SecurityLevel {
 	return NoAuthNoPriv
 }
 
-// validate checks u for the security level: valid protocols, one of the three
-// levels, the protocols the level needs, a name of 1..32 octets, and a
-// passphrase for each protocol.
+// validate checks u for the security level, as NewClient checks a Config's
+// User and SecurityLevel: valid protocols, one of the three levels, the
+// protocols the level needs, a name of 1..32 octets, and a passphrase for each
+// protocol. Its errors name the field as a path from the Config, without
+// "Config.": User.Name, SecurityLevel.
 func (u *User) validate(level SecurityLevel) error {
 	if err := u.checkProtocols(); err != nil {
 		return err
 	}
 	if !level.valid() {
-		return errInvalidLevel
+		return fmt.Errorf("SecurityLevel %v is not NoAuthNoPriv, AuthNoPriv or AuthPriv", level)
 	}
 	if err := checkLevel(u.AuthProtocol, u.PrivProtocol, level); err != nil {
 		return err

@@ -18,15 +18,20 @@ import (
 )
 
 func TestAPIConfigTypes(_ *testing.T) {
-	g := &gosnmp.Client{}
-	g.Target = ""
-	g.Port = 0
-	g.Community = ""
-	g.Version = gosnmp.Version1
-	g.Version = gosnmp.Version2c
-	g.Timeout = time.Duration(0)
-	g.Retries = 0
-	g.MaxOids = 0
+	var f func(gosnmp.Config) (*gosnmp.Client, error) = gosnmp.NewClient
+	_ = f
+	_ = gosnmp.Config{
+		Target:        "",
+		Port:          0,
+		Version:       gosnmp.Version2c,
+		Community:     "",
+		Timeout:       time.Duration(0),
+		Retries:       0,
+		MaxOids:       0,
+		SecurityLevel: gosnmp.NoAuthNoPriv,
+		User:          gosnmp.User{},
+		ContextName:   "",
+	}
 }
 
 func TestAPIConnectMethodSignature(_ *testing.T) {

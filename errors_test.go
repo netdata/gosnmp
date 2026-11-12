@@ -94,7 +94,7 @@ func TestRejectionCategories(t *testing.T) {
 		return err
 	}
 	decode := func(data []byte) error {
-		_, err := (&Client{User: usmUser(SHA, "codec-auth-pass", AES, "codec-priv-pass")}).DecodeMessage(data)
+		_, err := mustClient(Config{User: usmUser(SHA, "codec-auth-pass", AES, "codec-priv-pass")}).DecodeMessage(data)
 		return err
 	}
 	// A PDU whose error status is missing.

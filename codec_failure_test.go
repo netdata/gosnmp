@@ -113,32 +113,10 @@ func TestDecodeFailureNoMessage(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			p, err := (&Client{}).DecodeMessage(tc.in)
+			p, err := mustClient(Config{}).DecodeMessage(tc.in)
 			if assert.Error(t, err) {
 				assert.Equal(t, tc.wantErr, err.Error())
 			}
-			assert.Nil(t, p)
-		})
-	}
-}
-
-// TestDecodeMessagePrepareFailure pins that DecodeMessage checks the client's
-// configuration as Connect does and returns no message with its error.
-func TestDecodeMessagePrepareFailure(t *testing.T) {
-	tests := map[string]struct {
-		x       *Client
-		wantErr string
-	}{
-		"negative MaxOids": {x: &Client{MaxOids: -1}, wantErr: "field MaxOids cannot be less than 0"},
-		"SNMPv3 user without a name": {
-			x:       &Client{Version: Version3, SecurityLevel: NoAuthNoPriv},
-			wantErr: "User.Name is required",
-		},
-	}
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			p, err := tc.x.DecodeMessage(craftedMsg(1, craftedPDU(Response, craftedVBL(craftedVB(intTLV(5))))))
-			assert.EqualError(t, err, tc.wantErr)
 			assert.Nil(t, p)
 		})
 	}
@@ -175,7 +153,7 @@ func TestDecodeUSMFields(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := (&Client{}).DecodeMessage(tc.in)
+			_, err := mustClient(Config{}).DecodeMessage(tc.in)
 			if tc.invalid {
 				assert.ErrorIs(t, err, ErrASNParse)
 			} else {
@@ -200,10 +178,10 @@ func TestUnknownPDUTypeError(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := (&Client{Version: Version2c}).DecodeMessage(craftedMsg(1, pdu(tc.tag)))
+			_, err := mustClient(Config{Version: Version2c}).DecodeMessage(craftedMsg(1, pdu(tc.tag)))
 			assert.EqualError(t, err, "unable to decode packet body: "+tc.want, "SNMPv2c")
 
-			v3 := &Client{Version: Version3, User: User{Name: "codec-user"}}
+			v3 := mustClient(Config{Version: Version3, User: User{Name: "codec-user"}})
 			_, err = v3.DecodeMessage(craftedV3NoAuth(tlv(0x30, craftedEngineID, octets("ctx"), pdu(tc.tag))))
 			assert.EqualError(t, err, "unable to decode packet body: "+tc.want, "SNMPv3")
 

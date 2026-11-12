@@ -36,8 +36,10 @@ const engineOID = ".1.3.6.1.2.1.1.1.0"
 
 // engineScenario is one v1/v2c request run against a scripted agent.
 type engineScenario struct {
-	v1    bool // SNMPv1 instead of SNMPv2c
-	setup func(x *Client, c *fakeTransport)
+	v1 bool // SNMPv1 instead of SNMPv2c
+	// config, when set, changes the client's configuration before NewClient.
+	config func(c *Config)
+	setup  func(x *Client, c *fakeTransport)
 	// context, when set, gives the request's context, background unless
 	// set; its cancel runs when the scenario ends.
 	context func() (context.Context, context.CancelFunc)
@@ -326,7 +328,7 @@ func engineScenarios() map[string]engineScenario {
 		}
 		return x.Get(ctx, []string{engineOID})
 	}
-	maxOIDs2 := func(x *Client, _ *fakeTransport) { x.MaxOids = 2 }
+	maxOIDs2 := func(c *Config) { c.MaxOids = 2 }
 	twoOIDs := []string{engineOID, ".1.3.6.1.2.1.1.3.0"}
 	threeOIDs := []string{engineOID, ".1.3.6.1.2.1.1.3.0", ".1.3.6.1.2.1.1.5.0"}
 
@@ -340,28 +342,19 @@ func engineScenarios() map[string]engineScenario {
 		"get/invalid-oid": {agent: answer(), run: getOIDs(".1.3.6.1.x")},
 
 		// The MaxOids limit, at 2.
-		"get/max-oids/at-limit":   {agent: answer(sysDescr), setup: maxOIDs2, run: getOIDs(twoOIDs...)},
-		"get/max-oids/over-limit": {agent: answer(sysDescr), setup: maxOIDs2, run: getOIDs(threeOIDs...)},
+		"get/max-oids/at-limit":   {agent: answer(sysDescr), config: maxOIDs2, run: getOIDs(twoOIDs...)},
+		"get/max-oids/over-limit": {agent: answer(sysDescr), config: maxOIDs2, run: getOIDs(threeOIDs...)},
 
 		// A client Connect never connected.
 		"get/no-conn": {agent: answer(sysDescr), setup: func(x *Client, _ *fakeTransport) { x.conn = nil }},
 
 		// Timeouts and retries.
-		"timeout":                  {},
-		"timeout/no-retries":       {setup: func(x *Client, _ *fakeTransport) { x.Retries = 0 }},
-		"timeout/negative-retries": {setup: func(x *Client, _ *fakeTransport) { x.Retries = -3 }},
-
-		// The Conn's code changes the client during a request: the request
-		// keeps the configuration it started with.
-		"user-code/sets-retries": {setup: func(x *Client, c *fakeTransport) {
-			c.afterWrite = func(n int) {
-				if n == 1 {
-					c.tr.addf("the Conn's write #1 sets Retries to 0")
-					x.Retries = 0
-				}
-			}
-		}},
-		"timeout/zero":          {agent: answer(sysDescr), setup: func(x *Client, _ *fakeTransport) { x.Timeout = 0 }},
+		"timeout":            {},
+		"timeout/no-retries": {config: func(c *Config) { c.Retries = 0 }},
+		// The configured Timeout bounds each attempt.
+		"timeout/configured": {config: func(c *Config) { c.Timeout = 3 * time.Second }},
+		// A zero Timeout means 1 s.
+		"timeout/zero":          {agent: answer(sysDescr), config: func(c *Config) { c.Timeout = 0 }},
 		"answer/second-attempt": {agent: answerFromSecond(sysDescr)},
 
 		// Reply matching.
@@ -508,7 +501,7 @@ func engineScenarios() map[string]engineScenario {
 		// A datagram that fills the receive buffer, which may have been cut
 		// short: the attempt fails, and the retry uses the same socket.
 		"answer/too-big-udp": {
-			setup: func(x *Client, _ *fakeTransport) { x.Retries = 1 },
+			config: func(c *Config) { c.Retries = 1 },
 			agent: func(_ int, req []byte) []agentReply {
 				return []agentReply{{data: replySized(req, rxBufSize)}}
 			},
@@ -569,7 +562,7 @@ func engineScenarios() map[string]engineScenario {
 		}},
 		"context/deadline-equal-to-timeout": {
 			context: withEngineTimeout(time.Second),
-			setup:   func(x *Client, _ *fakeTransport) { x.Retries = 0 },
+			config:  func(c *Config) { c.Retries = 0 },
 		},
 		"context/deadline-in-first-attempt":   {context: withEngineTimeout(700 * time.Millisecond)},
 		"context/deadline-in-third-attempt":   {context: withEngineTimeout(2500 * time.Millisecond)},
@@ -582,7 +575,7 @@ func engineScenarios() map[string]engineScenario {
 		"context/deadline-unreported-in-first-attempt": {context: withUnreportedDeadline(700 * time.Millisecond)},
 		"context/deadline-unreported-equal-to-timeout": {
 			context: withUnreportedDeadline(time.Second),
-			setup:   func(x *Client, _ *fakeTransport) { x.Retries = 0 },
+			config:  func(c *Config) { c.Retries = 0 },
 		},
 		// A context whose deadline passed ends the request after an attempt
 		// that failed otherwise, before the decision to retry.
@@ -694,11 +687,11 @@ func engineScenarios() map[string]engineScenario {
 		}},
 
 		// Request IDs.
-		"request-id/wraps": {agent: answer(sysDescr), setup: func(x *Client, _ *fakeTransport) { x.SetRequestID(0x7FFFFFFF) }},
+		"request-id/wraps": {agent: answer(sysDescr), setup: func(x *Client, _ *fakeTransport) { x.requestID = 0x7FFFFFFF }},
 		"request-id/wraps-between-attempts": {agent: answerFromSecond(sysDescr), setup: func(x *Client, _ *fakeTransport) {
-			x.SetRequestID(0x7FFFFFFE)
+			x.requestID = 0x7FFFFFFE
 		}},
-		"request-id/set": {agent: answer(sysDescr), setup: func(x *Client, _ *fakeTransport) { x.SetRequestID(5) }},
+		"request-id/set": {agent: answer(sysDescr), setup: func(x *Client, _ *fakeTransport) { x.requestID = 5 }},
 
 		// The Conn's code panics in a request, which ends.
 		"panics/write": {agent: answer(sysDescr), setup: func(_ *Client, c *fakeTransport) {
@@ -763,11 +756,14 @@ func TestEngineRequestCharacterization(t *testing.T) {
 func runEngineScenario(t *testing.T, sc engineScenario) string {
 	tr := newEngineTranscript(t)
 	c := newFakeTransport(tr, sc.agent)
-	version := Version2c
+	config := engineConfig(Version2c)
 	if sc.v1 {
-		version = Version1
+		config.Version = Version1
 	}
-	x := newEngineClient(t, version, c)
+	if sc.config != nil {
+		sc.config(&config)
+	}
+	x := newEngineClientFrom(t, c, config)
 	ctx := context.Background()
 	if sc.context != nil {
 		var cancel context.CancelFunc
@@ -782,17 +778,15 @@ func runEngineScenario(t *testing.T, sc engineScenario) string {
 		run = getOIDs(engineOID)
 	}
 
-	tr.addf("client: %v timeout=%s retries=%d", x.Version, x.Timeout, x.Retries)
+	tr.addf("client: %v timeout=%s retries=%d", x.config.Version, x.config.Timeout, x.config.Retries)
 	var res *Message
 	var err error
-	before := configOf(x)
 	if v, _ := recoverPanic(func() { res, err = run(ctx, x) }); v != nil {
 		tr.addf("panic: %v", v)
 	} else {
 		tr.addf("result: %s", describeEngineResult(res, err))
 	}
-	tr.addConfigChanges(before, x)
-	after := fmt.Sprintf("client after: retries=%d next request id=%d", x.Retries, (x.requestID.Load()+1)&0x7FFFFFFF)
+	after := fmt.Sprintf("client after: next request id=%d", (x.requestID+1)&0x7FFFFFFF)
 	tr.addf("%s", after)
 	// Let the scenario's own goroutines finish on the bubble's clock: when a
 	// regression ends the request before them, what they record afterwards
@@ -946,8 +940,9 @@ func TestRequestContextPanicCleanup(t *testing.T) {
 			for _, interrupt := range []string{"cancel", "close"} {
 				t.Run(stage+"/"+value.name+"/"+interrupt, func(t *testing.T) {
 					synctest.Test(t, func(t *testing.T) {
-						x := newEngineClient(t, Version2c, newFakeTransport(nil, nil))
-						x.Timeout, x.Retries = time.Hour, 0
+						config := engineConfig(Version2c)
+						config.Timeout, config.Retries = time.Hour, 0
+						x := newEngineClientFrom(t, newFakeTransport(nil, nil), config)
 						panicking := &panicInterruptContext{
 							Context: context.Background(), done: make(chan struct{}),
 							stage: stage, value: value.panic,
@@ -997,14 +992,14 @@ func TestEngineRequestTimeoutError(t *testing.T) {
 	require.NoError(t, err)
 	defer agent.Close()
 
-	x := &Client{
+	x := mustClient(Config{
 		Target:    "127.0.0.1",
 		Port:      uint16(agent.LocalAddr().(*net.UDPAddr).Port), //nolint:gosec // a UDP port
 		Community: "public",
 		Version:   Version2c,
 		Timeout:   50 * time.Millisecond,
 		Retries:   1,
-	}
+	})
 	require.NoError(t, x.Connect(context.Background()))
 	defer x.Close()
 
@@ -1030,11 +1025,11 @@ func BenchmarkSendOneRequest(b *testing.B) {
 	})
 	x := newEngineClient(b, Version2c, c)
 	pkt := x.NewMessage(GetRequest, []VarBind{{Name: oid, Value: NullValue()}}, 0, 0)
-	cfg := x.prepareRequest(context.Background())
+	ctx := context.Background()
 
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, _, err := x.sendOneRequest(&cfg, pkt, false, attemptSecurity{}); err != nil {
+		if _, _, err := x.sendOneRequest(ctx, pkt, false, attemptSecurity{}); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -1136,7 +1131,7 @@ func TestExchangeDecodeRequestID(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			e := &exchange{x: &Client{Version: Version2c}, packet: &Message{Version: Version2c, PDUType: GetRequest}}
+			e := &exchange{x: mustClient(Config{Version: Version2c}), packet: &Message{Version: Version2c, PDUType: GetRequest}}
 			reply, _, err := e.decode(tc.msg, nil)
 			require.Error(t, err)
 			if tc.want == nil {
@@ -1304,7 +1299,7 @@ func TestExchangeEndErrors(t *testing.T) {
 		"transport error after a discard": {
 			discarded: reason,
 			end: func(e *exchange) error {
-				e.cfg.ctx = context.Background()
+				e.ctx = context.Background()
 				return e.endErr(0, attemptOutcome{kind: attemptTransportError, err: errEngineWrite})
 			},
 			wantText: errEngineWrite.Error(), same: errEngineWrite, wantNotIs: []error{ErrNotInTimeWindow},
@@ -1340,7 +1335,7 @@ func TestExchangeEndErrors(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			e := exchange{x: &Client{}}
+			e := exchange{x: mustClient(Config{})}
 			if tc.discarded != nil {
 				e.discard(tc.discarded, rankAuthentic)
 			}
@@ -1443,8 +1438,9 @@ func TestCloseWinsOverAttemptOutcome(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			conn := newFakeTransport(nil, nil)
-			x := newEngineClient(t, Version2c, conn)
-			x.Retries = tc.retries
+			config := engineConfig(Version2c)
+			config.Retries = tc.retries
+			x := newEngineClientFrom(t, conn, config)
 			base, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ctx := base

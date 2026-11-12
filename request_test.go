@@ -15,10 +15,10 @@ import (
 )
 
 // TestWalkRequestChecks pins the checks a walk makes before its first
-// request, in their order, on a client without Connect (MaxOids zero unless
-// set): the root, then BulkWalkAll's max-repetitions against 2147483647, then
-// GetBulk on SNMPv1, then MaxOids against the one OID a request carries, then
-// a nil context.
+// request, in their order, on a client without Connect: the root, then
+// BulkWalkAll's max-repetitions against 2147483647, then GetBulk on SNMPv1,
+// then a nil context. MaxOids, at least 1, never refuses a walk's request,
+// which carries one OID.
 func TestWalkRequestChecks(t *testing.T) {
 	tests := map[string]struct {
 		version        Version
@@ -32,12 +32,7 @@ func TestWalkRequestChecks(t *testing.T) {
 		"root before SNMPv1": {
 			version: Version1, bulk: true, root: "1.3.6.x", wantErr: `unable to marshal OID "1.3.6.x": invalid object identifier`,
 		},
-		"SNMPv1 before MaxOids": {version: Version1, bulk: true, root: walkSystem, wantErr: "GETBULK not supported in SNMPv1"},
-		"MaxOids, GetNext":      {version: Version2c, root: walkSystem, wantErr: "oid count (1) is greater than MaxOids (0)"},
-		"MaxOids, GetBulk":      {version: Version2c, bulk: true, root: walkSystem, wantErr: "oid count (1) is greater than MaxOids (0)"},
-		"MaxOids before the context": {
-			version: Version2c, root: walkSystem, nilContext: true, wantErr: "oid count (1) is greater than MaxOids (0)",
-		},
+		"SNMPv1":               {version: Version1, bulk: true, root: walkSystem, wantErr: "GETBULK not supported in SNMPv1"},
 		"nil context, GetNext": {version: Version2c, root: walkSystem, maxOids: 1, nilContext: true, wantErr: "nil context"},
 		"nil context, GetBulk": {
 			version: Version2c, bulk: true, root: walkSystem, maxOids: 1, nilContext: true, wantErr: "nil context",
@@ -50,7 +45,7 @@ func TestWalkRequestChecks(t *testing.T) {
 			version: Version1, bulk: true, root: walkSystem, maxRepetitions: 1 << 31,
 			wantErr: "max-repetitions 2147483648 is more than 2147483647",
 		},
-		"max-repetitions before MaxOids": {
+		"max-repetitions": {
 			version: Version2c, bulk: true, root: walkSystem, maxRepetitions: 1 << 31,
 			wantErr: "max-repetitions 2147483648 is more than 2147483647",
 		},
@@ -65,7 +60,7 @@ func TestWalkRequestChecks(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			x := &Client{Version: tc.version, MaxOids: tc.maxOids}
+			x := mustClient(Config{Version: tc.version, MaxOids: tc.maxOids})
 			walk := x.WalkAll
 			if tc.bulk {
 				walk = func(ctx context.Context, rootOid string) ([]VarBind, error) {
@@ -84,9 +79,9 @@ func TestWalkRequestChecks(t *testing.T) {
 }
 
 // TestEncodeMessageErrors pins that EncodeMessage returns no message with each
-// of its errors: the client's configuration, the message's version, a varbind,
-// and the SNMPv3 keys an authenticated or private message needs before the
-// client knows the agent's engine (TestEncodeMessageEmptyKey).
+// of its errors: a varbind, and the SNMPv3 keys an authenticated or private
+// message needs before the client knows the agent's engine
+// (TestEncodeMessageEmptyKey).
 func TestEncodeMessageErrors(t *testing.T) {
 	authPriv := User{
 		Name:           "codec-user",
@@ -100,20 +95,13 @@ func TestEncodeMessageErrors(t *testing.T) {
 		pdus    []VarBind
 		wantErr string
 	}{
-		"invalid parameters": {
-			x: &Client{Version: Version2c, MaxOids: -1}, wantErr: "field MaxOids cannot be less than 0",
-		},
-		"unknown version": {
-			x:       &Client{Version: Version(7)},
-			wantErr: "unable to marshal SNMP version 7: not 1, 2c or 3",
-		},
 		"unencodable varbind": {
-			x:       &Client{Version: Version2c, Community: "public"},
+			x:       mustClient(Config{Version: Version2c, Community: "public"}),
 			pdus:    []VarBind{{Name: "not an oid", Value: NullValue()}},
 			wantErr: "invalid object identifier",
 		},
 		"private before the engine is known": {
-			x:       &Client{Version: Version3, SecurityLevel: AuthPriv, User: authPriv},
+			x:       mustClient(Config{Version: Version3, SecurityLevel: AuthPriv, User: authPriv}),
 			pdus:    []VarBind{{Name: engineOID, Value: NullValue()}},
 			wantErr: "usm: encrypting: no privacy key, want 16 octets",
 		},
@@ -132,11 +120,11 @@ func TestEncodeMessageErrors(t *testing.T) {
 // engine state has no engine ID to derive a key for, and the signer refuses
 // the empty key with the rule's error and no message.
 func TestEncodeMessageEmptyKey(t *testing.T) {
-	x := &Client{
+	x := mustClient(Config{
 		Version:       Version3,
 		SecurityLevel: AuthNoPriv,
 		User:          User{Name: "codec-user", AuthProtocol: SHA, AuthPassphrase: "codec-auth-pass"},
-	}
+	})
 	out, err := x.EncodeMessage(GetRequest, []VarBind{{Name: engineOID, Value: NullValue()}}, 0, 0)
 	require.EqualError(t, err, "usm: no authentication key, want 20 octets")
 	assert.Nil(t, out)
@@ -144,18 +132,17 @@ func TestEncodeMessageEmptyKey(t *testing.T) {
 }
 
 // TestRequestAndMsgIDs pins, through the encoded messages, the request ID and
-// msgID counters: each starts at a random value on first use unless
-// SetRequestID or SetMsgID set it, counts up and wraps to 0 after 2147483647,
-// and Connect leaves both as they are.
+// msgID counters: each starts at a random value NewClient draws, counts up and
+// wraps to 0 after 2147483647, and Connect leaves both as they are.
 func TestRequestAndMsgIDs(t *testing.T) {
 	newClient := func() *Client {
-		return &Client{
+		return mustClient(Config{
 			Target:        "127.0.0.1",
 			Port:          unusedUDPPort(t),
 			Version:       Version3,
 			SecurityLevel: NoAuthNoPriv,
 			User:          User{Name: "codec-user"},
-		}
+		})
 	}
 	ids := func(x *Client) [2]uint32 {
 		t.Helper()
@@ -181,19 +168,17 @@ func TestRequestAndMsgIDs(t *testing.T) {
 		connect(x)
 		assert.Equal(t, next(next(first)), ids(x), "a second Connect resets nothing")
 	})
-	t.Run("set counters survive Connect", func(t *testing.T) {
+	t.Run("counters survive Connect and wrap", func(t *testing.T) {
 		x := newClient()
-		x.SetRequestID(5)
-		x.SetMsgID(70)
+		x.requestID, x.msgID = 5, 70
 		connect(x)
 		assert.Equal(t, [2]uint32{6, 71}, ids(x))
-		x.SetRequestID(0x7FFFFFFF)
-		x.SetMsgID(0x7FFFFFFF)
+		x.requestID, x.msgID = 0x7FFFFFFF, 0x7FFFFFFF
 		assert.Equal(t, [2]uint32{0, 0}, ids(x), "wrap")
 	})
 	t.Run("random start without Connect", func(t *testing.T) {
-		// An unseeded counter would start at 1 (a 2^-31 chance of a false
-		// failure for each).
+		// A counter NewClient did not seed would start at 1 (a 2^-31 chance
+		// of a false failure for each).
 		id := ids(newClient())
 		assert.NotEqual(t, uint32(1), id[0], "request ID")
 		assert.NotEqual(t, uint32(1), id[1], "msgID")

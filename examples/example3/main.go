@@ -14,7 +14,7 @@ import (
 )
 
 func main() {
-	params := &g.Client{
+	params, err := g.NewClient(g.Config{
 		Target:        "192.168.91.20",
 		Port:          161,
 		Version:       g.Version3,
@@ -27,9 +27,12 @@ func main() {
 			PrivProtocol:   g.DES,
 			PrivPassphrase: "password",
 		},
+	})
+	if err != nil {
+		log.Fatalf("NewClient() err: %v", err)
 	}
 	ctx := context.Background()
-	err := params.Connect(ctx)
+	err = params.Connect(ctx)
 	if err != nil {
 		log.Fatalf("Connect() err: %v", err)
 	}

@@ -1508,30 +1508,30 @@ func TestSendOneRequest_dups(t *testing.T) {
 	}
 	defer srvr.Close()
 
-	x := &Client{
+	x := mustClient(Config{
 		Version: Version2c,
 		Target:  srvr.LocalAddr().(*net.UDPAddr).IP.String(),
 		Port:    uint16(srvr.LocalAddr().(*net.UDPAddr).Port),
 		Timeout: time.Millisecond * 100,
 		Retries: 2,
-	}
+	})
 	if err = x.Connect(context.Background()); err != nil {
 		t.Fatalf("error connecting: %s", err)
 	}
 
-	go serveResponses(t, srvr, x, sendCopies(srvr, x.Retries+2))
+	go serveResponses(t, srvr, x, sendCopies(srvr, x.config.Retries+2))
 
 	pdus := []VarBind{{Name: ".1.2", Value: NullValue()}}
 	// This is not actually a Response, but we need something our test server can unmarshal.
 	reqPkt := x.NewMessage(Response, pdus, 0, 0)
 
-	_, _, err = x.sendOneRequest(new(x.prepareRequest(context.Background())), reqPkt, false, attemptSecurity{})
+	_, _, err = x.sendOneRequest(context.Background(), reqPkt, false, attemptSecurity{})
 	if err != nil {
 		t.Errorf("error: %s", err)
 		return
 	}
 
-	_, _, err = x.sendOneRequest(new(x.prepareRequest(context.Background())), reqPkt, false, attemptSecurity{})
+	_, _, err = x.sendOneRequest(context.Background(), reqPkt, false, attemptSecurity{})
 	if err != nil {
 		t.Errorf("error: %s", err)
 		return

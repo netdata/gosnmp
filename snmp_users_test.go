@@ -109,7 +109,8 @@ func TestSnmpUsers(t *testing.T) {
 		names[u.name] = true
 		assert.Equal(t, u.auth > NoAuth, u.authPass != "", "user %q: authentication passphrase", u.name)
 		assert.Equal(t, u.priv > NoPriv, u.privPass != "", "user %q: privacy passphrase", u.name)
-		assert.NoError(t, newTestClientV3(u.msgFlags(), u.securityParameters()).prepare(), "user %q", u.name)
+		_, err := NewClient(testConfigV3(u.msgFlags(), u.securityParameters()))
+		assert.NoError(t, err, "user %q", u.name)
 	}
 	assert.Equal(t, want, got)
 }

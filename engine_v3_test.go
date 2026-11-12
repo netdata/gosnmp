@@ -32,8 +32,10 @@ var agentCreds = map[string]agentUser{
 
 // v3Scenario is one SNMPv3 request run against the fake agent.
 type v3Scenario struct {
-	user   string     // the client's user, with agentCreds credentials unless creds is set
-	creds  *agentUser // the client's credentials
+	user  string     // the client's user, with agentCreds credentials unless creds is set
+	creds *agentUser // the client's credentials
+	// config, when set, changes the client's configuration before NewClient.
+	config func(c *Config)
 	setup  func(x *Client)
 	script func(n int, req agentRequest) (agentAnswer, bool)
 	run    func(x *Client, a *fakeV3Agent) (*Message, error) // a Get of engineOID unless set
@@ -137,7 +139,7 @@ func encodeThenGet(what string, change func(x *Client)) func(x *Client, a *fakeV
 func encodeMessage(x *Client, a *fakeV3Agent) {
 	out, err := x.EncodeMessage(GetRequest, []VarBind{{Name: engineOID, Value: NullValue()}}, 0, 0)
 	if err != nil {
-		a.tr.addf("EncodeMessage: error %v; client %s", err, describeEngineState(&x.engine))
+		a.tr.addf("EncodeMessage: error %v; client %s", err, describeEngineState(x))
 		return
 	}
 	m, err := parseV3Message(out)
@@ -158,7 +160,7 @@ func encodeMessage(x *Client, a *fakeV3Agent) {
 		}
 		digest = map[bool]string{true: "digest checks", false: "digest wrong"}[ok]
 	}
-	a.tr.addf("EncodeMessage: %s, %s; client %s", describeAgentRequest(req), digest, describeEngineState(&x.engine))
+	a.tr.addf("EncodeMessage: %s, %s; client %s", describeAgentRequest(req), digest, describeEngineState(x))
 }
 
 // afterReadThenGet runs a Get after whose read n the fake connection runs
@@ -176,7 +178,7 @@ func afterReadThenGet(n int, what string, change func(x *Client)) func(x *Client
 }
 
 // afterRead makes x's fake connection run change after its read n, which the
-// transcript names as what: code that changes the client during a request.
+// transcript names as what: code that acts on the client during a request.
 func afterRead(x *Client, a *fakeV3Agent, n int, what string, change func(x *Client)) {
 	c := transportOf(a.tr.tb, x)
 	c.afterRead = func(k int) {
@@ -184,22 +186,6 @@ func afterRead(x *Client, a *fakeV3Agent, n int, what string, change func(x *Cli
 			a.tr.addf("the Conn's read #%d %s", k, what)
 			change(x)
 		}
-	}
-}
-
-// onFirstWrite runs a Get after whose first write, the engine discovery's, the
-// fake connection runs change: code that changes the client during a request,
-// before the discovery's answer commits the engine state.
-func onFirstWrite(what string, change func(x *Client)) func(x *Client, a *fakeV3Agent) (*Message, error) {
-	return func(x *Client, a *fakeV3Agent) (*Message, error) {
-		c := transportOf(a.tr.tb, x)
-		c.afterWrite = func(n int) {
-			if n == 1 {
-				a.tr.addf("the Conn's write #1 %s", what)
-				change(x)
-			}
-		}
-		return x.Get(context.Background(), []string{engineOID})
 	}
 }
 
@@ -213,10 +199,8 @@ func agentUserOf(name string) User {
 // from a Report): the scenarios that start with the engine known.
 func seedEngine(engineID string, boots, engineTime uint32) func(*Client) {
 	return func(x *Client) {
-		if err := x.startEngine(); err != nil {
-			panic(err)
-		}
-		next, err := x.engine.withEngine([]byte(engineID))
+		x.startEngine()
+		next, err := x.engine.withEngine(&x.config.User, []byte(engineID))
 		if err != nil {
 			panic(err)
 		}
@@ -247,25 +231,6 @@ func getThrice(between func(a *fakeV3Agent)) func(x *Client, a *fakeV3Agent) (*M
 		a.tr.addf("second Get: %s", describeEngineResult(res, err))
 		time.Sleep(10 * time.Second)
 		return x.Get(context.Background(), []string{engineOID})
-	}
-}
-
-// getsAt runs one Get per level, 10 s apart, the client's SecurityLevel set to the
-// level before each: a client whose requests change level. It records each
-// Get's result but the last, which it returns.
-func getsAt(levels ...SecurityLevel) func(x *Client, a *fakeV3Agent) (*Message, error) {
-	return func(x *Client, a *fakeV3Agent) (*Message, error) {
-		var res *Message
-		var err error
-		for i, level := range levels {
-			if i > 0 {
-				a.tr.addf("Get %d: %s", i, describeEngineResult(res, err))
-				time.Sleep(10 * time.Second)
-			}
-			x.SecurityLevel = level
-			res, err = x.Get(context.Background(), []string{engineOID})
-		}
-		return res, err
 	}
 }
 
@@ -534,8 +499,8 @@ func v3Scenarios() map[string]v3Scenario {
 		"discovery/unknown-user-names-report": {user: "codec-md5", script: onRequest(1, agentAnswer{
 			report: usmStatsUnknownUserNames, why: "answers discovery like some devices",
 		})},
-		"discovery/context-name": {user: "codec-md5", setup: func(x *Client) {
-			x.ContextName = "codec-vrf"
+		"discovery/context-name": {user: "codec-md5", config: func(c *Config) {
+			c.ContextName = "codec-vrf"
 		}},
 		"discovery/other-security-model": {
 			user: "codec-md5", script: onRequest(1, agentAnswer{
@@ -709,22 +674,6 @@ func v3Scenarios() map[string]v3Scenario {
 			}
 			return agentAnswer{}, false
 		}},
-		"unauthenticated-report/security-level-changed-during-request": {
-			user:   "codec-md5",
-			script: onRequest(2, agentAnswer{report: usmStatsNotInTimeWindows, why: "not in time window, unauthenticated"}),
-			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				afterRead(x, a, 2, "sets the client's security level to noAuthNoPriv", func(x *Client) { x.SecurityLevel = NoAuthNoPriv })
-				return x.Get(context.Background(), []string{engineOID})
-			},
-		},
-		"unauthenticated-report/version-changed-during-request": {
-			user:   "codec-md5",
-			script: onRequest(2, agentAnswer{report: usmStatsNotInTimeWindows, why: "not in time window, unauthenticated"}),
-			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				afterRead(x, a, 2, "sets the client's version to 2c", func(x *Client) { x.Version = Version2c })
-				return x.Get(context.Background(), []string{engineOID})
-			},
-		},
 		// A Report another agent with the same credentials sent, for another
 		// message or with the request's msgID, followed by two Gets.
 		"answer/other-agent-report/other-message": {user: "codec-md5", run: getThrice(nil), script: onRequest(2, agentAnswer{
@@ -763,7 +712,7 @@ func v3Scenarios() map[string]v3Scenario {
 		// A client with authentication keys that sends at noAuthNoPriv does
 		// not check the digest of an authNoPriv answer.
 		"report-later/noauth-request-authenticated-report": {
-			user: "codec-md5", setup: func(x *Client) { x.SecurityLevel = NoAuthNoPriv },
+			user: "codec-md5", config: func(c *Config) { c.SecurityLevel = NoAuthNoPriv },
 			run: getTwice(nil), script: onRequest(3, agentAnswer{
 				report: usmStatsUnknownUserNames, level: AuthNoPriv, why: "authNoPriv Report from another engine ID 10 s later",
 				edit: fromOtherEngine,
@@ -787,16 +736,6 @@ func v3Scenarios() map[string]v3Scenario {
 				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
 			}),
 		},
-		// A protocol without a passphrase has no key, which Connect rejects;
-		// a user changed after Connect fails the request at its start, before
-		// discovery and without traffic, the engine state empty.
-		"empty-passphrase/auth-protocol-without-passphrase": {
-			user: "codec-md5", run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				a.tr.addf("caller clears the authentication passphrase")
-				x.User.AuthPassphrase = ""
-				return x.Get(context.Background(), []string{engineOID})
-			},
-		},
 		"discovery/report-without-engine-id/sha256-des": {
 			user: "codec-sha256-des", script: onRequest(1, agentAnswer{
 				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
@@ -813,75 +752,6 @@ func v3Scenarios() map[string]v3Scenario {
 			user: "codec-noauth", script: onRequest(1, agentAnswer{
 				report: usmStatsUnknownEngineIDs, why: "discovery Report without an engine ID", edit: withoutEngineID,
 			}),
-		},
-
-		// The Conn's code changes the client in the discovery's write, the
-		// first one of a request: the request keeps the values its packet
-		// took at its start.
-		"user-code/discovery-write-changes-version": {
-			user: "codec-md5",
-			run:  onFirstWrite("sets the client's version to 2c", func(x *Client) { x.Version = Version2c }),
-		},
-		"user-code/discovery-write-changes-security-level": {
-			user: "codec-md5",
-			run:  onFirstWrite("sets the client's security level to noAuthNoPriv", func(x *Client) { x.SecurityLevel = NoAuthNoPriv }),
-		},
-		// The Conn's code changes the client as it reads the discovery's
-		// answer: the request keeps its retries and timeout.
-		"user-code/discovery-answer-changes-client": {
-			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
-				return agentAnswer{drop: true, why: "no answer"}, n == 2 || n == 3
-			},
-			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				afterRead(x, a, 1, "sets Retries to 0 and Timeout to 5s", func(x *Client) { x.Retries, x.Timeout = 0, 5*time.Second })
-				return x.Get(context.Background(), []string{engineOID})
-			},
-		},
-		// The Conn's code changes the client as it reads the resync Report,
-		// before the resend.
-		"user-code/resync-report-changes-client": {
-			user: "codec-md5", script: func(n int, _ agentRequest) (agentAnswer, bool) {
-				switch n {
-				case 2:
-					return agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "not in time window"}, true
-				case 3:
-					return agentAnswer{drop: true, why: "no answer"}, true
-				}
-				return agentAnswer{}, false
-			},
-			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				afterRead(x, a, 2, "sets Retries to 0", func(x *Client) { x.Retries = 0 })
-				return x.Get(context.Background(), []string{engineOID})
-			},
-		},
-		"user-code/discovery-write-changes-context-name": {
-			user: "codec-md5",
-			run:  onFirstWrite("sets the client's context name", func(x *Client) { x.ContextName = "codec-other-name" }),
-		},
-		// The request stays SNMPv3 when the Conn's code changes the client's
-		// version as it reads the discovery's answer, before the request.
-		"user-code/discovery-answer-changes-version": {
-			user: "codec-md5",
-			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				afterRead(x, a, 1, "sets the client's version to 2c", func(x *Client) { x.Version = Version2c })
-				return x.Get(context.Background(), []string{engineOID})
-			},
-		},
-		"user-code/read-lowers-security-level": {
-			user: "codec-md5", script: onRequest(2, agentAnswer{
-				report: usmStatsUnknownUserNames, level: AuthNoPriv, why: "Report signed with another key", edit: forgeReport,
-			}),
-			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				afterRead(x, a, 2, "sets the client's security level to noAuthNoPriv", func(x *Client) { x.SecurityLevel = NoAuthNoPriv })
-				return x.Get(context.Background(), []string{engineOID})
-			},
-		},
-		"user-code/answer-changes-version": {
-			user: "codec-md5",
-			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				afterRead(x, a, 2, "sets the client's version to 2c", func(x *Client) { x.Version = Version2c })
-				return x.Get(context.Background(), []string{engineOID})
-			},
 		},
 
 		// A panic after the discovery's commit, as the request's first attempt
@@ -913,22 +783,6 @@ func v3Scenarios() map[string]v3Scenario {
 					}
 					return nil
 				}
-				return x.Get(context.Background(), []string{engineOID})
-			},
-		},
-		"resync/security-level-changed-during-request": {
-			user:   "codec-md5",
-			script: onRequest(2, agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "not in time window"}),
-			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				afterRead(x, a, 2, "sets the client's security level to noAuthNoPriv", func(x *Client) { x.SecurityLevel = NoAuthNoPriv })
-				return x.Get(context.Background(), []string{engineOID})
-			},
-		},
-		"resync/version-changed-during-request": {
-			user:   "codec-md5",
-			script: onRequest(2, agentAnswer{report: usmStatsNotInTimeWindows, level: AuthNoPriv, why: "not in time window"}),
-			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				afterRead(x, a, 2, "sets the client's version to 2c", func(x *Client) { x.Version = Version2c })
 				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
@@ -1013,9 +867,9 @@ func v3Scenarios() map[string]v3Scenario {
 				if err != nil {
 					return nil, fmt.Errorf("second Get: %w", err)
 				}
-				a.tr.addf("caller clears the second result's engine ID; client %s", describeEngineState(&x.engine))
+				a.tr.addf("caller clears the second result's engine ID; client %s", describeEngineState(x))
 				clear(res.SecurityParameters.AuthoritativeEngineID)
-				a.tr.addf("client %s", describeEngineState(&x.engine))
+				a.tr.addf("client %s", describeEngineState(x))
 				time.Sleep(10 * time.Second)
 				return x.Get(context.Background(), []string{engineOID})
 			},
@@ -1077,20 +931,10 @@ func v3Scenarios() map[string]v3Scenario {
 				return x.Get(context.Background(), []string{engineOID})
 			},
 		},
-		// Another user keeps the engine ID and clock, and its keys derive for
-		// the engine ID.
-		"caller/other-user": {user: "codec-md5", run: changeThenGet(
-			"sets another user", func(x *Client) { x.User = agentUserOf("codec-sha-aes") })},
-		"caller/changed-passphrase": {
-			user: "codec-md5", run: changeThenGet(
-				"changes the authentication passphrase", func(x *Client) {
-					x.User.AuthPassphrase = "codec-other-pass"
-				}),
-		},
 		// EncodeMessage takes the engine state as a request starts it: the
 		// engine ID, the keys localized to it and the latest boots and time
-		// received, not advanced; a ForgetEngine or another User since the
-		// last request applies to it as to a request.
+		// received, not advanced; a ForgetEngine since the last request
+		// applies to it as to a request.
 		"caller/encode-after-get/known-engine": {
 			user: "codec-md5", setup: seedEngine(agentEngineID, 0, 0),
 			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
@@ -1104,31 +948,11 @@ func v3Scenarios() map[string]v3Scenario {
 			"calls ForgetEngine", func(x *Client) { x.ForgetEngine() })},
 		"caller/encode-after-forget-engine/noauth": {user: "codec-noauth", run: encodeThenGet(
 			"calls ForgetEngine", func(x *Client) { x.ForgetEngine() })},
-		"caller/encode-after-other-user": {user: "codec-md5", run: encodeThenGet(
-			"sets another user", func(x *Client) { x.User = agentUserOf("codec-sha-aes") })},
 
-		// The Conn's code forgets the engine or changes the user during a
-		// request: the change applies from the next request.
+		// The fake connection's code forgets the engine during a request,
+		// which keeps its state: the next request discovers the engine again.
 		"user-code/discovery-answer-forgets-engine": {
 			user: "codec-md5", run: afterReadThenGet(1, "calls ForgetEngine", func(x *Client) { x.ForgetEngine() }),
-		},
-		// A user the Conn's code sets during the discovery serves from the
-		// next request: the discovery's commit derives the keys of the user
-		// the request started with.
-		"user-code/discovery-write-changes-user": {
-			user: "codec-md5", run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				res, err := onFirstWrite("sets another user", func(x *Client) {
-					x.User = agentUserOf("codec-sha-aes")
-				})(x, a)
-				a.tr.addf("first Get: %s", describeEngineResult(res, err))
-				time.Sleep(10 * time.Second)
-				return x.Get(context.Background(), []string{engineOID})
-			},
-		},
-		"user-code/request-answer-changes-user": {
-			user: "codec-md5", run: afterReadThenGet(2, "sets another user", func(x *Client) {
-				x.User = agentUserOf("codec-sha-aes")
-			}),
 		},
 
 		// A Response to a request without authentication naming another
@@ -1150,7 +974,7 @@ func v3Scenarios() map[string]v3Scenario {
 		// it, and answers nothing, at another level than the request's: the
 		// resend times out with that reason.
 		"noauth/lent-engine-authenticated-answer": {
-			user: "codec-md5", setup: func(x *Client) { x.SecurityLevel = NoAuthNoPriv },
+			user: "codec-md5", config: func(c *Config) { c.SecurityLevel = NoAuthNoPriv },
 			script: func(n int, _ agentRequest) (agentAnswer, bool) {
 				switch {
 				case n == 2:
@@ -1225,25 +1049,11 @@ func v3Scenarios() map[string]v3Scenario {
 				edit: func(p *agentOut) { p.SecurityParameters.AuthoritativeEngineBoots = maxEngineValue },
 			}),
 		},
-		// A client whose parameters have an authentication protocol and whose
-		// requests change level: authenticated answers set the clock its
-		// requests without authentication carry.
-		"clock/noauth/verified-old-time": {
-			user: "codec-md5", run: getsAt(AuthNoPriv, AuthNoPriv, NoAuthNoPriv), script: onRequest(3, agentAnswer{
-				level: AuthNoPriv, why: "authNoPriv answer with an engine time 200 s old",
-				edit: func(p *agentOut) { p.SecurityParameters.AuthoritativeEngineTime -= 200 },
-			}),
-		},
-		"clock/noauth/authenticated-then-unauthenticated": {
-			user: "codec-md5", run: getsAt(AuthNoPriv, NoAuthNoPriv, NoAuthNoPriv), script: onRequest(3, agentAnswer{
-				why:  "noAuthNoPriv answer with an engine time 500 s ahead",
-				edit: func(p *agentOut) { p.SecurityParameters.AuthoritativeEngineTime += 500 },
-			}),
-		},
 		// Discovery's unauthenticated time is no notion step 7 checks the
-		// first authenticated answer against.
-		"clock/noauth/verified-after-discovery-time-ahead": {
-			user: "codec-md5", run: getsAt(AuthNoPriv, NoAuthNoPriv),
+		// first authenticated answer against, which sets the clock the next
+		// request carries.
+		"clock/verified-after-discovery-time-ahead": {
+			user: "codec-md5", run: getTwice(nil),
 			script: func(n int, _ agentRequest) (agentAnswer, bool) {
 				switch n {
 				case 1:
@@ -1417,19 +1227,6 @@ func v3Scenarios() map[string]v3Scenario {
 		"answer/other-version/sha-aes": {
 			user: "codec-sha-aes", script: onRequest(2, agentAnswer{level: AuthPriv, why: "SNMPv2c Response", edit: asV2c}),
 		},
-		"user-code/privacy-protocol-changed-in-request-write": {
-			user: "codec-sha-aes", script: onRequest(2, agentAnswer{drop: true, why: "no answer"}),
-			setup: func(x *Client) { x.Retries = 1 },
-			run: func(x *Client, a *fakeV3Agent) (*Message, error) {
-				transportOf(a.tr.tb, x).afterWrite = func(n int) {
-					if n == 2 {
-						a.tr.addf("the Conn's write #2 sets the client's privacy protocol to DES")
-						x.User.PrivProtocol = DES
-					}
-				}
-				return x.Get(context.Background(), []string{engineOID})
-			},
-		},
 		"answer/other-security-model": {
 			user: "codec-noauth", script: onRequest(2, agentAnswer{
 				why: "Response with security model 2", raw: securityModel2,
@@ -1601,7 +1398,7 @@ func v3Scenarios() map[string]v3Scenario {
 			level: AuthNoPriv, why: "Response without encryption", then: true,
 		})},
 		"discard/authenticated-to-noauth-then-answer": {
-			user: "codec-md5", setup: func(x *Client) { x.SecurityLevel = NoAuthNoPriv },
+			user: "codec-md5", config: func(c *Config) { c.SecurityLevel = NoAuthNoPriv },
 			script: onRequest(2, agentAnswer{level: AuthNoPriv, why: "authNoPriv Response", then: true}),
 		},
 		"discard/other-engine-then-answer": {user: "codec-noauth", script: onRequest(2, agentAnswer{
@@ -1812,7 +1609,7 @@ func runV3Polls(t *testing.T, setup func(a *fakeV3Agent)) string {
 		return replies
 	})
 	creds := agentCreds["codec-md5"]
-	x := newEngineClientFrom(t, c, &Client{
+	x := newEngineClientFrom(t, c, Config{
 		Version:       Version3,
 		SecurityLevel: AuthNoPriv,
 		User:          creds.user("codec-md5"),
@@ -1878,17 +1675,20 @@ func runV3Scenario(t *testing.T, sc v3Scenario) string {
 	case creds.auth > NoAuth:
 		flags = AuthNoPriv
 	}
-	x := &Client{
+	config := Config{
 		Version:       Version3,
 		SecurityLevel: flags,
 		User:          creds.user(sc.user),
 		Timeout:       time.Second,
 		Retries:       2,
 	}
+	if sc.config != nil {
+		sc.config(&config)
+	}
+	x := newEngineClientFrom(t, c, config)
 	if sc.setup != nil {
 		sc.setup(x)
 	}
-	x = newEngineClientFrom(t, c, x)
 	run := sc.run
 	if run == nil {
 		run = func(x *Client, _ *fakeV3Agent) (*Message, error) {
@@ -1896,38 +1696,37 @@ func runV3Scenario(t *testing.T, sc v3Scenario) string {
 		}
 	}
 
-	tr.addf("client: user=%q %s timeout=%s retries=%d", sc.user, describeFlags(x.SecurityLevel), x.Timeout, x.Retries)
+	tr.addf("client: user=%q %s timeout=%s retries=%d", sc.user, describeFlags(x.config.SecurityLevel), x.config.Timeout, x.config.Retries)
 	var res *Message
 	var err error
-	before := configOf(x)
 	if v, _ := recoverPanic(func() { res, err = run(x, agent) }); v != nil {
 		tr.addf("panic: %v", v)
 	} else {
 		tr.addf("result: %s", describeEngineResult(res, err))
 	}
-	tr.addConfigChanges(before, x)
-	tr.addf("client after: %s", describeEngineState(&x.engine))
+	tr.addf("client after: %s", describeEngineState(x))
 	return tr.text()
 }
 
 // describeEngineState describes the client's engine state: its engine ID,
 // the latest engine boots and time it received, the engine ID its keys are
 // localized to and the context engine ID of its requests.
-func describeEngineState(s *engineState) string {
+func describeEngineState(x *Client) string {
+	s := &x.engine
 	return fmt.Sprintf("engine=%q boots=%d time=%d keys=%s context engine=%q", s.engineID, s.clock.boots,
-		s.clock.latest, describeKeys(s), s.contextEngineID())
+		s.clock.latest, describeKeys(s, &x.config.User), s.contextEngineID())
 }
 
-// describeKeys names the engine ID the keys of s are localized to: "current"
-// for its own, "none" without keys.
-func describeKeys(s *engineState) string {
+// describeKeys names the engine ID the keys of s, user's, are localized to:
+// "current" for its own, "none" without keys.
+func describeKeys(s *engineState, user *User) string {
 	if len(s.keys.auth) == 0 && len(s.keys.priv) == 0 {
 		return "none"
 	}
 	for _, id := range []string{string(s.engineID), agentEngineID, agentOtherEngineID} {
 		var want usmKeys
 		var err error
-		fips140.WithoutEnforcement(func() { want, err = s.user.localize([]byte(id)) })
+		fips140.WithoutEnforcement(func() { want, err = user.localize([]byte(id)) })
 		if err != nil || !bytes.Equal(want.auth, s.keys.auth) || !bytes.Equal(want.priv, s.keys.priv) {
 			continue
 		}
@@ -1946,7 +1745,7 @@ func BenchmarkGetV3(b *testing.B) {
 	agent := newFakeV3Agent(nil, agentCreds, sysDescr)
 	c := newFakeTransport(nil, agent.handle)
 	creds := agentCreds["codec-md5"]
-	x := newEngineClientFrom(b, c, &Client{
+	x := newEngineClientFrom(b, c, Config{
 		Version:       Version3,
 		SecurityLevel: AuthNoPriv,
 		User:          creds.user("codec-md5"),

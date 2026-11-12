@@ -29,7 +29,7 @@ func BenchmarkDecode(b *testing.B) {
 	for _, in := range inputs {
 		b.Run(in.name, func(b *testing.B) {
 			data := in.in()
-			x := &Client{}
+			x := mustClient(Config{})
 			b.ReportAllocs()
 			for b.Loop() {
 				if _, err := x.DecodeMessage(data); err != nil {
@@ -47,7 +47,7 @@ func BenchmarkEncode(b *testing.B) {
 	for i := range oids {
 		oids[i] = VarBind{Name: ".1.3.6.1.2.1.2.2.1.10." + strconv.Itoa(i+1), Value: NullValue()}
 	}
-	response, err := (&Client{}).DecodeMessage(kyoceraResponseBytes())
+	response, err := mustClient(Config{}).DecodeMessage(kyoceraResponseBytes())
 	if err != nil {
 		b.Fatal(err)
 	}

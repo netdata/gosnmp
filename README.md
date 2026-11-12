@@ -28,6 +28,7 @@ For support and help with this fork, open an [issue](https://github.com/netdata/
 
 GoSNMP has the following SNMP functions:
 
+* **NewClient** - makes a client of a `Config`, which it checks, with defaults for a zero port (161), timeout (1 s) and `MaxOids` (60).
 * **Get** - one or more OIDs, up to `MaxOids` (60 by default).
 * **WalkAll** - retrieve a subtree of values using GETNEXT.
 * **BulkWalkAll** - retrieve a subtree of values using GETBULK (SNMPv2c and SNMPv3 only), with the walk's max-repetitions.
@@ -60,21 +61,24 @@ https://pkg.go.dev/github.com/netdata/gosnmp
 Here is the body of `examples/example/main.go`, which imports the package as `g`:
 
 ```go
-// A Client literal configures the client: SNMPv2c to port 161 with the
-// community "public"; Connect fills in MaxOids (60).
-client := &g.Client{
+// NewClient makes the client of a configuration, which it checks: SNMPv2c
+// to port 161 with the community "public"; MaxOids takes its default (60).
+client, err := g.NewClient(g.Config{
     Target:    "192.168.1.10",
     Port:      161,
     Community: "public",
     Version:   g.Version2c,
     Timeout:   2 * time.Second,
     Retries:   3,
+})
+if err != nil {
+    log.Fatalf("NewClient() err: %v", err)
 }
 // Connect and each request take a context that bounds that call only:
 // here both end within 30 seconds.
 ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 defer cancel()
-err := client.Connect(ctx)
+err = client.Connect(ctx)
 if err != nil {
     log.Fatalf("Connect() err: %v", err)
 }

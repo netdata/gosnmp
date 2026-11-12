@@ -102,7 +102,7 @@ func FuzzDecodeV3(f *testing.F) {
 			decode func(data []byte) (*Message, error)
 		}{
 			{fuzzDecode, func(data []byte) (*Message, error) {
-				return (&Client{User: p.user()}).DecodeMessage(data)
+				return mustClient(Config{User: p.user()}).DecodeMessage(data)
 			}},
 			{fuzzRegistered, func(data []byte) (*Message, error) {
 				return usmFuzzReceive(t, receiverAt(t, []byte(usmCharEngineID), p.user()), data)

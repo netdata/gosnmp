@@ -13,23 +13,23 @@
 //
 // # Lifecycle
 //
-// A client is a [Client] whose exported fields configure it. The package
+// [NewClient] makes a [Client] from a [Config]: it checks the configuration,
+// fills in its defaults (Port 161, Timeout 1 s, [MaxOids]) and fails with an
+// error naming the field it rejects, such as a negative Retries or an SNMPv3
+// user the security level does not fit. The client keeps the configuration as
+// it is: nothing changes it, and the client does not show it. The package
 // declares no interface of the client for tests to mock: code that mocks it
-// declares one of its own with the methods it calls. [Client.Connect] fills in
-// the default [MaxOids], checks the SNMPv3 configuration and opens the client's
-// connection, a UDP socket connected to Target and Port, which replaces the one
-// it had (a failed Connect keeps it). The client has no other connection: a
-// request before its first successful Connect fails before it sends anything,
-// with an error that says so. The client
-// owns its connection: [Client.Close] closes it, and so does a Connect that
-// replaces it. Connect may be called again after Close. A request reads the
-// client's configuration when it starts and does not change it: a change the
-// caller makes during a request applies from the next one, but the SNMPv3
-// engine state the client learns during a request serves the rest of it (see
-// SNMPv3). A request resolves no name: Connect looks up Target, and a request
-// writes to the peer of the socket Connect opened. The request IDs and msgIDs
-// start at a random value on first use unless [Client.SetRequestID] and
-// [Client.SetMsgID] set them, and Connect does not reset them.
+// declares one of its own with the methods it calls. [Client.Connect] opens the
+// client's connection, a UDP socket connected to Target and Port, which
+// replaces the one it had (a failed Connect keeps it); an empty Target fails
+// it, and a client that only encodes and decodes messages needs neither. The
+// client has no other connection: a request before its first successful
+// Connect fails before it sends anything, with an error that says so. The
+// client owns its connection: [Client.Close] closes it, and so does a Connect
+// that replaces it. Connect may be called again after Close. A request
+// resolves no name: Connect looks up Target, and a request writes to the peer
+// of the socket Connect opened. The request IDs and msgIDs start at random
+// values NewClient draws, and Connect does not reset them.
 //
 // Connect, Get and the walks take a context first, which bounds that call
 // only: Connect's lookup of Target and its dial, not the connection; each
@@ -120,8 +120,7 @@
 // ID nor a context engine ID: see below). An answer without an engine ID ends
 // the request with an error that matches [ErrUnknownEngineID]: the client
 // learns nothing, and the next request discovers again. Keys that do not derive
-// (a protocol without a passphrase; FIPS 140-only mode refuses MD5 and SHA-1)
-// end the request with the derivation's error, before any discovery.
+// (FIPS 140-only mode refuses MD5 and SHA-1) fail NewClient.
 //
 // The engine boots and time are a clock: the latest values received and when,
 // advancing with the local clock (RFC 3414 section 2.3); each attempt of a
@@ -133,11 +132,8 @@
 // authentication carries the clock's values (as net-snmp; RFC 3414 section 3.1
 // step 6 c sends zeros).
 //
-// A request takes the configuration into the engine state at its start: another
-// User, set since the last request started, keeps the engine ID and clock and
-// derives its keys for the engine ID. [Client.ForgetEngine] makes the next
-// request start over and discover the engine again; a request that is running
-// keeps the state it has.
+// [Client.ForgetEngine] makes the next request start over and discover the
+// engine again; a request that is running keeps the state it has.
 //
 // A reply whose msgID names none of the request's attempts is discarded before
 // security processing. A reply then goes through the security processing of RFC
@@ -340,9 +336,10 @@
 // and AES-CFB in FIPS 140-only mode, with an error. A [User] holds
 // passphrases, not keys: the keys derive from non-empty passphrases of any
 // length (RFC 3414 section 11.2 asks for at least 8 octets), localized to the
-// engine ID at hand (RFC 3414 section 2.6). A client derives them when its
-// engine state takes an engine ID (discovery, an answer it takes, a Report lent
-// to a resend) or another User; decoding a reply derives none.
+// engine ID at hand (RFC 3414 section 2.6). A client derives them once when it
+// is made, for no engine ID, to check that they derive, and when its engine
+// state takes an engine ID (discovery, an answer it takes, a Report lent to a
+// resend); decoding a reply derives none.
 // [Client.DecodeMessage] derives them for the engine ID a message names, the
 // authentication key when the message asks for authentication, the privacy key
 // only to decrypt it. A [Receiver] derives its users' keys for their engine IDs

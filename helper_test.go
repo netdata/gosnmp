@@ -21,8 +21,7 @@ var testsInvalidSNMPResponses = []string{
 }
 
 func TestInvalidSNMPResponses(t *testing.T) {
-	g := newTestClient()
-	g.Target = "127.0.0.1"
+	g := mustClient(testConfig())
 
 	for i, test := range testsInvalidSNMPResponses {
 		testBytes, _ := base64.StdEncoding.DecodeString(test)

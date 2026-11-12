@@ -37,15 +37,18 @@ func main() {
 	}
 	port, _ := strconv.ParseUint(envPort, 10, 16)
 
-	params := &g.Client{
+	params, err := g.NewClient(g.Config{
 		Target:    envTarget,
 		Port:      uint16(port),
 		Community: "public",
 		Version:   g.Version2c,
 		Timeout:   time.Duration(2) * time.Second,
+	})
+	if err != nil {
+		log.Fatalf("NewClient() err: %v", err)
 	}
 	ctx := context.Background()
-	err := params.Connect(ctx)
+	err = params.Connect(ctx)
 	if err != nil {
 		log.Fatalf("Connect() err: %v", err)
 	}

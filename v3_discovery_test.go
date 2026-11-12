@@ -215,11 +215,9 @@ func (m *mockAgentUnknownUserNames) marshalResponse(req *Message) ([]byte, error
 // NoAuthNoPriv SNMPv3, which knows no engine yet, so that the first request
 // starts with engine-ID discovery (discoveryPacket).
 func newV3NoAuthClientForDiscoveryTest(port uint16) *Client {
-	gs := newTestClientV3(NoAuthNoPriv, User{Name: "testUser"})
-	gs.Target = "127.0.0.1"
-	gs.Port = port
-	gs.Retries = 0
-	return gs
+	config := testConfigV3(NoAuthNoPriv, User{Name: "testUser"})
+	config.Target, config.Port, config.Retries = "127.0.0.1", port, 0
+	return mustClient(config)
 }
 
 // setupDiscoveryTest creates a mock agent and a connected SNMPv3 client for
@@ -252,8 +250,8 @@ func TestV3DiscoveryUnknownUserNames(t *testing.T) {
 	// NewMessage produces the same packet shape that Get() passes to
 	// negotiateInitialSecurityParameters internally.
 	pkt := ts.NewMessage(GetRequest, nil, 0, 0)
-	require.NoError(t, ts.startEngine())
-	answer, err := ts.negotiateInitialSecurityParameters(new(ts.prepareRequest(context.Background())), pkt)
+	ts.startEngine()
+	answer, err := ts.negotiateInitialSecurityParameters(context.Background(), pkt)
 	require.NoError(t, err, "negotiateInitialSecurityParameters must succeed even when the device "+
 		"responds with usmStatsUnknownUserNames during engine-ID discovery")
 	require.Nil(t, answer, "a discovery that succeeds returns no answer")
@@ -307,8 +305,8 @@ func TestV3DiscoveryUnknownUserNamesNoEngineID(t *testing.T) {
 	t.Cleanup(func() { _ = ts.Close() })
 
 	pkt := ts.NewMessage(GetRequest, nil, 0, 0)
-	require.NoError(t, ts.startEngine())
-	answer, err := ts.negotiateInitialSecurityParameters(new(ts.prepareRequest(context.Background())), pkt)
+	ts.startEngine()
+	answer, err := ts.negotiateInitialSecurityParameters(context.Background(), pkt)
 	require.ErrorIs(t, err, ErrUnknownUsername,
 		"ErrUnknownUsername must not be suppressed when the Report carries an empty engine ID")
 	require.NotNil(t, answer, "the discovery returns the Report that ended it")
@@ -354,8 +352,8 @@ func TestV3DiscoveryUnknownUserNamesOtherUser(t *testing.T) {
 	t.Cleanup(func() { _ = ts.Close() })
 
 	pkt := ts.NewMessage(GetRequest, nil, 0, 0)
-	require.NoError(t, ts.startEngine())
-	answer, err := ts.negotiateInitialSecurityParameters(new(ts.prepareRequest(context.Background())), pkt)
+	ts.startEngine()
+	answer, err := ts.negotiateInitialSecurityParameters(context.Background(), pkt)
 	require.ErrorIs(t, err, errUnknownUser)
 	require.Nil(t, answer, "no answer ended the discovery: it timed out")
 	require.Empty(t, ts.engine.engineID)
