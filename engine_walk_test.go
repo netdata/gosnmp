@@ -12,6 +12,9 @@ import (
 	"strings"
 	"testing"
 	"testing/synctest"
+	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // mibAgent is an in-memory v1/v2c agent for the walk tests. It answers Get,
@@ -565,6 +568,42 @@ func BenchmarkWalk(b *testing.B) {
 					b.Fatalf("%d values, error %v", len(vbs), err)
 				}
 			}
+		})
+	}
+}
+
+// TestWalkEndedByReport pins that a walk an SNMPv3 Report ends returns the
+// values before it with an error that matches ErrAnswered and the Report's
+// category: the agent answers the discovery and the walk's first request, then
+// rejects the next with a usmStatsUnknownUserNames Report.
+func TestWalkEndedByReport(t *testing.T) {
+	const root = ".1.3.6.1.2.1.2"
+	first := VarBind{Name: root + ".1.0", Value: IntegerValue(1)}
+	walks := map[string]func(*Client, string) ([]VarBind, error){
+		"WalkAll":     (*Client).WalkAll,
+		"BulkWalkAll": (*Client).BulkWalkAll,
+	}
+	for name, walk := range walks {
+		t.Run(name, func(t *testing.T) {
+			agent := newFakeV3Agent(nil, agentCreds, first)
+			agent.script = func(n int, _ agentRequest) (agentAnswer, bool) {
+				if n < 3 {
+					return agentAnswer{}, false
+				}
+				return agentAnswer{report: usmStatsUnknownUserNames, why: "rejects the walk's second request"}, true
+			}
+			c := newFakeTransport(nil, agent.handle)
+			x := newEngineClientFrom(t, nil, fakePacketTransport{c}, &Client{
+				Version:       Version3,
+				SecurityLevel: NoAuthNoPriv,
+				User:          agentCreds["codec-noauth"].user("codec-noauth"),
+				Timeout:       time.Second,
+				Retries:       2,
+			})
+			values, err := walk(x, root)
+			require.ErrorIs(t, err, ErrAnswered)
+			require.ErrorIs(t, err, ErrUnknownUsername)
+			require.Equal(t, []VarBind{first}, values)
 		})
 	}
 }

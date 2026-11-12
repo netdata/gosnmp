@@ -132,9 +132,8 @@ type User struct {
 
 // SecurityParameters are the User-based Security Model parameters of an
 // SNMPv3 message (RFC 3414 section 2.4, UsmSecurityParameters). A decoded
-// message holds what it carried, copied from its input, the fields read before
-// a decoding error included; to encode one, the encoder takes the engine ID,
-// boots, time and user name. They hold no secret.
+// message holds what it carried, copied from its input; to encode one, the
+// encoder takes the engine ID, boots, time and user name. They hold no secret.
 type SecurityParameters struct {
 	// The authoritative engine's ID, boots and time (RFC 3414 section 2.2).
 	AuthoritativeEngineID    []byte

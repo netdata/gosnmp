@@ -229,11 +229,6 @@ func readVersionField(packet []byte) (ber.Reader, int32, int, error) {
 // SNMPv3 header's (v3ParseError), ErrASNParse for the community.
 func unmarshalHeader(packet []byte, response *Message) (int, v3Wire, error) {
 	version, cursor, err := readVersion(packet)
-	// Known bug: a packet that is not too short to read presets the variables
-	// to an empty list, also when it then fails to decode.
-	if !errors.Is(err, errEmptyPacket) {
-		response.VarBinds = make([]VarBind, 0, 5)
-	}
 	if err != nil {
 		return 0, v3Wire{}, err
 	}
@@ -392,9 +387,9 @@ func unmarshalTrapV1(packet []byte, response *Message) error {
 	return unmarshalVBL(r.Rest(), response)
 }
 
-// unmarshalVBL reads a varbind list, which must span all of packet, and
-// appends its varbinds to response.VarBinds; on an error the ones before it
-// stay appended.
+// unmarshalVBL reads a varbind list, which must span all of packet, into
+// response.VarBinds, an empty list when it has no varbinds; on an error the
+// ones before it stay set.
 func unmarshalVBL(packet []byte, response *Message) error {
 	if len(packet) == 0 {
 		return errors.New("truncated packet when unmarshalling a VBL")
@@ -407,6 +402,7 @@ func unmarshalVBL(packet []byte, response *Message) error {
 		return fmt.Errorf("error verifying VBL length: %w", err)
 	}
 
+	response.VarBinds = make([]VarBind, 0, 5)
 	r := ber.NewReader(vbl)
 	for r.Len() > 0 {
 		vb, err := readVarbind(&r)

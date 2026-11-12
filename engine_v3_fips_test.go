@@ -62,8 +62,9 @@ func TestEngineV3FIPS140Only(t *testing.T) {
 }
 
 // TestEngineV3FIPS140OnlyDiscoveryPreflight checks that the user's keys must
-// derive before discovery. A refusal sends nothing and leaves the
-// configuration and state unchanged.
+// derive before discovery, and before EncodeMessage encodes a message. A
+// refusal sends nothing, returns no message and leaves the configuration and
+// state unchanged.
 func TestEngineV3FIPS140OnlyDiscoveryPreflight(t *testing.T) {
 	if !fips140.Enforced() {
 		t.Skip("run with GODEBUG=fips140=only")
@@ -96,14 +97,19 @@ func TestEngineV3FIPS140OnlyDiscoveryPreflight(t *testing.T) {
 				User: user, ContextName: "codec-context", Timeout: time.Second, Retries: 2,
 			})
 			for range 2 {
-				_, err := x.Get([]string{engineOID})
+				res, err := x.Get([]string{engineOID})
 				assert.EqualError(t, err, tc.wantErr)
+				assert.Nil(t, res)
 				assert.Zero(t, c.writes, "discovery must not be sent")
 				assert.Zero(t, c.reads)
 				assert.Equal(t, user, x.User, "the configured user must be preserved")
 				assert.Equal(t, engineState{}, x.engine)
 				assert.Equal(t, "codec-context", x.ContextName)
 			}
+			out, err := x.EncodeMessage(GetRequest, []VarBind{{Name: engineOID, Value: NullValue()}}, 0, 0)
+			assert.EqualError(t, err, tc.wantErr)
+			assert.Nil(t, out)
+			assert.Equal(t, engineState{}, x.engine)
 		})
 	}
 }

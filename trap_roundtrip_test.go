@@ -354,10 +354,64 @@ func TestTrapSecurityOutcomes(t *testing.T) {
 			got, err := tc.receiver(t, tc.receivers...).UnmarshalTrap(data, false)
 			if !tc.accepted {
 				assert.Error(t, err, "trap accepted")
+				assert.Nil(t, got, "a message with the error")
 				return
 			}
 			require.NoError(t, err, "trap rejected")
 			assert.Equal(t, rtVarbinds, got.VarBinds)
+		})
+	}
+}
+
+// TestUnmarshalTrapFailureNoMessage pins that UnmarshalTrap returns no message
+// on the failures that come before a user decodes the message: the table's
+// version and engine ID checks and its user lookup, and the single path's
+// security level.
+func TestUnmarshalTrapFailureNoMessage(t *testing.T) {
+	useEngineTimes(t)
+	scoped := func(engineID []byte) []byte {
+		return tlv(0x30, engineID, octets(""), craftedPDU(SNMPv2Trap, craftedVBL(craftedVB(intTLV(5)))))
+	}
+	trap := craftedV3NoAuth(scoped(craftedEngineID))
+	noEngineID := craftedV3(intTLV(42), intTLV(65507), octets("\x00"), intTLV(3),
+		craftedUSM(octets(""), intTLV(7), intTLV(1234), octets("codec-user"), octets(""), octets("")), scoped(octets("")))
+	table := func(name string) *SnmpV3SecurityParametersTable {
+		tb := NewSnmpV3SecurityParametersTable()
+		require.NoError(t, tb.Add(User{Name: name}, nil))
+		return tb
+	}
+	tests := map[string]struct {
+		x       *Client
+		in      []byte
+		wantErr error
+	}{
+		"table, client not SNMPv3": {
+			x:  &Client{Version: Version2c, TrapSecurityParametersTable: table("codec-user")},
+			in: trap,
+		},
+		"table, no engine ID": {
+			x:       &Client{Version: Version3, TrapSecurityParametersTable: table("codec-user")},
+			in:      noEngineID,
+			wantErr: ErrUnknownEngineID,
+		},
+		"table, user not in the table": {
+			x:       &Client{Version: Version3, TrapSecurityParametersTable: table("other-user")},
+			in:      trap,
+			wantErr: ErrUnknownUsername,
+		},
+		"single path, invalid security level": {
+			x:  &Client{Version: Version3, SecurityLevel: SecurityLevel(2), User: User{Name: "codec-user"}},
+			in: trap,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got, err := tc.x.UnmarshalTrap(tc.in, false)
+			require.Error(t, err)
+			if tc.wantErr != nil {
+				assert.ErrorIs(t, err, tc.wantErr)
+			}
+			assert.Nil(t, got)
 		})
 	}
 }

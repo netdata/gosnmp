@@ -59,8 +59,9 @@ func usmFuzzPairs() []usmFuzzPair {
 // the digest, and UnmarshalTrap for a single user and through a credentials
 // table, the latter also with the user registered for the seeds' engine ID,
 // whose keys it uses without deriving them. Each must return within a second,
-// must not panic and must not write into its input. Seeds are a secured trap
-// for every pair and malformed variants of it.
+// must not panic, must not write into its input and must return no message
+// with an error. Seeds are a secured trap for every pair and malformed
+// variants of it.
 func FuzzDecodeV3(f *testing.F) {
 	pairs := usmFuzzPairs()
 	index := make(map[usmFuzzPair]uint8, len(pairs))
@@ -105,32 +106,28 @@ func FuzzDecodeV3(f *testing.F) {
 		p := pairs[int(sel)%len(pairs)]
 		receivers := []struct {
 			name   string
-			decode func(data []byte) error
+			decode func(data []byte) (*Message, error)
 		}{
-			{fuzzDecode, func(data []byte) error {
-				_, err := (&Client{User: p.user()}).DecodeMessage(data)
-				return err
+			{fuzzDecode, func(data []byte) (*Message, error) {
+				return (&Client{User: p.user()}).DecodeMessage(data)
 			}},
-			{fuzzSingle, func(data []byte) error {
+			{fuzzSingle, func(data []byte) (*Message, error) {
 				x := &Client{Version: Version3, SecurityLevel: p.flags(), User: p.user()}
-				_, err := x.UnmarshalTrap(data, false)
-				return err
+				return x.UnmarshalTrap(data, false)
 			}},
-			{fuzzTable, func(data []byte) error {
+			{fuzzTable, func(data []byte) (*Message, error) {
 				table := NewSnmpV3SecurityParametersTable()
 				if err := table.Add(p.user(), nil); err != nil {
-					return err
+					return nil, err
 				}
-				_, err := (&Client{Version: Version3, TrapSecurityParametersTable: table}).UnmarshalTrap(data, false)
-				return err
+				return (&Client{Version: Version3, TrapSecurityParametersTable: table}).UnmarshalTrap(data, false)
 			}},
-			{fuzzTableRegistered, func(data []byte) error {
+			{fuzzTableRegistered, func(data []byte) (*Message, error) {
 				table := NewSnmpV3SecurityParametersTable()
 				if err := table.Add(p.user(), []byte(usmCharEngineID)); err != nil {
-					return err
+					return nil, err
 				}
-				_, err := (&Client{Version: Version3, TrapSecurityParametersTable: table}).UnmarshalTrap(data, false)
-				return err
+				return (&Client{Version: Version3, TrapSecurityParametersTable: table}).UnmarshalTrap(data, false)
 			}},
 		}
 
@@ -138,14 +135,16 @@ func FuzzDecodeV3(f *testing.F) {
 			start := time.Now()
 			// No spare capacity, so a write past the input panics.
 			in := bytes.Clone(data)[:len(data):len(data)]
+			var msg *Message
 			var err error
-			if v, stack := recoverPanic(func() { err = r.decode(in) }); v != nil {
+			if v, stack := recoverPanic(func() { msg, err = r.decode(in) }); v != nil {
 				t.Fatalf("%s with %v/%v credentials panicked: %v\ninput: %x\n%s", r.name, p.auth, p.priv, v, data, stack)
 			}
 			if !bytes.Equal(in, data) {
 				t.Fatalf("%s with %v/%v credentials wrote into its input: %x", r.name, p.auth, p.priv, data)
 			}
 			checkCategory(t, r.name, err)
+			checkNoMessage(t, r.name, msg, err)
 			if e := time.Since(start); e > time.Second {
 				t.Errorf("%s took %s", r.name, e)
 			}

@@ -15,13 +15,16 @@ import (
 	"time"
 )
 
-// send runs the request packetOut (request) and ends one that panics with no
-// result and requestPanicked's error. The library prevents panics of its own:
-// the recover is for the caller's code the request runs on its goroutine (a
-// hook, the methods of a Conn or Context it calls) and for bugs, which would
-// otherwise end the process of a caller that runs requests on a goroutine
-// without a recover. A flag, not recover's value, tells that the request
-// panicked: under GODEBUG=panicnil=1, recover returns nil for panic(nil).
+// send runs the request packetOut (request) and returns its answer, or no
+// message with the error of a request that fails, marked with ErrAnswered when
+// an answer ended it (the message request returns beside its error), and with
+// requestPanicked's error for one that panics. The library prevents panics of
+// its own: the recover is for the caller's code the request runs on its
+// goroutine (a hook, the methods of a Conn or Context it calls) and for bugs,
+// which would otherwise end the process of a caller that runs requests on a
+// goroutine without a recover. A flag, not recover's value, tells that the
+// request panicked: under GODEBUG=panicnil=1, recover returns nil for
+// panic(nil).
 //
 // packetOut is a request of the Read Class (RFC 3411 section 2.8.1), a Get,
 // GetNext or GetBulk, as every request the client sends: the SNMPv3 engine
@@ -36,14 +39,22 @@ func (x *Client) send(packetOut *Message) (result *Message, err error) {
 	}()
 	result, err = x.request(packetOut)
 	completed = true
-	return result, err
+	if err != nil {
+		if result != nil {
+			err = answered(err)
+		}
+		return nil, err
+	}
+	return result, nil
 }
 
 // request runs a request: for SNMPv3 it first takes the configuration into
 // the engine state and discovers the agent's engine when it has none, then
 // sends the request, whose answer commits the engine parameters it carries,
 // and sends the request once more when the answer is a Report that
-// resynchronizes the client with the agent's engine.
+// resynchronizes the client with the agent's engine. With an error it returns
+// the answer that ended the request, a Report or the discovery's answer, and
+// no message when none did: send marks the error by it.
 func (x *Client) request(packetOut *Message) (result *Message, err error) {
 	cfg := x.prepareRequest()
 	if _, err = x.connection(); err != nil {
@@ -54,10 +65,10 @@ func (x *Client) request(packetOut *Message) (result *Message, err error) {
 	if packetOut.Version == Version3 {
 		// The engine state takes the configuration at the request's start.
 		if err = x.startEngine(); err != nil {
-			return &Message{}, err
+			return nil, err
 		}
-		if err = x.negotiateInitialSecurityParameters(&cfg, packetOut); err != nil {
-			return &Message{}, err
+		if result, err = x.negotiateInitialSecurityParameters(&cfg, packetOut); err != nil {
+			return result, err
 		}
 		sec = attemptSecurity{clock: x.engine.clock, keys: x.engine.keys}
 	}
