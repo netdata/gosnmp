@@ -5,10 +5,13 @@
 package gosnmp
 
 import (
+	"crypto/fips140"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestNewClient pins what NewClient makes of a configuration: the client keeps
@@ -103,5 +106,40 @@ func TestNewClient(t *testing.T) {
 			}
 			assert.Equal(t, tc.want, got)
 		})
+	}
+}
+
+// TestNewClientDerivesEveryKey pins that NewClient derives every key of its
+// user, for no engine ID, whatever the level, so that a key that does not
+// derive fails it and not a later request: deriving them again adds nothing to
+// the package's cache of password-to-key results. Every authentication
+// protocol, privacy protocol and level that fit together; each case has
+// passphrases of its own.
+func TestNewClientDerivesEveryKey(t *testing.T) {
+	if fips140.Enforced() {
+		t.Skip("MD5 and SHA-1 keys do not derive in FIPS 140-only mode (TestEngineV3FIPS140OnlyNewClient)")
+	}
+	for _, auth := range usmAuthProtocols[1:] {
+		for _, priv := range usmPrivProtocols {
+			for _, level := range []SecurityLevel{NoAuthNoPriv, AuthNoPriv, AuthPriv} {
+				if level == AuthPriv && priv == NoPriv {
+					continue
+				}
+				name := fmt.Sprintf("%v-%v-%v", auth, priv, level)
+				t.Run(name, func(t *testing.T) {
+					user := User{Name: "codec-user", AuthProtocol: auth, AuthPassphrase: name + "-auth"}
+					if priv > NoPriv {
+						user.PrivProtocol, user.PrivPassphrase = priv, name+"-priv"
+					}
+					_, err := NewClient(Config{Version: Version3, SecurityLevel: level, User: user})
+					require.NoError(t, err)
+
+					before := passwordCache.Len()
+					_, err = user.localize(nil)
+					require.NoError(t, err)
+					assert.Equal(t, before, passwordCache.Len(), "a key NewClient did not derive")
+				})
+			}
+		}
 	}
 }
