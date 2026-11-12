@@ -56,18 +56,6 @@ func (mr *MockHandlerMockRecorder) BulkWalkAll(rootOid any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BulkWalkAll", reflect.TypeOf((*MockHandler)(nil).BulkWalkAll), rootOid)
 }
 
-// Check mocks base method.
-func (m *MockHandler) Check(err error) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "Check", err)
-}
-
-// Check indicates an expected call of Check.
-func (mr *MockHandlerMockRecorder) Check(err any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Check", reflect.TypeOf((*MockHandler)(nil).Check), err)
-}
-
 // Close mocks base method.
 func (m *MockHandler) Close() error {
 	m.ctrl.T.Helper()
@@ -151,20 +139,6 @@ func (m *MockHandler) Get(oids []string) (*gosnmp.SnmpPacket, error) {
 func (mr *MockHandlerMockRecorder) Get(oids any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockHandler)(nil).Get), oids)
-}
-
-// Logger mocks base method.
-func (m *MockHandler) Logger() gosnmp.Logger {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Logger")
-	ret0, _ := ret[0].(gosnmp.Logger)
-	return ret0
-}
-
-// Logger indicates an expected call of Logger.
-func (mr *MockHandlerMockRecorder) Logger() *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Logger", reflect.TypeOf((*MockHandler)(nil).Logger))
 }
 
 // MaxOids mocks base method.
@@ -299,18 +273,6 @@ func (m *MockHandler) SetContextName(contextName string) {
 func (mr *MockHandlerMockRecorder) SetContextName(contextName any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetContextName", reflect.TypeOf((*MockHandler)(nil).SetContextName), contextName)
-}
-
-// SetLogger mocks base method.
-func (m *MockHandler) SetLogger(logger gosnmp.Logger) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetLogger", logger)
-}
-
-// SetLogger indicates an expected call of SetLogger.
-func (mr *MockHandlerMockRecorder) SetLogger(logger any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetLogger", reflect.TypeOf((*MockHandler)(nil).SetLogger), logger)
 }
 
 // SetMaxOids mocks base method.

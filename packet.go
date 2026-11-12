@@ -4,10 +4,6 @@
 
 package gosnmp
 
-import (
-	"fmt"
-)
-
 // SnmpVersion is the SNMP version of a message, as it is encoded. Its String
 // is "1", "2c" or "3", and "SnmpVersion(N)" for another value.
 type SnmpVersion uint8
@@ -64,9 +60,6 @@ type SnmpPacket struct {
 
 	// Variables are the varbinds.
 	Variables []SnmpPDU
-
-	// Logger is the Logger of Check.
-	Logger Logger
 
 	// SnmpTrap holds what only traps and informs carry.
 	SnmpTrap
@@ -127,34 +120,6 @@ func (t PDUType) confirmed() bool {
 		return true
 	}
 	return false
-}
-
-// SafeString formats the packet for logs, with the SafeString of its
-// security parameters, which leaves the passphrases and keys out; the
-// community is in it.
-func (packet *SnmpPacket) SafeString() string {
-	sp := ""
-	if usp := usmOf(packet.SecurityParameters); usp != nil {
-		sp = usp.SafeString()
-	}
-	return fmt.Sprintf("Version:%s, MsgFlags:%s, SecurityModel:%s, SecurityParameters:%s, ContextEngineID:%s, ContextName:%s, Community:%s, PDUType:%s, MsgID:%d, RequestID:%d, MsgMaxSize:%d, Error:%s, ErrorIndex:%d, NonRepeaters:%d, MaxRepetitions:%d, Variables:%v",
-		packet.Version,
-		packet.MsgFlags,
-		packet.SecurityModel,
-		sp,
-		packet.ContextEngineID,
-		packet.ContextName,
-		packet.Community,
-		packet.PDUType,
-		packet.MsgID,
-		packet.RequestID,
-		packet.MsgMaxSize,
-		packet.Error,
-		packet.ErrorIndex,
-		packet.NonRepeaters,
-		packet.MaxRepetitions,
-		packet.Variables,
-	)
 }
 
 // MarshalMsg encodes the packet as it is, ready for the wire. An SNMPv3

@@ -121,7 +121,7 @@ func FuzzDecodeV3(f *testing.F) {
 				return err
 			}},
 			{fuzzTable, func(data []byte) error {
-				table := NewSnmpV3SecurityParametersTable(Logger{})
+				table := NewSnmpV3SecurityParametersTable()
 				if err := table.Add("codec-user", p.usm()); err != nil {
 					return err
 				}
@@ -129,7 +129,7 @@ func FuzzDecodeV3(f *testing.F) {
 				return err
 			}},
 			{fuzzTableKeysOnly, func(data []byte) error {
-				table := NewSnmpV3SecurityParametersTable(Logger{})
+				table := NewSnmpV3SecurityParametersTable()
 				if err := table.Add("codec-user", usmKeysOnly(p.usm(), usmOtherEngineID)); err != nil {
 					return err
 				}

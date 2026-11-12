@@ -6,8 +6,6 @@ package gosnmp
 
 import (
 	"bytes"
-	"io"
-	"log"
 	"slices"
 	"testing"
 	"time"
@@ -35,7 +33,6 @@ func FuzzUnmarshal(f *testing.F) {
 	}
 
 	vhandle := GoSNMP{}
-	vhandle.Logger = NewLogger(log.New(io.Discard, "", 0))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		stime := time.Now()
 		in := bytes.Clone(data)

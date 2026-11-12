@@ -6,11 +6,7 @@
 Example usage and output:
 
 $ GOSNMP_TARGET=10.12.0.1 GOSNMP_PORT=161 go run main.go
-SEND INIT
-SENDING PACKET: Version:2c, MsgFlags:NoAuthNoPriv, SecurityModel:SnmpV3SecurityModel(0), SecurityParameters:, ContextEngineID:, ContextName:, Community:public, PDUType:GetRequest, MsgID:0, RequestID:1223649053, MsgMaxSize:0, Error:NoError, ErrorIndex:0, NonRepeaters:0, MaxRepetitions:0, Variables:[{<nil> 1.3.6.1.2.1.1.4.0 Null} {<nil> 1.3.6.1.2.1.1.7.0 Null}]
-WAITING RESPONSE...
 2021/01/03 13:31:15 Query latency in seconds: 0.000625777
-GET RESPONSE OK: [48 63 2 1 1 4 6 112 117 98 108 105 99 162 50 2 4 72 239 103 29 2 1 0 2 1 0 48 36 48 19 6 8 43 6 1 2 1 1 4 0 4 7 99 111 110 116 97 99 116 48 13 6 8 43 6 1 2 1 1 7 0 2 1 78]
 0: oid: .1.3.6.1.2.1.1.4.0 string: contact
 1: oid: .1.3.6.1.2.1.1.7.0 number: 78
 
@@ -40,14 +36,12 @@ func main() {
 	}
 	port, _ := strconv.ParseUint(envPort, 10, 16)
 
-	// Do verbose logging of packets.
 	params := &g.GoSNMP{
 		Target:    envTarget,
 		Port:      uint16(port),
 		Community: "public",
 		Version:   g.Version2c,
 		Timeout:   time.Duration(2) * time.Second,
-		Logger:    g.NewLogger(log.New(os.Stdout, "", 0)),
 	}
 	err := params.Connect()
 	if err != nil {

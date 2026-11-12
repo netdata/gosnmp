@@ -240,7 +240,7 @@ func TestV3ReceiverRules(t *testing.T) {
 	}
 	paths := []path{
 		{"table", func(sp *UsmSecurityParameters, in []byte) error {
-			tb := NewSnmpV3SecurityParametersTable(Logger{})
+			tb := NewSnmpV3SecurityParametersTable()
 			if err := tb.Add("codec-user", sp); err != nil {
 				return fmt.Errorf("add: %w", err)
 			}
@@ -321,7 +321,7 @@ func TestV3ReceiverRules(t *testing.T) {
 		for _, m := range mixedMessages {
 			name := "mixed sets/" + order.name + "/" + m.name
 			record(name, m.in, func(in []byte) error {
-				tb := NewSnmpV3SecurityParametersTable(Logger{})
+				tb := NewSnmpV3SecurityParametersTable()
 				for _, sp := range order.sets {
 					if err := tb.Add("codec-user", sp()); err != nil {
 						return err
@@ -371,7 +371,7 @@ func TestV3DecodeKeyDerivation(t *testing.T) {
 		}
 	}
 	table := func(in []byte) (*SnmpPacket, error) {
-		tb := NewSnmpV3SecurityParametersTable(Logger{})
+		tb := NewSnmpV3SecurityParametersTable()
 		require.NoError(t, tb.Add("codec-user", reeder()))
 		return (&GoSNMP{Version: Version3, TrapSecurityParametersTable: tb}).UnmarshalTrap(in, false)
 	}
@@ -653,7 +653,7 @@ func TestV3InformResponse(t *testing.T) {
 			if tc.configured {
 				set = signedTestUSM(t, SHA, tc.priv, usmOtherEngineID, "codec-user")
 			}
-			tb := NewSnmpV3SecurityParametersTable(Logger{})
+			tb := NewSnmpV3SecurityParametersTable()
 			require.NoError(t, tb.Add("codec-user", set))
 			got, err := (&GoSNMP{Version: Version3, TrapSecurityParametersTable: tb}).UnmarshalTrap(bytes.Clone(inform), false)
 			require.NoError(t, err)

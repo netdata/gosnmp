@@ -84,13 +84,9 @@ func (x *GoSNMP) walk(requestType PDUType, rootOid string) (results []SnmpPDU, e
 			oid = response.Variables[len(response.Variables)-1].Name
 			continue
 		case walkGetRoot:
-			requests++
 			if results, err = w.getRoot(results); err != nil {
 				return results, err
 			}
-		}
-		if x.Logger.enabled() {
-			x.Logger.Printf("Walk completed in %d requests", requests)
 		}
 		return results, nil
 	}
@@ -163,16 +159,12 @@ func (w *walker) request(oid string) (*SnmpPacket, error) {
 // values it all collected, so only the first answer can end a walk that found
 // nothing, the case in which net-snmp gets the root.
 func (w *walker) visit(response *SnmpPacket, oid string, firstAnswer bool, results []SnmpPDU) ([]SnmpPDU, walkStep, error) {
-	x := w.x
 	// The error statuses tooBig to inconsistentName (RFC 3416) end the walk.
 	// noSuchName is the end of an SNMPv1 MIB: as the first answer, the root may
 	// still be a leaf, the MIB's last object. Known bugs: the others end the
 	// walk with a nil error and the values so far, where net-snmp fails; a
 	// status the RFC does not name is ignored and the answer walked.
 	if status := response.Error; rfcError(status) {
-		if x.Logger.enabled() {
-			x.Logger.Print("Walk terminated with " + status.String())
-		}
 		if status == NoSuchName && firstAnswer {
 			return results, walkGetRoot, nil
 		}
@@ -197,9 +189,6 @@ func (w *walker) visit(response *SnmpPacket, oid string, firstAnswer bool, resul
 		// root that is the MIB's last object answers endOfMibView and is not
 		// fetched.
 		if isException(pdu.Type) {
-			if x.Logger.enabled() {
-				x.Logger.Print("Walk terminated with " + pdu.Type.String())
-			}
 			return results, walkDone, nil
 		}
 		// Each name is compared with the request's, as net-snmp's

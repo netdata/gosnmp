@@ -10,8 +10,6 @@
 package gosnmp_test // force external view
 
 import (
-	"io"
-	"log"
 	"net"
 	"testing"
 	"time"
@@ -30,7 +28,6 @@ func TestAPIConfigTypes(_ *testing.T) {
 	g.Retries = 0
 	g.MaxOids = 0
 	g.MaxRepetitions = 0
-	g.Logger = gosnmp.NewLogger(log.New(io.Discard, "", 0))
 	var c net.Conn = g.Conn
 	_ = c
 }

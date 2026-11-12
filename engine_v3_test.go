@@ -106,6 +106,24 @@ func onFinishThenGet(n int, what string, change func(x *GoSNMP)) func(x *GoSNMP,
 	}
 }
 
+// onFirstPreSend runs a Get whose first PreSend hook, the engine discovery's,
+// calls change: caller code that changes the client during a request, before
+// the discovery's answer commits the engine state.
+func onFirstPreSend(what string, change func(x *GoSNMP)) func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+	return func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+		preSend, done := x.PreSend, false
+		x.PreSend = func(x *GoSNMP) {
+			preSend(x)
+			if !done {
+				done = true
+				a.tr.addf("hook PreSend %s", what)
+				change(x)
+			}
+		}
+		return x.Get([]string{engineOID})
+	}
+}
+
 // userParameters returns new security parameters with the user's agentCreds
 // credentials.
 func userParameters(user string) *UsmSecurityParameters {
@@ -243,29 +261,6 @@ func withoutEngineID(p *SnmpPacket) {
 	p.SecurityParameters.usm().AuthoritativeEngineID = ""
 	p.ContextEngineID = ""
 }
-
-// onLogging runs a Get with a Logger that calls do the first time it is
-// given msg: user code that changes the client or panics inside the engine.
-func onLogging(msg string, do func(x *GoSNMP)) func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
-	return func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
-		done := false
-		x.Logger = NewLogger(funcLogger(func(s string) {
-			if s == msg && !done {
-				done = true
-				a.tr.addf("Logger is given %q", msg)
-				do(x)
-			}
-		}))
-		return x.Get([]string{engineOID})
-	}
-}
-
-// funcLogger is a LoggerInterface that hands each line to a function.
-type funcLogger func(string)
-
-func (l funcLogger) Print(v ...any) { l(fmt.Sprint(v...)) }
-
-func (l funcLogger) Printf(format string, v ...any) { l(fmt.Sprintf(format, v...)) }
 
 // fromOtherEngine makes an answer come from the agent's other engine ID.
 func fromOtherEngine(p *SnmpPacket) {
@@ -755,15 +750,16 @@ func v3Scenarios() map[string]v3Scenario {
 			}),
 		},
 
-		// The client's Logger is user code that runs inside send, before the
-		// negotiation.
-		"hooks/logger-changes-security-model": {
+		// The discovery's first PreSend, the first hook of a request, changes
+		// the client: the request keeps the values its packet took at its
+		// start.
+		"hooks/discovery-presend-changes-security-model": {
 			user: "codec-md5",
-			run:  onLogging("SEND INIT", func(x *GoSNMP) { x.SecurityModel = 2 }),
+			run:  onFirstPreSend("sets the client's security model to 2", func(x *GoSNMP) { x.SecurityModel = 2 }),
 		},
-		"hooks/logger-changes-version": {
+		"hooks/discovery-presend-changes-version": {
 			user: "codec-md5",
-			run:  onLogging("SEND INIT", func(x *GoSNMP) { x.Version = Version2c }),
+			run:  onFirstPreSend("sets the client's version to 2c", func(x *GoSNMP) { x.Version = Version2c }),
 		},
 		// The discovery exchange's OnFinish changes the client: the request
 		// keeps its retries, timeout and hooks.
@@ -809,30 +805,25 @@ func v3Scenarios() map[string]v3Scenario {
 				return x.Get([]string{engineOID})
 			},
 		},
-		"hooks/logger-changes-context-name": {
+		"hooks/discovery-presend-changes-context-name": {
 			user: "codec-md5",
-			run:  onLogging("SEND INIT", func(x *GoSNMP) { x.ContextName = "codec-other-name" }),
+			run:  onFirstPreSend("sets the client's context name", func(x *GoSNMP) { x.ContextName = "codec-other-name" }),
 		},
-		// The request stays SNMPv3 when the Logger changes the client's version
-		// after the negotiation; after a discovery answer without an engine ID
-		// the client has no key.
-		"hooks/logger-changes-version-after-negotiation": {
+		// The request stays SNMPv3 when the discovery's OnFinish changes the
+		// client's version, after the negotiation and before the request.
+		"hooks/discovery-onfinish-changes-version": {
 			user: "codec-md5",
-			run:  onLogging("SEND END NEGOTIATE SECURITY PARAMS", func(x *GoSNMP) { x.Version = Version2c }),
-		},
-		"hooks/logger-panics-after-failed-retransmission": {
-			user: "codec-noauth", script: func(n int, _ agentRequest) (agentAnswer, bool) {
-				switch n {
-				case 2:
-					return agentAnswer{report: usmStatsNotInTimeWindows, why: "not in time window"}, true
-				case 3:
-					return agentAnswer{report: usmStatsUnknownUserNames, why: "unknown user"}, true
+			run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+				onFinish, calls := x.OnFinish, 0
+				x.OnFinish = func(x *GoSNMP) {
+					onFinish(x)
+					if calls++; calls == 1 {
+						x.Version = Version2c
+						a.tr.addf("hook OnFinish sets the client's version to 2c")
+					}
 				}
-				return agentAnswer{}, false
+				return x.Get([]string{engineOID})
 			},
-			run: onLogging("ERROR out-of-time-window retransmit error: unknown username", func(*GoSNMP) {
-				panic("logger failure")
-			}),
 		},
 		"hooks/onrecv-lowers-msg-flags": {
 			user: "codec-md5", script: onRequest(2, agentAnswer{
@@ -1117,8 +1108,10 @@ func v3Scenarios() map[string]v3Scenario {
 				x.SecurityParameters = userParameters("codec-md5")
 			}),
 		},
-		"hooks/logger-sets-context-engine-id": {user: "codec-md5", run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
-			if _, err := onLogging("SEND INIT", func(x *GoSNMP) { x.ContextEngineID = "codec-context" })(x, a); err != nil {
+		// A context engine ID the caller sets before the discovery's commit is
+		// the caller's: the commit keeps it, and the next request takes it.
+		"hooks/discovery-presend-sets-context-engine-id": {user: "codec-md5", run: func(x *GoSNMP, a *fakeV3Agent) (*SnmpPacket, error) {
+			if _, err := onFirstPreSend("sets the client's context engine ID", func(x *GoSNMP) { x.ContextEngineID = "codec-context" })(x, a); err != nil {
 				return nil, fmt.Errorf("first Get: %w", err)
 			}
 			time.Sleep(10 * time.Second)

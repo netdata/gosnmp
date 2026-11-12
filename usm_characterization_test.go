@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"crypto"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"testing"
@@ -453,7 +452,7 @@ func TestUSMTrapUnauthenticated(t *testing.T) {
 		case tableKeysOnly:
 			usmKeysOnly(sp, usmOtherEngineID)
 		}
-		tb := NewSnmpV3SecurityParametersTable(Logger{})
+		tb := NewSnmpV3SecurityParametersTable()
 		require.NoError(t, tb.Add("codec-user", sp))
 		return &GoSNMP{Version: Version3, TrapSecurityParametersTable: tb}
 	}
@@ -620,7 +619,7 @@ func TestUSMKeysBoundToEngine(t *testing.T) {
 						sp, want := keysOnly(auth, priv), keysOnly(auth, priv)
 						x := &GoSNMP{Version: Version3, MsgFlags: level(priv), SecurityModel: UserSecurityModel, SecurityParameters: sp}
 						if rk == table {
-							tb := NewSnmpV3SecurityParametersTable(Logger{})
+							tb := NewSnmpV3SecurityParametersTable()
 							require.NoError(t, tb.Add("codec-user", sp))
 							x.SecurityParameters, x.TrapSecurityParametersTable = nil, tb
 						}
@@ -869,7 +868,6 @@ func TestUSMCopy(t *testing.T) {
 		PrivacyProtocol:          AES,
 		AuthenticationPassphrase: "codec-auth-pass",
 		PrivacyPassphrase:        "codec-priv-pass",
-		Logger:                   NewLogger(&testLogger{}),
 	}
 	require.NoError(t, sp.InitSecurityKeys())
 
@@ -886,11 +884,6 @@ func TestUSMCopy(t *testing.T) {
 		assert.Equal(t, cp.PrivacyParameters, sp.PrivacyParameters)
 	})
 }
-
-type testLogger struct{}
-
-func (testLogger) Print(...any)          {}
-func (testLogger) Printf(string, ...any) {}
 
 // usmCacheOnAtInit is whether the password cache is on before any test
 // toggles it.
@@ -1059,7 +1052,7 @@ func TestUSMValidate(t *testing.T) {
 	}
 }
 
-// TestUSMStrings pins SafeString and Description, which go to logs.
+// TestUSMStrings pins Description.
 func TestUSMStrings(t *testing.T) {
 	sp := &UsmSecurityParameters{
 		AuthoritativeEngineID:    "\x80\x00\x1f\x88\x04e",
@@ -1073,9 +1066,6 @@ func TestUSMStrings(t *testing.T) {
 		AuthenticationPassphrase: "codec-auth-pass",
 		PrivacyPassphrase:        "codec-priv-pass",
 	}
-	assert.Equal(t, "AuthoritativeEngineID:\x80\x00\x1f\x88\x04e, AuthoritativeEngineBoots:3, AuthoritativeEngineTimes:77, "+
-		"UserName:codec-user, AuthenticationParameters:, PrivacyParameters:[1 2], AuthenticationProtocol:SHA256, PrivacyProtocol:AES192C",
-		sp.SafeString())
 	assert.Equal(t, "user=codec-user,engine=(80001f880465),auth=sha256,authPass=codec-auth-pass,priv=AES192C,privPass=codec-priv-pass",
 		sp.Description())
 
@@ -1091,22 +1081,6 @@ func TestUSMStrings(t *testing.T) {
 		s := (&UsmSecurityParameters{AuthenticationProtocol: SnmpV3AuthProtocol(v), PrivacyProtocol: SnmpV3PrivProtocol(v)}).Description()
 		assert.Equal(t, "user=,engine=(),authPass=,privPass=", s, "protocol value %d", v)
 	}
-}
-
-// TestUSMLog pins that Log writes SafeString to the client's Logger, which
-// prepare hands to the security parameters.
-func TestUSMLog(t *testing.T) {
-	var buf bytes.Buffer
-	x := &GoSNMP{
-		Version:            Version3,
-		MsgFlags:           NoAuthNoPriv,
-		SecurityModel:      UserSecurityModel,
-		SecurityParameters: &UsmSecurityParameters{UserName: "codec-user"},
-		Logger:             NewLogger(log.New(&buf, "", 0)),
-	}
-	require.NoError(t, x.prepare())
-	x.SecurityParameters.Log()
-	assert.Equal(t, "SECURITY PARAMETERS:"+x.SecurityParameters.SafeString()+"\n", buf.String())
 }
 
 // TestUSMHashType pins the hash of every authentication protocol value: MD5
